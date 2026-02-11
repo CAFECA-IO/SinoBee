@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id               String   @id @default(uuid())
+  identityAddress  String?  @map("identity_address") // Info: (20260112 - Tzuhan) RWA Identity Contract (ONCHAINID)
+  address          String   @unique //  Info: (20260112 - Tzuhan) 用戶的錢包 (address) 是這個 RWA Identity Contract 合約的 Owner
+  pubKeyX          String?  @map("pub_key_x")
+  pubKeyY          String?  @map("pub_key_y")
+  credentialId     String?  @unique @map("credential_id")
+  currentChallenge String?  @map("current_challenge")
+  name             String?
+  imageUrl         String?  @map("image_url")
+  kycData          Json?    @map("kyc_data")
+  role             Role     @default(USER)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("user")
+  @@index([address])
+}

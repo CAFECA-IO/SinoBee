@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+:root {
+  /* Brand Colors - Midnight Blue Theme */
+  --color-sinobee-midnight: #000a12;
+  /* Deepest Midnight Blue */
+  --color-sinobee-blue: #001A33;
+  /* Corporate Blue */
+  --color-sinobee-gold-foil: #D4AF37;
+  /* Metallic Gold */
+  --color-sinobee-gold-glow: rgba(212, 175, 55, 0.4);
+  /* Transparent Gold */
+
+  --color-background: var(--color-sinobee-midnight);
+  --color-foreground: #ffffff;
+}
+
+@theme inline {
+  --color-background: var(--color-background);
+  --color-foreground: var(--color-foreground);
+  --color-sinobee-midnight: var(--color-sinobee-midnight);
+  --color-sinobee-blue: var(--color-sinobee-blue);
+  --color-sinobee-gold-foil: var(--color-sinobee-gold-foil);
+  --color-sinobee-gold-glow: var(--color-sinobee-gold-glow);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --animate-gold-dust: gold-dust 10s infinite linear;
+
+  @keyframes gold-dust {
+    0% {
+      transform: translateY(0);
+      opacity: 0;
+    }
+
+    50% {
+      opacity: 1;
+    }
+
+    100% {
+      transform: translateY(-100px);
+      opacity: 0;
+    }
+  }
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+  /* Prevent horizontal scroll from animations */
+}
