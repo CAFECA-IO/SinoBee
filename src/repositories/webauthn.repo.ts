@@ -1,4 +1,4 @@
-import { User } from '@/generated/client';
+import { User } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
 export interface IWebAuthnRepository {

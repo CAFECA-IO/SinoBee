@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "npm run lint && prisma generate && next dev",
-    "build": "npm run lint && prisma generate && next build",
+    "dev": "npm run lint && npx tsx ./scripts/init.ts && prisma generate && next dev",
+    "build": "npm run lint && npx tsx ./scripts/init.ts && prisma generate && next build",
     "start": "npm run build && next start",
     "lint": "eslint",
     "test": "npm run lint && jest --passWithNoTests",
@@ -15,8 +15,8 @@
     "@headlessui/react": "^2.2.9",
     "@nomicfoundation/hardhat-toolbox-viem": "^5.0.2",
     "@passwordless-id/webauthn": "^2.3.1",
-    "@prisma/adapter-pg": "^7.3.0",
-    "@prisma/client": "^7.3.0",
+    "@prisma/client": "^6.4.1",
+    "bs58": "^6.0.0",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.4",
@@ -27,7 +27,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
-    "prisma": "^7.3.0",
+    "prisma": "^6.4.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "^16.1.6",
+    "@prisma/config": "^7.5.0",
     "@tailwindcss/postcss": "^4",
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^20",
@@ -50,6 +51,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^17.3.0",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5",
     "typescript-eslint": "^8.54.0"
   }

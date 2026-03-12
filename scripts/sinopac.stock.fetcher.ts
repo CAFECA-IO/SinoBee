@@ -14,7 +14,7 @@ import path from 'path';
 // Note: The site may be under maintenance (e.g., 17:00-18:30 TPE), during which the API returns HTML.
 
 // Define the interface for the API response item
-interface StockItem {
+interface IStockItem {
   Code: string; // e.g., "2330"
   Name: string; // e.g., "台積電"
   ClosePrice?: number;
@@ -22,7 +22,7 @@ interface StockItem {
   Yield?: number;
   ROI?: number; // Return On Investment
   // Add other properties that might be present in the API response
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Define the categories to fetch
@@ -37,7 +37,7 @@ const API_URL = 'https://aiinvest.sinotrade.com.tw/Stock/List/GetList';
 const OUTPUT_DIR = path.join(process.cwd(), 'public', 'data');
 const OUTPUT_FILE = path.join(OUTPUT_DIR, 'sinopac_stocks.json');
 
-async function fetchStocks(filterName: string): Promise<StockItem[]> {
+async function fetchStocks(filterName: string): Promise<IStockItem[]> {
   console.log(`Fetching category: ${filterName}...`);
   try {
     const response = await fetch(API_URL, {
@@ -60,15 +60,15 @@ async function fetchStocks(filterName: string): Promise<StockItem[]> {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const data: any = await response.json();
+    const data = await response.json() as Record<string, unknown> | unknown[];
     // The API might return an array directly or wrapped in an object.
     // Based on common practices, let's assume it returns an array.
     // If it returns { success: true, data: [...] }, we'd need to adjust.
     // Given the browser agent findings, it likely returns a JSON list directly.
     if (Array.isArray(data)) {
-      return data as StockItem[];
-    } else if (data && Array.isArray(data.Data)) { // Common pattern
-      return data.Data as StockItem[];
+      return data as IStockItem[];
+    } else if (data && typeof data === 'object' && 'Data' in data && Array.isArray((data as Record<string, unknown>).Data)) { // Common pattern
+      return (data as Record<string, unknown>).Data as IStockItem[];
     } else {
       console.warn('Unexpected API response structure:', data);
       return [];
@@ -80,7 +80,7 @@ async function fetchStocks(filterName: string): Promise<StockItem[]> {
 }
 
 async function main() {
-  const allStocks = new Map<string, any>();
+  const allStocks = new Map<string, IStockItem & { _categories: string[] }>();
 
   // Ensure output directory exists
   if (!fs.existsSync(OUTPUT_DIR)) {
@@ -102,7 +102,7 @@ async function main() {
       } else {
         // Add category to existing stock entry
         const existing = allStocks.get(stock.Code);
-        if (!existing._categories.includes(category)) {
+        if (existing && !existing._categories.includes(category)) {
           existing._categories.push(category);
         }
       }

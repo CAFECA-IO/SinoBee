@@ -15,7 +15,7 @@ import { ApiCode } from '@/lib/utils/status';
 import { extractXYFromSPKI, reconstructKeyFromXY } from '@/lib/auth/crypto_utils';
 import { randomBytes } from 'crypto';
 import { generateChallengeToken, verifyChallengeToken } from '@/lib/auth/challenge_token';
-import type { User } from '@/generated/client';
+import type { User } from '@prisma/client';
 
 interface ILoginResult {
   dewt: string;

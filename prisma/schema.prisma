@@ -1,15 +1,10 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-}
-
-enum Role {
-  USER
-  ADMIN
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -22,8 +17,8 @@ model User {
   currentChallenge String?  @map("current_challenge")
   name             String?
   imageUrl         String?  @map("image_url")
-  kycData          Json?    @map("kyc_data")
-  role             Role     @default(USER)
+  kycData          String?  @map("kyc_data") // Changed from Json to String for SQLite compatibility
+  role             String   @default("USER") // Changed from enum to String for SQLite compatibility
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
