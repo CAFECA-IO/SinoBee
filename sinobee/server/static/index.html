@@ -67,6 +67,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-l
 .tblwrap{overflow-x:auto;margin:0 0 .8em;border:1px solid var(--line);border-radius:8px}
 .md table{border-collapse:collapse;width:100%;font-size:.94em}
 .md th,.md td{border-bottom:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+.md th[align=right],.md td[align=right]{text-align:right}.md th[align=center],.md td[align=center]{text-align:center}
 .md th{background:var(--tool);font-weight:600}.md tr:last-child td{border-bottom:0}
 .md img{max-width:100%;max-height:520px;border-radius:8px;border:1px solid var(--line);display:block;margin:.3em 0}
 .md video,.md audio{max-width:100%;border-radius:8px;display:block;margin:.4em 0}.md video{max-height:520px;background:#000}
@@ -468,6 +469,11 @@ function resultCard(ev){
   return c;
 }
 // ---------------- task feedback (👍 / 👎) -> background self-learning ----------------
+const DANGER_ZH = {'recursive delete of a broad path': '大範圍遞迴刪除（無法復原）', 'recursive delete': '遞迴刪除資料夾（無法復原）',
+  'privilege escalation': '取得系統管理員權限', 'disk-level operation': '磁碟層級操作', 'fork bomb': '可能癱瘓系統的指令', 'power control': '關機或重新開機',
+  'pipe remote script into shell': '下載並直接執行遠端腳本', 'recursive permission change': '大範圍變更檔案權限', 'write to system location': '寫入系統位置',
+  'destructive git operation': '會丟失紀錄的 git 操作', 'force kill processes': '強制結束程式', 'remove crontab': '刪除排程', 'touches credentials': '存取憑證或金鑰檔',
+  'network shell': '開啟網路 shell', 'installs or removes software': '安裝或移除軟體'};
 const FB_TAGS = [['wrong', '答案不正確'], ['incomplete', '沒有完成'], ['misunderstood', '誤解需求'], ['format', '格式不好'],
                  ['slow', '太慢'], ['expensive', '太貴'], ['unsafe', '做了不該做的事']];
 function attachFeedback(card, turnId, rating, comment){
@@ -529,7 +535,7 @@ function handle(ev, replay = false){
       if (ev.error) d.classList.add('err');
       d.querySelector('.body').innerHTML += '\n\n── 結果 ──\n' + esc(ev.preview) + (ev.image ? `<img src="data:image/png;base64,${ev.image}">` : '');
       if (ev.image) d.open = true; break; }
-    case 'approval_request': pendingApproval = ev.request_id; $('#apReason').innerHTML = `<b>${esc(ev.tool)}</b>：${esc(ev.reason)}`;
+    case 'approval_request': pendingApproval = ev.request_id; $('#apReason').innerHTML = `<b>${esc(ev.tool)}</b>：${esc(DANGER_ZH[ev.reason] || ev.reason)}`;
       $('#apArgs').textContent = JSON.stringify(ev.arguments, null, 2); $('#approval').classList.add('open'); break;
     case 'approval_resolved': if (ev.request_id === pendingApproval) $('#approval').classList.remove('open'); break;
     case 'recall': add('🧠 想起：' + ev.memories.map(m => esc(m.content)).join('；'), 'note'); break;
