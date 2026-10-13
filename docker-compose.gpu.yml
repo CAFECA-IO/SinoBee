@@ -1,0 +1,13 @@
+# NVIDIA GPU for the bundled Ollama container (needs the NVIDIA Container Toolkit on the host):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile local-llm up -d --build
+# AMD GPU: set OLLAMA_TAG=rocm and replace the deploy block with
+#   devices: ["/dev/kfd", "/dev/dri"]
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

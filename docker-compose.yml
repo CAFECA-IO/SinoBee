@@ -1,0 +1,75 @@
+# 啟動方式（金鑰不寫入任何檔案）：
+#   1) 不帶金鑰啟動，再到 Web UI → 設定 填入：
+#        docker compose up -d --build
+#   2) 啟動時用指令帶入（只傳入有設定的變數；帶入者在 GUI 中顯示為唯讀）：
+#        SINOBEE_MODEL=anthropic/claude-sonnet-4-5 ANTHROPIC_API_KEY=sk-ant-... docker compose up -d --build
+#
+# 本機架設模型（免金鑰）：
+#   a) 主機已安裝 Ollama（Mac 建議，可用 Metal GPU）：照常啟動即可，SinoBee 會自動連到 host.docker.internal:11434。
+#      加上主機硬體資訊讓推薦更準：SINOBEE_HOST_HARDWARE="$(scripts/host-hardware.sh)" docker compose up -d --build
+#   b) 使用內建的 Ollama 容器：
+#        SINOBEE_HOST_HARDWARE="$(scripts/host-hardware.sh)" docker compose --profile local-llm up -d --build
+#      NVIDIA GPU：再加 -f docker-compose.yml -f docker-compose.gpu.yml
+#   之後到 Web UI → 設定 → 模型來源「本機架設模型」下載並選用模型。
+services:
+  sinobee:
+    build: .
+    image: sinobee:latest
+    container_name: sinobee
+    restart: unless-stopped
+    shm_size: "1gb"                 # Chromium needs more than the 64MB default
+    ports:
+      - "127.0.0.1:8000:8000"       # Web UI + API
+      - "127.0.0.1:6080:6080"       # noVNC live desktop
+    environment:                    # pass-through: taken from the shell running `docker compose`, skipped if unset
+      - SINOBEE_MODEL
+      - SINOBEE_FALLBACKS
+      - SINOBEE_AUX_MODEL
+      - SINOBEE_EMBEDDING_MODEL
+      - SINOBEE_APPROVAL
+      - SINOBEE_TOOLSETS
+      - SINOBEE_SERVER_TOKEN
+      - SINOBEE_DAILY_BUDGET
+      - SINOBEE_MONTHLY_BUDGET
+      - SINOBEE_PROJECT
+      - SINOBEE_OLLAMA_URL            # optional: fixed Ollama address (default: auto-discover)
+      - SINOBEE_HOST_HARDWARE         # host hardware for model recommendations (scripts/host-hardware.sh)
+      - VNC_PASSWORD
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - GEMINI_API_KEY
+      - OPENROUTER_API_KEY
+      - DEEPSEEK_API_KEY
+      - GROQ_API_KEY
+      - XAI_API_KEY
+      - MISTRAL_API_KEY
+      - TOGETHER_API_KEY
+      - FIREWORKS_API_KEY
+      - MOONSHOT_API_KEY
+      - DASHSCOPE_API_KEY
+      - ZHIPU_API_KEY
+      - BRAVE_API_KEY
+      - TAVILY_API_KEY
+    volumes:
+      - sinobee-home:/home/bee/.sinobee         # settings, secrets.json (0600), sinobee.db, global skills, browser profile
+      - sinobee-workspace:/home/bee/workspace   # projects the agent works on
+      # - ./my-project:/home/bee/workspace/my-project   # give the agent a host project (its .sinobee/skills load
+      #                                                 # after you trust it; set the project dir in Settings)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"         # reach Ollama / LM Studio on the host
+
+  ollama:                           # optional local model runtime: docker compose --profile local-llm up -d
+    image: ollama/ollama:${OLLAMA_TAG:-latest}
+    container_name: sinobee-ollama
+    profiles: ["local-llm"]
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama  # downloaded models survive container rebuilds
+    environment:
+      - OLLAMA_KEEP_ALIVE=30m
+      - OLLAMA_FLASH_ATTENTION=1
+    # not published to the host: only SinoBee (same compose network, hostname "ollama") talks to it
+volumes:
+  sinobee-home:
+  sinobee-workspace:
+  ollama-models:

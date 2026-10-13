@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sinobee"
+version = "0.1.0"
+description = "SinoBee - model-agnostic autonomous AI agent with computer use, layered memory and self-evolving skills"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+  "httpx>=0.27",
+  "psutil>=5.9",            # hardware analysis for local models
+  "pyyaml>=6.0",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "html2text>=2024.2.26",
+  "beautifulsoup4>=4.12",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.44"]
+desktop = ["mss>=9.0", "pillow>=10.0"]
+desktop-native = ["mss>=9.0", "pillow>=10.0", "pyautogui>=0.9.54"]
+embeddings = ["numpy>=1.26"]
+hub = ["cryptography>=42"]
+all = ["playwright>=1.44", "mss>=9.0", "pillow>=10.0", "numpy>=1.26", "cryptography>=42"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "cryptography>=42"]
+
+[project.scripts]
+sinobee = "sinobee.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sinobee*"]
+
+[tool.setuptools.package-data]
+"sinobee.server" = ["static/*", "static/vendor/*"]
+"sinobee" = ["bundled_skills/**/*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
