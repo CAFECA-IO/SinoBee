@@ -145,7 +145,7 @@ input:disabled,select:disabled{opacity:.6;cursor:not-allowed}
 .krow{display:grid;grid-template-columns:150px minmax(0,1fr) 240px 270px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--line);font-size:13px}
 .badge{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--tool);color:var(--muted);white-space:nowrap}
 .badge.ok{color:var(--ok)}.badge.env{color:var(--warn)}
-.chips{display:flex;flex-wrap:wrap;gap:8px}.chips label{font-size:13px;display:flex;gap:4px;align-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:8px}.chips label{font-size:13px;display:flex;gap:8px;align-items:center}
 .banner{background:var(--user);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:13px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
 .tile{background:var(--tool);border-radius:10px;padding:12px}
@@ -236,6 +236,80 @@ background-image:radial-gradient(circle,rgba(4,32,26,.35) 1.2px,transparent 1.6p
 .hint-list{margin:6px 0 0;padding-left:18px;font-size:13px}.hint-list li{margin:3px 0}
 .hint-list code{background:var(--code);padding:1px 5px;border-radius:5px}
 @media (max-width:760px){.krow{grid-template-columns:1fr 1fr}}
+/* ---------- settings: grouped panes, rows, toggle switches ---------- */
+input.sw{appearance:none;-webkit-appearance:none;width:40px;height:22px;flex:none;border-radius:999px;background:var(--line);position:relative;cursor:pointer;margin:0;transition:background .18s;vertical-align:middle;border:1px solid transparent}
+input.sw::before{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .18s}
+input.sw:checked{background:var(--accent2)}
+input.sw:checked::before{transform:translateX(18px)}
+input.sw:focus-visible{outline:none;box-shadow:0 0 0 3px var(--glow)}
+input.sw:disabled{opacity:.45;cursor:not-allowed}
+label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--ink)}
+.setcard{max-width:1040px;width:100%;height:min(88vh,860px);display:flex;flex-direction:column;padding:0;overflow:hidden}
+.sethead{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.sethead h3{margin:0;font-size:17px}
+#setBanner .banner{margin:10px 18px 0}
+.setbody{flex:1;min-height:0;display:grid;grid-template-columns:210px minmax(0,1fr)}
+.setnav{border-right:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:4px;overflow-y:auto;background:var(--panel2)}
+.setnav button{display:grid;grid-template-columns:22px 1fr;column-gap:10px;align-items:center;text-align:left;border:0;background:none;color:var(--ink);font:inherit;padding:9px 10px;border-radius:10px;cursor:pointer}
+.setnav button > span{grid-row:span 2;width:20px;height:20px;color:var(--muted)}
+.setnav button > span svg{width:20px;height:20px}
+.setnav button b{font-size:13.5px;font-weight:600}
+.setnav button small{font-size:11.5px;color:var(--muted)}
+.setnav button:hover{background:var(--tool)}
+.setnav button.on{background:var(--tool);box-shadow:inset 3px 0 0 var(--accent)}
+.setnav button.on > span{color:var(--accent)}
+.setpanes{overflow-y:auto;padding:6px 22px 18px}
+.pane{display:none}.pane.on{display:block}
+.grp{padding:16px 0;border-bottom:1px solid var(--line)}
+.grp:last-child{border-bottom:0}
+.grp-h{font-size:14px;font-weight:650;margin-bottom:8px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.grp-d{font-size:12px;font-weight:400;color:var(--muted)}
+.srow{display:flex;align-items:center;gap:18px;padding:10px 0;border-bottom:1px dashed var(--line)}
+.grp .srow:last-of-type{border-bottom:0}
+.srow.end{justify-content:flex-end;gap:8px;border-bottom:0}
+.srow .sl{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.srow .sl b{font-size:13.5px;font-weight:600}
+.sd{font-size:12px;color:var(--muted)}
+.srow .sc{width:min(340px,48%);display:flex;flex-direction:column;align-items:stretch;gap:4px}
+.srow .sc.sw-c{width:auto;align-items:flex-end}
+.srow .sc:has(.unit){flex-direction:row;flex-wrap:wrap;align-items:center}
+.srow .sc .inp{width:100%;padding:7px 10px;font-size:13px}
+.srow .sc .inp.num{width:140px}
+.unit{font-size:12px;color:var(--muted)}
+.cardseg{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.cardseg button{display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-start;text-align:left;border:1px solid var(--line);background:var(--panel2);color:var(--ink);border-radius:12px;padding:12px 14px;cursor:pointer;font:inherit;position:relative}
+.cardseg button b{display:block;font-size:14px;margin-bottom:3px}
+.cardseg button span{font-size:12px;color:var(--muted)}
+.cardseg button.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.cardseg button.on::after,.srcseg button.on::after{content:"✓";position:absolute;top:10px;right:12px;color:var(--accent);font-weight:700}
+.cardseg button:disabled{opacity:.5;cursor:not-allowed}
+details.adv > summary{cursor:pointer;color:var(--muted);font-size:13px;padding:4px 0;list-style:none}
+details.adv > summary::before{content:"▸";display:inline-block;width:1em;margin-right:4px;transition:transform .15s}
+details.adv[open] > summary::before{transform:rotate(90deg)}
+details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
+.tsrow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed var(--line)}
+.tsrow:last-child{border-bottom:0}
+.tsrow .ti{width:30px;height:30px;border-radius:8px;background:var(--tool);display:grid;place-items:center;color:var(--accent);flex:none}
+.tsrow .ti svg{width:17px;height:17px}
+.tsrow .sl{flex:1;display:flex;flex-direction:column;gap:2px}
+.tsrow .sl b{font-size:13.5px;font-weight:600}
+.tsrow .risk{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:1px 7px;color:var(--warn);margin-left:6px;font-weight:500}
+.setfoot{display:flex;align-items:center;gap:8px;padding:12px 18px;border-top:1px solid var(--line);background:var(--panel)}
+#setDirty.on{color:var(--warn)}
+#keyRows .krow:last-child{border-bottom:0}
+@media (max-width:760px){
+  .setcard{height:100vh;max-height:none;border-radius:0}
+  .setbody{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .setnav{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:8px}
+  .setnav button{grid-template-columns:18px auto;white-space:nowrap}
+  .setnav button small{display:none}
+  .setnav button > span{grid-row:auto}
+  .setpanes{padding:4px 14px 14px}
+  .srow{flex-direction:column;align-items:stretch;gap:8px}
+  .srow .sc{width:100%}
+  .srow:has(.sw-c){flex-direction:row;align-items:center}
+}
+
 @media (max-width:760px){body{grid-template-columns:1fr}aside{display:none}#desk.open{position:fixed;inset:0;width:100%;z-index:5}}
 </style>
 </head>
@@ -268,57 +342,117 @@ background-image:radial-gradient(circle,rgba(4,32,26,.35) 1.2px,transparent 1.6p
   <div class="row"><button class="btn" id="apNo">拒絕</button><button class="btn primary" id="apYes">允許</button></div></div></div>
 <div class="modal" id="viewer"><div class="card" style="max-width:820px"><h3 id="vTitle" style="margin-top:0"></h3><pre id="vBody" style="max-height:60vh"></pre>
   <div class="row"><button class="btn" onclick="viewer.classList.remove('open')">關閉</button></div></div></div>
-<div class="modal" id="settings"><div class="card wide">
-  <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">設定</h3><span class="badge" id="setSaved"></span></div>
+<div class="modal" id="settings"><div class="card wide setcard" role="dialog" aria-labelledby="setTitle">
+  <div class="sethead"><h3 id="setTitle">設定</h3><span class="badge" id="setSaved"></span><span style="flex:1"></span>
+    <button class="btn icon tip-left" data-icon="x" aria-label="關閉設定" id="setX" type="button"></button></div>
   <div id="setBanner"></div>
-  <div class="sec" id="acctSec"><h4>SinoBee.ai 帳號 <span style="font-weight:400;color:var(--muted);font-size:12px">— 發佈技能、登錄工具、加密同步、分享對話時使用；權杖存於 secrets.json，不會傳給模型</span></h4><div id="acctBody"></div></div>
-  <div class="sec"><h4>模型來源</h4>
-    <div class="srcseg" id="srcSeg"><button type="button" data-src="cloud"><b>☁︎ 雲端 API</b><span>OpenAI、Anthropic、Gemini…，需要 API 金鑰、依用量計費</span></button>
-      <button type="button" data-src="local"><b>⌂ 本機架設模型</b><span>在這台電腦上執行開放模型，免金鑰、免費、資料不出門</span></button></div>
-    <div id="localPanel" hidden>
-      <div class="lcard" id="lRuntime"></div>
-      <div class="lcard" id="lHardware"></div>
-      <div id="lRec"></div>
-      <div class="lfilter"><div class="seg" id="lFilter"><button data-f="fit" class="on">適合這台電腦</button><button data-f="all">全部模型</button><button data-f="embedding">Embedding（記憶搜尋）</button></div>
-        <span style="flex:1"></span><input class="inp" id="lCustom" placeholder="其他 Ollama 模型，例如 llama3.1:8b" style="width:240px"><button class="btn icon tip-left" data-icon="download" aria-label="下載此模型" type="button" id="lCustomPull"></button></div>
-      <div id="lModels"></div>
-      <details style="margin-top:6px"><summary style="cursor:pointer;color:var(--muted);font-size:13px">進階：服務位址、上下文長度、記憶體</summary><div class="grid2" style="margin-top:8px">
-        <label class="f">Ollama 服務位址（留空自動偵測）<input id="lUrl" placeholder="http://127.0.0.1:11434"><span class="lock" data-lock="local.base_url"></span></label>
-        <label class="f">上下文長度 num_ctx（auto 依硬體）<input id="lCtx" placeholder="auto"></label>
-        <label class="f">閒置後保留在記憶體<input id="lKeep" placeholder="30m"></label>
-        <label class="f">可用記憶體 GB（覆寫偵測值，可留空）<input id="lMem" type="number" min="1" step="1"></label></div>
-        <div class="row" style="justify-content:flex-start"><button class="btn icon" data-icon="check" aria-label="套用進階設定" type="button" id="lSaveAdv"></button><span id="lAdvMsg" style="font-size:12px;color:var(--muted)"></span></div></details>
+  <div class="setbody">
+    <nav class="setnav" id="setNav" aria-label="設定分類">
+      <button type="button" data-pane="model" class="on"><span data-icon="sparkles"></span><b>模型</b><small>模型來源、金鑰</small></button>
+      <button type="button" data-pane="perm"><span data-icon="shield"></span><b>權限與安全</b><small>核准方式、可用能力</small></button>
+      <button type="button" data-pane="skills"><span data-icon="puzzle"></span><b>技能</b><small>自動學習、專案技能</small></button>
+      <button type="button" data-pane="usage"><span data-icon="chart"></span><b>用量與預算</b><small>預算上限、幣別、費率</small></button>
+      <button type="button" data-pane="account"><span data-icon="user"></span><b>SinoBee.ai 帳號</b><small>登入、保險箱、分享</small></button>
+    </nav>
+    <div class="setpanes">
+      <!-- ───── 模型 ───── -->
+      <section class="pane on" data-pane="model">
+        <div class="grp"><div class="grp-h">模型從哪裡來</div>
+          <div class="srcseg" id="srcSeg"><button type="button" data-src="cloud"><b>☁︎ 雲端 API</b><span>OpenAI、Anthropic、Gemini…，需要 API 金鑰、依用量計費</span></button>
+            <button type="button" data-src="local"><b>⌂ 本機架設模型</b><span>在這台電腦上執行開放模型，免金鑰、免費、資料不出門</span></button></div>
+          <div id="localPanel" hidden>
+            <div class="lcard" id="lRuntime"></div>
+            <div class="lcard" id="lHardware"></div>
+            <div id="lRec"></div>
+            <div class="lfilter"><div class="seg" id="lFilter"><button data-f="fit" class="on">適合這台電腦</button><button data-f="all">全部模型</button><button data-f="embedding">Embedding（記憶搜尋）</button></div>
+              <span style="flex:1"></span><input class="inp" id="lCustom" placeholder="其他 Ollama 模型，例如 llama3.1:8b" style="width:240px"><button class="btn icon tip-left" data-icon="download" aria-label="下載此模型" type="button" id="lCustomPull"></button></div>
+            <div id="lModels"></div>
+            <details class="adv"><summary>進階：服務位址、上下文長度、記憶體</summary>
+              <div class="srow"><div class="sl"><b>Ollama 服務位址</b><span class="sd">留空自動偵測</span></div><div class="sc"><input class="inp" id="lUrl" placeholder="http://127.0.0.1:11434"><span class="lock" data-lock="local.base_url"></span></div></div>
+              <div class="srow"><div class="sl"><b>上下文長度（num_ctx）</b><span class="sd">auto 依硬體決定；越大越能讀長文件，但更吃記憶體</span></div><div class="sc"><input class="inp" id="lCtx" placeholder="auto"></div></div>
+              <div class="srow"><div class="sl"><b>閒置後保留在記憶體</b><span class="sd">例如 30m、2h；0 表示用完立即卸載</span></div><div class="sc"><input class="inp" id="lKeep" placeholder="30m"></div></div>
+              <div class="srow"><div class="sl"><b>可用記憶體（GB）</b><span class="sd">覆寫偵測值，可留空</span></div><div class="sc"><input class="inp" id="lMem" type="number" min="1" step="1"></div></div>
+              <div class="srow end"><span id="lAdvMsg" class="sd"></span><button class="btn" type="button" id="lSaveAdv">套用進階設定</button></div>
+            </details>
+          </div>
+        </div>
+        <div class="grp" id="cloudModelSec"><div class="grp-h">使用哪些模型</div>
+          <div class="srow"><div class="sl"><b>主要模型</b><span class="sd">格式為「供應商/模型」，平常的對話與任務都用它</span></div>
+            <div class="sc"><input class="inp" id="mDefault" list="modelList" placeholder="anthropic/claude-sonnet-4-5"><span class="lock" data-lock="model.default"></span></div></div>
+          <div class="srow"><div class="sl"><b>備援模型</b><span class="sd">主要模型失敗或額度用完時依序改用；以逗號分隔</span></div>
+            <div class="sc"><input class="inp" id="mFallbacks" placeholder="openai/gpt-5.4, gemini/gemini-2.5-flash"><span class="lock" data-lock="model.fallbacks"></span></div></div>
+          <div class="srow"><div class="sl"><b>輔助模型</b><span class="sd">反思、壓縮長對話等背景工作；留空則用主要模型（建議選便宜的）</span></div>
+            <div class="sc"><input class="inp" id="mAux" list="modelList" placeholder="留空＝主要模型"><span class="lock" data-lock="model.auxiliary"></span></div></div>
+          <div class="srow"><div class="sl"><b>Embedding 模型</b><span class="sd">讓記憶搜尋更準確；留空用關鍵字搜尋</span></div>
+            <div class="sc"><input class="inp" id="mEmb" placeholder="openai/text-embedding-3-small"><span class="lock" data-lock="model.embedding"></span></div></div>
+          <div class="srow"><div class="sl"><b>模型看得懂圖片</b><span class="sd">開啟後操作桌面或瀏覽器時會把截圖給模型看</span></div>
+            <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="mVision" aria-label="模型看得懂圖片"></div></div>
+          <div class="srow end"><span id="testResult" class="sd"></span>
+            <button class="btn" id="loadModels" type="button">載入可用模型</button><button class="btn" id="testModel" type="button">測試連線</button></div>
+          <datalist id="modelList"></datalist>
+        </div>
+        <div class="grp" id="keySec"><div class="grp-h">API 金鑰<span class="grp-d">只存在這台電腦的 secrets.json（權限 600），不會完整回傳到瀏覽器；啟動時用 -e 帶入的金鑰在此唯讀</span></div>
+          <div id="keyRows"></div></div>
+        <details class="grp adv" id="customSec"><summary>自訂 OpenAI 相容端點（自架 vLLM、公司內部閘道…）</summary>
+          <div id="customRows"></div><button class="btn" id="addCustom" type="button">＋ 新增端點</button></details>
+      </section>
+
+      <!-- ───── 權限與安全 ───── -->
+      <section class="pane" data-pane="perm">
+        <div class="grp"><div class="grp-h">危險操作要不要先問我<span class="lock" data-lock="permissions.approval"></span></div>
+          <select id="pApproval" hidden><option value="confirm">confirm</option><option value="auto">auto</option><option value="readonly">readonly</option></select>
+          <div class="cardseg" data-for="pApproval">
+            <button type="button" data-v="confirm"><b>先問我</b><span>刪檔、執行指令、寫入資料庫等操作會先等你核准（建議）</span></button>
+            <button type="button" data-v="auto"><b>全部自動</b><span>不再詢問，只建議在隔離的沙箱或 Docker 裡使用</span></button>
+            <button type="button" data-v="readonly"><b>唯讀</b><span>只能查看，不能修改檔案或任何資料</span></button>
+          </div></div>
+        <div class="grp"><div class="grp-h">SinoBee 可以使用的能力<span class="grp-d">關掉後模型就看不到這類工具</span><span class="lock" data-lock="permissions.toolsets"></span></div>
+          <div id="pToolsets"></div></div>
+      </section>
+
+      <!-- ───── 技能 ───── -->
+      <section class="pane" data-pane="skills">
+        <div class="grp"><div class="grp-h">從經驗學習新技能</div>
+          <select id="sAuto" hidden><option value="auto">auto</option><option value="suggest">suggest</option><option value="off">off</option></select>
+          <div class="cardseg" data-for="sAuto">
+            <button type="button" data-v="suggest"><b>建議，由我核准</b><span>完成任務後提出新技能，你按下核准才會啟用</span></button>
+            <button type="button" data-v="auto"><b>自動建立</b><span>直接建立並試用，表現好才正式啟用（實驗功能）</span></button>
+            <button type="button" data-v="off"><b>不要自動建立</b><span>只用你自己安裝或寫的技能</span></button>
+          </div></div>
+        <div class="grp"><div class="grp-h">技能從哪裡載入</div>
+          <div class="srow"><div class="sl"><b>專案目錄</b><span class="sd">會載入其中的 .sinobee/skills；留空則只用全域技能</span></div>
+            <div class="sc"><input class="inp" id="sProject" placeholder="/Users/me/projects/app"><span class="lock" data-lock="skills.project_dir"></span></div></div>
+          <div class="srow"><div class="sl"><b>與其他 agent 共用技能</b><span class="sd">同時讀取 .agents/skills（Claude Code 等工具也使用這個位置）</span></div>
+            <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="sInterop" aria-label="與其他 agent 共用技能"></div></div>
+        </div>
+      </section>
+
+      <!-- ───── 用量與預算 ───── -->
+      <section class="pane" data-pane="usage">
+        <div class="grp"><div class="grp-h">花費上限<span class="grp-d">以美元計，留空表示不限</span></div>
+          <div class="srow"><div class="sl"><b>每日預算</b></div><div class="sc"><input class="inp num" id="uDaily" type="number" step="0.01" min="0" placeholder="不限"><span class="unit">USD</span><span class="lock" data-lock="usage.daily_budget_usd"></span></div></div>
+          <div class="srow"><div class="sl"><b>每月預算</b></div><div class="sc"><input class="inp num" id="uMonthly" type="number" step="0.01" min="0" placeholder="不限"><span class="unit">USD</span><span class="lock" data-lock="usage.monthly_budget_usd"></span></div></div>
+          <div class="srow"><div class="sl"><b>超過預算就停止</b><span class="sd">關閉時只會提醒，不會中斷任務</span></div>
+            <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="uEnforce" aria-label="超過預算就停止"></div></div>
+        </div>
+        <div class="grp"><div class="grp-h">顯示幣別</div>
+          <div class="srow"><div class="sl"><b>幣別</b><span class="sd">用量頁同時顯示此幣別的金額</span></div><div class="sc"><input class="inp" id="uCurrency" placeholder="TWD"></div></div>
+          <div class="srow"><div class="sl"><b>匯率</b><span class="sd">1 USD 等於多少；留空只顯示 USD</span></div><div class="sc"><input class="inp num" id="uRate" type="number" step="0.01" min="0" placeholder="例如 32"></div></div>
+        </div>
+        <details class="grp adv"><summary>費率覆寫（USD／每百萬 tokens；未設定時使用內建參考價）</summary>
+          <div style="overflow-x:auto"><table class="t" id="priceTable"><thead><tr><th>模型（名稱或前綴）</th><th>輸入</th><th>快取讀取</th><th>快取寫入</th><th>輸出</th><th></th></tr></thead><tbody></tbody></table></div>
+          <button class="btn" id="addPrice" type="button" style="margin-top:8px">＋ 新增費率</button></details>
+      </section>
+
+      <!-- ───── 帳號 ───── -->
+      <section class="pane" data-pane="account">
+        <div class="grp" id="acctSec"><div class="grp-h">SinoBee.ai 帳號<span class="grp-d">發佈技能、登錄工具、加密同步、分享對話時使用；權杖只存在 secrets.json，不會傳給模型</span></div>
+          <div id="acctBody"></div></div>
+      </section>
     </div>
   </div>
-  <div class="sec" id="cloudModelSec"><h4>模型</h4><div class="grid2">
-    <label class="f">主要模型（供應商/模型）<input id="mDefault" list="modelList" placeholder="例如 anthropic/claude-sonnet-4-5"><span class="lock" data-lock="model.default"></span></label>
-    <label class="f">備援模型（逗號分隔）<input id="mFallbacks" placeholder="openai/gpt-5.4, gemini/gemini-2.5-flash"><span class="lock" data-lock="model.fallbacks"></span></label>
-    <label class="f">輔助模型（反思/壓縮，可留空）<input id="mAux" list="modelList"><span class="lock" data-lock="model.auxiliary"></span></label>
-    <label class="f">Embedding 模型（可留空）<input id="mEmb" placeholder="openai/text-embedding-3-small"><span class="lock" data-lock="model.embedding"></span></label>
-  </div><datalist id="modelList"></datalist>
-  <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
-    <label class="chips"><label><input type="checkbox" id="mVision"> 模型支援看圖（截圖）</label></label>
-    <button class="btn icon" data-icon="list" aria-label="載入可用模型清單" id="loadModels" type="button"></button>
-    <button class="btn icon" data-icon="zap" aria-label="測試連線" id="testModel" type="button"></button><span id="testResult" style="font-size:13px"></span></div></div>
-  <div class="sec" id="keySec"><h4>API 金鑰 <span style="font-weight:400;color:var(--muted);font-size:12px">— 存於伺服器端 secrets.json（權限 600），不會完整回傳到瀏覽器；啟動時用 -e 帶入的金鑰在此為唯讀</span></h4><div id="keyRows"></div></div>
-  <div class="sec" id="customSec"><h4>自訂 OpenAI 相容端點</h4><div id="customRows"></div><button class="btn icon" data-icon="plus" aria-label="新增自訂端點" id="addCustom" type="button"></button></div>
-  <div class="sec"><h4>技能</h4><div class="grid2">
-    <label class="f">自動生成技能<select id="sAuto"><option value="auto">auto：自動建立（experimental）</option><option value="suggest">suggest：建議，由我核准</option><option value="off">off：不自動建立</option></select></label>
-    <label class="f">專案目錄（載入 .sinobee/skills）<input id="sProject"><span class="lock" data-lock="skills.project_dir"></span></label></div>
-    <label class="chips" style="margin-top:8px"><label><input type="checkbox" id="sInterop"> 同時讀取 .agents/skills（與其他 agent 共用技能）</label></label></div>
-  <div class="sec"><h4>權限</h4><div class="grid2">
-    <label class="f">核准模式<select id="pApproval"><option value="confirm">confirm：危險操作需核准</option><option value="auto">auto：全部自動（僅建議沙箱）</option><option value="readonly">readonly：禁止寫入</option></select><span class="lock" data-lock="permissions.approval"></span></label></div>
-    <div class="f" style="margin-top:10px;font-size:12px;color:var(--muted)">開放的能力 <span class="lock" data-lock="permissions.toolsets"></span></div><div class="chips" id="pToolsets" style="margin-top:6px"></div></div>
-  <div class="sec"><h4>預算與幣別</h4><div class="grid2">
-    <label class="f">每日預算（USD，留空不限）<input id="uDaily" type="number" step="0.01" min="0"><span class="lock" data-lock="usage.daily_budget_usd"></span></label>
-    <label class="f">每月預算（USD，留空不限）<input id="uMonthly" type="number" step="0.01" min="0"><span class="lock" data-lock="usage.monthly_budget_usd"></span></label>
-    <label class="f">顯示幣別<input id="uCurrency" placeholder="TWD"></label>
-    <label class="f">匯率（1 USD = ?，留空只顯示 USD）<input id="uRate" type="number" step="0.01" min="0"></label></div>
-    <label class="chips" style="margin-top:8px"><label><input type="checkbox" id="uEnforce"> 達到預算時停止呼叫模型（否則只提醒）</label></label></div>
-  <div class="sec"><h4>費率覆寫 <span style="font-weight:400;color:var(--muted);font-size:12px">— USD / 每百萬 tokens；未覆寫時使用內建參考價（見「用量」頁）</span></h4>
-    <table class="t" id="priceTable"><thead><tr><th>模型（名稱或前綴）</th><th>輸入</th><th>快取讀取</th><th>快取寫入</th><th>輸出</th><th></th></tr></thead><tbody></tbody></table>
-    <button class="btn icon" data-icon="plus" aria-label="新增費率" id="addPrice" type="button" style="margin-top:8px"></button></div>
-  <div class="row"><button class="btn" id="setClose" type="button">關閉</button><button class="btn primary" id="setSave" type="button">儲存</button></div>
+  <div class="setfoot"><span id="setDirty" class="sd"></span><span style="flex:1"></span>
+    <button class="btn" id="setClose" type="button">關閉</button><button class="btn primary" id="setSave" type="button">儲存</button></div>
 </div></div>
 <div class="modal" id="dbForm"><div class="card" style="max-width:640px">
   <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0" id="dfTitle">新增資料庫連線</h3><span class="badge" id="dfMsg"></span></div>
@@ -336,7 +470,7 @@ background-image:radial-gradient(circle,rgba(4,32,26,.35) 1.2px,transparent 1.6p
     <label class="f">每次最多回傳列數<input id="dfRows" type="number" min="1" max="10000" value="500"></label>
     <label class="f">查詢逾時（秒）<input id="dfTimeout" type="number" min="1" max="600" value="30"></label>
   </div>
-  <label class="chips" style="margin-top:10px"><label><input type="checkbox" id="dfWrite"> 允許寫入（每次寫入仍需你核准；建議改用唯讀帳號）</label></label>
+  <label class="chips" style="margin-top:10px"><label><input type="checkbox" class="sw" role="switch" id="dfWrite"> 允許寫入（每次寫入仍需你核准；建議改用唯讀帳號）</label></label>
   <div class="note" style="margin-top:8px">密碼只存在這台電腦的 secrets.json（權限 600），不會出現在對話裡，也不會送給模型。</div>
   <div class="row"><button class="btn danger" id="dfDelete" type="button" hidden>刪除</button><span style="flex:1"></span><button class="btn" id="dfTest" type="button">測試連線</button><button class="btn" id="dfCancel" type="button">取消</button><button class="btn primary" id="dfSave" type="button">儲存</button></div>
 </div></div>
@@ -862,11 +996,45 @@ const PURPOSE = {agent: '執行任務', reflection: '反思學習', compression:
 
 // ---------------- settings ----------------
 let SET = null;
+const TOOLSET_INFO = {
+  shell: {name: '終端機指令', desc: '執行 shell 指令、安裝套件、跑程式', icon: 'zap', risk: '高權限'},
+  files: {name: '讀寫檔案', desc: '在工作資料夾讀取、建立與修改檔案', icon: 'file'},
+  desktop: {name: '操作桌面', desc: '截圖、移動滑鼠、輸入鍵盤，操作桌面軟體', icon: 'monitor', risk: '高權限'},
+  browser: {name: '操作瀏覽器', desc: '開網頁、登入、填表、下載（Chromium，保留登入狀態）', icon: 'globe'},
+  web: {name: '網路搜尋', desc: '搜尋與讀取公開網頁', icon: 'external'},
+  memory: {name: '長期記憶', desc: '記住你的偏好與做過的事，之後自動參考', icon: 'brain'},
+  skills: {name: '技能', desc: '查看、使用與改進技能', icon: 'puzzle'},
+  usage: {name: '用量查詢', desc: '讓 SinoBee 回答花了多少 token 與費用', icon: 'chart'},
+  database: {name: '資料庫', desc: '查詢已儲存的資料庫連線；寫入每次都要核准', icon: 'database'},
+};
+function showPane(name){
+  document.querySelectorAll('#setNav button').forEach(b => b.classList.toggle('on', b.dataset.pane === name));
+  document.querySelectorAll('#settings .pane').forEach(p => p.classList.toggle('on', p.dataset.pane === name));
+  $('#settings .setpanes').scrollTop = 0;
+}
+document.querySelectorAll('#setNav button').forEach(b => b.onclick = () => showPane(b.dataset.pane));
+/** big option cards that drive a hidden <select> (approval mode, skill creation) */
+function syncSegs(){
+  document.querySelectorAll('.cardseg[data-for]').forEach(seg => { const sel = $('#' + seg.dataset.for);
+    seg.querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.v === sel.value); b.disabled = sel.disabled; }); });
+}
+document.querySelectorAll('.cardseg[data-for]').forEach(seg => seg.querySelectorAll('button').forEach(b => b.onclick = () => {
+  const sel = $('#' + seg.dataset.for); if (sel.disabled) return; sel.value = b.dataset.v; syncSegs(); setDirty(true); }));
+let SET_DIRTY = false;
+function setDirty(on){ SET_DIRTY = on; const d = $('#setDirty'); d.textContent = on ? '● 有尚未儲存的變更' : ''; d.classList.toggle('on', on); }
+['input', 'change'].forEach(ev => $('#settings .setpanes').addEventListener(ev, e => {
+  // the account pane and local-model actions apply immediately; everything else waits for 儲存
+  if (e.target.closest('[data-pane="account"], #localPanel .lfilter, #lModels, #lCustom')) return;
+  setDirty(true); $('#setSaved').textContent = ''; }));
+function closeSettings(){
+  if (SET_DIRTY && !confirm('有尚未儲存的變更，確定要關閉嗎？')) return;
+  $('#settings').classList.remove('open'); clearInterval(lPoll); lPoll = null; setDirty(false);
+}
 function lockNotes(){
   document.querySelectorAll('[data-lock]').forEach(el => {
     const locked = SET.locked.includes(el.dataset.lock);
     el.textContent = locked ? '🔒 由啟動參數提供（docker -e），此處唯讀' : '';
-    const input = el.parentElement.querySelector('input,select'); if (input) input.disabled = locked;
+    const input = el.dataset.lock === 'permissions.approval' ? $('#pApproval') : el.parentElement.querySelector('input,select'); if (input) input.disabled = locked;
   });
   if (SET.locked.includes('permissions.toolsets')) document.querySelectorAll('#pToolsets input').forEach(i => i.disabled = true);
 }
@@ -888,7 +1056,9 @@ function renderSettings(){
   const customs = SET.providers.filter(p => p.custom);
   $('#customRows').innerHTML = ''; customs.forEach(c => addCustomRow(c.name, c.base_url));
   $('#pApproval').value = SET.permissions.approval;
-  $('#pToolsets').innerHTML = SET.all_toolsets.map(t => `<label><input type="checkbox" value="${t}" ${SET.permissions.toolsets.includes(t) ? 'checked' : ''}> ${t}</label>`).join('');
+  $('#pToolsets').innerHTML = SET.all_toolsets.map(t => { const m = TOOLSET_INFO[t] || {name: t, desc: '', icon: 'zap'};
+    return `<div class="tsrow"><span class="ti">${ic(m.icon)}</span><div class="sl"><b>${esc(m.name)}${m.risk ? `<span class="risk">${esc(m.risk)}</span>` : ''}</b><span class="sd">${esc(m.desc)}</span></div>
+      <input type="checkbox" class="sw" role="switch" value="${t}" aria-label="${esc(m.name)}" ${SET.permissions.toolsets.includes(t) ? 'checked' : ''}></div>`; }).join('');
   const u = SET.usage || {};
   $('#uDaily').value = u.daily_budget_usd ?? ''; $('#uMonthly').value = u.monthly_budget_usd ?? '';
   $('#uCurrency').value = u.currency || 'USD'; $('#uRate').value = u.currency_rate ?? ''; $('#uEnforce').checked = !!u.enforce_budget;
@@ -896,7 +1066,9 @@ function renderSettings(){
   $('#sProject').value = sk.project_dir || ''; $('#sInterop').checked = sk.interop !== false;
   const tb = $('#priceTable tbody'); tb.innerHTML = ''; Object.entries(SET.pricing || {}).forEach(([k, v]) => addPriceRow(k, v));
   lockNotes();
+  syncSegs();
   setSrc(srcFromSettings());
+  setDirty(false);
   $('#setBanner').innerHTML = SET.needs_setup ? '<div class="banner" style="margin-top:10px">👋 第一次使用：選擇「雲端 API」並填入金鑰，或選「本機架設模型」直接在這台電腦執行（免金鑰）。</div>'
     : (SET.provider_error ? `<div class="banner" style="margin-top:10px">⚠︎ ${esc(SET.provider_error)}</div>` : '');
 }
@@ -976,8 +1148,9 @@ async function renderVaultBox(){
     const r = await fetch('/api/vault/unlock?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({passphrase: $('#vaultPw').value})});
     if (!r.ok) { alert((await r.json()).detail); return; } renderVaultBox(); };
 }
-async function openSettings(firstRun = false){
-  SET = await api('/api/settings'); renderSettings(); loadAccount(true); $('#setSaved').textContent = ''; $('#testResult').textContent = '';
+async function openSettings(firstRun = false, pane = null){
+  SET = await api('/api/settings'); renderSettings(); loadAccount(true);
+  if (pane || firstRun || SET.needs_setup) showPane(pane || 'model'); $('#setSaved').textContent = ''; $('#testResult').textContent = '';
   $('#settings').classList.add('open');
 }
 function collectSettings(){
@@ -997,7 +1170,8 @@ function collectSettings(){
   return body;
 }
 $('#settingsBtn').onclick = () => openSettings();
-$('#setClose').onclick = () => { $('#settings').classList.remove('open'); clearInterval(lPoll); lPoll = null; };
+$('#setClose').onclick = closeSettings; $('#setX').onclick = closeSettings;
+$('#settings').addEventListener('keydown', e => { if (e.key === 'Escape') closeSettings(); if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); $('#setSave').click(); } });
 $('#addCustom').onclick = () => addCustomRow();
 $('#addPrice').onclick = () => addPriceRow();
 $('#setSave').onclick = async () => {
@@ -1272,7 +1446,7 @@ async function openPublish(){
   if (!ACCT?.signed_in){
     $('#pubOpts').innerHTML = `<div class="lcard" style="font-size:13px">需要先登入 SinoBee.ai。<button class="btn primary" type="button" id="pubLogin" style="margin-left:8px">登入</button></div>`;
     $('#pubGo').hidden = true; $('#pubVis').hidden = true;
-    $('#pubLogin').onclick = () => { $('#pubModal').classList.remove('open'); openSettings(); };
+    $('#pubLogin').onclick = () => { $('#pubModal').classList.remove('open'); openSettings(false, 'account'); };
     $('#pubModal').classList.add('open'); return;
   }
   $('#pubVis').hidden = false;
@@ -1282,9 +1456,9 @@ async function openPublish(){
       <label class="f">名稱<input id="pubTitle" value="${esc(c.name)}" maxlength="80"></label>
       <label class="f">說明（選填）<input id="pubDesc" maxlength="300" placeholder="例如：訂單與客戶資料（唯讀）"></label></div>
     <label class="chips" style="margin-top:8px;display:flex;flex-direction:column;gap:6px;align-items:flex-start">
-      <label><input type="checkbox" id="pubSchema" checked> 附上資料表與欄位名稱（不含資料）</label>
-      ${c.kind !== 'sqlite' ? '<label><input type="checkbox" id="pubHost" checked> 附上主機位址與資料庫名稱</label>' : ''}
-      <label id="pubSyncRow"><input type="checkbox" id="pubSync"> 加密同步連線資料（含帳號密碼）到我的保險箱</label></label>
+      <label><input type="checkbox" class="sw" role="switch" id="pubSchema" checked> 附上資料表與欄位名稱（不含資料）</label>
+      ${c.kind !== 'sqlite' ? '<label><input type="checkbox" class="sw" role="switch" id="pubHost" checked> 附上主機位址與資料庫名稱</label>' : ''}
+      <label id="pubSyncRow"><input type="checkbox" class="sw" role="switch" id="pubSync"> 加密同步連線資料（含帳號密碼）到我的保險箱</label></label>
     <div id="pubPass" hidden style="margin-top:8px"></div>`;
   const vis = v => { PUB.vis = v; document.querySelectorAll('#pubVis button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
     $('#pubSyncRow').hidden = v === 'PUBLIC'; if (v === 'PUBLIC') $('#pubSync').checked = false; passRow(); };
@@ -1352,8 +1526,8 @@ async function renderShare(first){
       <label class="f">資料庫查詢結果<select id="shRows">${[[20, '只留前 20 列'], [100, '前 100 列'], [0, '不含查詢結果']].map(([v, l]) => `<option value="${v}"${o.query_rows === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>
     <div class="srcseg" id="shVis" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">${vis.map(([v, a, b]) => `<button type="button" data-v="${v}"${SH.vis === v ? ' class="on"' : ''}><b>${a}</b><span>${b}</span></button>`).join('')}</div>
     <label class="f" id="shAccRow" ${SH.vis === 'LOGIN' ? '' : 'hidden'}>只有這些 CAFECA 帳號能看（0x 地址或 @代稱，以空白或換行分隔；留空＝任何已登入者）<textarea id="shAcc" rows="2" style="font-family:ui-monospace,Menlo,monospace">${esc(SH.acc || '')}</textarea></label>
-    <label class="chips" style="margin:8px 0;display:flex;gap:14px;flex-wrap:wrap"><label><input type="checkbox" id="shTools" ${tools ? 'checked' : ''}> 附上工具呼叫與結果（每項最多 2000 字）</label>
-      <label><input type="checkbox" id="shHosts" ${o.mask_hosts ? 'checked' : ''}> 遮蔽主機名稱與內網 IP</label></label>
+    <label class="chips" style="margin:8px 0;display:flex;gap:14px;flex-wrap:wrap"><label><input type="checkbox" class="sw" role="switch" id="shTools" ${tools ? 'checked' : ''}> 附上工具呼叫與結果（每項最多 2000 字）</label>
+      <label><input type="checkbox" class="sw" role="switch" id="shHosts" ${o.mask_hosts ? 'checked' : ''}> 遮蔽主機名稱與內網 IP</label></label>
     <label class="f">另外要遮蔽的字詞（每行一個，例如客戶名稱）<textarea id="shMask" rows="2">${esc(o.extra_mask)}</textarea></label>
     <div class="note" style="margin:6px 0">${red.length ? '已遮蔽（預覽中以 <mark class="mk">••••</mark> 標示）：' + red.map(x => `${RK[x.kind] || x.kind} × ${x.count}`).join('、') : '沒有偵測到需要遮蔽的內容。'}${p.files.length ? `　附件 ${p.files.length} 個（${p.files.map(f => esc(f.name) + ' ' + fmtSize(f.size)).join('、')}）` : ''}${p.skills?.length ? `　使用的技能：${p.skills.map(esc).join('、')}` : ''}</div>
     <div class="shprev">${p.messages.map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}"><div class="bubble">${m.role === 'user' ? esc(m.text).replace(/\n/g, '<br>') : md(m.text.replace(/!\[([^\]]*)\]\(files\/(\d+)\)/g, (_, a, n) => `*［圖片附件：${(p.files.find(f => f.id === n) || {}).name || a}］*`))}${m.tools?.length ? `<div class="note" style="margin-top:6px">工具：${m.tools.map(t => esc(t.name)).join('、')}</div>` : ''}</div></div>`).join('')}</div>`;
@@ -1362,7 +1536,7 @@ async function renderShare(first){
   ['#shTools', '#shHosts', '#shTurn', '#shRows'].forEach(k => $(k).onchange = rerender);
   $('#shMask').onchange = rerender;
   $('#shBody .shprev').innerHTML = $('#shBody .shprev').innerHTML.replace(/••••/g, '<mark class="mk">••••</mark>');
-  if ($('#shLogin')) $('#shLogin').onclick = () => { $('#shareModal').classList.remove('open'); openSettings(); };
+  if ($('#shLogin')) $('#shLogin').onclick = () => { $('#shareModal').classList.remove('open'); openSettings(false, 'account'); };
   $('#shGo').disabled = !p.signed_in;
 }
 $('#shareBtn').onclick = openShare;
