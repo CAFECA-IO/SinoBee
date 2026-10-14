@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sinobee"
-version = "0.1.0"
+version = "0.2.0"
 description = "SinoBee - model-agnostic autonomous AI agent with computer use, layered memory and self-evolving skills"
 readme = "README.md"
 license = { text = "MIT" }

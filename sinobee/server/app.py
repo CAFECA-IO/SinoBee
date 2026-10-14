@@ -34,7 +34,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         if state.get("local"):
             await state["local"].stop_server()   # only stops an `ollama serve` that SinoBee started
 
-    app = FastAPI(title="SinoBee", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="SinoBee", version="0.2.0", lifespan=lifespan)
 
     def rt() -> Runtime:
         if state["rt"] is None:
