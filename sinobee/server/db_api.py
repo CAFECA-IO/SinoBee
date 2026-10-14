@@ -35,6 +35,8 @@ def register(app: FastAPI, rt_getter) -> None:
     async def delete(cid: str):
         if not svc().store.delete(cid):
             raise HTTPException(404, "找不到連線")
+        from ..db import toolfolder
+        toolfolder.remove(rt_getter().config, cid, rt_getter().skills)
         return {"ok": True}
 
     @app.post("/api/db/test")
@@ -78,6 +80,31 @@ def register(app: FastAPI, rt_getter) -> None:
     async def cancel(cid: str):
         return {"cancelled": svc().cancel(cid)}
 
+    @app.get("/api/db/{cid}/queries")
+    async def saved_queries(cid: str):
+        from ..db import toolfolder
+        try:
+            return {"queries": toolfolder.queries(rt_getter().config, svc().get(cid))}
+        except DbError as e:
+            raise HTTPException(404, str(e)) from None
+
+    @app.post("/api/db/{cid}/queries")
+    async def save_query(cid: str, body: dict):
+        from ..db import toolfolder
+        try:
+            return {"queries": toolfolder.save_query(rt_getter().config, svc().get(cid), str(body.get("title") or ""),
+                                                     str(body.get("sql") or ""))}
+        except (DbError, ValueError) as e:
+            raise HTTPException(400, str(e)) from None
+
+    @app.delete("/api/db/{cid}/queries")
+    async def delete_query(cid: str, title: str):
+        from ..db import toolfolder
+        try:
+            return {"queries": toolfolder.delete_query(rt_getter().config, svc().get(cid), title)}
+        except DbError as e:
+            raise HTTPException(404, str(e)) from None
+
     @app.get("/api/db/{cid}/history")
     async def history(cid: str):
         return {"history": svc().store.history(cid)}
@@ -101,7 +128,8 @@ def register(app: FastAPI, rt_getter) -> None:
                                        sync_secret=bool(body.get("sync_secret")),
                                        include_schema=body.get("include_schema", True) is not False,
                                        include_host=body.get("include_host", True) is not False,
-                                       title=body.get("title") or None, description=str(body.get("description") or ""))
+                                       title=body.get("title") or None, description=str(body.get("description") or ""),
+                                       skills=rt_getter().skills)
         except (DbError, dbhub.HubToolError, VaultError, account.AccountError) as e:
             raise HTTPException(400, str(e)) from None
 
@@ -116,7 +144,8 @@ def register(app: FastAPI, rt_getter) -> None:
     @app.post("/api/hub/tools/install")
     async def hub_install(body: dict):
         import asyncio
-        return await asyncio.to_thread(hub_guard, dbhub.install, rt_getter().config, svc(), str(body.get("ref") or ""))
+        return await asyncio.to_thread(hub_guard, dbhub.install, rt_getter().config, svc(), str(body.get("ref") or ""),
+                                       rt_getter().skills)
 
     @app.get("/api/vault")
     async def vault_status():
@@ -133,6 +162,17 @@ def register(app: FastAPI, rt_getter) -> None:
         import asyncio
         p = str(body.get("passphrase") or "")
         return await asyncio.to_thread(hub_guard, lambda: VaultClient(rt_getter().config).setup(p))
+
+    @app.get("/api/vault/devices")
+    async def vault_devices():
+        import asyncio
+        return {"items": await asyncio.to_thread(hub_guard, lambda: VaultClient(rt_getter().config).devices())}
+
+    @app.post("/api/vault/devices/{device_id}/approve")
+    async def vault_approve(device_id: str):
+        import asyncio
+        await asyncio.to_thread(hub_guard, lambda: VaultClient(rt_getter().config).approve_device(device_id))
+        return {"ok": True}
 
     @app.post("/api/vault/lock")
     async def vault_lock():

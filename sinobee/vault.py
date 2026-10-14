@@ -5,7 +5,11 @@ Everything is encrypted here, on the user's machine; sinobee.ai only stores ciph
 * Vault key: an X25519 key pair. The private key is wrapped with a key derived from the user's vault
   passphrase (scrypt N=2^15, r=8, p=1 → AES-256-GCM) and uploaded with the public key.
 * Packs (e.g. a database connection with its password) are sealed to the public key: ephemeral X25519,
-  HKDF-SHA256 → AES-256-GCM. Writing needs only the public key; reading needs the passphrase.
+  HKDF-SHA256 → AES-256-GCM. Writing needs only the public key.
+* Device copies: each signed-in SinoBee has its own X25519 key (secrets.json). Once the vault is unlocked
+  on a device, the vault private key is also sealed to that device, so it opens without the passphrase.
+  A new device is unlocked with the passphrase once, or approved from a device that already has the key.
+  Signing a device out on sinobee.ai deletes its copy.
 
 The passphrase is never stored or sent anywhere; the unwrapped private key lives only in memory.
 """
@@ -14,6 +18,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import threading
 
 import httpx
@@ -48,9 +53,20 @@ def _kek(passphrase: str, salt: bytes, n: int, r: int, p: int) -> bytes:
     return Scrypt(salt=salt, length=32, n=n, r=r, p=p).derive(passphrase.encode("utf-8"))
 
 
+COMMON = {"password1234", "123456789012", "qwertyuiopas", "iloveyou1234", "passwordpassword", "sinobeesinobee"}
+
+
+def check_passphrase(p: str) -> None:
+    """At least 12 characters and not trivially guessable (several character kinds, or long)."""
+    if len(p) < 12:
+        raise VaultError("保險箱密語至少 12 個字元")
+    kinds = sum(bool(re.search(rx, p)) for rx in (r"[a-z]", r"[A-Z]", r"\d", r"[^A-Za-z0-9]"))
+    if p.lower() in COMMON or len(set(p)) < 6 or (kinds < 2 and len(p) < 20) or (kinds < 3 and len(p) < 16):
+        raise VaultError("保險箱密語太容易猜到：請混用大小寫、數字或符號，或用 4 個以上的詞組成較長的句子")
+
+
 def wrap_private_key(sk: X25519PrivateKey, passphrase: str) -> dict:
-    if len(passphrase) < 8:
-        raise VaultError("保險箱密語至少 8 個字元")
+    check_passphrase(passphrase)
     salt, iv = os.urandom(16), os.urandom(12)
     ct = AESGCM(_kek(passphrase, salt, **SCRYPT)).encrypt(iv, _raw(sk), WRAP_AAD)
     return {"v": 1, "kdf": {"alg": "scrypt", **SCRYPT, "salt": b64e(salt)}, "iv": b64e(iv), "ct": b64e(ct)}
@@ -124,9 +140,48 @@ class VaultClient:
             raise VaultError(f"保險箱讀取失敗（HTTP {r.status_code}）")
         return r.json()
 
+    def _try_device_unlock(self, k: dict) -> bool:
+        """Open the vault with this device's own copy of the key (no passphrase)."""
+        if self._acct() in self._unlocked or not k or not k.get("deviceWrapped"):
+            return self._acct() in self._unlocked
+        dsk = account.device_private_key(self.config)
+        if not dsk:
+            return False
+        try:
+            raw = b64d(open_pack(k["deviceWrapped"], dsk, "vault-key")["sk"])
+            sk = X25519PrivateKey.from_private_bytes(raw)
+        except (VaultError, KeyError, ValueError):
+            return False
+        if b64e(_raw(sk.public_key())) != k["publicKey"]:
+            return False
+        with self._lock:
+            self._unlocked[self._acct()] = sk
+        return True
+
+    def _seal_for_device(self, sk: X25519PrivateKey, device_public_key: str, device_id: str = "self") -> None:
+        r = self._req("PUT", f"/api/v1/vault/devices/{device_id}",
+                      json={"wrapped": seal({"sk": b64e(_raw(sk))}, device_public_key, "vault-key")})
+        if r.status_code >= 400:
+            raise VaultError(f"無法把保險箱金鑰交給裝置：{r.text[:200]}")
+
     def status(self) -> dict:
         k = self.key()
-        return {"exists": bool(k), "unlocked": self._acct() in self._unlocked}
+        unlocked = self._try_device_unlock(k) if k else False
+        return {"exists": bool(k), "unlocked": unlocked, "device_key": bool(k and k.get("deviceWrapped"))}
+
+    def devices(self) -> list[dict]:
+        r = self._req("GET", "/api/v1/vault/devices")
+        return r.json().get("items", []) if r.status_code == 200 else []
+
+    def approve_device(self, device_id: str) -> None:
+        """Give another signed-in SinoBee of this account a copy of the vault key (vault must be unlocked here)."""
+        sk = self._unlocked.get(self._acct())
+        if not sk:
+            raise VaultError("保險箱已上鎖，請先輸入保險箱密語")
+        d = next((x for x in self.devices() if x["id"] == device_id), None)
+        if not d or not d.get("publicKey"):
+            raise VaultError("找不到這台裝置，或它需要重新登入")
+        self._seal_for_device(sk, d["publicKey"], device_id)
 
     def setup(self, passphrase: str) -> dict:
         """Create the vault (first time) or unlock it with the passphrase."""
@@ -140,7 +195,14 @@ class VaultClient:
             raise VaultError(f"建立保險箱失敗：{r.text[:200]}")
         with self._lock:
             self._unlocked[self._acct()] = sk
+        self._remember_on_device(sk)
         return {"created": True, "unlocked": True}
+
+    def _remember_on_device(self, sk: X25519PrivateKey) -> None:
+        try:
+            self._seal_for_device(sk, account.device_public_key(self.config))
+        except VaultError:
+            pass   # older tokens without a device key: the passphrase keeps working
 
     def unlock(self, passphrase: str) -> dict:
         k = self.key()
@@ -151,6 +213,8 @@ class VaultClient:
             raise VaultError("保險箱金鑰不一致")
         with self._lock:
             self._unlocked[self._acct()] = sk
+        if not k.get("deviceWrapped"):
+            self._remember_on_device(sk)
         return {"created": False, "unlocked": True}
 
     def lock(self) -> None:
@@ -178,6 +242,8 @@ class VaultClient:
         return r.json()["revision"]
 
     def get(self, name: str) -> dict:
+        if self._acct() not in self._unlocked:
+            self._try_device_unlock(self.key() or {})
         sk = self._unlocked.get(self._acct())
         if not sk:
             raise VaultError("保險箱已上鎖，請輸入保險箱密語")

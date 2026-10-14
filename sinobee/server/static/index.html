@@ -203,6 +203,9 @@ details.tool .dur{color:var(--muted);font-size:12px;margin-left:6px}
 .dbmsg{padding:24px;color:var(--muted);text-align:center}.dbmsg.err{color:var(--err)}
 .fltr{display:flex;gap:6px;align-items:center}.fltr .inp{padding:4px 8px;font-size:12.5px}
 /* ---------- local models ---------- */
+.lcard svg.i{width:20px;height:20px;flex:none;vertical-align:-4px}
+.mk{background:var(--glow);color:inherit;border-radius:3px;padding:0 1px}
+#shareBtn.shared{color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .shprev{max-height:42vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--panel2)}.shprev .msg{margin:6px 0}
 .srcseg{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
 .srcseg button{text-align:left;border:1px solid var(--line);background:var(--panel2);color:var(--ink);border-radius:12px;padding:12px 14px;cursor:pointer;font:inherit;position:relative;overflow:hidden}
@@ -700,7 +703,7 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); tab = b.dataset.tab; loadSide(); });
 
 async function openSession(s){
-  sessionId = s.id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {};
+  sessionId = s.id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {};
   const [msgs, turns] = await Promise.all([api('/api/sessions/' + s.id), api('/api/sessions/' + s.id + '/turns')]);
   const chat = $('#chat');
   for (const [idx, m] of msgs.entries()) {
@@ -926,6 +929,8 @@ function renderAccount(){
       <div style="font-size:12px;color:var(--muted)">權限：${(a.scopes || []).map(esc).join('、') || '—'}</div></div>
       <a class="btn icon" data-icon="external" aria-label="在 sinobee.ai 管理裝置" href="${esc(ACCT.hub_url)}/account#devices" target="_blank" rel="noopener"></a>
       <button class="btn icon tip-left" data-icon="logout" aria-label="登出 sinobee.ai" type="button" id="acctLogout"></button></div>`;
+    el.insertAdjacentHTML('beforeend', '<div id="vaultBox" style="margin-top:8px"></div><div id="mySharesBox" style="margin-top:8px"></div>');
+    renderVaultBox(); renderMyShares();
     paintIcons(el);
     $('#acctLogout').onclick = async () => { if (!confirm('登出 sinobee.ai？這台電腦的權杖會被刪除。')) return;
       await api('/api/account/logout', {method: 'POST'}); loadAccount(); };
@@ -935,6 +940,7 @@ function renderAccount(){
     el.innerHTML = `<div class="lcard"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
       <div style="font-family:ui-monospace,Menlo,monospace;font-size:26px;letter-spacing:4px;font-weight:700">${esc(lg.user_code)}</div>
       <div style="flex:1;min-width:220px;font-size:13px">在 sinobee.ai 用 CAFECA 登入並確認代碼相同後按「授權」。<div style="color:var(--muted);font-size:12px">等待授權中… 代碼 ${Math.max(0, Math.round((lg.expires_at*1000 - Date.now())/60000))} 分鐘內有效</div></div>
+      ${lg.qr_svg ? `<div title="用手機掃描" style="line-height:0;border-radius:8px;overflow:hidden;background:#fff">${lg.qr_svg}</div>` : ''}
       <a class="btn primary" href="${esc(lg.verification_uri_complete || lg.verification_uri)}" target="_blank" rel="noopener">開啟授權頁</a>
       <button class="btn icon tip-left" data-icon="x" aria-label="取消登入" type="button" id="acctCancel"></button></div></div>`;
     paintIcons(el);
@@ -952,6 +958,23 @@ function renderAccount(){
     if (!r.ok){ $('#acctLogin').disabled = false; alert(j.detail || '無法連線到 sinobee.ai'); return; }
     if (j.verification_uri_complete) window.open(j.verification_uri_complete, '_blank', 'noopener');
     loadAccount(); };
+}
+async function renderVaultBox(){
+  const box = $('#vaultBox'); if (!box) return;
+  let v; try { v = await api('/api/vault'); } catch { return; }
+  if (!v.signed_in || !v.exists){ box.innerHTML = '<div class="note">加密保險箱：尚未建立（登錄私人工具並勾選「加密同步」時建立）。</div>'; return; }
+  let devs = []; if (v.unlocked) { try { devs = (await api('/api/vault/devices')).items || []; } catch {} }
+  const others = devs.filter(d => !d.current && !d.hasKey && d.publicKey);
+  box.innerHTML = `<div class="lcard" style="font-size:13px;display:flex;flex-direction:column;gap:6px">
+    <div>${ic('lock')} 加密保險箱：${v.unlocked ? '<b>已解鎖</b>' + (v.device_key ? '（這台電腦已保存金鑰，不需要再輸入密語）' : '') : '已上鎖'}</div>
+    ${v.unlocked ? (others.length ? `<div>這些已登入的裝置還沒有保險箱金鑰：${others.map(d => `<span style="display:inline-flex;gap:6px;align-items:center;margin:2px 8px 2px 0"><b>${esc(d.name)}</b> <button class="btn sm" type="button" data-dev="${esc(d.id)}">授權</button></span>`).join('')}</div>` : '<div class="note">所有已登入的裝置都能開啟保險箱。</div>')
+      : `<div style="display:flex;gap:8px"><input type="password" id="vaultPw" class="inp" placeholder="保險箱密語" style="flex:1"><button class="btn" type="button" id="vaultUnlock">解鎖</button></div>`}</div>`;
+  box.querySelectorAll('[data-dev]').forEach(b => b.onclick = async () => { b.disabled = true;
+    const r = await fetch('/api/vault/devices/' + encodeURIComponent(b.dataset.dev) + '/approve?token=' + encodeURIComponent(token), {method: 'POST'});
+    if (!r.ok) alert((await r.json()).detail); renderVaultBox(); });
+  if ($('#vaultUnlock')) $('#vaultUnlock').onclick = async () => {
+    const r = await fetch('/api/vault/unlock?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({passphrase: $('#vaultPw').value})});
+    if (!r.ok) { alert((await r.json()).detail); return; } renderVaultBox(); };
 }
 async function openSettings(firstRun = false){
   SET = await api('/api/settings'); renderSettings(); loadAccount(true); $('#setSaved').textContent = ''; $('#testResult').textContent = '';
@@ -1269,7 +1292,7 @@ async function openPublish(){
     el.innerHTML = PUB.vault?.exists
       ? `<label class="f">保險箱密語<input type="password" id="pubPw" autocomplete="current-password"></label>`
       : `<div class="note" style="margin-bottom:6px">第一次使用：設定保險箱密語。連線資料在這台電腦上加密後才上傳，sinobee.ai 無法解開；<b>忘記密語就無法復原</b>。</div>
-         <div class="grid2"><label class="f">保險箱密語（至少 8 字元）<input type="password" id="pubPw" autocomplete="new-password"></label><label class="f">再輸入一次<input type="password" id="pubPw2" autocomplete="new-password"></label></div>`; };
+         <div class="grid2"><label class="f">保險箱密語（至少 12 字元）<input type="password" id="pubPw" autocomplete="new-password"></label><label class="f">再輸入一次<input type="password" id="pubPw2" autocomplete="new-password"></label></div>`; };
   document.querySelectorAll('#pubVis button').forEach(b => b.onclick = () => vis(b.dataset.v));
   $('#pubSync').onchange = passRow; $('#pubSync').checked = !!t.vault_pack; vis(PUB.vis);
   $('#pubModal').classList.add('open');
@@ -1300,17 +1323,23 @@ $('#pubGo').onclick = async () => {
 };
 // ---------------- share a conversation on sinobee.ai ----------------
 const SH = {vis: 'LINK', preview: null};
-const RK = {secret: '已儲存的金鑰／密碼', dsn: '連線字串密碼', apikey: 'API 金鑰', token: '權杖', privatekey: '私鑰', password: '密碼欄位', path: '本機路徑'};
+const RK = {secret: '已儲存的金鑰／密碼', dsn: '連線字串密碼', apikey: 'API 金鑰', token: '權杖', privatekey: '私鑰', password: '密碼欄位', path: '本機路徑', host: '主機名稱／內網 IP', custom: '自訂字詞'};
 async function openShare(){
   if (!sessionId) return;
   $('#shState').textContent = ''; $('#shGo').hidden = false; $('#shGo').disabled = true;
   $('#shBody').innerHTML = '<div class="spin" style="margin:30px auto"></div>'; $('#shareModal').classList.add('open');
   await renderShare(true);
 }
+function shOpts(first){
+  if (first) return SH.opts = {include_tools: true, title: '', until_turn: 0, query_rows: 20, mask_hosts: false, extra_mask: '', expires: '30'};
+  return SH.opts = {include_tools: $('#shTools').checked, title: $('#shTitle').value, until_turn: +$('#shTurn').value || 0,
+    query_rows: +$('#shRows').value, mask_hosts: $('#shHosts').checked, extra_mask: $('#shMask').value, expires: $('#shExp').value};
+}
 async function renderShare(first){
-  const tools = first ? true : $('#shTools').checked, title = first ? '' : $('#shTitle').value;
+  const o = shOpts(first), tools = o.include_tools, title = o.title;
   const r = await fetch('/api/share/preview?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({session_id: sessionId, include_tools: tools, title: title || undefined})});
+    body: JSON.stringify({session_id: sessionId, include_tools: tools, title: title || undefined, until_turn: o.until_turn, query_rows: o.query_rows,
+      mask_hosts: o.mask_hosts, extra_mask: o.extra_mask})});
   const p = await r.json().catch(() => ({}));
   if (!r.ok){ $('#shBody').innerHTML = `<div class="dbmsg err">${esc(p.detail || '無法產生預覽')}</div>`; return; }
   SH.preview = p;
@@ -1318,14 +1347,21 @@ async function renderShare(first){
   const vis = [['LINK', '知道連結的人', '不會被列出或搜尋'], ['LOGIN', '需登入', 'CAFECA 登入，可指定帳號'], ['PUBLIC', '公開', '列在 sinobee.ai/shares']];
   $('#shBody').innerHTML = `${!p.signed_in ? `<div class="lcard" style="font-size:13px">需要先登入 SinoBee.ai 才能分享。<button class="btn primary" type="button" id="shLogin" style="margin-left:8px">登入</button></div>` : ''}
     <div class="grid2"><label class="f">標題<input id="shTitle" maxlength="160" value="${esc(p.title)}"></label>
-      <label class="f">有效期限<select id="shExp"><option value="">不過期</option><option value="1">1 天</option><option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option></select></label></div>
+      <label class="f">有效期限<select id="shExp">${[['1', '1 天'], ['7', '7 天'], ['30', '30 天'], ['90', '90 天'], ['365', '1 年'], ['', '不過期']].map(([v, l]) => `<option value="${v}"${o.expires === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="f">分享範圍<select id="shTurn"><option value="0">整段對話</option>${(p.turns || []).map((t, i) => `<option value="${i + 1}"${o.until_turn === i + 1 ? ' selected' : ''}>到第 ${i + 1} 輪：${esc(t.slice(0, 30))}</option>`).join('')}</select></label>
+      <label class="f">資料庫查詢結果<select id="shRows">${[[20, '只留前 20 列'], [100, '前 100 列'], [0, '不含查詢結果']].map(([v, l]) => `<option value="${v}"${o.query_rows === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>
     <div class="srcseg" id="shVis" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">${vis.map(([v, a, b]) => `<button type="button" data-v="${v}"${SH.vis === v ? ' class="on"' : ''}><b>${a}</b><span>${b}</span></button>`).join('')}</div>
     <label class="f" id="shAccRow" ${SH.vis === 'LOGIN' ? '' : 'hidden'}>只有這些 CAFECA 帳號能看（0x 地址或 @代稱，以空白或換行分隔；留空＝任何已登入者）<textarea id="shAcc" rows="2" style="font-family:ui-monospace,Menlo,monospace">${esc(SH.acc || '')}</textarea></label>
-    <label class="chips" style="margin:8px 0"><label><input type="checkbox" id="shTools" ${tools ? 'checked' : ''}> 附上工具呼叫與結果（每項最多 2000 字）</label></label>
-    <div class="note" style="margin:6px 0">${red.length ? '已遮蔽：' + red.map(x => `${RK[x.kind] || x.kind} × ${x.count}`).join('、') : '沒有偵測到需要遮蔽的內容。'}${p.files.length ? `　附件 ${p.files.length} 個（${p.files.map(f => esc(f.name)).join('、')}）` : ''}</div>
+    <label class="chips" style="margin:8px 0;display:flex;gap:14px;flex-wrap:wrap"><label><input type="checkbox" id="shTools" ${tools ? 'checked' : ''}> 附上工具呼叫與結果（每項最多 2000 字）</label>
+      <label><input type="checkbox" id="shHosts" ${o.mask_hosts ? 'checked' : ''}> 遮蔽主機名稱與內網 IP</label></label>
+    <label class="f">另外要遮蔽的字詞（每行一個，例如客戶名稱）<textarea id="shMask" rows="2">${esc(o.extra_mask)}</textarea></label>
+    <div class="note" style="margin:6px 0">${red.length ? '已遮蔽（預覽中以 <mark class="mk">••••</mark> 標示）：' + red.map(x => `${RK[x.kind] || x.kind} × ${x.count}`).join('、') : '沒有偵測到需要遮蔽的內容。'}${p.files.length ? `　附件 ${p.files.length} 個（${p.files.map(f => esc(f.name) + ' ' + fmtSize(f.size)).join('、')}）` : ''}${p.skills?.length ? `　使用的技能：${p.skills.map(esc).join('、')}` : ''}</div>
     <div class="shprev">${p.messages.map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}"><div class="bubble">${m.role === 'user' ? esc(m.text).replace(/\n/g, '<br>') : md(m.text.replace(/!\[([^\]]*)\]\(files\/(\d+)\)/g, (_, a, n) => `*［圖片附件：${(p.files.find(f => f.id === n) || {}).name || a}］*`))}${m.tools?.length ? `<div class="note" style="margin-top:6px">工具：${m.tools.map(t => esc(t.name)).join('、')}</div>` : ''}</div></div>`).join('')}</div>`;
   document.querySelectorAll('#shVis button').forEach(b => b.onclick = () => { SH.vis = b.dataset.v; document.querySelectorAll('#shVis button').forEach(x => x.classList.toggle('on', x === b)); $('#shAccRow').hidden = SH.vis !== 'LOGIN'; });
-  $('#shTools').onchange = () => { SH.acc = $('#shAcc').value; renderShare(false); };
+  const rerender = () => { SH.acc = $('#shAcc').value; renderShare(false); };
+  ['#shTools', '#shHosts', '#shTurn', '#shRows'].forEach(k => $(k).onchange = rerender);
+  $('#shMask').onchange = rerender;
+  $('#shBody .shprev').innerHTML = $('#shBody .shprev').innerHTML.replace(/••••/g, '<mark class="mk">••••</mark>');
   if ($('#shLogin')) $('#shLogin').onclick = () => { $('#shareModal').classList.remove('open'); openSettings(); };
   $('#shGo').disabled = !p.signed_in;
 }
@@ -1335,6 +1371,7 @@ $('#shGo').onclick = async () => {
   $('#shGo').disabled = true; $('#shState').textContent = '上傳中…';
   const r = await fetch('/api/share?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
     session_id: sessionId, include_tools: $('#shTools').checked, title: $('#shTitle').value.trim(), visibility: SH.vis,
+    until_turn: +$('#shTurn').value || 0, query_rows: +$('#shRows').value, mask_hosts: $('#shHosts').checked, extra_mask: $('#shMask').value,
     accounts: SH.vis === 'LOGIN' ? $('#shAcc').value.split(/[\s,]+/).filter(Boolean) : [], expires_days: +$('#shExp').value || null})});
   const j = await r.json().catch(() => ({}));
   if (!r.ok){ $('#shState').textContent = ''; $('#shGo').disabled = false; alert(j.detail || '分享失敗'); return; }
@@ -1344,7 +1381,40 @@ $('#shGo').onclick = async () => {
     <div style="display:flex;gap:8px;margin-top:10px"><input class="inp" id="shUrl" readonly value="${esc(j.url)}" style="flex:1"><button class="btn icon" type="button" id="shCopy" aria-label="複製連結">${ic('copy')}</button><a class="btn icon" href="${esc(j.url)}" target="_blank" rel="noopener" aria-label="開啟">${ic('external')}</a></div>
     <div class="note" style="margin-top:8px">可在分享頁變更可見範圍或撤回。內容雜湊稍後會在 Boltchain 存證。</div></div>`;
   $('#shCopy').onclick = () => { navigator.clipboard?.writeText(j.url); $('#shState').textContent = '已複製'; };
+  markShared();
 };
+async function markShared(){
+  const b = $('#shareBtn'); if (!b || !sessionId) return;
+  let n = 0; try { n = ((await api('/api/share/session/' + encodeURIComponent(sessionId))).items || []).length; } catch {}
+  b.classList.toggle('shared', n > 0); b.setAttribute('aria-label', n ? `分享對話（已分享 ${n} 次）` : '分享對話');
+}
+async function renderMyShares(){
+  const box = $('#mySharesBox'); if (!box) return;
+  let items = []; try { items = (await api('/api/share/mine')).items || []; } catch { return; }
+  items = items.filter(x => !x.revoked);
+  const V = {LINK: '知道連結', LOGIN: '需登入', PUBLIC: '公開'};
+  box.innerHTML = `<div class="lcard" style="font-size:13px"><b>我的分享</b>${items.length ? '' : '<div class="note">還沒有分享。</div>'}
+    ${items.map(x => `<div class="shrow" style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+      <a href="${esc(x.url)}" target="_blank" rel="noopener" style="flex:1;min-width:180px">${esc(x.title)}</a>
+      <span class="badge">${V[x.visibility]}${x.restricted ? '・指定帳號' : ''}</span><span class="note">${x.views} 次瀏覽${x.expires_at ? '・到 ' + new Date(x.expires_at).toLocaleDateString() : ''}</span>
+      <select data-vis="${esc(x.id)}" class="inp" style="width:auto">${Object.entries(V).map(([k, l]) => `<option value="${k}"${x.visibility === k ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <button class="btn sm" type="button" data-rev="${esc(x.id)}">撤回</button></div>`).join('')}</div>`;
+  box.querySelectorAll('[data-vis]').forEach(sel => sel.onchange = async () => {
+    const r = await fetch('/api/share/' + sel.dataset.vis + '?token=' + encodeURIComponent(token), {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({visibility: sel.value})});
+    if (!r.ok) alert((await r.json()).detail); renderMyShares(); });
+  box.querySelectorAll('[data-rev]').forEach(b => b.onclick = async () => { if (!confirm('撤回這個分享？連結會立即失效。')) return;
+    const r = await fetch('/api/share/' + b.dataset.rev + '?token=' + encodeURIComponent(token), {method: 'DELETE'}); if (!r.ok) alert((await r.json()).detail); renderMyShares(); markShared(); });
+}
+async function importFromUrl(){
+  const u = new URLSearchParams(location.search).get('import'); if (!u) return;
+  history.replaceState(null, '', location.pathname + (new URLSearchParams(location.search).get('token') ? '?token=' + encodeURIComponent(token) : ''));
+  if (!confirm(`把這個分享匯入成新的對話？\n\n${u}`)) return;
+  const r = await fetch('/api/share/import?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url: u})});
+  const j = await r.json(); if (!r.ok) { alert(j.detail || '匯入失敗'); return; }
+  tab = 'sessions'; await loadSide();
+  const s = (await api('/api/sessions')).find(x => x.id === j.session_id); if (s) openSession(s);
+}
+setTimeout(importFromUrl, 300);
 async function installTool(){
   const ref = prompt('從 SinoBee.ai 安裝工具（<publisher>/<name>）：'); if (!ref) return;
   let r = await fetch('/api/hub/tools/install?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ref: ref.trim()})});
@@ -1432,13 +1502,23 @@ async function loadStruct(){
 }
 function renderSql(){
   const q = DB.sel ? (DB.cur.kind === 'mysql' ? `SELECT * FROM \`${DB.sel.table}\` LIMIT 100;` : `SELECT * FROM "${DB.sel.schema}"."${DB.sel.table}" LIMIT 100;`) : 'SELECT 1;';
-  $('#dbBarExtra').innerHTML = `<button class="btn icon sm" id="sqlCancel" aria-label="中止查詢">${ic('stop')}</button><button class="btn icon primary" id="sqlRun" aria-label="執行（Ctrl+Enter）">${ic('play')}</button>`;
+  $('#dbBarExtra').innerHTML = `<button class="btn icon sm" id="sqlSave" aria-label="儲存查詢">${ic('check')}</button><button class="btn icon sm" id="sqlCancel" aria-label="中止查詢">${ic('stop')}</button><button class="btn icon primary" id="sqlRun" aria-label="執行（Ctrl+Enter）">${ic('play')}</button>`;
   $('#dbPane').innerHTML = `<div style="padding:10px;border-bottom:1px solid var(--line)"><textarea class="sqlarea" id="sqlText" spellcheck="false">${esc(DB.sqlDraft || q)}</textarea>
-    <div class="dbhist" id="sqlHist"></div></div><div class="dbgrid" id="sqlOut"><div class="dbmsg">按執行或 Ctrl+Enter。${DB.cur.allow_write ? '寫入語句會先請你確認。' : '這個連線是唯讀的。'}</div></div><div class="dbfoot" id="sqlFoot"></div>`;
+    <div class="dbhist" id="sqlSaved"></div><div class="dbhist" id="sqlHist"></div></div><div class="dbgrid" id="sqlOut"><div class="dbmsg">按執行或 Ctrl+Enter。${DB.cur.allow_write ? '寫入語句會先請你確認。' : '這個連線是唯讀的。'}</div></div><div class="dbfoot" id="sqlFoot"></div>`;
   $('#sqlText').oninput = () => DB.sqlDraft = $('#sqlText').value;
   $('#sqlText').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runSql(); } };
-  $('#sqlRun').onclick = runSql; $('#sqlCancel').onclick = () => dbPost('cancel', {}); loadHist();
+  $('#sqlRun').onclick = runSql; $('#sqlCancel').onclick = () => dbPost('cancel', {}); loadHist(); loadSaved();
+  $('#sqlSave').onclick = async () => { const sql = $('#sqlText').value.trim(); if (!sql) return;
+    const title = prompt('儲存查詢的名稱：', sql.replace(/\s+/g, ' ').slice(0, 40)); if (!title) return;
+    const r = await fetch(`/api/db/${encodeURIComponent(DB.cur.id)}/queries?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title, sql})});
+    const j = await r.json(); if (!r.ok) { alert(j.detail); return; } loadSaved(); };
 }
+async function loadSaved(){ const r = await api(`/api/db/${encodeURIComponent(DB.cur.id)}/queries`); const qs = r.queries || [];
+  $('#sqlSaved').innerHTML = qs.length ? '<small style="color:var(--muted)">已儲存的查詢</small>' + qs.map((q, i) => `<div data-i="${i}" title="${esc(q.sql)}">★ ${esc(q.title)} <span class="sqdel" data-t="${esc(q.title)}" title="刪除" style="float:right;opacity:.6">✕</span></div>`).join('') : '';
+  $('#sqlSaved').querySelectorAll('div').forEach(d => d.onclick = async e => {
+    if (e.target.classList.contains('sqdel')) { if (!confirm('刪除這個儲存的查詢？')) return;
+      await fetch(`/api/db/${encodeURIComponent(DB.cur.id)}/queries?token=${encodeURIComponent(token)}&title=${encodeURIComponent(e.target.dataset.t)}`, {method: 'DELETE'}); loadSaved(); return; }
+    $('#sqlText').value = qs[+d.dataset.i].sql; DB.sqlDraft = $('#sqlText').value; }); }
 async function loadHist(){ const r = await api(`/api/db/${encodeURIComponent(DB.cur.id)}/history`);
   $('#sqlHist').innerHTML = (r.history || []).slice(0, 12).map((h, i) => `<div data-i="${i}" title="${esc(h.sql)}">${h.ok ? '✓' : '✕'} ${esc(h.sql.replace(/\s+/g, ' ').slice(0, 140))}</div>`).join('');
   $('#sqlHist').querySelectorAll('div').forEach(d => d.onclick = () => { $('#sqlText').value = r.history[+d.dataset.i].sql; DB.sqlDraft = $('#sqlText').value; }); }

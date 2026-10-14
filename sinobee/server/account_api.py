@@ -16,8 +16,11 @@ def register(app: FastAPI, rt) -> None:
         lg = state["login"]
         if not lg:
             return None
-        return {k: lg.get(k) for k in ("user_code", "verification_uri", "verification_uri_complete", "expires_at",
-                                       "status", "error")}
+        out = {k: lg.get(k) for k in ("user_code", "verification_uri", "verification_uri_complete", "expires_at",
+                                      "status", "error")}
+        if lg.get("status") == "pending":
+            out["qr_svg"] = lg.get("qr_svg")
+        return out
 
     async def poller(lg: dict) -> None:
         cfg = rt().config
@@ -53,7 +56,8 @@ def register(app: FastAPI, rt) -> None:
             s = await asyncio.to_thread(account.start, rt().config)
         except account.AccountError as e:
             raise HTTPException(502, str(e)) from None
-        lg = {**s, "status": "pending", "error": None, "expires_at": time.time() + int(s.get("expires_in", 900))}
+        lg = {**s, "status": "pending", "error": None, "expires_at": time.time() + int(s.get("expires_in", 900)),
+              "qr_svg": account.qr_svg(s.get("verification_uri_complete") or s["verification_uri"])}
         lg["task"] = asyncio.create_task(poller(lg))
         state["login"] = lg
         return public_login()

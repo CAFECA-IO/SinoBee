@@ -15,6 +15,7 @@ import httpx
 from . import __version__
 
 TOKEN = "sinobee-ai:token"
+DEVICE_KEY = "sinobee-ai:device-key"   # this install's X25519 private key (base64), for its copy of the vault key
 ACCOUNT = "sinobee-ai:account"
 SCOPES = "skills:publish tools:write vault:rw shares:write"
 UA = {"User-Agent": f"sinobee/{__version__}"}
@@ -42,14 +43,60 @@ def _post(url: str, data: dict, timeout: float = 20) -> httpx.Response:
         raise AccountError(f"無法連線到 {url.split('/api/')[0]}：{e}") from None
 
 
+def device_public_key(config) -> str:
+    """This install's X25519 public key (created on first use, kept in secrets.json)."""
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    raw = config.secrets.get_secret(DEVICE_KEY)
+    if raw:
+        sk = X25519PrivateKey.from_private_bytes(base64.b64decode(raw))
+    else:
+        sk = X25519PrivateKey.generate()
+        config.secrets.set_secret(DEVICE_KEY, base64.b64encode(sk.private_bytes(
+            serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())).decode())
+    return base64.b64encode(sk.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
+
+
+def device_private_key(config):
+    import base64
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    raw = config.secrets.get_secret(DEVICE_KEY)
+    return X25519PrivateKey.from_private_bytes(base64.b64decode(raw)) if raw else None
+
+
 def start(config) -> dict:
     """Step 1: request a device code. Returns the RFC 8628 response (device_code stays local)."""
     r = _post(f"{base_url(config)}/api/v1/device/code",
               {"client_id": "sinobee", "device_name": device_name(),
-               "platform": f"{platform.system()} {platform.machine()}".strip(), "scope": SCOPES})
+               "platform": f"{platform.system()} {platform.machine()}".strip(), "scope": SCOPES,
+               "public_key": device_public_key(config)})
+    if r.status_code == 429:
+        raise AccountError("登入要求太頻繁，請幾分鐘後再試")
     if r.status_code >= 400 or "json" not in r.headers.get("content-type", ""):
         raise AccountError(f"sinobee.ai 無法開始登入（HTTP {r.status_code}）")
     return r.json()
+
+
+def qr_svg(url: str) -> str | None:
+    """QR code of the verification link (for Docker / phones). None when segno is missing."""
+    try:
+        import segno
+    except ImportError:
+        return None
+    import io
+    buf = io.BytesIO()
+    segno.make(url, error="m").save(buf, kind="svg", scale=4, border=2, dark="#04201a", light="#ffffff", xmldecl=False,
+                                     svgns=True, nl=False)
+    return buf.getvalue().decode()
+
+
+def qr_terminal(url: str) -> None:
+    try:
+        import segno
+        segno.make(url, error="l").terminal(compact=True)
+    except Exception:  # noqa: BLE001 - optional
+        pass
 
 
 def poll_once(config, device_code: str) -> dict:

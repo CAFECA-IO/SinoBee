@@ -332,12 +332,18 @@ def _account_cmd(args) -> None:
             return
         s = account.start(cfg)
         print(f"\n  在瀏覽器開啟  {s['verification_uri']}\n  輸入代碼      {s['user_code']}\n")
-        if not args.no_browser:
+        link = s.get("verification_uri_complete") or s["verification_uri"]
+        opened = False
+        if not args.no_browser and (os.environ.get("DISPLAY") or sys.platform in ("darwin", "win32")) \
+                and not os.path.exists("/.dockerenv"):
             try:
                 import webbrowser
-                webbrowser.open(s.get("verification_uri_complete") or s["verification_uri"])
+                opened = webbrowser.open(link)
             except Exception:  # noqa: BLE001 - headless machines
-                pass
+                opened = False
+        if not opened:
+            print("  或用手機掃描：")
+            account.qr_terminal(link)
         print("等待授權中…（Ctrl+C 取消）", flush=True)
         res = account.wait(cfg, s)
     except account.AccountError as e:
@@ -369,6 +375,33 @@ def _vault_unlock(cfg) -> None:
         if p1 != getpass.getpass("再輸入一次："):
             raise SystemExit("兩次密語不同")
         v.setup(p1)
+
+
+def _share_cmd(args) -> None:
+    from . import account, share
+    from .config import Config
+    cfg = Config.load()
+    try:
+        if args.action == "list":
+            for x in share.mine(cfg):
+                if not x.get("revoked"):
+                    print(f"{x['url']:<44} {x['visibility']:<7} {x['views']:>5} 次  {x['title']}")
+        elif args.action == "import":
+            if not args.ref:
+                raise SystemExit("用法：sinobee share import <分享連結>")
+            from .memory.store import MemoryStore
+            mem = MemoryStore(cfg.db_path)
+            r = share.import_share(cfg, mem, args.ref)
+            print(f"已匯入「{r['title']}」為新對話 {r['session_id']}（{r['messages']} 則訊息、{r['files']} 個附件）")
+            print(f"繼續：sinobee chat -s {r['session_id']}")
+        elif args.action == "revoke":
+            if not args.ref:
+                raise SystemExit("用法：sinobee share revoke <id>")
+            share.revoke(cfg, args.ref)
+            print("已撤回。")
+    except (share.ShareError, account.AccountError) as e:
+        print(f"錯誤：{e}")
+        sys.exit(1)
 
 
 def _tools_cmd(args) -> None:
@@ -463,6 +496,9 @@ def main(argv: list[str] | None = None) -> None:
     lg.add_argument("--no-browser", action="store_true", help="only print the link")
     sub.add_parser("logout", help="sign out of sinobee.ai on this machine")
     sub.add_parser("whoami", help="show the signed-in sinobee.ai account")
+    sh = sub.add_parser("share", help="conversations shared on sinobee.ai: list, import, revoke")
+    sh.add_argument("action", choices=["list", "import", "revoke"])
+    sh.add_argument("ref", nargs="?", help="share URL (import) or id (revoke)")
     tl = sub.add_parser("tools", help="database tools on sinobee.ai: list, search, publish, install")
     tl.add_argument("action", choices=["list", "search", "publish", "install"])
     tl.add_argument("ref", nargs="?", help="connection id/name (publish), <publisher>/<name> (install), query (search)")
@@ -496,6 +532,8 @@ def main(argv: list[str] | None = None) -> None:
         _account_cmd(args)
     elif args.cmd == "tools":
         _tools_cmd(args)
+    elif args.cmd == "share":
+        _share_cmd(args)
 
 
 if __name__ == "__main__":

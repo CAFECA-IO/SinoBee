@@ -11,13 +11,13 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
 def test_wrap_unwrap_and_wrong_passphrase():
     sk = X25519PrivateKey.generate()
-    w = vault.wrap_private_key(sk, "correct horse")
+    w = vault.wrap_private_key(sk, "correct horse 42")
     assert w["kdf"]["alg"] == "scrypt" and w["kdf"]["n"] >= 32768
-    back = vault.unwrap_private_key(w, "correct horse")
+    back = vault.unwrap_private_key(w, "correct horse 42")
     assert vault._raw(back) == vault._raw(sk)
     with pytest.raises(vault.VaultError, match="不正確"):
         vault.unwrap_private_key(w, "wrong horse")
-    with pytest.raises(vault.VaultError, match="8"):
+    with pytest.raises(vault.VaultError, match="12"):
         vault.wrap_private_key(sk, "short")
 
 
@@ -48,3 +48,23 @@ def test_manifest_never_contains_credentials():
     assert manifest_for(s, version="1.0.0")["database"]["file"] == "data.db"   # the path stays local
     assert tool_name(Connection(id="y", name="訂單", kind="mysql", database="erp")) == "erp"
     assert bump(None) == "1.0.0" and bump("1.2.9") == "1.2.10"
+
+
+def test_tool_folder_queries_notes_and_skill(config):
+    from sinobee.db import toolfolder
+    c = Connection(id="shop", name="商店", kind="sqlite", path="/tmp/x.db")
+    toolfolder.save_query(config, c, "前五大客戶", "SELECT name FROM customers LIMIT 5")
+    with pytest.raises(ValueError, match="唯讀"):
+        toolfolder.save_query(config, c, "刪", "DELETE FROM customers")
+    toolfolder.set_notes(config, c, {"main.customers": "客戶主檔", "main.customers.tier": "A/B/C 等級"})
+    f = toolfolder.write(config, c, description="商店的訂單與客戶", tables=[{"schema": "main", "name": "customers",
+                                                                  "columns": [{"name": "id"}, {"name": "tier"}]}])
+    md = (f / "SKILL.md").read_text()
+    assert "name: db-shop" in md and "客戶主檔" in md and "A/B/C 等級" in md and "SELECT name FROM customers LIMIT 5" in md
+    # a SKILL.md written by the user / agent is kept on later refreshes
+    toolfolder.write(config, c, skill="---\nname: db-shop\ndescription: custom\n---\n# mine\n", custom_skill=True)
+    toolfolder.write(config, c, description="again")
+    assert "# mine" in (f / "SKILL.md").read_text()
+    m = manifest_for(c, version="1.0.0", queries=toolfolder.queries(config, c), notes=toolfolder.notes(config, c),
+                     skill=toolfolder.skill_md(config, c))
+    assert m["queries"][0]["title"] == "前五大客戶" and m["notes"]["main.customers"] == "客戶主檔" and "# mine" in m["skill"]

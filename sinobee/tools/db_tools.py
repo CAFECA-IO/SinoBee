@@ -60,6 +60,12 @@ async def db_schema(ctx: ToolContext, connection: str, schema: str | None = None
         return {"schema": schema, "table": table, **(await svc.table_info(c.id, schema, table))}
     tree = await svc.schema_tree(connection)
     out = {"server": tree["version"][:120], "schemas": []}
+    from ..db import toolfolder
+    c = svc.get(connection)
+    if (nts := toolfolder.notes(ctx.config, c)):
+        out["notes"] = nts
+    if (qs := toolfolder.queries(ctx.config, c)):
+        out["saved_queries"] = [q["title"] for q in qs]
     for s in tree["schemas"]:
         if schema and s["name"] != schema:
             continue
@@ -111,3 +117,53 @@ async def db_execute(ctx: ToolContext, connection: str, sql: str):
     if res["columns"]:
         return f"{res['row_count']} rows\n\n{md_table(res['columns'], res['rows'])}"
     return f"done: {res['statement']}, {res['affected'] if res['affected'] is not None else 'unknown'} rows affected"
+
+
+@tool("db_save_query", "database",
+      "Save a useful read-only query for a connection (title + SQL) so the user can rerun it from the SQL editor "
+      "and so it is included when the connection is made into a tool.",
+      {"properties": {"connection": {"type": "string"}, "title": {"type": "string"}, "sql": {"type": "string"}},
+       "required": ["connection", "title", "sql"]})
+def db_save_query(ctx: ToolContext, connection: str, title: str, sql: str):
+    from ..db import toolfolder
+    c = service(ctx.config).get(connection)
+    items = toolfolder.save_query(ctx.config, c, title, sql)
+    return f"saved「{title}」({len(items)} saved queries for {c.name})"
+
+
+@tool("db_make_tool", "database",
+      "Turn a saved connection into a tool the user can reuse and register on sinobee.ai: writes the local tool "
+      "folder (~/.sinobee/tools/<id>/) with a description, table/column notes, saved queries and a SKILL.md that "
+      "tells agents how to use this database. Study the schema (db_schema) and a few queries first. Credentials "
+      "are never written. Registering on sinobee.ai is done by the user (Database tab → upload button).",
+      {"properties": {"connection": {"type": "string"},
+                      "description": {"type": "string", "description": "what this database holds, 1–3 sentences"},
+                      "notes": {"type": "object", "description": "{\"schema.table\": note, \"schema.table.column\": note}",
+                                "additionalProperties": {"type": "string"}},
+                      "queries": {"type": "array", "items": {"type": "object", "properties": {
+                          "title": {"type": "string"}, "sql": {"type": "string"}}, "required": ["title", "sql"]}},
+                      "skill_md": {"type": "string", "description": "optional full SKILL.md; generated when omitted"}},
+       "required": ["connection", "description"]})
+async def db_make_tool(ctx: ToolContext, connection: str, description: str, notes: dict | None = None,
+                       queries: list | None = None, skill_md: str | None = None):
+    from ..db import toolfolder
+    from ..db.hub import schema_snapshot
+    svc = service(ctx.config)
+    c = svc.get(connection)
+    skipped = []
+    for q in reversed(queries or []):
+        try:
+            toolfolder.save_query(ctx.config, c, str(q.get("title", "")), str(q.get("sql", "")))
+        except ValueError as e:
+            skipped.append(f"{q.get('title')}: {e}")
+    if notes:
+        toolfolder.set_notes(ctx.config, c, notes)
+    tables = await schema_snapshot(svc, c)
+    f = toolfolder.write(ctx.config, c, skill=skill_md or None, custom_skill=bool(skill_md), description=description,
+                         tables=tables, skills=ctx.skills)
+    meta = {**(c.tool or {}), "description": description[:2000]}
+    svc.store.update_meta(c.id, tool=meta)
+    return (f"tool folder ready: {f} (SKILL.md, {len(toolfolder.queries(ctx.config, c))} saved queries, "
+            f"{len(toolfolder.notes(ctx.config, c))} notes); skill `{toolfolder.skill_name(c)}` installed. "
+            "Tell the user they can register it on sinobee.ai from the Database tab (upload button)."
+            + (f" Skipped: {'; '.join(skipped)}" if skipped else ""))

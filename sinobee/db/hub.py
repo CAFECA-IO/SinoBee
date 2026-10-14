@@ -37,7 +37,7 @@ def bump(version: str | None) -> str:
 
 def manifest_for(c: Connection, *, version: str, title: str | None = None, description: str = "",
                  include_host: bool = True, tables: list[dict] | None = None, vault_pack: str | None = None,
-                 queries: list[dict] | None = None) -> dict:
+                 queries: list[dict] | None = None, notes: dict | None = None, skill: str | None = None) -> dict:
     db: dict = {"engine": c.kind, "readOnly": not c.allow_write, "rowLimit": c.row_limit, "timeoutS": c.timeout_s}
     if c.kind == "sqlite":
         db["file"] = os.path.basename(c.path)[:255]
@@ -53,7 +53,11 @@ def manifest_for(c: Connection, *, version: str, title: str | None = None, descr
     if tables:
         m["tables"] = tables[:MAX_TABLES]
     if queries:
-        m["queries"] = queries[:50]
+        m["queries"] = [{"title": q["title"], "sql": q["sql"]} for q in queries[:50]]
+    if notes:
+        m["notes"] = {k: v for k, v in list(notes.items())[:500]}
+    if skill:
+        m["skill"] = skill[:20000]
     if vault_pack:
         m["vaultPack"] = vault_pack
     return m
@@ -93,14 +97,24 @@ def _err(r: httpx.Response) -> str:
 
 async def publish(config, service, c: Connection, *, visibility: str = "PRIVATE", sync_secret: bool = False,
                   include_schema: bool = True, include_host: bool = True, title: str | None = None,
-                  description: str = "") -> dict:
+                  description: str = "", skills=None) -> dict:
+    from . import toolfolder
     visibility = visibility.upper()
     if visibility not in ("PRIVATE", "PUBLIC"):
         raise HubToolError("visibility 需為 PRIVATE 或 PUBLIC")
     if sync_secret and visibility == "PUBLIC":
         raise HubToolError("公開工具不能同步帳號密碼")
     tables = await schema_snapshot(service, c) if include_schema else None
+    # the local tool folder (saved queries, notes, SKILL.md) is what gets registered
+    toolfolder.write(config, c, description=description, tables=tables or [], skills=skills)
     pack = None
+    prev_pack = (c.tool or {}).get("vault_pack")
+    if visibility == "PUBLIC" and prev_pack:
+        # going public: the encrypted credentials leave the cloud first
+        try:
+            VaultClient(config).delete(prev_pack)
+        except VaultError as e:
+            raise HubToolError(f"無法刪除雲端的加密連線資料：{e}") from None
     if sync_secret:
         pack = f"db:{c.id}"
         data = {k: v for k, v in asdict(c).items() if k != "tool"}
@@ -111,7 +125,8 @@ async def publish(config, service, c: Connection, *, visibility: str = "PRIVATE"
             raise HubToolError(str(e)) from None
     version = bump((c.tool or {}).get("version"))
     m = manifest_for(c, version=version, title=title, description=description, include_host=include_host,
-                     tables=tables, vault_pack=pack)
+                     tables=tables, vault_pack=pack, queries=toolfolder.queries(config, c),
+                     notes=toolfolder.notes(config, c), skill=toolfolder.skill_md(config, c))
     r = _client(config, "POST", "/api/v1/tools", "tools:write", json={"manifest": m, "visibility": visibility})
     if r.status_code == 409 and "already exists" in r.text:
         # someone published this version from another machine: take the next one
@@ -121,6 +136,7 @@ async def publish(config, service, c: Connection, *, visibility: str = "PRIVATE"
         raise HubToolError(f"登錄失敗：{_err(r)}")
     res = r.json()
     url = f"{account.base_url(config)}/tools/{res['id']}"
+    toolfolder.write(config, c, manifest=m)
     service.store.update_meta(c.id, tool={"id": res["id"], "name": m["name"], "version": m["version"],
                                           "visibility": visibility, "status": res["status"], "url": url,
                                           "vault_pack": pack})
@@ -141,7 +157,7 @@ def search(config, q: str = "") -> list[dict]:
     return r.json().get("items", [])
 
 
-def install(config, service, ref: str) -> dict:
+def install(config, service, ref: str, skills=None) -> dict:
     """Add a tool as a local connection. Own private tools with a vault pack get their credentials back
     (vault must be unlocked); everything else asks the user for credentials."""
     ref = ref.strip().removeprefix("tool:").strip("/")
@@ -186,6 +202,17 @@ def install(config, service, ref: str) -> dict:
     service.store.update_meta(conn.id, tool={"id": t["id"], "name": m["name"], "version": t["version"],
                                              "visibility": t["visibility"], "installed": True,
                                              "url": f"{account.base_url(config)}/tools/{t['id']}"})
+    # the tool folder comes along: saved queries, notes and the SKILL.md the publisher wrote
+    from . import toolfolder
+    for q in reversed(m.get("queries") or []):
+        try:
+            toolfolder.save_query(config, conn, q["title"], q["sql"])
+        except ValueError:
+            pass
+    if m.get("notes"):
+        toolfolder.set_notes(config, conn, m["notes"])
+    toolfolder.write(config, conn, manifest=m, skill=m.get("skill"), custom_skill=bool(m.get("skill")),
+                     description=m.get("description", ""), skills=skills)
     _client(config, "POST", f"/api/v1/tools/{t['id']}/install", scope)
     return {"connection": conn.id, "name": conn.name, "restored_credentials": bool(password or (restored or {}).get("user")),
             "needs_credentials": d["engine"] != "sqlite" and not password, "version": t["version"]}
