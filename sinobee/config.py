@@ -27,12 +27,13 @@ DEFAULTS: dict[str, Any] = {
         "max_tokens": 8192,
         "reasoning_max_tokens": 16384,   # used for reasoning/thinking models (gpt-5, o*, gemini-2.5/3, r1 ...)
         "vision": True,          # send screenshots as images
+        "context_window": "auto",  # tokens the model accepts; "auto" = known model limits (agent/context.py)
     },
     "providers": {},             # per-provider overrides: {name: {base_url, api_key_env, api_key, transport}}
     "agent": {
         "name": "SinoBee",
         "max_iterations": 60,
-        "context_budget": 120000,   # tokens; compress above 80% of this
+        "context_budget": "auto",   # optional cap in tokens; "auto" = the model's context window (see model.context_window)
         "tool_output_limit": 12000, # chars per tool result
         "language": "auto",
     },

@@ -19,7 +19,7 @@ RULES = [
     (r"HTTP 429|rate.?limit|quota|RESOURCE_EXHAUSTED|insufficient_quota", "超過供應商的速率限制或額度",
      "稍後再試，或到供應商後台確認額度；也可以在設定加一個備援模型。"),
     (r"context.{0,20}(length|window)|too many tokens|maximum context|prompt is too long",
-     "對話內容超過模型的上下文長度", "開一個新對話，或改用上下文較長的模型。"),
+     "對話內容超過模型的上下文長度（自動壓縮後仍超過）", "到「設定 → 模型」把「上下文上限」設成這個模型的實際上限，或開一個新對話。"),
     (r"model not configured|no model selected", "還沒有選擇模型", "到「設定」選擇主要模型並填入金鑰。"),
     (r"network error|ConnectError|Timeout|timed out|Name or service not known|HTTP 50[234]",
      "連不到模型服務（網路或供應商暫時故障）", "確認網路與供應商狀態後重試；可設定備援模型自動切換。"),

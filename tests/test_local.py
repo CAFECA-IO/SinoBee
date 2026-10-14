@@ -130,7 +130,9 @@ def test_agent_context_budget_shrinks_for_local(monkeypatch, tmp_path):
         config = Config({"model": {"default": "ollama/qwen3:8b"}}, tmp_path)
     a = Agent.__new__(Agent)
     a.config = Dummy.config
-    assert a._context_budget() == 16384 - 4096 - 4000
+    assert a._context_budget() == 16384 - 4096 - 1024          # num_ctx - answer room - margin
     assert a._max_tokens() == 4096
     a.config = Config({"model": {"default": "openai/gpt-4.1"}}, tmp_path)
-    assert a._context_budget() == 120000
+    assert a._context_budget() == 1_047_576 - 8192 - 1_047_576 // 50
+    a.config = Config({"model": {"default": "openai/gpt-4.1"}, "agent": {"context_budget": 120000}}, tmp_path)
+    assert a._context_budget() == 120000                        # an explicit cap still applies

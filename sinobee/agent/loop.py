@@ -19,7 +19,7 @@ from ..providers import build_auxiliary, build_chain, build_embedder
 from ..skills import manager_from_config
 from ..tools.registry import REGISTRY, ToolContext
 from ..types import ImagePart, Message, TextPart, ToolCall, Usage
-from .context import compress, estimate_tokens, prune_images
+from .context import OVERFLOW_RE, compact, context_budget, context_window, estimate_tokens, prune_images, with_summary
 from .prompt import build_context_block, build_system_prompt
 
 log = logging.getLogger("sinobee.agent")
@@ -207,7 +207,7 @@ class Agent:
         self.ctx = ToolContext(config=self.config, session_id=self.session_id, memory=runtime.memory,
                                skills=runtime.skills, emit=self._emit, approve=approve)
         runtime.memory.ensure_session(self.session_id, platform)
-        self.history: list[Message] = runtime.memory.load_messages(self.session_id)
+        self.history: list[Message] = self._load_history()
         self._core_at_start = {m.id: m.content for m in runtime.memory.core()}
         self.system = Message("system", build_system_prompt(self.config, runtime.memory.render_core(),
                                                             sorted(self.tool_names)))
@@ -287,6 +287,7 @@ class Agent:
         max_iter = int(self.config.get("agent.max_iterations", 60))
         max_tokens = self._max_tokens()
         empty_replies = 0
+        overflow_retried = False
         nudge = False
         tool_specs = self._tool_specs()
         status, error_info, started, steps = "done", None, time.time(), 0
@@ -308,21 +309,10 @@ class Agent:
                                                  "detail": final_text}
                 break
             prune_images(self.history, keep_last=2)
-            budget = self._context_budget()
+            budget = self._context_budget(max_tokens)
+            if estimate_tokens([self.system] + self.history, tool_specs, context_block) > budget * 0.8:
+                turn_start = await self._compact(budget, tool_specs, context_block, turn_start)
             msgs = [self.system] + self.history
-            if estimate_tokens(msgs) > budget * 0.8:
-                self._emit("status", {"message": "compressing context"})
-                usage_scope.purpose = "compression"
-                self._persist()   # the DB keeps the full transcript; only the in-memory context is compressed
-                try:
-                    new_msgs, changed = await compress(msgs, self.rt.aux, budget=budget)
-                finally:
-                    usage_scope.purpose = "agent"
-                if changed:
-                    self.history = new_msgs[1:]
-                    self._persisted = len(self.history)
-                    turn_start = 0
-                    msgs = new_msgs
             # attach volatile context to the newest *real* user message of this turn
             request = list(msgs)
             idx = next((i for i in range(len(request) - 1, 0, -1)
@@ -341,6 +331,18 @@ class Agent:
                                                    temperature=self.config.get("model.temperature", 0.3),
                                                    max_tokens=max_tokens)
             except Exception as e:
+                if OVERFLOW_RE.search(str(e)) and not overflow_retried:
+                    # the estimate was too optimistic for this model: compact hard and try once more
+                    overflow_retried = True
+                    log.warning("context overflow (%s); compacting and retrying", str(e)[:200])
+                    self._budget_cap = self._overflow_budget(str(e), budget, max_tokens,
+                                                             estimate_tokens(request, tool_specs, context_block))
+                    budget = self._context_budget(max_tokens)
+                    before = len(self.history)
+                    turn_start = await self._compact(budget, tool_specs, context_block, turn_start,
+                                                     force=True, keep_ratio=0.25, reason="overflow")
+                    if self._last_compaction_changed or len(self.history) != before:
+                        continue
                 from .errors import explain_error
                 error_info = explain_error(e)
                 status = "error"
@@ -461,13 +463,74 @@ class Agent:
             return [TextPart(clean(p.text)) if isinstance(p, TextPart) else p for p in user_input]
         return user_input
 
-    def _context_budget(self) -> int:
-        budget = int(self.config.get("agent.context_budget", 120000))
-        if local.is_local_spec(self.config.get("model.default")):
-            # a local runtime truncates silently past num_ctx: compress before that
-            nctx = local.num_ctx(self.config)
-            budget = min(budget, nctx - nctx // 4 - 4000)  # minus answer room and tool schemas
-        return budget
+    _budget_cap: int | None = None   # learned from a "context too long" error; lasts for this agent
+
+    def _context_budget(self, max_tokens: int | None = None) -> int:
+        """Request budget for the main model: its context window minus the answer room (see context.py)."""
+        budget = context_budget(self.config, max_tokens or self._max_tokens())
+        return min(budget, self._budget_cap) if self._budget_cap else budget
+
+    @staticmethod
+    def _overflow_budget(error: str, budget: int, max_tokens: int, estimate: int) -> int:
+        """A smaller budget (in SinoBee's estimate units) after the provider rejected the request as too long.
+        "210000 tokens > 200000 maximum": scale the stated limit by how far off the estimate was;
+        one number: treat it as the limit; none: 60 % of what was sent."""
+        nums = sorted({int(n.replace(",", "")) for n in re.findall(r"\d[\d,]{3,}", error)
+                       if int(n.replace(",", "")) >= 2048}, reverse=True)
+        if len(nums) >= 2:
+            sent, limit = nums[0], nums[1]
+            cap = (limit - max_tokens - max(1024, limit // 50)) * estimate / sent
+        elif nums:
+            limit = nums[0]
+            cap = min(limit - max_tokens - max(1024, limit // 50), estimate * 0.8)
+        else:
+            cap = estimate * 0.6
+        return max(2048, min(budget, int(cap)))
+
+    def _load_history(self) -> list[Message]:
+        """The model context of this session: the latest compaction summary + the messages after it."""
+        mem = self.rt.memory
+        cp = mem.checkpoint(self.session_id)
+        if cp and 0 < cp["upto_idx"] <= mem.last_index(self.session_id) + 1:
+            tail = mem.load_messages(self.session_id, since=cp["upto_idx"])
+            return with_summary(Message("system", ""), cp["summary"], tail)[1:]
+        return mem.load_messages(self.session_id)
+
+    _last_compaction_changed = False
+
+    async def _compact(self, budget: int, tool_specs, context_block: str, turn_start: int, *,
+                       force: bool = False, keep_ratio: float = 0.4, reason: str = "budget") -> int:
+        """Summarise older messages; saves a checkpoint and returns the adjusted start of the current turn."""
+        self._emit("status", {"message": "對話內容較長，正在整理較早的內容（壓縮上下文）"})
+        usage_scope = current_scope.get()
+        if usage_scope is not None:
+            usage_scope.purpose = "compression"
+        self._persist()   # the DB keeps the full transcript; only the model context is compacted
+        aux_spec = self.config.get("model.auxiliary") or self.config.get("model.default")
+        aux_window, _ = context_window(self.config, aux_spec)
+        try:
+            res = await compact([self.system] + self.history, self.rt.aux, budget=budget, tools=tool_specs,
+                                extra=context_block, force=force, keep_ratio=keep_ratio,
+                                digest_tokens=max(2000, min(40000, int(aux_window * 0.6) - 2000)))
+        finally:
+            if usage_scope is not None:
+                usage_scope.purpose = "agent"
+        self._last_compaction_changed = res.changed
+        if not res.changed:
+            return turn_start
+        in_turn = len(self.history) - turn_start
+        self.history = res.messages[1:]
+        self._persisted = len(self.history)
+        if res.summary:
+            upto = self.rt.memory.last_index(self.session_id) + 1 - res.tail_len
+            try:
+                self.rt.memory.save_checkpoint(self.session_id, upto, res.summary, self.rt.provider.label)
+            except Exception:  # noqa: BLE001 - a missing checkpoint only costs a re-summary later
+                log.exception("could not save context checkpoint")
+        log.info("context compacted (%s): %d messages kept, %d trimmed, budget %d", reason, res.tail_len,
+                 res.trimmed, budget)
+        first_real = len(self.history) - res.tail_len
+        return max(first_real, len(self.history) - in_turn)
 
     def _max_tokens(self) -> int:
         """Reasoning models spend the output budget on hidden thinking; give them room for the visible answer."""

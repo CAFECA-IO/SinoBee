@@ -387,6 +387,8 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
             <div class="sc"><input class="inp" id="mEmb" placeholder="openai/text-embedding-3-small"><span class="lock" data-lock="model.embedding"></span></div></div>
           <div class="srow"><div class="sl"><b>模型看得懂圖片</b><span class="sd">開啟後操作桌面或瀏覽器時會把截圖給模型看</span></div>
             <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="mVision" aria-label="模型看得懂圖片"></div></div>
+          <div class="srow"><div class="sl"><b>上下文上限</b><span class="sd" id="mCtxNote">對話超過約八成時，較早的內容會自動整理成摘要；auto 依模型自動判斷</span></div>
+            <div class="sc"><input class="inp" id="mCtx" placeholder="auto（例如 200k）"><span class="lock" data-lock="model.context_window"></span></div></div>
           <div class="srow end"><span id="testResult" class="sd"></span>
             <button class="btn" id="loadModels" type="button">載入可用模型</button><button class="btn" id="testModel" type="button">測試連線</button></div>
           <datalist id="modelList"></datalist>
@@ -1047,7 +1049,9 @@ function keySource(p){
 function renderSettings(){
   const m = SET.model;
   $('#mDefault').value = m.default || ''; $('#mFallbacks').value = (m.fallbacks || []).join(', ');
-  $('#mAux').value = m.auxiliary || ''; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false;
+  $('#mAux').value = m.auxiliary || ''; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : '';
+  { const c = SET.context || {}, k = n => n >= 1e6 ? `${+(n / 1e6).toFixed(2)}M` : `${Math.round(n / 1000)}K`;
+    $('#mCtxNote').textContent = c.window ? `目前以 ${k(c.window)} tokens 計算（${{setting: '手動設定', local: '本機 num_ctx', model: '依模型', default: '未知模型的預設值'}[c.source] || c.source}），對話超過約 ${k(Math.round(c.budget * 0.8))} 時，較早的內容會自動整理成摘要` : '對話超過約八成時，較早的內容會自動整理成摘要；auto 依模型自動判斷'; }
   $('#keyRows').innerHTML = SET.providers.filter(p => p.name !== 'ollama').map(p => `<div class="krow" data-p="${esc(p.name)}">
     <b>${esc(p.label)}</b><span style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis">${esc(p.base_url)}</span>
     <input class="inp" type="password" autocomplete="off" placeholder="${p.key_source === 'env' ? '由啟動參數提供' : (p.has_key ? '輸入新金鑰以更換' : '貼上 API Key')}" ${p.key_source === 'env' ? 'disabled' : ''}>
@@ -1155,7 +1159,7 @@ async function openSettings(firstRun = false, pane = null){
 }
 function collectSettings(){
   const body = {model: {default: $('#mDefault').value, fallbacks: $('#mFallbacks').value, auxiliary: $('#mAux').value,
-                        embedding: $('#mEmb').value, vision: $('#mVision').checked},
+                        embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto'},
                 permissions: {approval: $('#pApproval').value, toolsets: [...document.querySelectorAll('#pToolsets input:checked')].map(i => i.value)},
                 usage: {daily_budget_usd: $('#uDaily').value, monthly_budget_usd: $('#uMonthly').value, currency: $('#uCurrency').value,
                         currency_rate: $('#uRate').value, enforce_budget: $('#uEnforce').checked},

@@ -48,7 +48,9 @@ def settings_payload(rt) -> dict:
         prov = split_model(default)[0]
         needs_setup = needs_key(prov, cfg) and not resolve_key(prov, cfg)[0]
     return {
-        "model": {k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "embedding", "vision")},
+        "model": {k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "embedding", "vision",
+                                                      "context_window")},
+        "context": _context_info(cfg),
         "permissions": {"approval": cfg.get("permissions.approval"), "toolsets": cfg.get("permissions.toolsets"),
                         "allowed_paths": cfg.get("permissions.allowed_paths")},
         "usage": cfg.get("usage"),
@@ -61,6 +63,17 @@ def settings_payload(rt) -> dict:
         "needs_setup": needs_setup,
         "provider_error": rt.provider_error,
     }
+
+
+def _context_info(cfg) -> dict:
+    """The context window SinoBee assumes for the default model and the resulting request budget."""
+    from ..agent.context import context_budget, context_window
+    try:
+        window, source = context_window(cfg)
+        out = int(cfg.get("model.max_tokens", 8192))
+        return {"window": window, "source": source, "budget": context_budget(cfg, out)}
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def register(app: FastAPI, rt_getter) -> None:
@@ -89,6 +102,19 @@ def register(app: FastAPI, rt_getter) -> None:
                 m["fallbacks"] = fb
             if "vision" in body["model"]:
                 m["vision"] = bool(body["model"]["vision"])
+            if "context_window" in body["model"]:
+                v = str(body["model"]["context_window"] or "").strip().lower().replace(",", "").replace("_", "")
+                if v in ("", "auto"):
+                    m["context_window"] = "auto"
+                else:
+                    mult = 1000 if v.endswith("k") else 1_000_000 if v.endswith("m") else 1
+                    try:
+                        n = int(float(v.rstrip("km")) * mult)
+                        if n < 2048:
+                            raise ValueError
+                        m["context_window"] = n
+                    except ValueError:
+                        errors.append("model.context_window: a number of tokens (e.g. 200000 or 200k), or auto")
             updates["model"] = m
         if "permissions" in body:
             p = body["permissions"]

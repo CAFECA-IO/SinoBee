@@ -129,6 +129,8 @@ CREATE TABLE IF NOT EXISTS feedback(
   id INTEGER PRIMARY KEY AUTOINCREMENT, turn_id INTEGER, session_id TEXT, rating INTEGER, tags TEXT DEFAULT '[]',
   comment TEXT, created_at REAL, learned INTEGER DEFAULT 0, learn_report TEXT);
 CREATE INDEX IF NOT EXISTS feedback_turn ON feedback(turn_id);
+CREATE TABLE IF NOT EXISTS context_checkpoints(
+  session_id TEXT PRIMARY KEY, upto_idx INTEGER NOT NULL, summary TEXT NOT NULL, model TEXT, created_at REAL);
 CREATE TABLE IF NOT EXISTS pending_writes(
   id TEXT PRIMARY KEY, kind TEXT, payload TEXT, created_at REAL);
 """
@@ -467,11 +469,33 @@ class MemoryStore:
                             (now, len(messages), sid))
             self.db.commit()
 
-    def load_messages(self, sid: str) -> list:
+    def load_messages(self, sid: str, since: int = 0) -> list:
         from ..types import Message
         with self._lock:
-            rows = self.db.execute("SELECT data FROM messages WHERE session_id=? ORDER BY idx", (sid,)).fetchall()
+            rows = self.db.execute("SELECT data FROM messages WHERE session_id=? AND idx>=? ORDER BY idx",
+                                   (sid, since)).fetchall()
         return [Message.from_dict(json.loads(r["data"])) for r in rows]
+
+    # ------------------------------------------------------------------ context checkpoints (compaction summaries)
+    def save_checkpoint(self, sid: str, upto_idx: int, summary: str, model: str | None = None) -> None:
+        """The model context of `sid` is now: summary + messages with idx >= upto_idx (the transcript stays whole)."""
+        with self._lock:
+            self.db.execute("INSERT INTO context_checkpoints(session_id, upto_idx, summary, model, created_at) "
+                            "VALUES(?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET upto_idx=excluded.upto_idx, "
+                            "summary=excluded.summary, model=excluded.model, created_at=excluded.created_at",
+                            (sid, int(upto_idx), summary, model, time.time()))
+            self.db.commit()
+
+    def checkpoint(self, sid: str) -> dict | None:
+        with self._lock:
+            r = self.db.execute("SELECT upto_idx, summary, model, created_at FROM context_checkpoints "
+                                "WHERE session_id=?", (sid,)).fetchone()
+        return dict(r) if r else None
+
+    def clear_checkpoint(self, sid: str) -> None:
+        with self._lock:
+            self.db.execute("DELETE FROM context_checkpoints WHERE session_id=?", (sid,))
+            self.db.commit()
 
     def sessions(self, limit: int = 50) -> list[dict]:
         with self._lock:
