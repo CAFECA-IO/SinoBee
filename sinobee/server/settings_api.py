@@ -12,7 +12,7 @@ from ..providers import (PRESETS, build_provider, key_env_for, needs_key, provid
 from ..secrets import mask
 from ..types import Message
 
-ALL_TOOLSETS = ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage"]
+ALL_TOOLSETS = ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database"]
 PROVIDER_LABELS = {
     "openai": "OpenAI", "anthropic": "Anthropic", "gemini": "Google Gemini", "openrouter": "OpenRouter",
     "deepseek": "DeepSeek", "groq": "Groq", "mistral": "Mistral", "xai": "xAI", "together": "Together",

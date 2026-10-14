@@ -37,7 +37,7 @@ DEFAULTS: dict[str, Any] = {
         "language": "auto",
     },
     "permissions": {
-        "toolsets": ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage"],
+        "toolsets": ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database"],
         "approval": "confirm",      # auto | confirm | readonly
         "allowed_paths": [],        # empty = unrestricted
     },

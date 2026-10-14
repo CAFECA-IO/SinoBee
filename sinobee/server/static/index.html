@@ -175,7 +175,35 @@ details.tool .dur{color:var(--muted);font-size:12px;margin-left:6px}
 .result.stopped b{color:var(--muted)}
 .result .hint{margin-top:4px}.result details{margin-top:6px;color:var(--muted)}.result pre{white-space:pre-wrap;font-size:12px;max-height:240px;overflow:auto}
 .run-dot{color:var(--accent);font-size:11px;margin-left:4px}
+/* ---------- database browser ---------- */
+.dbwrap{display:grid;grid-template-columns:248px minmax(0,1fr);height:min(76vh,760px);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:12px}
+.dbtree{overflow:auto;border-right:1px solid var(--line);padding:6px;background:var(--panel2);font-size:13px}
+.dbtree .sch{font-weight:600;color:var(--muted);margin:10px 6px 4px;font-size:11.5px;letter-spacing:.03em}
+.dbt{display:flex;gap:6px;align-items:center;padding:5px 8px;border-radius:7px;cursor:pointer;color:var(--ink)}
+.dbt:hover{background:var(--tool)}.dbt.on{background:var(--tool);box-shadow:inset 3px 0 0 var(--accent)}
+.dbt svg{width:14px;height:14px;flex:none;color:var(--muted)}.dbt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dbt small{margin-left:auto;color:var(--muted);font-size:11px;flex:none}
+.dbmain{display:flex;flex-direction:column;min-width:0;min-height:0}
+.dbbar{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.dbbar .grow{flex:1}
+.dbgrid{flex:1;overflow:auto;min-height:0}
+.dbgrid table{border-collapse:separate;border-spacing:0;font-size:12.5px;width:max-content;min-width:100%}
+.dbgrid th{position:sticky;top:0;background:var(--panel2);text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap;font-weight:600;z-index:1}
+.dbgrid th.sortable{cursor:pointer}.dbgrid th .ar{color:var(--accent);margin-left:4px}
+.dbgrid td{padding:5px 10px;border-bottom:1px solid var(--line);max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.dbgrid td.null{color:var(--muted);font-style:italic}.dbgrid td.num{text-align:right}
+.dbgrid tr:hover td{background:var(--tool)}
+.dbfoot{padding:7px 10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.dbfoot .grow{flex:1}
+.sqlarea{width:100%;min-height:118px;font:13px/1.5 ui-monospace,Menlo,monospace;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--code);color:var(--ink);resize:vertical}
+.dbhist{max-height:120px;overflow:auto;font:12px ui-monospace,Menlo,monospace;color:var(--muted)}
+.dbhist div{padding:3px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dbhist div:hover{background:var(--tool);color:var(--ink)}
+.kindtag{font-size:10px;font-weight:700;letter-spacing:.04em;padding:1px 6px;border-radius:5px;background:var(--tool);color:var(--muted);border:1px solid var(--line)}
+.dbstruct{padding:12px;overflow:auto}
+.dbmsg{padding:24px;color:var(--muted);text-align:center}.dbmsg.err{color:var(--err)}
+.fltr{display:flex;gap:6px;align-items:center}.fltr .inp{padding:4px 8px;font-size:12.5px}
 /* ---------- local models ---------- */
+.shprev{max-height:42vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--panel2)}.shprev .msg{margin:6px 0}
 .srcseg{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
 .srcseg button{text-align:left;border:1px solid var(--line);background:var(--panel2);color:var(--ink);border-radius:12px;padding:12px 14px;cursor:pointer;font:inherit;position:relative;overflow:hidden}
 .srcseg button b{display:block;font-size:14px}.srcseg button span{font-size:12px;color:var(--muted)}
@@ -211,7 +239,7 @@ background-image:radial-gradient(circle,rgba(4,32,26,.35) 1.2px,transparent 1.6p
 <body>
 <aside>
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2fb3a0"/><stop offset="1" stop-color="#7fe8b6"/></linearGradient></defs><ellipse cx="12" cy="14" rx="5" ry="6" fill="url(#bg1)" stroke="none"/><path d="M7.5 12h9M7.5 15.5h9" stroke="var(--bg)"/><path d="M9 8c-3-4-7-2-6 1s5 2 6 1M15 8c3-4 7-2 6 1s-5 2-6 1" stroke="var(--accent)"/></svg><b>SinoBee</b></div>
-  <div class="tabs" role="tablist"><button data-tab="sessions" class="on" role="tab" data-icon="chat" aria-label="對話"></button><button data-tab="memory" role="tab" data-icon="brain" aria-label="記憶"></button><button data-tab="skills" role="tab" data-icon="puzzle" aria-label="技能"></button></div>
+  <div class="tabs" role="tablist"><button data-tab="sessions" class="on" role="tab" data-icon="chat" aria-label="對話"></button><button data-tab="memory" role="tab" data-icon="brain" aria-label="記憶"></button><button data-tab="skills" role="tab" data-icon="puzzle" aria-label="技能"></button><button data-tab="data" role="tab" data-icon="database" aria-label="資料庫"></button></div>
   <div class="list" id="side"></div>
   <div class="status" id="status">連線中…</div>
   <canvas class="ht" data-ht="side"></canvas>
@@ -222,6 +250,7 @@ background-image:radial-gradient(circle,rgba(4,32,26,.35) 1.2px,transparent 1.6p
     <button class="btn icon" data-icon="stop" aria-label="停止任務" id="stopBtn" hidden></button>
     <button class="btn icon" data-icon="monitor" aria-label="即時桌面" id="deskBtn" hidden></button>
     <button class="btn icon" data-icon="sparkles" aria-label="從此對話學習技能" id="learnBtn" hidden></button>
+    <button class="btn icon" data-icon="share" aria-label="分享對話" id="shareBtn" hidden></button>
     <button class="btn icon" data-icon="chart" aria-label="用量與成本" id="usageBtn"></button>
     <button class="btn icon" data-icon="gear" aria-label="設定" id="settingsBtn"></button><button class="btn icon tip-left" data-icon="sun" aria-label="切換深色／淺色" id="themeBtn"></button></header>
   <div id="chat"><div class="empty"><div class="hero"><canvas data-ht="hero"></canvas></div><h2>今天要我做什麼？</h2><div>我可以操作瀏覽器、滑鼠鍵盤、終端機與檔案，並記住你的偏好與做事方法。</div></div></div>
@@ -239,6 +268,7 @@ background-image:radial-gradient(circle,rgba(4,32,26,.35) 1.2px,transparent 1.6p
 <div class="modal" id="settings"><div class="card wide">
   <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">設定</h3><span class="badge" id="setSaved"></span></div>
   <div id="setBanner"></div>
+  <div class="sec" id="acctSec"><h4>SinoBee.ai 帳號 <span style="font-weight:400;color:var(--muted);font-size:12px">— 發佈技能、登錄工具、加密同步、分享對話時使用；權杖存於 secrets.json，不會傳給模型</span></h4><div id="acctBody"></div></div>
   <div class="sec"><h4>模型來源</h4>
     <div class="srcseg" id="srcSeg"><button type="button" data-src="cloud"><b>☁︎ 雲端 API</b><span>OpenAI、Anthropic、Gemini…，需要 API 金鑰、依用量計費</span></button>
       <button type="button" data-src="local"><b>⌂ 本機架設模型</b><span>在這台電腦上執行開放模型，免金鑰、免費、資料不出門</span></button></div>
@@ -286,6 +316,49 @@ background-image:radial-gradient(circle,rgba(4,32,26,.35) 1.2px,transparent 1.6p
     <table class="t" id="priceTable"><thead><tr><th>模型（名稱或前綴）</th><th>輸入</th><th>快取讀取</th><th>快取寫入</th><th>輸出</th><th></th></tr></thead><tbody></tbody></table>
     <button class="btn icon" data-icon="plus" aria-label="新增費率" id="addPrice" type="button" style="margin-top:8px"></button></div>
   <div class="row"><button class="btn" id="setClose" type="button">關閉</button><button class="btn primary" id="setSave" type="button">儲存</button></div>
+</div></div>
+<div class="modal" id="dbForm"><div class="card" style="max-width:640px">
+  <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0" id="dfTitle">新增資料庫連線</h3><span class="badge" id="dfMsg"></span></div>
+  <div class="seg" id="dfKind" style="margin:12px 0"><button data-k="postgres" type="button">PostgreSQL</button><button data-k="mysql" type="button">MySQL / MariaDB</button><button data-k="sqlite" type="button">SQLite</button></div>
+  <label class="f" style="margin-bottom:10px">貼上連線字串（選填，例如 postgres://user:密碼@host:5432/db）<input id="dfDsn" autocomplete="off" spellcheck="false"></label>
+  <div class="grid2">
+    <label class="f">名稱<input id="dfName" placeholder="例如 公司 ERP"></label>
+    <label class="f dfnet">主機<input id="dfHost" placeholder="db.example.com" spellcheck="false"></label>
+    <label class="f dfnet">連接埠<input id="dfPort" type="number" min="1" max="65535"></label>
+    <label class="f dfnet">資料庫<input id="dfDb" spellcheck="false"></label>
+    <label class="f dfnet">帳號<input id="dfUser" autocomplete="off" spellcheck="false"></label>
+    <label class="f dfnet">密碼<input id="dfPw" type="password" autocomplete="new-password"></label>
+    <label class="f dfnet">SSL<select id="dfSsl"><option value="prefer">prefer（有就用）</option><option value="require">require（一定要加密）</option><option value="verify-full">verify-full（驗證憑證與主機）</option><option value="disable">disable</option></select></label>
+    <label class="f dfsqlite">SQLite 檔案路徑<input id="dfPath" placeholder="/home/bee/workspace/data.db" spellcheck="false"></label>
+    <label class="f">每次最多回傳列數<input id="dfRows" type="number" min="1" max="10000" value="500"></label>
+    <label class="f">查詢逾時（秒）<input id="dfTimeout" type="number" min="1" max="600" value="30"></label>
+  </div>
+  <label class="chips" style="margin-top:10px"><label><input type="checkbox" id="dfWrite"> 允許寫入（每次寫入仍需你核准；建議改用唯讀帳號）</label></label>
+  <div class="note" style="margin-top:8px">密碼只存在這台電腦的 secrets.json（權限 600），不會出現在對話裡，也不會送給模型。</div>
+  <div class="row"><button class="btn danger" id="dfDelete" type="button" hidden>刪除</button><span style="flex:1"></span><button class="btn" id="dfTest" type="button">測試連線</button><button class="btn" id="dfCancel" type="button">取消</button><button class="btn primary" id="dfSave" type="button">儲存</button></div>
+</div></div>
+<div class="modal" id="dbBrowser"><div class="card wide" style="max-width:1240px;width:100%">
+  <div style="display:flex;align-items:center;gap:10px"><span class="kindtag" id="dbKind"></span><h3 style="margin:0" id="dbName"></h3><span style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="dbLabel"></span><span style="flex:1"></span>
+    <button class="btn icon" id="dbAsk" data-icon="sparkles" aria-label="請 SinoBee 查詢或分析"></button><button class="btn icon" id="dbPublish" data-icon="upload" aria-label="登錄到 SinoBee.ai"></button><button class="btn icon" id="dbEdit" data-icon="pencil" aria-label="編輯連線"></button><button class="btn icon" id="dbReload" data-icon="refresh" aria-label="重新整理結構"></button><button class="btn icon tip-left" id="dbClose" data-icon="x" aria-label="關閉"></button></div>
+  <div class="dbwrap"><div class="dbtree" id="dbTree"></div><div class="dbmain">
+    <div class="dbbar"><div class="seg" id="dbTabs"><button data-t="data" class="on">資料</button><button data-t="struct">結構</button><button data-t="sql">SQL</button></div><span class="grow"></span><span id="dbBarExtra" class="fltr"></span></div>
+    <div id="dbPane" class="dbmain" style="flex:1;min-height:0"></div>
+  </div></div>
+</div></div>
+<div class="modal" id="shareModal"><div class="card wide" style="max-width:860px">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 style="margin:0">分享對話</h3><span class="badge" id="shState"></span></div>
+  <p style="font-size:13px;color:var(--muted);margin:6px 0 12px">下面就是會上傳到 sinobee.ai 的內容。金鑰、密碼、權杖與本機路徑已自動遮蔽；內容雜湊會在 Boltchain 存證，可隨時撤回。</p>
+  <div id="shBody"></div>
+  <div class="row"><button class="btn" id="shClose" type="button">關閉</button><button class="btn primary" id="shGo" type="button">建立分享連結</button></div>
+</div></div>
+<div class="modal" id="pubModal"><div class="card" style="max-width:560px">
+  <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">登錄到 SinoBee.ai</h3><span class="badge" id="pubState"></span></div>
+  <p style="font-size:13px;color:var(--muted);margin:6px 0 12px">工具只記錄連線目標與查詢方式；帳號密碼不會上傳。內容雜湊會在 Boltchain 存證。</p>
+  <div class="srcseg" id="pubVis"><button type="button" data-v="PRIVATE"><b>私人</b><span>只有你看得到，立即可用；可加密同步帳號密碼到其他電腦</span></button>
+    <button type="button" data-v="PUBLIC"><b>公開</b><span>審核後列在 sinobee.ai/tools，其他人填自己的帳號密碼使用</span></button></div>
+  <div id="pubOpts"></div>
+  <div id="pubMsg" style="font-size:13px;margin-top:10px"></div>
+  <div class="row"><button class="btn" id="pubClose" type="button">關閉</button><button class="btn primary" id="pubGo" type="button">登錄</button></div>
 </div></div>
 <div class="modal" id="skillModal"><div class="card wide"><h3 id="skTitle" style="margin-top:0"></h3><div id="skInfo"></div>
   <pre id="skBody" style="max-height:45vh;margin-top:12px"></pre><div class="row" id="skActs"></div></div></div>
@@ -347,6 +420,15 @@ const ICONS = {
   chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/>',
   brain: '<path d="M9.5 3A3 3 0 0 0 7 6.2 3 3 0 0 0 4.5 10a3 3 0 0 0 .8 4.6A3.2 3.2 0 0 0 9 19.8a2.5 2.5 0 0 0 3-.8V4.6A2.5 2.5 0 0 0 9.5 3z"/><path d="M14.5 3A3 3 0 0 1 17 6.2a3 3 0 0 1 2.5 3.8 3 3 0 0 1-.8 4.6 3.2 3.2 0 0 1-3.7 5.2 2.5 2.5 0 0 1-3-.8"/><path d="M7 6.2c.6.9 1.6 1.4 2.6 1.4M17 6.2c-.6.9-1.6 1.4-2.6 1.4M5.3 14.6c.9-.6 2-.7 3-.3M18.7 14.6c-.9-.6-2-.7-3-.3"/>',
   puzzle: '<path d="M4 8h4.5V7a2.25 2.25 0 1 1 4.5 0v1h4v4.5h1a2.25 2.25 0 1 1 0 4.5h-1V21H4z"/>',
+  database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/>',
+  external: '<path d="M14 3h7v7M21 3l-9 9"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>',
+  upload: '<path d="M12 21V9M7 14l5-5 5 5M4 3h16"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
 };
 const ic = name => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
@@ -519,7 +601,7 @@ function handle(ev, replay = false){
   if (ev.type === 'turn_end' && ev.session_id) { delete RUNNING[ev.session_id]; setBusy(); }
   if (ev.session_id && ev.type !== 'session' && ev.session_id !== sessionId) return;
   switch (ev.type) {
-    case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; $('#learnBtn').hidden = false; setBusy(); } break;
+    case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
     case 'notice': add('ⓘ ' + esc(ev.error || ev.message), 'note'); break;
     case 'assistant': add(md(ev.text), 'msg assistant'); break;
     case 'tool_call': {
@@ -604,6 +686,7 @@ async function uploadPending(){
 $('#form').onsubmit = async e => {
   e.preventDefault(); let text = $('#input').value.trim(); if ((!text && !PENDING.length) || RUNNING[sessionId]) return;
   if (NEEDS_SETUP) { openSettings(true); return; }
+  if (await interceptDsn(text)) return;
   try { text = (text || '請查看附件') + await uploadPending(); }
   catch (err) { add('ⓘ ' + esc(err.message), 'note'); sendState('idle'); return; }
   add(md(text), 'msg user'); $('#input').value = '';
@@ -611,13 +694,13 @@ $('#form').onsubmit = async e => {
   ws.send(JSON.stringify({type:'message', session_id: sessionId, text, client_ref: CLIENT_REF}));
 };
 $('#input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#form').requestSubmit(); } });
-$('#newBtn').onclick = () => { sessionId = null; setTimeout(setBusy); $('#learnBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
+$('#newBtn').onclick = () => { sessionId = null; setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
 $('#stopBtn').onclick = () => ws.send(JSON.stringify({type:'cancel', session_id: sessionId}));
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); tab = b.dataset.tab; loadSide(); });
 
 async function openSession(s){
-  sessionId = s.id; $('#learnBtn').hidden = false; $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {};
+  sessionId = s.id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {};
   const [msgs, turns] = await Promise.all([api('/api/sessions/' + s.id), api('/api/sessions/' + s.id + '/turns')]);
   const chat = $('#chat');
   for (const [idx, m] of msgs.entries()) {
@@ -666,6 +749,8 @@ async function fillSide(side){
       d.onclick = async () => { if (confirm('封存這則記憶？\n' + m.content)) { await api('/api/memories/' + m.id, {method:'DELETE'}); loadSide(); } };
       side.appendChild(d);
     }
+  } else if (tab === 'data') {
+    await fillData(side);
   } else {
     const data = await api('/api/skills');
     const pj = data.project || {};
@@ -823,8 +908,53 @@ function addPriceRow(model = '', v = {}){
   tr.innerHTML = `<td><input class="inp" placeholder="openai/gpt-5.4 或 gpt-5.4" value="${esc(model)}"></td>${cell('input')}${cell('cache_read')}${cell('cache_write')}${cell('output')}<td><button class="btn icon sm danger tip-left" type="button" aria-label="移除費率">${ic('trash')}</button></td>`;
   tr.querySelector('button').onclick = () => tr.remove(); $('#priceTable tbody').appendChild(tr);
 }
+// ---------------- sinobee.ai account (device-code sign-in) ----------------
+let ACCT = null, acctTimer = null;
+async function loadAccount(remote = false){
+  try { ACCT = await api('/api/account' + (remote ? '?remote=true' : '')); } catch { ACCT = null; }
+  renderAccount(); return ACCT;
+}
+function renderAccount(){
+  const el = $('#acctBody'); if (!el || !ACCT) return;
+  clearTimeout(acctTimer);
+  const lg = ACCT.login, a = ACCT.account;
+  if (ACCT.signed_in && a){
+    const who = a.handle ? '@' + esc(a.handle) : esc(a.account || '');
+    el.innerHTML = `<div class="lcard" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">${ic('user')}
+      <div style="flex:1;min-width:200px"><b>${who}</b> <span class="badge">已登入</span>${a.offline ? ' <span class="badge">離線</span>' : ''}
+      <div style="font-size:12px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;word-break:break-all">${esc(a.account || '')}${a.publisher ? ' · publisher ' + esc(a.publisher) : ''}</div>
+      <div style="font-size:12px;color:var(--muted)">權限：${(a.scopes || []).map(esc).join('、') || '—'}</div></div>
+      <a class="btn icon" data-icon="external" aria-label="在 sinobee.ai 管理裝置" href="${esc(ACCT.hub_url)}/account#devices" target="_blank" rel="noopener"></a>
+      <button class="btn icon tip-left" data-icon="logout" aria-label="登出 sinobee.ai" type="button" id="acctLogout"></button></div>`;
+    paintIcons(el);
+    $('#acctLogout').onclick = async () => { if (!confirm('登出 sinobee.ai？這台電腦的權杖會被刪除。')) return;
+      await api('/api/account/logout', {method: 'POST'}); loadAccount(); };
+    return;
+  }
+  if (lg && lg.status === 'pending'){
+    el.innerHTML = `<div class="lcard"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:26px;letter-spacing:4px;font-weight:700">${esc(lg.user_code)}</div>
+      <div style="flex:1;min-width:220px;font-size:13px">在 sinobee.ai 用 CAFECA 登入並確認代碼相同後按「授權」。<div style="color:var(--muted);font-size:12px">等待授權中… 代碼 ${Math.max(0, Math.round((lg.expires_at*1000 - Date.now())/60000))} 分鐘內有效</div></div>
+      <a class="btn primary" href="${esc(lg.verification_uri_complete || lg.verification_uri)}" target="_blank" rel="noopener">開啟授權頁</a>
+      <button class="btn icon tip-left" data-icon="x" aria-label="取消登入" type="button" id="acctCancel"></button></div></div>`;
+    paintIcons(el);
+    $('#acctCancel').onclick = async () => { await api('/api/account/login', {method: 'DELETE'}); loadAccount(); };
+    acctTimer = setTimeout(() => { if ($('#settings').classList.contains('open')) loadAccount(); }, 3000);
+    return;
+  }
+  const msg = lg && {denied: '登入要求被拒絕。', expired: '代碼已過期，請重新登入。', error: '登入失敗：' + (lg.error || '')}[lg.status];
+  el.innerHTML = `<div class="lcard" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">${ic('user')}
+    <div style="flex:1;min-width:200px;font-size:13px">尚未登入 <span style="color:var(--muted)">${esc(ACCT.hub_url)}</span>${msg ? `<div style="color:var(--err);font-size:12px">${esc(msg)}</div>` : ''}</div>
+    <button class="btn primary" type="button" id="acctLogin">登入 SinoBee.ai</button></div>`;
+  $('#acctLogin').onclick = async () => { $('#acctLogin').disabled = true;
+    const r = await fetch('/api/account/login?token=' + encodeURIComponent(token), {method: 'POST'});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok){ $('#acctLogin').disabled = false; alert(j.detail || '無法連線到 sinobee.ai'); return; }
+    if (j.verification_uri_complete) window.open(j.verification_uri_complete, '_blank', 'noopener');
+    loadAccount(); };
+}
 async function openSettings(firstRun = false){
-  SET = await api('/api/settings'); renderSettings(); $('#setSaved').textContent = ''; $('#testResult').textContent = '';
+  SET = await api('/api/settings'); renderSettings(); loadAccount(true); $('#setSaved').textContent = ''; $('#testResult').textContent = '';
   $('#settings').classList.add('open');
 }
 function collectSettings(){
@@ -1053,6 +1183,305 @@ async function footLocal(model){
       : m.state === 'loading' ? ['load', '載入中…'] : m.state === 'pulling' ? ['load', `下載中 ${m.progress?.pct || 0}%`] : ['', '已下載，待命（首次呼叫時載入）'];
     el.innerHTML = `<br><span class="ldot ${s[0]}"></span>${esc(s[1])} · 免費`;
   } catch { el.innerHTML = ''; }
+}
+
+// ---------------- database browser ----------------
+const DB = {conns: [], cur: null, tree: null, sel: null, tab: 'data', page: 0, sort: null, desc: false, filters: [], last: null, cols: [], onSaved: null, editing: null, kind: 'postgres'};
+const DB_KIND_LABEL = {postgres: 'PG', mysql: 'MySQL', sqlite: 'SQLite'};
+const DB_PORTS = {postgres: 5432, mysql: 3306};
+async function fillData(side){
+  const r = await api('/api/db/connections'); DB.conns = r.connections || [];
+  const head = document.createElement('div'); head.className = 'skhead';
+  head.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><span style="flex:1">資料庫連線 ${DB.conns.length ? '· ' + DB.conns.length : ''}</span><button class="btn icon sm" id="dbInstall" aria-label="從 SinoBee.ai 安裝工具">${ic('download')}</button><button class="btn icon sm tip-left" id="dbAdd" aria-label="新增連線">${ic('plus')}</button></div>
+    <div style="margin-top:6px">支援 PostgreSQL、MySQL / MariaDB、SQLite；預設唯讀。</div>`;
+  side.appendChild(head); head.querySelector('#dbAdd').onclick = () => openDbForm(); head.querySelector('#dbInstall').onclick = installTool;
+  for (const c of DB.conns) {
+    const d = document.createElement('div'); d.className = 'item';
+    const tl = c.tool?.version ? ` <span class="tb" title="${esc(c.tool.id)}@${esc(c.tool.version)}">${c.tool.installed ? '已安裝' : c.tool.visibility === 'PUBLIC' ? '公開' : '已登錄'}</span>` : '';
+    d.innerHTML = `<span class="kindtag">${DB_KIND_LABEL[c.kind]}</span> ${esc(c.name)}${c.allow_write ? ' <span class="tb t-agent">可寫入</span>' : ''}${tl}<small>${esc(c.label)}</small>`;
+    d.onclick = () => openDb(c.id); side.appendChild(d);
+  }
+  if (!DB.conns.length) { const e = document.createElement('div'); e.className = 'note'; e.style.padding = '8px 10px';
+    e.innerHTML = '還沒有連線。按 ＋ 新增，或在對話中貼上連線字串。'; side.appendChild(e); }
+}
+function dfKind(k){ DB.kind = k; document.querySelectorAll('#dfKind button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+  document.querySelectorAll('#dbForm .dfnet').forEach(x => x.hidden = k === 'sqlite'); document.querySelectorAll('#dbForm .dfsqlite').forEach(x => x.hidden = k !== 'sqlite');
+  if (k !== 'sqlite' && (!$('#dfPort').value || Object.values(DB_PORTS).includes(+$('#dfPort').value))) $('#dfPort').value = DB_PORTS[k]; }
+document.querySelectorAll('#dfKind button').forEach(b => b.onclick = () => dfKind(b.dataset.k));
+function openDbForm(conn = null, prefill = null, onSaved = null){
+  DB.editing = conn; DB.onSaved = onSaved; const v = {...(conn || {}), ...(prefill || {})};
+  $('#dfTitle').textContent = conn ? '編輯連線：' + conn.name : '新增資料庫連線'; $('#dfMsg').textContent = '';
+  $('#dfName').value = v.name || ''; $('#dfHost').value = v.host || ''; $('#dfPort').value = v.port || '';
+  $('#dfDb').value = v.database || ''; $('#dfUser').value = v.user || ''; $('#dfPw').value = prefill?.password || '';
+  $('#dfPw').placeholder = conn?.has_password ? '已儲存（留空表示不變）' : ''; $('#dfSsl').value = v.sslmode || 'prefer';
+  $('#dfPath').value = v.path || ''; $('#dfRows').value = v.row_limit || 500; $('#dfTimeout').value = v.timeout_s || 30;
+  $('#dfWrite').checked = !!v.allow_write; $('#dfDsn').value = ''; $('#dfDelete').hidden = !conn;
+  dfKind(v.kind || 'postgres'); $('#dbForm').classList.add('open'); setTimeout(() => (conn ? $('#dfName') : $('#dfDsn')).focus(), 50);
+}
+$('#dfDsn').addEventListener('input', async () => { const t = $('#dfDsn').value.trim(); if (!/:\/\//.test(t)) return;
+  const r = await api('/api/db/parse', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: t})});
+  if (!r.found) return; const c = r.connection; dfKind(c.kind); $('#dfHost').value = c.host; $('#dfPort').value = c.port; $('#dfDb').value = c.database;
+  $('#dfUser').value = c.user; if (c.password) $('#dfPw').value = c.password; if (c.sslmode) $('#dfSsl').value = c.sslmode;
+  if (!$('#dfName').value) $('#dfName').value = (c.database || c.kind) + '@' + c.host; $('#dfDsn').value = ''; $('#dfMsg').textContent = '已從連線字串填入'; });
+function dfBody(){ return {id: DB.editing?.id, kind: DB.kind, name: $('#dfName').value.trim(), host: $('#dfHost').value.trim(), port: $('#dfPort').value,
+  database: $('#dfDb').value.trim(), user: $('#dfUser').value.trim(), password: $('#dfPw').value, sslmode: $('#dfSsl').value, path: $('#dfPath').value.trim(),
+  row_limit: $('#dfRows').value, timeout_s: $('#dfTimeout').value, allow_write: $('#dfWrite').checked}; }
+$('#dfTest').onclick = async () => { $('#dfMsg').textContent = '測試中…';
+  const r = await fetch('/api/db/test?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dfBody())});
+  const j = await r.json(); $('#dfMsg').innerHTML = r.ok ? `<span style="color:var(--ok)">✓ ${esc(j.version.slice(0, 60))} · ${j.latency_ms} ms</span>` : `<span style="color:var(--err)">✕ ${esc(j.detail)}</span>`; };
+$('#dfCancel').onclick = () => $('#dbForm').classList.remove('open');
+$('#dfDelete').onclick = async () => { if (!DB.editing || !confirm(`刪除連線「${DB.editing.name}」？密碼與查詢紀錄也會一併刪除。`)) return;
+  await post('/api/db/connections/' + encodeURIComponent(DB.editing.id), {}, 'DELETE'); $('#dbForm').classList.remove('open'); $('#dbBrowser').classList.remove('open'); if (tab === 'data') loadSide(); };
+$('#dfSave').onclick = async () => {
+  const r = await fetch('/api/db/connections?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dfBody())});
+  const j = await r.json(); if (!r.ok) { $('#dfMsg').innerHTML = `<span style="color:var(--err)">✕ ${esc(j.detail)}</span>`; return; }
+  $('#dbForm').classList.remove('open'); if (tab === 'data') loadSide(); const cb = DB.onSaved; DB.onSaved = null;
+  if (cb) cb(j.connection); else if (DB.cur && DB.cur.id === j.connection.id) { DB.cur = j.connection; renderDbHead(); } };
+function renderDbHead(){ const c = DB.cur; $('#dbKind').textContent = DB_KIND_LABEL[c.kind]; $('#dbName').textContent = c.name; $('#dbLabel').textContent = c.label + (c.allow_write ? ' · 可寫入' : ' · 唯讀'); }
+// ---------------- register a connection as a tool on sinobee.ai ----------------
+const PUB = {vis: 'PRIVATE', vault: null};
+async function openPublish(){
+  const c = DB.cur; if (!c) return;
+  $('#pubMsg').innerHTML = ''; $('#pubGo').disabled = false; $('#pubGo').hidden = false;
+  if (!ACCT) await loadAccount();
+  const t = c.tool || {};
+  $('#pubState').textContent = t.version ? `已登錄 v${t.version}` : '';
+  if (!ACCT?.signed_in){
+    $('#pubOpts').innerHTML = `<div class="lcard" style="font-size:13px">需要先登入 SinoBee.ai。<button class="btn primary" type="button" id="pubLogin" style="margin-left:8px">登入</button></div>`;
+    $('#pubGo').hidden = true; $('#pubVis').hidden = true;
+    $('#pubLogin').onclick = () => { $('#pubModal').classList.remove('open'); openSettings(); };
+    $('#pubModal').classList.add('open'); return;
+  }
+  $('#pubVis').hidden = false;
+  PUB.vis = t.visibility || 'PRIVATE';
+  PUB.vault = await api('/api/vault').catch(() => null);
+  $('#pubOpts').innerHTML = `<div class="grid2" style="margin-top:10px">
+      <label class="f">名稱<input id="pubTitle" value="${esc(c.name)}" maxlength="80"></label>
+      <label class="f">說明（選填）<input id="pubDesc" maxlength="300" placeholder="例如：訂單與客戶資料（唯讀）"></label></div>
+    <label class="chips" style="margin-top:8px;display:flex;flex-direction:column;gap:6px;align-items:flex-start">
+      <label><input type="checkbox" id="pubSchema" checked> 附上資料表與欄位名稱（不含資料）</label>
+      ${c.kind !== 'sqlite' ? '<label><input type="checkbox" id="pubHost" checked> 附上主機位址與資料庫名稱</label>' : ''}
+      <label id="pubSyncRow"><input type="checkbox" id="pubSync"> 加密同步連線資料（含帳號密碼）到我的保險箱</label></label>
+    <div id="pubPass" hidden style="margin-top:8px"></div>`;
+  const vis = v => { PUB.vis = v; document.querySelectorAll('#pubVis button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    $('#pubSyncRow').hidden = v === 'PUBLIC'; if (v === 'PUBLIC') $('#pubSync').checked = false; passRow(); };
+  const passRow = () => { const need = $('#pubSync').checked && !PUB.vault?.unlocked; const el = $('#pubPass'); el.hidden = !need; if (!need) return;
+    el.innerHTML = PUB.vault?.exists
+      ? `<label class="f">保險箱密語<input type="password" id="pubPw" autocomplete="current-password"></label>`
+      : `<div class="note" style="margin-bottom:6px">第一次使用：設定保險箱密語。連線資料在這台電腦上加密後才上傳，sinobee.ai 無法解開；<b>忘記密語就無法復原</b>。</div>
+         <div class="grid2"><label class="f">保險箱密語（至少 8 字元）<input type="password" id="pubPw" autocomplete="new-password"></label><label class="f">再輸入一次<input type="password" id="pubPw2" autocomplete="new-password"></label></div>`; };
+  document.querySelectorAll('#pubVis button').forEach(b => b.onclick = () => vis(b.dataset.v));
+  $('#pubSync').onchange = passRow; $('#pubSync').checked = !!t.vault_pack; vis(PUB.vis);
+  $('#pubModal').classList.add('open');
+}
+$('#dbPublish').onclick = openPublish;
+$('#pubClose').onclick = () => $('#pubModal').classList.remove('open');
+$('#pubGo').onclick = async () => {
+  const c = DB.cur, msg = $('#pubMsg'), sync = $('#pubSync')?.checked;
+  const fail = t => { msg.innerHTML = `<span style="color:var(--err)">✕ ${esc(t)}</span>`; $('#pubGo').disabled = false; };
+  $('#pubGo').disabled = true;
+  if (sync && !PUB.vault?.unlocked){
+    const pw = $('#pubPw')?.value || '';
+    if (!PUB.vault?.exists && pw !== ($('#pubPw2')?.value || '')) return fail('兩次密語不同');
+    msg.textContent = PUB.vault?.exists ? '解鎖保險箱…' : '建立保險箱…';
+    const r = await fetch('/api/vault/unlock?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({passphrase: pw})});
+    const j = await r.json().catch(() => ({})); if (!r.ok) return fail(j.detail || '保險箱錯誤');
+    PUB.vault = {...PUB.vault, exists: true, unlocked: true};
+  }
+  msg.textContent = '登錄中…';
+  const r = await fetch(`/api/db/${encodeURIComponent(c.id)}/publish?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({visibility: PUB.vis, sync_secret: !!sync, include_schema: $('#pubSchema').checked, include_host: $('#pubHost') ? $('#pubHost').checked : true,
+      title: $('#pubTitle').value.trim(), description: $('#pubDesc').value.trim()})});
+  const j = await r.json().catch(() => ({})); if (!r.ok) return fail(j.detail || '登錄失敗');
+  msg.innerHTML = `<div class="lcard" style="font-size:13px">${ic('checkCircle')} 已登錄 <b>${esc(j.id)}@${esc(j.version)}</b> — ${j.status === 'pending_review' ? '公開審核中，通過後列在工具目錄' : '私人工具，已可使用'}${j.synced ? '；連線資料已加密同步' : ''}。
+    <a href="${esc(j.url)}" target="_blank" rel="noopener">在 sinobee.ai 查看</a></div>`;
+  $('#pubGo').hidden = true; $('#pubState').textContent = `已登錄 v${j.version}`;
+  const rr = await api('/api/db/connections'); DB.conns = rr.connections || []; DB.cur = DB.conns.find(x => x.id === c.id) || c;
+};
+// ---------------- share a conversation on sinobee.ai ----------------
+const SH = {vis: 'LINK', preview: null};
+const RK = {secret: '已儲存的金鑰／密碼', dsn: '連線字串密碼', apikey: 'API 金鑰', token: '權杖', privatekey: '私鑰', password: '密碼欄位', path: '本機路徑'};
+async function openShare(){
+  if (!sessionId) return;
+  $('#shState').textContent = ''; $('#shGo').hidden = false; $('#shGo').disabled = true;
+  $('#shBody').innerHTML = '<div class="spin" style="margin:30px auto"></div>'; $('#shareModal').classList.add('open');
+  await renderShare(true);
+}
+async function renderShare(first){
+  const tools = first ? true : $('#shTools').checked, title = first ? '' : $('#shTitle').value;
+  const r = await fetch('/api/share/preview?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session_id: sessionId, include_tools: tools, title: title || undefined})});
+  const p = await r.json().catch(() => ({}));
+  if (!r.ok){ $('#shBody').innerHTML = `<div class="dbmsg err">${esc(p.detail || '無法產生預覽')}</div>`; return; }
+  SH.preview = p;
+  const red = (p.redactions || []).filter(x => x.count);
+  const vis = [['LINK', '知道連結的人', '不會被列出或搜尋'], ['LOGIN', '需登入', 'CAFECA 登入，可指定帳號'], ['PUBLIC', '公開', '列在 sinobee.ai/shares']];
+  $('#shBody').innerHTML = `${!p.signed_in ? `<div class="lcard" style="font-size:13px">需要先登入 SinoBee.ai 才能分享。<button class="btn primary" type="button" id="shLogin" style="margin-left:8px">登入</button></div>` : ''}
+    <div class="grid2"><label class="f">標題<input id="shTitle" maxlength="160" value="${esc(p.title)}"></label>
+      <label class="f">有效期限<select id="shExp"><option value="">不過期</option><option value="1">1 天</option><option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option></select></label></div>
+    <div class="srcseg" id="shVis" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">${vis.map(([v, a, b]) => `<button type="button" data-v="${v}"${SH.vis === v ? ' class="on"' : ''}><b>${a}</b><span>${b}</span></button>`).join('')}</div>
+    <label class="f" id="shAccRow" ${SH.vis === 'LOGIN' ? '' : 'hidden'}>只有這些 CAFECA 帳號能看（0x 地址或 @代稱，以空白或換行分隔；留空＝任何已登入者）<textarea id="shAcc" rows="2" style="font-family:ui-monospace,Menlo,monospace">${esc(SH.acc || '')}</textarea></label>
+    <label class="chips" style="margin:8px 0"><label><input type="checkbox" id="shTools" ${tools ? 'checked' : ''}> 附上工具呼叫與結果（每項最多 2000 字）</label></label>
+    <div class="note" style="margin:6px 0">${red.length ? '已遮蔽：' + red.map(x => `${RK[x.kind] || x.kind} × ${x.count}`).join('、') : '沒有偵測到需要遮蔽的內容。'}${p.files.length ? `　附件 ${p.files.length} 個（${p.files.map(f => esc(f.name)).join('、')}）` : ''}</div>
+    <div class="shprev">${p.messages.map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}"><div class="bubble">${m.role === 'user' ? esc(m.text).replace(/\n/g, '<br>') : md(m.text.replace(/!\[([^\]]*)\]\(files\/(\d+)\)/g, (_, a, n) => `*［圖片附件：${(p.files.find(f => f.id === n) || {}).name || a}］*`))}${m.tools?.length ? `<div class="note" style="margin-top:6px">工具：${m.tools.map(t => esc(t.name)).join('、')}</div>` : ''}</div></div>`).join('')}</div>`;
+  document.querySelectorAll('#shVis button').forEach(b => b.onclick = () => { SH.vis = b.dataset.v; document.querySelectorAll('#shVis button').forEach(x => x.classList.toggle('on', x === b)); $('#shAccRow').hidden = SH.vis !== 'LOGIN'; });
+  $('#shTools').onchange = () => { SH.acc = $('#shAcc').value; renderShare(false); };
+  if ($('#shLogin')) $('#shLogin').onclick = () => { $('#shareModal').classList.remove('open'); openSettings(); };
+  $('#shGo').disabled = !p.signed_in;
+}
+$('#shareBtn').onclick = openShare;
+$('#shClose').onclick = () => $('#shareModal').classList.remove('open');
+$('#shGo').onclick = async () => {
+  $('#shGo').disabled = true; $('#shState').textContent = '上傳中…';
+  const r = await fetch('/api/share?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+    session_id: sessionId, include_tools: $('#shTools').checked, title: $('#shTitle').value.trim(), visibility: SH.vis,
+    accounts: SH.vis === 'LOGIN' ? $('#shAcc').value.split(/[\s,]+/).filter(Boolean) : [], expires_days: +$('#shExp').value || null})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok){ $('#shState').textContent = ''; $('#shGo').disabled = false; alert(j.detail || '分享失敗'); return; }
+  $('#shState').textContent = '已建立';
+  $('#shGo').hidden = true;
+  $('#shBody').innerHTML = `<div class="lcard" style="font-size:14px">${ic('checkCircle')} 分享連結已建立（${{LINK: '知道連結的人', LOGIN: j.restricted ? '指定帳號' : '需登入', PUBLIC: '公開'}[j.visibility]}）
+    <div style="display:flex;gap:8px;margin-top:10px"><input class="inp" id="shUrl" readonly value="${esc(j.url)}" style="flex:1"><button class="btn icon" type="button" id="shCopy" aria-label="複製連結">${ic('copy')}</button><a class="btn icon" href="${esc(j.url)}" target="_blank" rel="noopener" aria-label="開啟">${ic('external')}</a></div>
+    <div class="note" style="margin-top:8px">可在分享頁變更可見範圍或撤回。內容雜湊稍後會在 Boltchain 存證。</div></div>`;
+  $('#shCopy').onclick = () => { navigator.clipboard?.writeText(j.url); $('#shState').textContent = '已複製'; };
+};
+async function installTool(){
+  const ref = prompt('從 SinoBee.ai 安裝工具（<publisher>/<name>）：'); if (!ref) return;
+  let r = await fetch('/api/hub/tools/install?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ref: ref.trim()})});
+  let j = await r.json().catch(() => ({}));
+  if (!r.ok && /保險箱/.test(j.detail || '')){
+    const pw = prompt('這個私人工具的連線資料在你的保險箱裡，請輸入保險箱密語：'); if (!pw) return;
+    const u = await fetch('/api/vault/unlock?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({passphrase: pw})});
+    if (!u.ok) { alert((await u.json()).detail); return; }
+    r = await fetch('/api/hub/tools/install?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ref: ref.trim()})});
+    j = await r.json().catch(() => ({}));
+  }
+  if (!r.ok) { alert(j.detail || '安裝失敗'); return; }
+  if (tab === 'data') loadSide();
+  if (j.needs_credentials){ const rr = await api('/api/db/connections'); const c = (rr.connections || []).find(x => x.id === j.connection); if (c) openDbForm(c); }
+  else openDb(j.connection);
+}
+async function openDb(id){
+  const r = await api('/api/db/connections'); DB.conns = r.connections || []; DB.cur = DB.conns.find(c => c.id === id); if (!DB.cur) return;
+  Object.assign(DB, {sel: null, tab: 'data', page: 0, sort: null, desc: false, filters: [], last: null});
+  renderDbHead(); $('#dbTree').innerHTML = '<div class="dbmsg"><div class="spin" style="margin:auto"></div></div>'; $('#dbPane').innerHTML = '';
+  document.querySelectorAll('#dbTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === 'data'));
+  $('#dbBrowser').classList.add('open'); await loadTree();
+}
+async function loadTree(){
+  const r = await fetch(`/api/db/${encodeURIComponent(DB.cur.id)}/tree?token=${encodeURIComponent(token)}`); const j = await r.json();
+  if (!r.ok) { $('#dbTree').innerHTML = `<div class="dbmsg err">${esc(j.detail)}</div>`; $('#dbPane').innerHTML = `<div class="dbmsg err">無法連線：${esc(j.detail)}<br><br><button class="btn" onclick="openDbForm(DB.cur)">編輯連線</button></div>`; return; }
+  DB.tree = j; $('#dbLabel').title = j.version;
+  $('#dbTree').innerHTML = j.schemas.map(s => `<div class="sch">${esc(s.name)}</div>` + (s.tables.length ? s.tables.map(t =>
+    `<div class="dbt" data-s="${esc(s.name)}" data-t="${esc(t.name)}" title="${esc(s.name)}.${esc(t.name)}">${ic(t.kind === 'view' ? 'eye' : 'table')}<span>${esc(t.name)}</span>${t.rows_estimate != null ? `<small>${fmtTok(t.rows_estimate)}</small>` : ''}</div>`).join('') : '<div class="note" style="margin:2px 8px">（沒有資料表）</div>')).join('');
+  $('#dbTree').querySelectorAll('.dbt').forEach(el => el.onclick = () => selectTable(el.dataset.s, el.dataset.t));
+  const first = $('#dbTree .dbt'); if (first) selectTable(first.dataset.s, first.dataset.t); else dbTab('sql');
+}
+function selectTable(schema, table){
+  DB.sel = {schema, table}; Object.assign(DB, {page: 0, sort: null, desc: false, filters: []});
+  $('#dbTree').querySelectorAll('.dbt').forEach(el => el.classList.toggle('on', el.dataset.s === schema && el.dataset.t === table));
+  dbTab(DB.tab === 'sql' ? 'data' : DB.tab);
+}
+document.querySelectorAll('#dbTabs button').forEach(b => b.onclick = () => dbTab(b.dataset.t));
+function dbTab(t){ DB.tab = t; document.querySelectorAll('#dbTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t)); $('#dbBarExtra').innerHTML = '';
+  if (t === 'data') loadPreview(); else if (t === 'struct') loadStruct(); else renderSql(); }
+function cellHtml(v){ if (v === null || v === undefined) return '<td class="null">NULL</td>';
+  if (typeof v === 'number') return `<td class="num">${v}</td>`; const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  return `<td title="${esc(s.length > 60 ? s.slice(0, 1000) : '')}">${esc(s)}</td>`; }
+const NUM_RE = /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i;
+function gridHtml(cols, rows, sortable){
+  const num = cols.map((_, i) => rows.length > 0 && rows.every(r => r[i] === null || typeof r[i] === 'number' || (typeof r[i] === 'string' && NUM_RE.test(r[i]))) && rows.some(r => r[i] !== null));
+  return `<table><thead><tr>${cols.map((c, i) => `<th style="${num[i] ? 'text-align:right' : ''}"${sortable ? ` class="sortable" data-c="${esc(c)}"` : ''}>${esc(c)}${sortable && DB.sort === c ? `<span class="ar">${DB.desc ? '▼' : '▲'}</span>` : ''}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${r.map((v, i) => num[i] && v !== null ? `<td class="num">${esc(v)}</td>` : cellHtml(v)).join('')}</tr>`).join('')}</tbody></table>`; }
+async function dbPost(path, body){ const r = await fetch(`/api/db/${encodeURIComponent(DB.cur.id)}/${path}?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}); const j = await r.json(); return r.ok ? j : Promise.reject(new Error(j.detail || '失敗')); }
+async function loadPreview(){
+  if (!DB.sel) { $('#dbPane').innerHTML = '<div class="dbmsg">從左側選擇資料表</div>'; return; }
+  const cols = DB.cols.length && DB.cols._for === DB.sel.schema + '.' + DB.sel.table ? DB.cols : null;
+  $('#dbBarExtra').innerHTML = `<select class="inp" id="fCol">${(cols || []).map(c => `<option>${esc(c)}</option>`).join('')}</select>
+    <select class="inp" id="fOp"><option value="contains">包含</option><option value="=">=</option><option value="!=">≠</option><option value=">">&gt;</option><option value="<">&lt;</option><option value="is null">是 NULL</option><option value="not null">不是 NULL</option></select>
+    <input class="inp" id="fVal" placeholder="篩選值" style="width:120px"><button class="btn icon sm" id="fAdd" aria-label="加入篩選">${ic('plus')}</button>`;
+  $('#dbPane').innerHTML = '<div class="dbmsg"><div class="spin" style="margin:auto"></div></div>';
+  try {
+    const r = await dbPost('preview', {...DB.sel, page: DB.page, page_size: 100, sort: DB.sort, desc: DB.desc, filters: DB.filters});
+    DB.cols = r.columns.slice(); DB.cols._for = DB.sel.schema + '.' + DB.sel.table; DB.last = r;
+    if (!cols) $('#fCol').innerHTML = r.columns.map(c => `<option>${esc(c)}</option>`).join('');
+    const pages = r.total != null ? Math.max(1, Math.ceil(r.total / 100)) : null;
+    $('#dbPane').innerHTML = `<div class="dbgrid">${r.columns.length ? gridHtml(r.columns, r.rows, true) : ''}${!r.rows.length ? '<div class="dbmsg">沒有資料</div>' : ''}</div>
+      <div class="dbfoot">${DB.filters.map((f, i) => `<span class="chip">${esc(f.column)} ${esc(f.op)} ${esc(f.value ?? '')}<button data-i="${i}" aria-label="移除">${ic('x')}</button></span>`).join('')}
+        <span class="grow">${r.total != null ? `共 ${r.total.toLocaleString()} 列` : ''} · ${r.elapsed_ms} ms</span>
+        <button class="btn icon sm" id="pPrev" aria-label="上一頁" ${DB.page ? '' : 'disabled'}>‹</button><span>第 ${DB.page + 1}${pages ? ' / ' + pages : ''} 頁</span>
+        <button class="btn icon sm" id="pNext" aria-label="下一頁" ${pages && DB.page + 1 >= pages ? 'disabled' : ''}>›</button>
+        <button class="btn icon sm tip-up tip-left" id="pCsv" aria-label="匯出這頁 CSV">${ic('download')}</button></div>`;
+    $('#dbPane').querySelectorAll('th.sortable').forEach(th => th.onclick = () => { if (DB.sort === th.dataset.c) DB.desc = !DB.desc; else { DB.sort = th.dataset.c; DB.desc = false; } DB.page = 0; loadPreview(); });
+    $('#dbPane').querySelectorAll('.chip button').forEach(b => b.onclick = () => { DB.filters.splice(+b.dataset.i, 1); DB.page = 0; loadPreview(); });
+    $('#pPrev').onclick = () => { DB.page--; loadPreview(); }; $('#pNext').onclick = () => { DB.page++; loadPreview(); };
+    $('#pCsv').onclick = () => downloadCsv(r.columns, r.rows, `${DB.sel.table}.csv`);
+  } catch (e) { $('#dbPane').innerHTML = `<div class="dbmsg err">${esc(e.message)}</div>`; }
+  $('#fAdd').onclick = () => { DB.filters.push({column: $('#fCol').value, op: $('#fOp').value, value: $('#fVal').value}); DB.page = 0; loadPreview(); };
+  $('#fVal').onkeydown = e => { if (e.key === 'Enter') $('#fAdd').click(); };
+}
+async function loadStruct(){
+  if (!DB.sel) { $('#dbPane').innerHTML = '<div class="dbmsg">從左側選擇資料表</div>'; return; }
+  $('#dbPane').innerHTML = '<div class="dbmsg"><div class="spin" style="margin:auto"></div></div>';
+  const r = await fetch(`/api/db/${encodeURIComponent(DB.cur.id)}/table?schema=${encodeURIComponent(DB.sel.schema)}&table=${encodeURIComponent(DB.sel.table)}&token=${encodeURIComponent(token)}`); const j = await r.json();
+  if (!r.ok) { $('#dbPane').innerHTML = `<div class="dbmsg err">${esc(j.detail)}</div>`; return; }
+  $('#dbPane').innerHTML = `<div class="dbstruct"><h4 style="margin:0 0 8px">${esc(DB.sel.schema)}.${esc(DB.sel.table)} · ${j.columns.length} 個欄位</h4>
+    <div class="tblwrap md"><table><thead><tr><th>欄位</th><th>型別</th><th>可為 NULL</th><th>預設值</th><th>鍵</th></tr></thead><tbody>${j.columns.map(c =>
+      `<tr><td><b>${esc(c.name)}</b></td><td><code>${esc(c.type)}</code></td><td>${c.nullable ? '是' : '否'}</td><td>${c.default != null ? `<code>${esc(c.default)}</code>` : ''}</td><td>${c.pk ? '主鍵' : ''}${(j.foreign_keys.find(f => f.column === c.name) || {}).references ? ' → ' + esc(j.foreign_keys.find(f => f.column === c.name).references) : ''}</td></tr>`).join('')}</tbody></table></div>
+    ${j.indexes.length ? `<h4 style="margin:14px 0 8px">索引</h4>${j.indexes.map(i => `<div class="note"><b>${esc(i.name)}</b> <code>${esc(i.definition)}</code></div>`).join('')}` : ''}</div>`;
+}
+function renderSql(){
+  const q = DB.sel ? (DB.cur.kind === 'mysql' ? `SELECT * FROM \`${DB.sel.table}\` LIMIT 100;` : `SELECT * FROM "${DB.sel.schema}"."${DB.sel.table}" LIMIT 100;`) : 'SELECT 1;';
+  $('#dbBarExtra').innerHTML = `<button class="btn icon sm" id="sqlCancel" aria-label="中止查詢">${ic('stop')}</button><button class="btn icon primary" id="sqlRun" aria-label="執行（Ctrl+Enter）">${ic('play')}</button>`;
+  $('#dbPane').innerHTML = `<div style="padding:10px;border-bottom:1px solid var(--line)"><textarea class="sqlarea" id="sqlText" spellcheck="false">${esc(DB.sqlDraft || q)}</textarea>
+    <div class="dbhist" id="sqlHist"></div></div><div class="dbgrid" id="sqlOut"><div class="dbmsg">按執行或 Ctrl+Enter。${DB.cur.allow_write ? '寫入語句會先請你確認。' : '這個連線是唯讀的。'}</div></div><div class="dbfoot" id="sqlFoot"></div>`;
+  $('#sqlText').oninput = () => DB.sqlDraft = $('#sqlText').value;
+  $('#sqlText').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runSql(); } };
+  $('#sqlRun').onclick = runSql; $('#sqlCancel').onclick = () => dbPost('cancel', {}); loadHist();
+}
+async function loadHist(){ const r = await api(`/api/db/${encodeURIComponent(DB.cur.id)}/history`);
+  $('#sqlHist').innerHTML = (r.history || []).slice(0, 12).map((h, i) => `<div data-i="${i}" title="${esc(h.sql)}">${h.ok ? '✓' : '✕'} ${esc(h.sql.replace(/\s+/g, ' ').slice(0, 140))}</div>`).join('');
+  $('#sqlHist').querySelectorAll('div').forEach(d => d.onclick = () => { $('#sqlText').value = r.history[+d.dataset.i].sql; DB.sqlDraft = $('#sqlText').value; }); }
+async function runSql(){
+  const sql = $('#sqlText').value.trim(); if (!sql) return; let confirmWrite = false;
+  try {
+    const v = await dbPost('classify', {sql});
+    if (v.kind === 'invalid') throw new Error(v.reason);
+    if (v.kind === 'write') {
+      if (!v.allow_write) throw new Error(`這個連線是唯讀的：${v.reason}。如需寫入，請編輯連線並開啟「允許寫入」。`);
+      if (!confirm(`這個語句會修改資料庫：\n\n${sql.slice(0, 600)}\n\n確定要執行嗎？`)) return; confirmWrite = true;
+    }
+    $('#sqlOut').innerHTML = '<div class="dbmsg"><div class="spin" style="margin:auto"></div><br>執行中…</div>'; $('#sqlFoot').textContent = '';
+    const r = await dbPost('query', {sql, confirm_write: confirmWrite}); DB.last = r;
+    $('#sqlOut').innerHTML = r.columns.length ? gridHtml(r.columns, r.rows, false) + (!r.rows.length ? '<div class="dbmsg">沒有資料</div>' : '')
+      : `<div class="dbmsg" style="color:var(--ok)">✓ ${esc(r.statement)} 完成${r.affected != null ? `，影響 ${r.affected} 列` : ''}</div>`;
+    $('#sqlFoot').innerHTML = `<span class="grow">${r.columns.length ? `${r.row_count} 列${r.truncated ? '（已達上限，還有更多）' : ''}` : ''} · ${r.elapsed_ms} ms</span>` +
+      (r.columns.length ? `<button class="btn icon sm tip-up tip-left" id="sqlCsv" aria-label="匯出 CSV">${ic('download')}</button>` : '');
+    $('#sqlCsv')?.addEventListener('click', () => downloadCsv(r.columns, r.rows, 'query.csv'));
+  } catch (e) { $('#sqlOut').innerHTML = `<div class="dbmsg err">${esc(e.message)}</div>`; }
+  loadHist();
+}
+function downloadCsv(cols, rows, name){
+  const q = v => v === null || v === undefined ? '' : /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+  const blob = new Blob(['﻿' + [cols, ...rows].map(r => r.map(q).join(',')).join('\n')], {type: 'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+$('#dbClose').onclick = () => $('#dbBrowser').classList.remove('open');
+$('#dbReload').onclick = () => loadTree();
+$('#dbEdit').onclick = () => openDbForm(DB.cur);
+$('#dbAsk').onclick = () => { $('#dbBrowser').classList.remove('open');
+  const where = DB.sel ? `（資料表 ${DB.sel.schema}.${DB.sel.table}）` : '';
+  $('#input').value = `使用資料庫連線「${DB.cur.name}」${where}：`; $('#input').focus(); };
+const DSN_HINT = /(postgres(?:ql)?|mysql|mariadb):\/\/[^:\s\/@]+:[^@\s]+@[^\s]+/i;
+async function interceptDsn(text){
+  const m = text.match(DSN_HINT); if (!m) return false;
+  const r = await api('/api/db/parse', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: m[0]})});
+  if (!r.found) return false;
+  openDbForm(null, {...r.connection, name: (r.connection.database || r.connection.kind) + '@' + r.connection.host}, conn => {
+    $('#input').value = text.replace(m[0], `資料庫連線「${conn.name}」`);
+    add('ⓘ 已建立資料庫連線「' + esc(conn.name) + '」。密碼只存在這台電腦，不會送給模型；確認訊息後再按送出。', 'note'); $('#input').focus(); });
+  $('#dfMsg').textContent = '偵測到連線字串：先儲存連線，密碼就不會出現在對話裡';
+  return true;
 }
 
 // ---------------- usage dashboard ----------------

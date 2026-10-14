@@ -23,6 +23,7 @@ class Tool:
     writes: bool = False                                   # blocked in readonly mode
     dangerous: Callable[[dict], str | None] | None = None  # returns reason if needs approval
     check: Callable[[], bool] | None = None                # availability probe
+    always_confirm: bool = False                           # ask even in auto mode / with skill pre-approval
 
     def spec(self) -> ToolSpec:
         return ToolSpec(self.name, self.description, self.parameters)
@@ -91,13 +92,14 @@ class Registry:
                 reason = tool.dangerous(args)
             except Exception:
                 reason = None
-        if reason and mode == "confirm" and ctx.skills is not None and ctx.state.get("preapproved"):
+        if reason and mode == "confirm" and not tool.always_confirm and ctx.skills is not None \
+                and ctx.state.get("preapproved"):
             from ..skills.manager import SkillManager
             if SkillManager.matches_preapproval(tool.name, args, ctx.state["preapproved"]):
                 if ctx.emit:
                     ctx.emit("status", {"message": f"{tool.name} pre-approved by an active skill's allowed-tools"})
                 reason = None
-        if reason and mode != "auto":
+        if reason and (mode != "auto" or tool.always_confirm):
             ok = False
             if ctx.approve is not None:
                 ok = await ctx.approve(tool.name, args, reason)

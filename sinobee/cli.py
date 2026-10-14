@@ -311,6 +311,111 @@ def _doctor(args) -> None:
     print(f"approval mode: {cfg.get('permissions.approval')}; toolsets: {cfg.get('permissions.toolsets')}")
 
 
+def _account_cmd(args) -> None:
+    from . import account
+    from .config import Config
+    cfg = Config.load()
+    try:
+        if args.cmd == "logout":
+            account.logout(cfg)
+            print("已登出 sinobee.ai。（裝置權杖可在 sinobee.ai → 帳戶設定 → 已登入的 SinoBee 撤銷）")
+            return
+        if args.cmd == "whoami":
+            me = account.whoami(cfg)
+            if not me:
+                print("尚未登入。執行 sinobee login。")
+                sys.exit(1)
+            who = f"@{me['handle']}" if me.get("handle") else me.get("account")
+            print(f"{who}  ({me.get('account')})")
+            print(f"publisher: {me.get('publisher') or '—'}   scopes: {' '.join(me.get('scopes') or [])}"
+                  + ("   (離線，顯示快取資料)" if me.get("offline") else ""))
+            return
+        s = account.start(cfg)
+        print(f"\n  在瀏覽器開啟  {s['verification_uri']}\n  輸入代碼      {s['user_code']}\n")
+        if not args.no_browser:
+            try:
+                import webbrowser
+                webbrowser.open(s.get("verification_uri_complete") or s["verification_uri"])
+            except Exception:  # noqa: BLE001 - headless machines
+                pass
+        print("等待授權中…（Ctrl+C 取消）", flush=True)
+        res = account.wait(cfg, s)
+    except account.AccountError as e:
+        print(f"錯誤：{e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n已取消。")
+        sys.exit(130)
+    if res["status"] == "ok":
+        a = res["account"] or {}
+        print(f"已登入 sinobee.ai：{('@' + a['handle']) if a.get('handle') else a.get('account')}")
+    else:
+        print({"denied": "登入要求被拒絕。", "expired": "代碼已過期，請重新執行 sinobee login。"}.get(res["status"],
+              f"登入失敗：{res.get('error')}"))
+        sys.exit(1)
+
+
+def _vault_unlock(cfg) -> None:
+    import getpass
+    from .vault import VaultClient
+    v = VaultClient(cfg)
+    st = v.status()
+    if st["unlocked"]:
+        return
+    if st["exists"]:
+        v.unlock(getpass.getpass("保險箱密語："))
+    else:
+        p1 = getpass.getpass("設定保險箱密語（至少 8 字元；遺失無法復原）：")
+        if p1 != getpass.getpass("再輸入一次："):
+            raise SystemExit("兩次密語不同")
+        v.setup(p1)
+
+
+def _tools_cmd(args) -> None:
+    from .config import Config
+    from .db import hub as dbhub
+    from .tools.db_tools import service
+    from .vault import VaultError
+    from . import account
+    cfg = Config.load()
+    svc = service(cfg)
+    try:
+        if args.action == "list":
+            for t in dbhub.mine(cfg):
+                print(f"{t['id']:<40} {t.get('version') or t.get('latest') or '':<10} {t['visibility']:<8} {t.get('status', '')}")
+        elif args.action == "search":
+            for t in dbhub.search(cfg, args.ref or ""):
+                print(f"{t['id']:<40} {t.get('latest') or '':<10} {t.get('title') or ''}")
+        elif args.action == "publish":
+            if not args.ref:
+                raise SystemExit("用法：sinobee tools publish <連線名稱或 id> [--public] [--sync]")
+            c = svc.get(args.ref)
+            if args.sync:
+                _vault_unlock(cfg)
+            res = asyncio.run(dbhub.publish(cfg, svc, c, visibility="PUBLIC" if args.public else "PRIVATE",
+                                            sync_secret=args.sync, include_schema=not args.no_schema))
+            print(f"已登錄 {res['id']}@{res['version']}（{'公開，審核中' if res['status'] == 'pending_review' else '私人'}）")
+            print(res["url"])
+        elif args.action == "install":
+            if not args.ref:
+                raise SystemExit("用法：sinobee tools install <publisher>/<name>")
+            try:
+                res = dbhub.install(cfg, svc, args.ref)
+            except dbhub.HubToolError as e:
+                if "保險箱" not in str(e):
+                    raise
+                _vault_unlock(cfg)
+                res = dbhub.install(cfg, svc, args.ref)
+            print(f"已加入連線「{res['name']}」（{res['connection']}）")
+            if res["needs_credentials"]:
+                print("請在 Web UI 的「資料庫」分頁填入帳號密碼。")
+    except (dbhub.HubToolError, VaultError, account.AccountError, Exception) as e:  # noqa: BLE001
+        if isinstance(e, SystemExit):
+            raise
+        print(f"錯誤：{e}")
+        sys.exit(1)
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="sinobee", description="SinoBee autonomous agent")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -354,6 +459,16 @@ def main(argv: list[str] | None = None) -> None:
     u.add_argument("period", nargs="?", default="month", choices=["today", "7d", "30d", "month", "all"])
     u.add_argument("--by", default="model", choices=["model", "purpose", "day", "session", "provider"])
     sub.add_parser("doctor")
+    lg = sub.add_parser("login", help="sign in to sinobee.ai (device code)")
+    lg.add_argument("--no-browser", action="store_true", help="only print the link")
+    sub.add_parser("logout", help="sign out of sinobee.ai on this machine")
+    sub.add_parser("whoami", help="show the signed-in sinobee.ai account")
+    tl = sub.add_parser("tools", help="database tools on sinobee.ai: list, search, publish, install")
+    tl.add_argument("action", choices=["list", "search", "publish", "install"])
+    tl.add_argument("ref", nargs="?", help="connection id/name (publish), <publisher>/<name> (install), query (search)")
+    tl.add_argument("--public", action="store_true", help="publish for everyone (reviewed; no credentials)")
+    tl.add_argument("--sync", action="store_true", help="private only: keep connection + password in your encrypted vault")
+    tl.add_argument("--no-schema", action="store_true", help="do not include table/column names")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -377,6 +492,10 @@ def main(argv: list[str] | None = None) -> None:
         _usage(args)
     elif args.cmd == "doctor":
         _doctor(args)
+    elif args.cmd in ("login", "logout", "whoami"):
+        _account_cmd(args)
+    elif args.cmd == "tools":
+        _tools_cmd(args)
 
 
 if __name__ == "__main__":

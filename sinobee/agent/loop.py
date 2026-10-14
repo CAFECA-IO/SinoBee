@@ -264,6 +264,7 @@ class Agent:
         except Exception:
             log.exception("skill refresh failed")
         self.tool_names = {t.name for t in self.tools}
+        user_input = self._redact_secrets(user_input)
         user_input, explicit, learn = self._slash_commands(user_input)
         user_input = self._attach_images(user_input)
         user_msg = Message("user", user_input)
@@ -442,6 +443,23 @@ class Agent:
             except OSError:
                 continue
         return [TextPart(user_input), *images] if images else user_input
+
+    def _redact_secrets(self, user_input):
+        """Never store or send known secrets: stored API keys / DB passwords and passwords inside DSNs."""
+        from ..db import redact_dsn
+        values = self.config.secrets.all_values()
+
+        def clean(text: str) -> str:
+            text = redact_dsn(text)
+            for v in values:
+                if v in text:
+                    text = text.replace(v, "••••")
+            return text
+        if isinstance(user_input, str):
+            return clean(user_input)
+        if isinstance(user_input, list):
+            return [TextPart(clean(p.text)) if isinstance(p, TextPart) else p for p in user_input]
+        return user_input
 
     def _context_budget(self) -> int:
         budget = int(self.config.get("agent.context_budget", 120000))

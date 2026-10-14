@@ -48,6 +48,26 @@ class SecretStore:
     def get(self, provider: str) -> str | None:
         return self.api_keys().get(provider) or None
 
+    # ---- other secrets (database passwords, hub tokens, vault keys): {"secrets": {name: value}} ----
+    def get_secret(self, name: str) -> str | None:
+        return (self._read().get("secrets") or {}).get(name) or None
+
+    def set_secret(self, name: str, value: str | None) -> None:
+        with self._lock:
+            data = self._read()
+            sec = data.setdefault("secrets", {})
+            if value:
+                sec[name] = value
+            else:
+                sec.pop(name, None)
+            self._write(data)
+
+    def all_values(self, min_len: int = 6) -> list[str]:
+        """Every stored secret value (for redaction), longest first."""
+        d = self._read()
+        vals = list((d.get("api_keys") or {}).values()) + list((d.get("secrets") or {}).values())
+        return sorted({v for v in vals if isinstance(v, str) and len(v) >= min_len}, key=len, reverse=True)
+
     def set(self, provider: str, key: str | None) -> None:
         with self._lock:
             data = self._read()

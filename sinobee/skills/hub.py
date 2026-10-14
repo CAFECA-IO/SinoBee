@@ -142,7 +142,7 @@ class HubClient:
 
     def publish(self, bundle: Path, manifest: dict) -> dict:
         if not self.token:
-            raise SkillError("publishing needs a hub token: `sinobee keys set sinobee-hub` (from sinobee.ai account)")
+            raise SkillError("publishing needs a sinobee.ai sign-in: run `sinobee login`")
         try:
             r = httpx.post(f"{self.base}/api/v1/skills", headers={**UA, "Authorization": f"Bearer {self.token}"},
                            files={"bundle": (bundle.name, bundle.read_bytes(), "application/gzip")},
@@ -156,7 +156,7 @@ class HubClient:
 
 def hub_client(config) -> HubClient:
     return HubClient(config.get("skills.hub_url", "https://sinobee.ai"),
-                     token=config.secrets.get("sinobee-hub"),
+                     token=config.secrets.get_secret("sinobee-ai:token") or config.secrets.get("sinobee-hub"),
                      public_keys=config.get("skills.hub_keys") or [])
 
 
