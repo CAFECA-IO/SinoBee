@@ -377,6 +377,64 @@ def _vault_unlock(cfg) -> None:
         v.setup(p1)
 
 
+def _db_cmd(args) -> None:
+    """Read-only database access for scripts and other agents. Writes are refused here (use the Web UI);
+    passwords never leave secrets.json."""
+    import csv
+    import io
+    from .config import Config
+    from .db import DbError, classify, toolfolder
+    from .tools.db_tools import md_table, service
+    cfg = Config.load()
+    svc = service(cfg)
+
+    def out(columns, rows):
+        if args.format == "json":
+            print(json.dumps([dict(zip(columns, r)) for r in rows], ensure_ascii=False, default=str, indent=1))
+        elif args.format == "csv":
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(columns)
+            w.writerows(rows)
+            print(buf.getvalue(), end="")
+        else:
+            print(md_table(columns, rows, max_rows=len(rows)))
+    try:
+        if args.action == "list":
+            out(["id", "name", "kind", "label", "read_only"],
+                [[c["id"], c["name"], c["kind"], c["label"], not c["allow_write"]] for c in svc.listing()])
+            return
+        if not args.connection:
+            raise SystemExit(f"用法：sinobee db {args.action} <連線>{' <SQL>' if args.action == 'query' else ''}")
+        c = svc.get(args.connection)
+        if args.action == "queries":
+            out(["title", "sql"], [[q["title"], q["sql"]] for q in toolfolder.queries(cfg, c)])
+        elif args.action == "schema":
+            if args.arg:
+                tree = asyncio.run(svc.schema_tree(c.id))
+                sch = next((s["name"] for s in tree["schemas"] if any(t["name"] == args.arg for t in s["tables"])), None)
+                if not sch:
+                    raise SystemExit(f"找不到資料表 {args.arg}")
+                info = asyncio.run(svc.table_info(c.id, sch, args.arg))
+                out(["column", "type", "nullable", "pk"], [[x["name"], x.get("type"), x.get("nullable"), x.get("pk")] for x in info["columns"]])
+            else:
+                tree = asyncio.run(svc.schema_tree(c.id))
+                out(["schema", "table", "kind", "rows≈"], [[s["name"], t["name"], t["kind"], t.get("rows_estimate")]
+                                                          for s in tree["schemas"] for t in s["tables"]])
+        else:
+            sql = sys.stdin.read() if args.arg in (None, "-") else args.arg
+            v = classify(sql, c.kind)
+            if not v.is_read:
+                raise SystemExit(f"只執行唯讀查詢：{v.reason or v.statement}（寫入請在 Web UI 進行，每次都需要核准）")
+            res = asyncio.run(svc.query(c.id, sql, limit=max(1, min(args.limit, 10000)), source="cli"))
+            out(res["columns"], res["rows"])
+            if res["truncated"]:
+                print(f"（已達 {args.limit} 列上限）", file=sys.stderr)
+    except DbError as e:
+        print(f"錯誤：{e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def _share_cmd(args) -> None:
     from . import account, share
     from .config import Config
@@ -496,6 +554,12 @@ def main(argv: list[str] | None = None) -> None:
     lg.add_argument("--no-browser", action="store_true", help="only print the link")
     sub.add_parser("logout", help="sign out of sinobee.ai on this machine")
     sub.add_parser("whoami", help="show the signed-in sinobee.ai account")
+    dbp = sub.add_parser("db", help="query saved database connections from the shell (read-only)")
+    dbp.add_argument("action", choices=["list", "schema", "query", "queries"])
+    dbp.add_argument("connection", nargs="?", help="connection id or name")
+    dbp.add_argument("arg", nargs="?", help="schema: table name; query: SQL (or - for stdin)")
+    dbp.add_argument("--format", choices=["md", "csv", "json"], default="md")
+    dbp.add_argument("--limit", type=int, default=100)
     sh = sub.add_parser("share", help="conversations shared on sinobee.ai: list, import, revoke")
     sh.add_argument("action", choices=["list", "import", "revoke"])
     sh.add_argument("ref", nargs="?", help="share URL (import) or id (revoke)")
@@ -534,6 +598,8 @@ def main(argv: list[str] | None = None) -> None:
         _tools_cmd(args)
     elif args.cmd == "share":
         _share_cmd(args)
+    elif args.cmd == "db":
+        _db_cmd(args)
 
 
 if __name__ == "__main__":

@@ -64,6 +64,7 @@ SinoBee 讀取專案文件，整理出「這是什麼」、核心概念表、流
 
 - **把資料庫連線做成工具**：
   - 請 SinoBee「把這個連線做成工具」，它會整理資料表說明、常用查詢與一份 SKILL.md，存在 `~/.sinobee/tools/<連線>/`；SQL 編輯區也能直接「儲存查詢」。
+  - 終端機或其他 agent 也能用同一組連線（唯讀，密碼不經手）：`sinobee db list`、`sinobee db schema <連線> [資料表]`、`sinobee db query <連線> "SELECT …" --format md|csv|json`。
   - 按上傳圖示登錄到 sinobee.ai，選「私人」或「公開」。**帳號密碼不會上傳**。
   - 公開工具審核後列在 [sinobee.ai/tools](https://sinobee.ai/tools)，可以評分與檢舉。
 - **加密保險箱**：私人工具可勾選「加密同步」，連線資料在你的電腦上加密後才上傳。

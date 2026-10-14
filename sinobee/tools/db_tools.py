@@ -164,6 +164,6 @@ async def db_make_tool(ctx: ToolContext, connection: str, description: str, note
     meta = {**(c.tool or {}), "description": description[:2000]}
     svc.store.update_meta(c.id, tool=meta)
     return (f"tool folder ready: {f} (SKILL.md, {len(toolfolder.queries(ctx.config, c))} saved queries, "
-            f"{len(toolfolder.notes(ctx.config, c))} notes); skill `{toolfolder.skill_name(c)}` installed. "
+            f"{len(toolfolder.notes(ctx.config, c))} notes); skill `{toolfolder.skill_name(c, ctx.config)}` installed. "
             "Tell the user they can register it on sinobee.ai from the Database tab (upload button)."
             + (f" Skipped: {'; '.join(skipped)}" if skipped else ""))

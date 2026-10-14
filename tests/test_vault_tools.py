@@ -60,7 +60,7 @@ def test_tool_folder_queries_notes_and_skill(config):
     f = toolfolder.write(config, c, description="商店的訂單與客戶", tables=[{"schema": "main", "name": "customers",
                                                                   "columns": [{"name": "id"}, {"name": "tier"}]}])
     md = (f / "SKILL.md").read_text()
-    assert "name: db-shop" in md and "客戶主檔" in md and "A/B/C 等級" in md and "SELECT name FROM customers LIMIT 5" in md
+    assert "name: db-shop" in md and "sinobee db query shop" in md and "客戶主檔" in md and "A/B/C 等級" in md and "SELECT name FROM customers LIMIT 5" in md
     # a SKILL.md written by the user / agent is kept on later refreshes
     toolfolder.write(config, c, skill="---\nname: db-shop\ndescription: custom\n---\n# mine\n", custom_skill=True)
     toolfolder.write(config, c, description="again")
@@ -68,3 +68,20 @@ def test_tool_folder_queries_notes_and_skill(config):
     m = manifest_for(c, version="1.0.0", queries=toolfolder.queries(config, c), notes=toolfolder.notes(config, c),
                      skill=toolfolder.skill_md(config, c))
     assert m["queries"][0]["title"] == "前五大客戶" and m["notes"]["main.customers"] == "客戶主檔" and "# mine" in m["skill"]
+
+
+def test_db_cli_is_read_only(config, tmp_path, capsys):
+    import sqlite3
+    from sinobee.cli import main
+    from sinobee.tools.db_tools import service
+    f = tmp_path / "s.db"
+    con = sqlite3.connect(f)
+    con.executescript("create table t(id int, name text); insert into t values (1,'a'),(2,'b');")
+    con.close()
+    service(config).store.save({"kind": "sqlite", "name": "Shop", "path": str(f)})
+    main(["db", "query", "Shop", "select * from t order by id", "--format", "json"])
+    assert json.loads(capsys.readouterr().out) == [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]
+    with pytest.raises(SystemExit, match="唯讀"):
+        main(["db", "query", "Shop", "delete from t"])
+    main(["db", "schema", "Shop", "t", "--format", "csv"])
+    assert capsys.readouterr().out.splitlines()[1].startswith("id,")

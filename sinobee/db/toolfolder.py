@@ -91,14 +91,23 @@ def set_notes(config, c: Connection, new: dict, replace: bool = False) -> dict:
 
 
 # ---------- SKILL.md ----------
-def skill_name(c: Connection) -> str:
-    s = re.sub(r"[^a-z0-9]+", "-", c.id.lower()).strip("-") or "database"
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+
+
+def skill_name(c: Connection, config=None) -> str:
+    """db-<tool name>: the connection's name (or database) as a slug, e.g. db-shop; fixed once chosen."""
+    if config is not None:
+        meta = _read(folder(config, c) / ".meta.json", {})
+        if meta.get("skill_name"):
+            return meta["skill_name"]
+    s = _slug(c.name) or _slug(c.database) or _slug(c.id) or "database"
     return f"db-{s}"[:64].strip("-")
 
 
 def default_skill(c: Connection, *, description: str = "", tables: list[dict] | None = None,
-                  qs: list[dict] | None = None, nts: dict | None = None) -> str:
-    name = skill_name(c)
+                  qs: list[dict] | None = None, nts: dict | None = None, name: str | None = None) -> str:
+    name = name or skill_name(c)
     what = description.strip() or f"{c.name} ({ENGINE.get(c.kind, c.kind)})"
     desc = f"How to query the {c.name} database ({ENGINE.get(c.kind, c.kind)}): tables, notes and saved queries. " \
            f"Use when the user asks about data in {c.name}."
@@ -107,7 +116,9 @@ def default_skill(c: Connection, *, description: str = "", tables: list[dict] | 
              f"Query it with the `database` tools using connection `{c.id}`: look at the structure with "
              f"`db_schema`, then run read-only SQL with `db_query`. "
              + ("Writes need `db_execute` and the user's approval every time." if c.allow_write
-                else "This connection is read-only.") + "\n"]
+                else "This connection is read-only.") + "\n",
+             "Agents without SinoBee's tools can use the CLI (read-only; the password stays in SinoBee):\n",
+             f"- `sinobee db schema {c.id} [table]`\n- `sinobee db query {c.id} \"SELECT …\" --format md`\n"]
     if tables:
         lines.append("## Tables\n")
         for t in tables[:60]:
@@ -143,12 +154,13 @@ def write(config, c: Connection, *, manifest: dict | None = None, skill: str | N
     """Write / refresh the folder. A SKILL.md the user or agent wrote is kept unless `skill` replaces it."""
     f = folder(config, c)
     meta = _read(f / ".meta.json", {})
+    meta.setdefault("skill_name", skill_name(c))
     if manifest is not None:
         _write(f / "TOOL.json", manifest)
     if skill:
         text, meta["custom_skill"] = skill, bool(custom_skill)
     elif not meta.get("custom_skill") or not (f / "SKILL.md").exists():
-        text = default_skill(c, description=description or (manifest or {}).get("description", ""),
+        text = default_skill(c, name=meta["skill_name"], description=description or (manifest or {}).get("description", ""),
                              tables=tables if tables is not None else (manifest or {}).get("tables"),
                              qs=queries(config, c), nts=notes(config, c))
     else:
@@ -157,13 +169,13 @@ def write(config, c: Connection, *, manifest: dict | None = None, skill: str | N
         (f / "SKILL.md").write_text(text, encoding="utf-8")
     _write(f / ".meta.json", meta)
     if skills is not None and (f / "SKILL.md").exists():
-        install_skill(skills, c, (f / "SKILL.md").read_text(encoding="utf-8"))
+        install_skill(skills, c, (f / "SKILL.md").read_text(encoding="utf-8"), meta["skill_name"])
     return f
 
 
-def install_skill(skills, c: Connection, text: str) -> None:
+def install_skill(skills, c: Connection, text: str, name: str | None = None) -> None:
     """Make SKILL.md visible to the agent as a local skill (best effort)."""
-    name = skill_name(c)
+    name = name or skill_name(c)
     body = re.sub(r"(?m)^name:\s*.*$", f"name: {name}", text, count=1)
     try:
         skills.create(name, body, actor="user", overwrite=True, source=f"tool:{c.id}")
@@ -173,9 +185,10 @@ def install_skill(skills, c: Connection, text: str) -> None:
 
 def remove(config, c_id: str, skills=None) -> None:
     import shutil
+    name = _read(root(config) / c_id / ".meta.json", {}).get("skill_name")
     shutil.rmtree(root(config) / c_id, ignore_errors=True)
-    if skills is not None:
+    if skills is not None and name:
         try:
-            skills.delete(f"db-{c_id}")
+            skills.delete(name)
         except Exception:  # noqa: BLE001
             pass
