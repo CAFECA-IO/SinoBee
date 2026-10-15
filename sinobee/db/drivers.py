@@ -60,23 +60,42 @@ def qident(kind: str, name: str) -> str:
 class Session:
     """One open connection. Use as a context manager."""
 
-    def __init__(self, conn: Connection, password: str | None, read_only: bool = True):
+    def __init__(self, conn: Connection, password: str | None, read_only: bool = True,
+                 ssh: tuple[str | None, str | None] | None = None, on_pin=None):
         self.c = conn
         self.kind = conn.kind
         self.read_only = read_only
         self.password = password
+        self.ssh = ssh or (None, None)     # (private key or password, key passphrase) for the bastion
+        self.on_pin = on_pin               # called with the bastion's host key fingerprint on first use
         self.raw = None
-        self._cancel_info = None
+        self.tunnel = None
+        self.endpoint = (conn.host, conn.port or KINDS.get(conn.kind))
 
     # ---------- open / close ----------
     def __enter__(self):
+        from .tunnel import POOL, TunnelError
         try:
+            if self.c.ssh_host and self.kind != "sqlite":
+                self.tunnel = POOL.get(self.c, *self.ssh)
+                if not self.c.ssh_fingerprint and self.on_pin:
+                    self.on_pin(self.tunnel.fingerprint)
+                self.endpoint = ("127.0.0.1", self.tunnel.port)
             getattr(self, f"_open_{self.kind}")()
         except DbError:
             raise
+        except TunnelError as e:
+            raise DbError(str(e)) from None
         except Exception as e:  # noqa: BLE001 - driver errors differ per backend
             raise DbError(friendly(e, self.c)) from None
         return self
+
+    def _ca(self) -> str | None:
+        from .tls import ca_file
+        try:
+            return ca_file(self.c.ssl_ca)
+        except (OSError, ConnectionError) as e:
+            raise DbError(str(e)) from None
 
     def __exit__(self, *exc):
         try:
@@ -90,10 +109,16 @@ class Session:
         opts = f"-c statement_timeout={self.c.timeout_s * 1000}"
         if self.read_only:
             opts += " -c default_transaction_read_only=on"
-        self.raw = psycopg.connect(host=self.c.host, port=self.c.port or 5432, dbname=self.c.database or None,
+        extra = {}
+        ca = self._ca()
+        if ca:
+            extra["sslrootcert"] = ca
+        if self.tunnel:   # TLS still checks the real host name; the TCP connection goes to the tunnel
+            extra["hostaddr"] = self.endpoint[0]
+        self.raw = psycopg.connect(host=self.c.host, port=self.endpoint[1], dbname=self.c.database or None,
                                    user=self.c.user or None, password=self.password or None,
                                    sslmode=self.c.sslmode, connect_timeout=10, options=opts,
-                                   application_name="SinoBee", autocommit=True)
+                                   application_name="SinoBee", autocommit=True, **extra)
 
     def _open_mysql(self):
         import pymysql
@@ -101,9 +126,16 @@ class Session:
         ssl = {"require": {"check_hostname": False, "verify_mode": _ssl.CERT_NONE},
                "verify-ca": {"check_hostname": False, "verify_mode": _ssl.CERT_REQUIRED},
                "verify-full": {"check_hostname": True, "verify_mode": _ssl.CERT_REQUIRED}}.get(self.c.sslmode)
-        self.raw = pymysql.connect(host=self.c.host, port=self.c.port or 3306, user=self.c.user or None,
+        if ssl:
+            ca = self._ca()
+            if ca:
+                ssl = {**ssl, "ca": ca}
+            if self.tunnel:   # PyMySQL checks the name it connected to (127.0.0.1); the CA chain is still verified
+                ssl["check_hostname"] = False
+        self.raw = pymysql.connect(host=self.endpoint[0], port=self.endpoint[1], user=self.c.user or None,
                                    password=self.password or "", database=self.c.database or None,
-                                   connect_timeout=10, read_timeout=self.c.timeout_s + 5, charset="utf8mb4",
+                                   connect_timeout=10, read_timeout=(self.c.timeout_s + 5) if self.c.timeout_s else None,
+                                   charset="utf8mb4",
                                    autocommit=True, ssl=ssl)
         cur = self.raw.cursor()
         if self.read_only:
@@ -123,7 +155,7 @@ class Session:
             raise DbError(f"找不到 SQLite 檔案：{p}")
         mode = "ro" if self.read_only else "rw"
         self.raw = sqlite3.connect(f"file:{quote(str(p))}?mode={mode}", uri=True, check_same_thread=False,
-                                   timeout=self.c.timeout_s)
+                                   timeout=self.c.timeout_s or 30)
         if self.read_only:
             self.raw.execute("PRAGMA query_only = 1")
 
@@ -137,7 +169,7 @@ class Session:
             elif self.kind == "mysql":
                 import pymysql
                 tid = self.raw.thread_id()
-                k = pymysql.connect(host=self.c.host, port=self.c.port or 3306, user=self.c.user or None,
+                k = pymysql.connect(host=self.endpoint[0], port=self.endpoint[1], user=self.c.user or None,
                                     password=self.password or "", connect_timeout=5)
                 k.cursor().execute(f"KILL QUERY {int(tid)}")
                 k.close()

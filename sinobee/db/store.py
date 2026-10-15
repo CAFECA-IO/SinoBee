@@ -31,19 +31,35 @@ class Connection:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     tool: dict = field(default_factory=dict)   # registration on sinobee.ai (M2): {publisher, name, visibility, version}
+    ssl_ca: str = ""                # "" (system), "aws-rds" (Amazon RDS global bundle) or a PEM file path
+    # SSH bastion (jump host): the database is reached through a tunnel. The key / password lives in secrets.json
+    ssh_host: str = ""
+    ssh_port: int = 22
+    ssh_user: str = ""
+    ssh_auth: str = "key"           # key | password
+    ssh_fingerprint: str = ""       # SHA256 host key, pinned on first successful connect (trust on first use)
 
     @property
     def secret_name(self) -> str:
         return f"db:{self.id}"
+
+    @property
+    def ssh_secret_name(self) -> str:      # private key (PEM text) or SSH password
+        return f"db:{self.id}:ssh"
+
+    @property
+    def ssh_passphrase_name(self) -> str:  # passphrase of an encrypted private key
+        return f"db:{self.id}:ssh-pass"
 
     def label(self) -> str:
         if self.kind == "sqlite":
             return self.path
         return f"{self.user + '@' if self.user else ''}{self.host}:{self.port or KINDS[self.kind]}/{self.database}"
 
-    def public(self, has_password: bool = False) -> dict:
+    def public(self, has_password: bool = False, has_ssh_secret: bool = False) -> dict:
         d = asdict(self)
         d["has_password"] = has_password
+        d["has_ssh_secret"] = has_ssh_secret
         d["label"] = self.label()
         return d
 
@@ -83,6 +99,31 @@ def validate(d: dict) -> dict:
         if ssl not in SSL_MODES:
             raise ValueError("SSL 模式不正確")
         out["sslmode"] = ssl
+        ca = str(d.get("ssl_ca") or "").strip()
+        if ca and ca != "aws-rds":
+            ca = str(Path(ca).expanduser())
+        if ca == "" and host.endswith(".rds.amazonaws.com") and ssl in ("verify-ca", "verify-full"):
+            ca = "aws-rds"
+        out["ssl_ca"] = ca
+        ssh_host = str(d.get("ssh_host") or "").strip()
+        if ssh_host:
+            if not re.match(r"^[A-Za-z0-9._:\-\[\]]+$", ssh_host):
+                raise ValueError("SSH 跳板機位址格式不正確")
+            try:
+                ssh_port = int(d.get("ssh_port") or 22)
+            except (TypeError, ValueError):
+                raise ValueError("SSH 連接埠需為數字") from None
+            if not 0 < ssh_port < 65536:
+                raise ValueError("SSH 連接埠需在 1–65535")
+            ssh_user = str(d.get("ssh_user") or "").strip()
+            if not ssh_user:
+                raise ValueError("SSH 跳板機需要帳號（例如 ec2-user 或 ubuntu）")
+            auth = str(d.get("ssh_auth") or "key")
+            if auth not in ("key", "password"):
+                raise ValueError("SSH 驗證方式需為 key 或 password")
+            out.update(ssh_host=ssh_host, ssh_port=ssh_port, ssh_user=ssh_user, ssh_auth=auth)
+        else:
+            out.update(ssh_host="", ssh_user="", ssh_port=22, ssh_auth="key", ssh_fingerprint="")
     for k, lo, hi in (("row_limit", 1, 10000), ("timeout_s", 1, 600)):
         if d.get(k) not in (None, ""):
             v = int(d[k])
@@ -135,13 +176,21 @@ class ConnectionStore:
     def password(self, c: Connection) -> str | None:
         return self.secrets.get_secret(c.secret_name)
 
+    def ssh_secret(self, c: Connection) -> tuple[str | None, str | None]:
+        """(private key PEM or password, key passphrase)"""
+        return self.secrets.get_secret(c.ssh_secret_name), self.secrets.get_secret(c.ssh_passphrase_name)
+
     def save(self, data: dict, password: str | None = None, cid: str | None = None,
-             keep_password: bool = True) -> Connection:
+             keep_password: bool = True, ssh_secret: str | None = None,
+             ssh_passphrase: str | None = None) -> Connection:
         clean = validate(data)
         with self._lock:
             items = self._read()
             existing = next((d for d in items if d.get("id") == cid), None) if cid else None
             if existing:
+                if clean.get("ssh_host") != existing.get("ssh_host") or \
+                        int(clean.get("ssh_port") or 22) != int(existing.get("ssh_port") or 22):
+                    clean["ssh_fingerprint"] = ""   # a different jump host must be trusted again
                 existing.update({k: v for k, v in clean.items() if v is not None})
                 existing["updated_at"] = time.time()
                 conn = Connection(**{k: v for k, v in existing.items() if k in Connection.__dataclass_fields__})
@@ -158,6 +207,14 @@ class ConnectionStore:
             self.secrets.set_secret(conn.secret_name, password)
         elif not keep_password:
             self.secrets.set_secret(conn.secret_name, None)
+        if not conn.ssh_host:
+            self.secrets.set_secret(conn.ssh_secret_name, None)
+            self.secrets.set_secret(conn.ssh_passphrase_name, None)
+        else:
+            if ssh_secret:
+                self.secrets.set_secret(conn.ssh_secret_name, ssh_secret)
+            if ssh_passphrase is not None:
+                self.secrets.set_secret(conn.ssh_passphrase_name, ssh_passphrase or None)
         return conn
 
     def update_meta(self, cid: str, **fields) -> Connection | None:
@@ -177,7 +234,8 @@ class ConnectionStore:
             if len(keep) == len(items):
                 return False
             self._write(keep)
-        self.secrets.set_secret(f"db:{cid}", None)
+        for name in (f"db:{cid}", f"db:{cid}:ssh", f"db:{cid}:ssh-pass"):
+            self.secrets.set_secret(name, None)
         (self.dir / "history" / f"{cid}.json").unlink(missing_ok=True)
         return True
 

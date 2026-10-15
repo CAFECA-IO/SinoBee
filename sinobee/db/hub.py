@@ -119,8 +119,10 @@ async def publish(config, service, c: Connection, *, visibility: str = "PRIVATE"
         pack = f"db:{c.id}"
         data = {k: v for k, v in asdict(c).items() if k != "tool"}
         try:
+            ssh_secret, ssh_pass = service.store.ssh_secret(c)
             VaultClient(config).put(pack, {"type": "db-connection", "connection": data,
-                                           "password": service.store.password(c) or ""})
+                                           "password": service.store.password(c) or "",
+                                           "ssh_secret": ssh_secret or "", "ssh_passphrase": ssh_pass or ""})
         except VaultError as e:
             raise HubToolError(str(e)) from None
     version = bump((c.tool or {}).get("version"))
@@ -174,16 +176,19 @@ def install(config, service, ref: str, skills=None) -> dict:
     d = m["database"]
     password = None
     restored = None
+    ssh_secret = ssh_pass = None
     if m.get("vaultPack"):
         try:
             pack = VaultClient(config).get(m["vaultPack"])
             restored = pack.get("connection") or {}
             password = pack.get("password") or None
+            ssh_secret, ssh_pass = pack.get("ssh_secret") or None, pack.get("ssh_passphrase") or None
         except VaultError as e:
             raise HubToolError(f"{e}（這個私人工具的連線資料在保險箱裡）") from None
     if restored:
         data = {k: restored.get(k) for k in ("kind", "name", "host", "port", "database", "user", "sslmode", "path",
-                                             "allow_write", "row_limit", "timeout_s")}
+                                             "allow_write", "row_limit", "timeout_s", "ssl_ca", "ssh_host", "ssh_port",
+                                             "ssh_user", "ssh_auth")}
     else:
         data = {"kind": d["engine"], "name": m.get("title") or m["name"], "host": d.get("host") or "",
                 "port": d.get("port"), "database": d.get("database") or "", "sslmode": d.get("sslmode") or "prefer",
@@ -196,7 +201,8 @@ def install(config, service, ref: str, skills=None) -> dict:
     existing = next((c for c in service.store.list() if (c.tool or {}).get("id") == t["id"]), None)
     try:
         conn = service.store.save({k: v for k, v in data.items() if v is not None}, password=password,
-                                  cid=existing.id if existing else None)
+                                  cid=existing.id if existing else None, ssh_secret=ssh_secret,
+                                  ssh_passphrase=ssh_pass)
     except ValueError as e:
         raise HubToolError(str(e)) from None
     service.store.update_meta(conn.id, tool={"id": t["id"], "name": m["name"], "version": t["version"],

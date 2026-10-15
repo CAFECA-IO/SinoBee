@@ -283,6 +283,28 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .cardseg button.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
 .cardseg button.on::after,.srcseg button.on::after{content:"✓";position:absolute;top:10px;right:12px;color:var(--accent);font-weight:700}
 .cardseg button:disabled{opacity:.5;cursor:not-allowed}
+.sshsec{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.sshsec textarea{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px;resize:vertical;min-height:64px}
+.migcard{max-width:940px;width:100%;max-height:calc(100vh - 40px);display:flex;flex-direction:column}
+.migbody{overflow:auto;min-height:0;flex:1;margin:12px -4px 0;padding:0 4px}
+.migsrc{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.migsrc .arrow{color:var(--muted)}
+.migsec{margin-top:16px}.migsec>h4{margin:0 0 8px;font-size:13px}
+.migtables{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:4px 14px;max-height:220px;overflow:auto;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.migtables label{display:flex;align-items:center;gap:8px;font-size:13px;min-width:0}.migtables label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.migtables small{color:var(--muted)}
+.mignotes{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.mignotes li{display:flex;gap:8px;padding:6px 10px;border-radius:8px;background:var(--panel2)}
+.mignotes li.warn{background:color-mix(in srgb,var(--warn,#d9a400) 12%,transparent)}
+.mignotes li b{white-space:nowrap;font-weight:600}
+.migsteps{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px}
+.migsteps span{font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.migsteps span.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
+.migsteps span.cur{color:var(--ink);border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.migtbl{width:100%;border-collapse:collapse;font-size:13px}.migtbl th,.migtbl td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+.migtbl td.num,.migtbl th.num{text-align:right;font-variant-numeric:tabular-nums}.migtbl .prog{min-width:90px;height:6px}
+.migstat{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 4px}.migstat div{flex:1;min-width:130px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
+.migstat b{display:block;font-size:20px;font-variant-numeric:tabular-nums}.migstat span{font-size:12px;color:var(--muted)}
+.ok-t{color:var(--ok)}.err-t{color:var(--err)}.warn-t{color:var(--warn,#c48a00)}
 .dhead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 12px}
 .dhead h3{margin:0;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .dhead .badge{margin-left:auto;max-width:100%;white-space:normal;overflow-wrap:anywhere;line-height:1.45;text-align:left}
@@ -471,22 +493,48 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
     <label class="f dfnet">資料庫<input id="dfDb" spellcheck="false"></label>
     <label class="f dfnet">帳號<input id="dfUser" autocomplete="off" spellcheck="false"></label>
     <label class="f dfnet">密碼<input id="dfPw" type="password" autocomplete="new-password"></label>
-    <label class="f dfnet">SSL<select id="dfSsl"><option value="prefer">prefer（有就用）</option><option value="require">require（一定要加密）</option><option value="verify-full">verify-full（驗證憑證與主機）</option><option value="disable">disable</option></select></label>
+    <label class="f dfnet">SSL<select id="dfSsl"><option value="prefer">prefer（有就用）</option><option value="require">require（一定要加密）</option><option value="verify-ca">verify-ca（驗證憑證）</option><option value="verify-full">verify-full（驗證憑證與主機）</option><option value="disable">disable</option></select></label>
+    <label class="f dfnet">CA 憑證<select id="dfCa"><option value="">系統預設</option><option value="aws-rds">Amazon RDS / Aurora（自動下載）</option><option value="custom">自訂 PEM 檔…</option></select></label>
+    <label class="f dfnet" id="dfCaPathL" hidden>CA 檔案路徑<input id="dfCaPath" placeholder="~/certs/ca.pem" spellcheck="false"></label>
     <label class="f dfsqlite">SQLite 檔案路徑<input id="dfPath" placeholder="/home/bee/workspace/data.db" spellcheck="false"></label>
     <label class="f">每次最多回傳列數<input id="dfRows" type="number" min="1" max="10000" value="500"></label>
     <label class="f">查詢逾時（秒）<input id="dfTimeout" type="number" min="1" max="600" value="30"></label>
   </div>
-  <label class="chips" style="margin-top:10px"><label><input type="checkbox" class="sw" role="switch" id="dfWrite"> 允許寫入（每次寫入仍需你核准；建議改用唯讀帳號）</label></label>
-  <div class="note" style="margin-top:8px">密碼只存在這台電腦的 secrets.json（權限 600），不會出現在對話裡，也不會送給模型。</div>
+  <div class="dfnet sshsec">
+    <label class="chips"><label><input type="checkbox" class="sw" role="switch" id="dfSsh"> 透過 SSH 跳板機連線</label></label>
+    <div class="sd" style="margin:2px 0 0 54px">資料庫沒有對外開放時使用，例如 AWS 私有子網路裡的 RDS / Aurora，經由同一個 VPC 裡的 EC2 連進去。</div>
+    <div id="dfSshBox" hidden>
+      <div class="grid2" style="margin-top:10px">
+        <label class="f">跳板機主機<input id="dfSshHost" placeholder="ec2-xx-xx.ap-northeast-1.compute.amazonaws.com" spellcheck="false"></label>
+        <label class="f">SSH 連接埠<input id="dfSshPort" type="number" min="1" max="65535" value="22"></label>
+        <label class="f">SSH 帳號<input id="dfSshUser" placeholder="ec2-user / ubuntu" spellcheck="false" autocomplete="off"></label>
+        <label class="f">驗證方式<select id="dfSshAuth"><option value="key">私鑰（.pem）</option><option value="password">密碼</option></select></label>
+      </div>
+      <div id="dfSshKeyBox" style="margin-top:10px">
+        <label class="f">私鑰<textarea id="dfSshKey" rows="3" spellcheck="false" autocomplete="off" placeholder="貼上私鑰內容（-----BEGIN … PRIVATE KEY-----），或按「選擇檔案」"></textarea></label>
+        <div class="row" style="margin-top:6px;justify-content:flex-start"><button class="btn sm" id="dfSshFile" type="button">選擇檔案…</button><input type="file" id="dfSshFileIn" accept=".pem,.key,.txt,*/*" hidden>
+          <label class="f" style="flex:1;flex-direction:row;align-items:center;gap:8px">私鑰密碼<input id="dfSshPass" type="password" autocomplete="new-password" placeholder="私鑰有加密才需要" style="flex:1"></label></div>
+      </div>
+      <label class="f" id="dfSshPwBox" hidden style="margin-top:10px">SSH 密碼<input id="dfSshPw" type="password" autocomplete="new-password"></label>
+      <div class="sd" id="dfSshFp" style="margin-top:8px"></div>
+    </div>
+  </div>
+  <label class="chips" style="margin-top:12px"><label><input type="checkbox" class="sw" role="switch" id="dfWrite"> 允許寫入（每次寫入仍需你核准；建議改用唯讀帳號）</label></label>
+  <div class="note" style="margin-top:8px">密碼與 SSH 私鑰只存在這台電腦的 secrets.json（權限 600），不會出現在對話裡，也不會送給模型。</div>
   <div class="row"><button class="btn danger" id="dfDelete" type="button" hidden>刪除</button><span style="flex:1"></span><button class="btn" id="dfTest" type="button">測試連線</button><button class="btn" id="dfCancel" type="button">取消</button><button class="btn primary" id="dfSave" type="button">儲存</button></div>
 </div></div>
 <div class="modal" id="dbBrowser"><div class="card wide" style="max-width:1240px;width:100%">
   <div style="display:flex;align-items:center;gap:10px"><span class="kindtag" id="dbKind"></span><h3 style="margin:0" id="dbName"></h3><span style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="dbLabel"></span><span style="flex:1"></span>
-    <button class="btn icon" id="dbAsk" data-icon="sparkles" aria-label="請 SinoBee 查詢或分析"></button><button class="btn icon" id="dbPublish" data-icon="upload" aria-label="登錄到 SinoBee.ai"></button><button class="btn icon" id="dbEdit" data-icon="pencil" aria-label="編輯連線"></button><button class="btn icon" id="dbReload" data-icon="refresh" aria-label="重新整理結構"></button><button class="btn icon tip-left" id="dbClose" data-icon="x" aria-label="關閉"></button></div>
+    <button class="btn icon" id="dbAsk" data-icon="sparkles" aria-label="請 SinoBee 查詢或分析"></button><button class="btn icon" id="dbMigrate" data-icon="migrate" aria-label="遷移到其他資料庫或匯出"></button><button class="btn icon" id="dbPublish" data-icon="upload" aria-label="登錄到 SinoBee.ai"></button><button class="btn icon" id="dbEdit" data-icon="pencil" aria-label="編輯連線"></button><button class="btn icon" id="dbReload" data-icon="refresh" aria-label="重新整理結構"></button><button class="btn icon tip-left" id="dbClose" data-icon="x" aria-label="關閉"></button></div>
   <div class="dbwrap"><div class="dbtree" id="dbTree"></div><div class="dbmain">
     <div class="dbbar"><div class="seg" id="dbTabs"><button data-t="data" class="on">資料</button><button data-t="struct">結構</button><button data-t="sql">SQL</button></div><span class="grow"></span><span id="dbBarExtra" class="fltr"></span></div>
     <div id="dbPane" class="dbmain" style="flex:1;min-height:0"></div>
   </div></div>
+</div></div>
+<div class="modal" id="migModal"><div class="card wide migcard">
+  <div class="dhead"><h3 id="migTitle">遷移資料庫</h3><span class="badge" id="migMsg"></span><button class="btn icon sm tip-left" id="migX" data-icon="x" aria-label="關閉" type="button"></button></div>
+  <div id="migBody" class="migbody"></div>
+  <div class="row" id="migFoot"></div>
 </div></div>
 <div class="modal" id="shareModal"><div class="card wide" style="max-width:860px">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 style="margin:0">分享對話</h3><span class="badge" id="shState"></span></div>
@@ -570,6 +618,7 @@ const ICONS = {
   external: '<path d="M14 3h7v7M21 3l-9 9"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',
   share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>',
   upload: '<path d="M12 21V9M7 14l5-5 5 5M4 3h16"/>',
+  migrate: '<ellipse cx="7" cy="5" rx="4" ry="2"/><path d="M3 5v6c0 1.1 1.8 2 4 2s4-.9 4-2V5"/><ellipse cx="17" cy="13" rx="4" ry="2"/><path d="M13 13v6c0 1.1 1.8 2 4 2s4-.9 4-2v-6"/><path d="M14 4h3a2 2 0 0 1 2 2v3m-2-2 2 2 2-2"/>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
@@ -1421,19 +1470,50 @@ function openDbForm(conn = null, prefill = null, onSaved = null){
   $('#dfPw').placeholder = conn?.has_password ? '已儲存（留空表示不變）' : ''; $('#dfSsl').value = v.sslmode || 'prefer';
   $('#dfPath').value = v.path || ''; $('#dfRows').value = v.row_limit || 500; $('#dfTimeout').value = v.timeout_s || 30;
   $('#dfWrite').checked = !!v.allow_write; $('#dfDsn').value = ''; $('#dfDelete').hidden = !conn;
+  const ca = v.ssl_ca || ''; $('#dfCa').value = ca === '' || ca === 'aws-rds' ? ca : 'custom'; $('#dfCaPath').value = ca && ca !== 'aws-rds' ? ca : '';
+  $('#dfSsh').checked = !!v.ssh_host; $('#dfSshHost').value = v.ssh_host || ''; $('#dfSshPort').value = v.ssh_port || 22;
+  $('#dfSshUser').value = v.ssh_user || ''; $('#dfSshAuth').value = v.ssh_auth || 'key'; $('#dfSshKey').value = ''; $('#dfSshPass').value = ''; $('#dfSshPw').value = '';
+  $('#dfSshKey').placeholder = conn?.has_ssh_secret && v.ssh_auth !== 'password' ? '已儲存私鑰（留空表示不變；貼上新的私鑰會取代）' : '貼上私鑰內容（-----BEGIN … PRIVATE KEY-----），或按「選擇檔案」';
+  $('#dfSshPw').placeholder = conn?.has_ssh_secret && v.ssh_auth === 'password' ? '已儲存（留空表示不變）' : '';
+  DB.testFp = null; dfSshUi(); dfFp(v.ssh_fingerprint || '');
   dfKind(v.kind || 'postgres'); $('#dbForm').classList.add('open'); setTimeout(() => (conn ? $('#dfName') : $('#dfDsn')).focus(), 50);
 }
+function dfSshUi(){ $('#dfSshBox').hidden = !$('#dfSsh').checked; const pw = $('#dfSshAuth').value === 'password';
+  $('#dfSshKeyBox').hidden = pw; $('#dfSshPwBox').hidden = !pw; $('#dfCaPathL').hidden = $('#dfCa').value !== 'custom'; }
+function dfFp(fp, fresh = false){
+  const el = $('#dfSshFp');
+  if (!fp) { el.innerHTML = $('#dfSsh').checked ? '第一次連線時會記住跳板機的主機金鑰指紋，之後金鑰改變會拒絕連線（防止中間人攻擊）。' : ''; return; }
+  el.innerHTML = `${ic('shield')} 跳板機主機金鑰 <code>${esc(fp)}</code>${fresh ? '（儲存後會記住）' : '（已記住）'}`
+    + (DB.editing?.ssh_fingerprint && !fresh ? ` <button class="btn sm" type="button" id="dfRetrust">重新信任</button>` : '');
+  const b = $('#dfRetrust'); if (b) b.onclick = async () => {
+    if (!confirm('只有在你確認跳板機是重建或更換過金鑰時才這樣做。要清除已記住的指紋嗎？')) return;
+    const r = await post('/api/db/' + encodeURIComponent(DB.editing.id) + '/retrust', {}); DB.editing = r.connection; dfFp(''); };
+}
+['#dfSsh', '#dfSshAuth', '#dfCa'].forEach(x => $(x).addEventListener('change', () => { dfSshUi(); if (x === '#dfSsh') dfFp(DB.editing?.ssh_fingerprint || DB.testFp || ''); }));
+$('#dfSshFile').onclick = () => $('#dfSshFileIn').click();
+$('#dfSshFileIn').onchange = async () => { const f = $('#dfSshFileIn').files[0]; if (!f) return;
+  if (f.size > 64 * 1024) { alert('這個檔案太大，不像是 SSH 私鑰'); return; }
+  $('#dfSshKey').value = (await f.text()).trim(); $('#dfSshFileIn').value = ''; $('#dfMsg').textContent = `已讀入 ${f.name}`; };
+$('#dfHost').addEventListener('change', () => { const h = $('#dfHost').value.trim();
+  if (/\.rds\.amazonaws\.com$/i.test(h) && !$('#dfCa').value) { $('#dfCa').value = 'aws-rds'; if ($('#dfSsl').value === 'prefer') $('#dfSsl').value = 'require'; dfSshUi();
+    $('#dfMsg').textContent = '偵測到 Amazon RDS：已選用 RDS CA 憑證'; } });
 $('#dfDsn').addEventListener('input', async () => { const t = $('#dfDsn').value.trim(); if (!/:\/\//.test(t)) return;
   const r = await api('/api/db/parse', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: t})});
   if (!r.found) return; const c = r.connection; dfKind(c.kind); $('#dfHost').value = c.host; $('#dfPort').value = c.port; $('#dfDb').value = c.database;
   $('#dfUser').value = c.user; if (c.password) $('#dfPw').value = c.password; if (c.sslmode) $('#dfSsl').value = c.sslmode;
   if (!$('#dfName').value) $('#dfName').value = (c.database || c.kind) + '@' + c.host; $('#dfDsn').value = ''; $('#dfMsg').textContent = '已從連線字串填入'; });
-function dfBody(){ return {id: DB.editing?.id, kind: DB.kind, name: $('#dfName').value.trim(), host: $('#dfHost').value.trim(), port: $('#dfPort').value,
+function dfBody(){ const ssh = $('#dfSsh').checked, pw = $('#dfSshAuth').value === 'password';
+  return {id: DB.editing?.id, kind: DB.kind, name: $('#dfName').value.trim(), host: $('#dfHost').value.trim(), port: $('#dfPort').value,
   database: $('#dfDb').value.trim(), user: $('#dfUser').value.trim(), password: $('#dfPw').value, sslmode: $('#dfSsl').value, path: $('#dfPath').value.trim(),
+  ssl_ca: $('#dfCa').value === 'custom' ? $('#dfCaPath').value.trim() : $('#dfCa').value,
+  ssh_host: ssh ? $('#dfSshHost').value.trim() : '', ssh_port: $('#dfSshPort').value || 22, ssh_user: $('#dfSshUser').value.trim(), ssh_auth: $('#dfSshAuth').value,
+  ssh_secret: ssh ? (pw ? $('#dfSshPw').value : $('#dfSshKey').value.trim()) : '', ssh_passphrase: ssh && !pw ? $('#dfSshPass').value : '',
+  ssh_fingerprint: ssh ? (DB.testFp || '') : '',
   row_limit: $('#dfRows').value, timeout_s: $('#dfTimeout').value, allow_write: $('#dfWrite').checked}; }
-$('#dfTest').onclick = async () => { $('#dfMsg').textContent = '測試中…';
+$('#dfTest').onclick = async () => { $('#dfMsg').textContent = $('#dfSsh').checked ? '建立 SSH 通道並測試中…' : '測試中…';
   const r = await fetch('/api/db/test?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dfBody())});
-  const j = await r.json(); $('#dfMsg').innerHTML = r.ok ? `<span style="color:var(--ok)">✓ ${esc(j.version.slice(0, 60))} · ${j.latency_ms} ms</span>` : `<span style="color:var(--err)">✕ ${esc(j.detail)}</span>`; };
+  const j = await r.json(); $('#dfMsg').innerHTML = r.ok ? `<span style="color:var(--ok)">✓ ${esc(j.version.slice(0, 60))} · ${j.latency_ms} ms${j.ssh_fingerprint ? ' · 經 SSH 跳板機' : ''}</span>` : `<span style="color:var(--err)">✕ ${esc(j.detail)}</span>`;
+  if (r.ok && j.ssh_fingerprint) { DB.testFp = j.ssh_fingerprint; dfFp(j.ssh_fingerprint, !DB.editing?.ssh_fingerprint); } };
 $('#dfCancel').onclick = () => $('#dbForm').classList.remove('open');
 $('#dfDelete').onclick = async () => { if (!DB.editing || !confirm(`刪除連線「${DB.editing.name}」？密碼與查詢紀錄也會一併刪除。`)) return;
   await post('/api/db/connections/' + encodeURIComponent(DB.editing.id), {}, 'DELETE'); $('#dbForm').classList.remove('open'); $('#dbBrowser').classList.remove('open'); if (tab === 'data') loadSide(); };
@@ -1480,6 +1560,201 @@ async function openPublish(){
   $('#pubModal').classList.add('open');
 }
 $('#dbPublish').onclick = openPublish;
+// ---------------- database migration ----------------
+const MIG = {src: null, dest: 'connection', plan: null, job: null, timer: null, opts: {views: true, replace: false, skip: false}};
+const MIG_PHASES = [['connect', '連線'], ['schema', '讀取結構'], ['create', '建立資料表'], ['copy', '複製資料'], ['indexes', '索引'],
+  ['foreign_keys', '外鍵'], ['views', '檢視表'], ['verify', '驗證'], ['done', '完成']];
+const MIG_STATUS = {queued: '排隊中', running: '執行中', done: '完成', failed: '失敗', stopped: '已停止', interrupted: '已中斷'};
+const fmtN = n => n == null ? '—' : Number(n).toLocaleString();
+async function jreq(path, body, method = 'POST'){
+  const r = await fetch(path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token),
+    {method, headers: {'Content-Type': 'application/json'}, body: body === undefined ? undefined : JSON.stringify(body)});
+  let j = {}; try { j = await r.json(); } catch {}
+  return {ok: r.ok, j};
+}
+function migMsg(text, kind = ''){ $('#migMsg').innerHTML = text ? `<span class="${kind}">${text}</span>` : ''; }
+function migClose(){ clearInterval(MIG.timer); MIG.timer = null; $('#migModal').classList.remove('open'); }
+$('#migX').onclick = migClose;
+$('#dbMigrate').onclick = () => openMigration(DB.cur);
+async function openMigration(src){
+  MIG.src = src; MIG.plan = null; MIG.job = null; clearInterval(MIG.timer);
+  const r = await api('/api/db/connections'); DB.conns = r.connections || [];
+  $('#migTitle').textContent = '遷移資料庫'; migMsg(''); $('#migModal').classList.add('open'); migSetup();
+}
+function migSrcBox(target){
+  const s = MIG.src;
+  return `<div class="migsrc"><span class="kindtag">${DB_KIND_LABEL[s.kind]}</span><b>${esc(s.name)}</b><small class="sd">${esc(s.label)}</small>
+    ${target ? `<span class="arrow">${ic('send')}</span><span class="kindtag">${esc(DB_KIND_LABEL[target.kind] || target.kind)}</span><b>${esc(target.label || '')}</b>` : ''}</div>`;
+}
+async function migSetup(){
+  const others = DB.conns.filter(c => c.id !== MIG.src.id);
+  const jobs = ((await api('/api/db/migrations')).jobs || []).filter(j => j.source.id === MIG.src.id).slice(0, 5);
+  const dumpName = (MIG.src.database || MIG.src.name || 'database').replace(/[^\w.-]+/g, '_');
+  $('#migBody').innerHTML = `${migSrcBox()}
+    <div class="migsec"><h4>搬到哪裡</h4>
+      <div class="cardseg" id="migDest">
+        <button type="button" data-v="connection"><b>另一個資料庫</b><span>已儲存的 MySQL / MariaDB、PostgreSQL 或 SQLite 連線</span></button>
+        <button type="button" data-v="sqlite"><b>新的 SQLite 檔案</b><span>整個資料庫存成一個 .db 檔，方便攜帶或離線分析</span></button>
+        <button type="button" data-v="sqlfile"><b>匯出 SQL 檔</b><span>結構＋資料的 .sql 腳本，可匯入任何地方；完成後可下載</span></button>
+      </div></div>
+    <div class="migsec" id="migDestOpts"></div>
+    <div class="migsec"><h4>選項</h4>
+      ${MIG.src.kind === 'postgres' ? `<div class="srow"><div class="sl"><b>來源 schema</b><span class="sd">要搬移的 PostgreSQL schema</span></div><div class="sc"><input class="inp" id="migSrcSchema" placeholder="public" spellcheck="false"></div></div>` : ''}
+      <div class="srow"><div class="sl"><b>包含檢視表</b><span class="sd">在目的地重建檢視表（跨資料庫類型時自動轉換語法）</span></div><div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="migViews"></div></div>
+      <div class="srow"><div class="sl"><b>覆蓋目的地已有的同名資料表</b><span class="sd">關閉時，目的地有同名資料表就不會開始</span></div><div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="migReplace"></div></div>
+      <div class="srow"><div class="sl"><b>略過無法寫入的列</b><span class="sd">關閉時遇到目的地拒絕的資料會停下並指出是哪一列；開啟則略過並列在報告裡</span></div><div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="migSkip"></div></div>
+    </div>
+    ${jobs.length ? `<div class="migsec"><h4>最近的遷移</h4><table class="migtbl"><tbody>${jobs.map(j => `<tr>
+      <td>${esc(new Date(j.created_at * 1000).toLocaleString())}</td><td>→ ${esc(j.target.label || '')}</td>
+      <td class="${j.status === 'done' ? 'ok-t' : ['failed', 'interrupted'].includes(j.status) ? 'err-t' : ''}">${MIG_STATUS[j.status] || j.status}</td>
+      <td class="num">${fmtN(j.progress.rows_copied)} 列</td><td class="num"><button class="btn sm" type="button" data-job="${esc(j.id)}">查看</button></td></tr>`).join('')}</tbody></table></div>` : ''}`;
+  $('#migViews').checked = MIG.opts.views; $('#migReplace').checked = MIG.opts.replace; $('#migSkip').checked = MIG.opts.skip;
+  const renderDest = () => {
+    document.querySelectorAll('#migDest button').forEach(b => b.classList.toggle('on', b.dataset.v === MIG.dest));
+    const box = $('#migDestOpts');
+    if (MIG.dest === 'connection') {
+      box.innerHTML = others.length ? `<div class="grid2">
+          <label class="f">目的地連線<select id="migTarget">${others.map(c => `<option value="${esc(c.id)}">${esc(c.name)}（${DB_KIND_LABEL[c.kind]} · ${esc(c.label)}）</option>`).join('')}</select></label>
+          <label class="f" id="migSchemaL">PostgreSQL schema<input id="migSchema" placeholder="public" spellcheck="false"></label></div>
+          <div class="row" style="justify-content:flex-start;margin-top:8px"><button class="btn sm" type="button" id="migNewConn">＋ 新增目的地連線</button></div>`
+        : `<div class="note">還沒有其他連線。先新增目的地資料庫的連線；目的地不需要開啟「允許寫入」，遷移會在這裡請你確認。</div>
+           <button class="btn" type="button" id="migNewConn">＋ 新增目的地連線</button>`;
+      const sel = $('#migTarget'); const sync = () => { const c = others.find(x => x.id === sel?.value); const l = $('#migSchemaL'); if (l) l.hidden = !c || c.kind !== 'postgres'; };
+      if (sel) { sel.onchange = sync; sync(); }
+      $('#migNewConn').onclick = () => openDbForm(null, null, async conn => { const r = await api('/api/db/connections'); DB.conns = r.connections || []; migSetup().then(() => { const s2 = $('#migTarget'); if (s2) { s2.value = conn.id; s2.onchange(); } }); });
+    } else if (MIG.dest === 'sqlite') {
+      box.innerHTML = `<label class="f">SQLite 檔案路徑（在執行 SinoBee 的電腦上；不存在會自動建立）<input id="migPath" value="~/sinobee-exports/${esc(dumpName)}.db" spellcheck="false"></label>`;
+    } else {
+      box.innerHTML = `<div class="grid2"><label class="f">SQL 語法（要匯入到哪種資料庫）<select id="migDialect">
+          <option value="mysql">MySQL / MariaDB</option><option value="postgres">PostgreSQL</option><option value="sqlite">SQLite</option></select></label>
+          <label class="f">存放位置（留空：SinoBee 的 exports 資料夾）<input id="migPath" placeholder="~/sinobee-exports/${esc(dumpName)}.sql.gz" spellcheck="false"></label></div>
+        <div class="srow"><div class="sl"><b>壓縮成 .gz</b><span class="sd">大型資料庫建議開啟，檔案通常小 5–10 倍</span></div><div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="migGz" checked></div></div>`;
+      $('#migDialect').value = MIG.src.kind;
+    }
+  };
+  document.querySelectorAll('#migDest button').forEach(b => b.onclick = () => { MIG.dest = b.dataset.v; renderDest(); });
+  document.querySelectorAll('#migBody [data-job]').forEach(b => b.onclick = () => migWatch(b.dataset.job));
+  renderDest();
+  $('#migFoot').innerHTML = `<span style="flex:1"></span><button class="btn" type="button" id="migCancel">取消</button><button class="btn primary" type="button" id="migCheck">檢查並預覽</button>`;
+  $('#migCancel').onclick = migClose; $('#migCheck').onclick = migCheck;
+}
+function migTargetSpec(){
+  if (MIG.dest === 'connection') { const id = $('#migTarget')?.value; if (!id) return null; return {type: 'connection', id, schema: $('#migSchema')?.value.trim() || null}; }
+  if (MIG.dest === 'sqlite') return {type: 'sqlite', path: $('#migPath').value.trim()};
+  return {type: 'sqlfile', dialect: $('#migDialect').value, path: $('#migPath').value.trim() || null, gzip: $('#migGz').checked};
+}
+async function migCheck(){
+  const target = migTargetSpec(); if (!target) { migMsg('請選擇目的地連線', 'err-t'); return; }
+  MIG.opts = {views: $('#migViews').checked, replace: $('#migReplace').checked, skip: $('#migSkip').checked,
+    schema: $('#migSrcSchema')?.value.trim() || null}; MIG.target = target;
+  migMsg('正在讀取來源結構…'); $('#migCheck').disabled = true;
+  const {ok, j} = await jreq('/api/db/migrations/plan', {source: MIG.src.id, target, options: {schema: MIG.opts.schema}});
+  $('#migCheck').disabled = false;
+  if (!ok) { migMsg('✕ ' + esc(j.detail || '失敗'), 'err-t'); return; }
+  migMsg(''); MIG.plan = j; migPlan();
+}
+function verShort(v, kind){
+  v = String(v || ''); let m;
+  if ((m = v.match(/^(\d+\.\d+)[\d.]*-MariaDB/i))) return 'MariaDB ' + m[1];
+  if ((m = v.match(/^PostgreSQL (\d+(\.\d+)?)/))) return 'PostgreSQL ' + m[1];
+  if ((m = v.match(/^SQLite ([\d.]+)/))) return 'SQLite ' + m[1];
+  if ((m = v.match(/^(\d+\.\d+)[\d.]*/))) return (kind === 'mysql' ? 'MySQL ' : '') + m[1];
+  return {mysql: 'MySQL', postgres: 'PostgreSQL', sqlite: 'SQLite'}[kind] || v.slice(0, 20);
+}
+function migNotes(notes){
+  if (!notes.length) return '<div class="note">沒有需要注意的轉換。</div>';
+  const sorted = [...notes].sort((a, b) => (a.level === 'warn' ? 0 : 1) - (b.level === 'warn' ? 0 : 1));
+  return `<ul class="mignotes">${sorted.map(n => { const where = [n.table, n.column].filter(Boolean).join('.');
+    return `<li class="${n.level}"><span>${n.level === 'warn' ? '⚠' : '·'}</span>${where ? `<b>${esc(where)}</b>` : ''}<span>${esc(n.message)}</span></li>`; }).join('')}</ul>`;
+}
+function migPlan(){
+  const p = MIG.plan, rows = p.tables.reduce((a, t) => a + (t.rows_estimate || 0), 0);
+  const conflictNote = p.conflicts.length ? `<div class="note ${MIG.opts.replace ? 'warn-t' : 'err-t'}" style="margin-top:10px">目的地已有同名資料表：${p.conflicts.map(esc).join('、')}。
+      ${MIG.opts.replace ? '開始後會<b>刪除並重建</b>這些資料表。' : '請回上一步開啟「覆蓋目的地已有的同名資料表」，或換一個目的地。'}</div>` : '';
+  $('#migBody').innerHTML = `${migSrcBox(p.target)}
+    <div class="migstat"><div><b>${p.tables.length}</b><span>資料表</span></div><div><b>${p.views.length}</b><span>檢視表</span></div>
+      <div><b>≈ ${fmtN(rows)}</b><span>列（估計值）</span></div><div><b>${p.same_engine ? '同類型' : '跨類型'}</b><span>${esc(verShort(p.source.version, p.source.kind))} → ${esc(verShort(p.target.version, p.target.kind))}</span></div></div>
+    ${conflictNote}
+    <div class="migsec"><h4>要搬的資料表 <button class="btn sm" type="button" id="migAll">全選</button> <button class="btn sm" type="button" id="migNone">全不選</button></h4>
+      <div class="migtables">${p.tables.map(t => `<label title="${esc(t.name)}"><input type="checkbox" data-t="${esc(t.name)}" checked><span>${esc(t.name)}</span><small>${t.rows_estimate != null ? '≈' + fmtN(t.rows_estimate) : ''}${t.primary_key.length ? '' : ' · 無主鍵'}</small></label>`).join('')}</div></div>
+    <div class="migsec"><h4>轉換說明</h4>${migNotes(p.notes)}</div>
+    <div class="note" style="margin-top:10px">來源只會被讀取（在一致性快照中讀取）。搬移期間請暫停對來源的寫入，避免遺漏新資料。</div>`;
+  $('#migAll').onclick = () => document.querySelectorAll('.migtables input').forEach(x => x.checked = true);
+  $('#migNone').onclick = () => document.querySelectorAll('.migtables input').forEach(x => x.checked = false);
+  $('#migFoot').innerHTML = `<button class="btn" type="button" id="migBack">返回</button><span style="flex:1"></span>
+    <button class="btn primary" type="button" id="migGo" ${p.conflicts.length && !MIG.opts.replace ? 'disabled' : ''}>開始遷移</button>`;
+  $('#migBack').onclick = migSetup; $('#migGo').onclick = migStart;
+}
+async function migStart(){
+  const p = MIG.plan, picked = [...document.querySelectorAll('.migtables input:checked')].map(x => x.dataset.t);
+  if (!picked.length) { migMsg('請至少選一個資料表', 'err-t'); return; }
+  const where = p.target.type === 'connection' ? `資料庫「${p.target.label}」` : `檔案 ${p.target.path}`;
+  const drop = p.conflicts.filter(x => picked.includes(x));
+  if (!confirm(`要把 ${picked.length} 個資料表寫入${where}？${drop.length && MIG.opts.replace ? `\n\n會先刪除目的地的 ${drop.length} 個同名資料表。` : ''}`)) return;
+  const tables = picked.length === p.tables.length ? null : picked;
+  const {ok, j} = await jreq('/api/db/migrations', {source: MIG.src.id, target: MIG.target, confirm: true,
+    options: {tables, views: MIG.opts.views, if_exists: MIG.opts.replace ? 'replace' : 'fail', skip_bad_rows: MIG.opts.skip, schema: MIG.opts.schema}});
+  if (!ok) { migMsg('✕ ' + esc(j.detail || '失敗'), 'err-t'); return; }
+  migWatch(j.id);
+}
+async function migWatch(jid){
+  clearInterval(MIG.timer);
+  const tick = async () => {
+    const {ok, j} = await jreq('/api/db/migrations/' + encodeURIComponent(jid), undefined, 'GET');
+    if (!ok) { migMsg('✕ ' + esc(j.detail || '找不到工作'), 'err-t'); clearInterval(MIG.timer); return; }
+    MIG.job = j; migProgress(j);
+    if (!['running', 'queued'].includes(j.status)) { clearInterval(MIG.timer); MIG.timer = null; }
+  };
+  await tick(); if (['running', 'queued'].includes(MIG.job?.status)) MIG.timer = setInterval(tick, 1000);
+}
+function migProgress(j){
+  const running = ['running', 'queued'].includes(j.status), pr = j.progress;
+  const cur = MIG_PHASES.findIndex(x => x[0] === j.phase);
+  const pct = pr.rows_estimate ? Math.min(100, Math.round(pr.rows_copied / pr.rows_estimate * 100)) : (j.status === 'done' ? 100 : 0);
+  $('#migTitle').textContent = j.status === 'done' ? '遷移完成' : running ? '遷移中…' : '遷移' + (MIG_STATUS[j.status] || '');
+  migMsg(j.status === 'done' ? '✓ 完成' : j.error ? '✕ ' + esc(j.error) : '', j.status === 'done' ? 'ok-t' : 'err-t');
+  const done = j.status === 'done';
+  const verifyBad = j.tables.filter(t => t.status === 'done' && (t.source_rows !== t.target_rows || t.sample_mismatches));
+  const skipped = j.skipped_rows || {};
+  const tableRows = j.tables.map(t => {
+    const p2 = t.rows_estimate ? Math.min(100, Math.round(t.rows_copied / Math.max(t.rows_estimate, t.rows_copied, 1) * 100)) : (['copied', 'done'].includes(t.status) ? 100 : 0);
+    const state = t.status === 'done' ? (t.source_rows === t.target_rows && !t.sample_mismatches ? '<span class="ok-t">✓ 一致</span>' : '<span class="warn-t">⚠ 有差異</span>')
+      : t.status === 'copying' ? '複製中' : t.status === 'copied' ? '已複製' : t.status === 'created' ? '已建立' : t.status === 'pending' ? '等待中' : esc(t.status);
+    return `<tr><td>${esc(t.name)}</td><td>${done ? '' : `<div class="prog"><div style="width:${p2}%"></div></div>`}</td>
+      <td class="num">${fmtN(t.rows_copied)}</td>${done ? `<td class="num">${fmtN(t.source_rows)}</td><td class="num">${fmtN(t.target_rows)}</td>
+      <td class="num">${t.sample_mismatches ? `<span class="warn-t">${t.sample_mismatches}</span>` : '0'}</td>` : `<td class="num">${t.rows_estimate != null ? '≈' + fmtN(t.rows_estimate) : ''}</td>`}
+      <td>${state}${skipped[t.name] ? ` <span class="warn-t" title="${esc(skipped[t.name].examples.map(e => e.row + '：' + e.error).join('\n'))}">略過 ${skipped[t.name].count} 列</span>` : ''}${t.error ? ` <span class="err-t">${esc(t.error)}</span>` : ''}</td></tr>`; }).join('');
+  const issues = (j.value_issues || []).map(v => ({level: 'info', table: v.table, column: v.column,
+    message: `${v.message}（${fmtN(v.rows)} 列${v.examples?.length ? '，例如 ' + v.examples.join('、') : ''}）`}));
+  const logs = (j.log || []).filter(l => l.level !== 'info').slice(-5);
+  $('#migBody').innerHTML = `${migSrcBox(j.target)}
+    <div class="migsteps" style="margin-top:12px">${MIG_PHASES.map((x, i) => `<span class="${i < cur || done ? 'done' : i === cur && running ? 'cur' : ''}">${i < cur || done ? '✓ ' : ''}${x[1]}</span>`).join('')}</div>
+    ${done ? `<div class="migstat"><div><b>${fmtN(pr.rows_copied)}</b><span>列已搬移</span></div><div><b>${pr.tables_done}/${pr.tables_total}</b><span>資料表</span></div>
+       <div><b class="${verifyBad.length ? 'warn-t' : 'ok-t'}">${verifyBad.length ? verifyBad.length + ' 表有差異' : '全部一致'}</b><span>列數與抽樣比對</span></div></div>`
+      : `<div style="display:flex;align-items:center;gap:10px"><div class="prog"><div style="width:${pct}%"></div></div><span class="sd">${fmtN(pr.rows_copied)}${pr.rows_estimate ? ' / ≈' + fmtN(pr.rows_estimate) : ''} 列</span></div>`}
+    <div class="migsec"><table class="migtbl"><thead><tr><th>資料表</th><th></th><th class="num">已複製</th>${done ? '<th class="num">來源</th><th class="num">目的地</th><th class="num">抽樣差異</th>' : '<th class="num">估計</th>'}<th>狀態</th></tr></thead><tbody>${tableRows}</tbody></table></div>
+    ${logs.length ? `<div class="migsec"><h4>訊息</h4><ul class="mignotes">${logs.map(l => `<li class="warn"><span>⚠</span><span>${esc(l.message)}</span></li>`).join('')}</ul></div>` : ''}
+    ${done || (j.notes || []).length ? `<div class="migsec"><h4>${done ? '需要留意' : '轉換說明'}</h4>${migNotes([...(j.notes || []), ...issues])}</div>` : ''}`;
+  const foot = [];
+  if (running) foot.push(`<span class="sd">可以關閉視窗，遷移會在背景繼續</span><span style="flex:1"></span><button class="btn" type="button" id="migHide">在背景執行</button><button class="btn danger" type="button" id="migStop">停止</button>`);
+  else if (done) {
+    foot.push('<button class="btn" type="button" id="migNew">再做一次</button><span style="flex:1"></span>');
+    if (['sqlfile', 'sqlite'].includes(j.target.type)) foot.push(`<a class="btn" href="/api/db/migrations/${encodeURIComponent(j.id)}/download?token=${encodeURIComponent(token)}">${ic('download')} 下載 ${esc(j.target.label)}</a>`);
+    if (j.target.type === 'connection') foot.push('<button class="btn" type="button" id="migOpen">開啟目的地</button>');
+    foot.push('<button class="btn primary" type="button" id="migDone">完成</button>');
+  } else {
+    foot.push(`<button class="btn" type="button" id="migNew">重新設定</button><span style="flex:1"></span>
+      <label class="chips" style="margin-right:6px"><label><input type="checkbox" class="sw" role="switch" id="migSkip2" ${j.options.skip_bad_rows ? 'checked' : ''}> 略過無法寫入的列</label></label>
+      <button class="btn primary" type="button" id="migResume">從中斷處繼續</button>`);
+  }
+  $('#migFoot').innerHTML = foot.join('');
+  const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
+  on('#migHide', migClose); on('#migDone', migClose); on('#migNew', () => { $('#migTitle').textContent = '遷移資料庫'; migMsg(''); migSetup(); });
+  on('#migStop', async () => { await jreq('/api/db/migrations/' + encodeURIComponent(j.id) + '/stop', {}); migMsg('正在停止（目前這批寫完就停）…'); });
+  on('#migOpen', () => { migClose(); openDb(j.target.id); });
+  on('#migResume', async () => { const {ok, j: r} = await jreq('/api/db/migrations/' + encodeURIComponent(j.id) + '/resume', {options: {skip_bad_rows: $('#migSkip2').checked}});
+    if (!ok) { migMsg('✕ ' + esc(r.detail || '失敗'), 'err-t'); return; } migWatch(j.id); });
+}
 $('#pubClose').onclick = () => $('#pubModal').classList.remove('open');
 $('#pubGo').onclick = async () => {
   const c = DB.cur, msg = $('#pubMsg'), sync = $('#pubSync')?.checked;

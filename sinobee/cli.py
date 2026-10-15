@@ -400,6 +400,8 @@ def _db_cmd(args) -> None:
         else:
             print(md_table(columns, rows, max_rows=len(rows)))
     try:
+        if args.action in ("migrate", "migrations"):
+            return _migrate_cmd(args, svc, out)
         if args.action == "list":
             out(["id", "name", "kind", "label", "read_only"],
                 [[c["id"], c["name"], c["kind"], c["label"], not c["allow_write"]] for c in svc.listing()])
@@ -433,6 +435,83 @@ def _db_cmd(args) -> None:
     except DbError as e:
         print(f"錯誤：{e}", file=sys.stderr)
         sys.exit(1)
+
+
+def _migrate_cmd(args, svc, out) -> None:
+    from .db.migration.runner import MigrationError
+    mm = svc.migrations
+    try:
+        if args.action == "migrations":
+            out(["id", "status", "source", "target", "rows", "error"],
+                [[j["id"], j["status"], j["source"]["name"], j["target"].get("label"),
+                  j["progress"]["rows_copied"], (j.get("error") or "")[:60]] for j in mm.list()])
+            return
+        if args.resume:
+            job = mm.get(args.resume)
+            mm.resume(job.id, {"skip_bad_rows": True} if args.skip_bad_rows else None)
+        else:
+            if not args.connection:
+                raise SystemExit("用法：sinobee db migrate <來源連線> --to <目的連線> | --sqlite 檔案 | --sql-file 檔案")
+            if args.to:
+                target = {"type": "connection", "id": svc.get(args.to).id, "schema": args.target_schema}
+            elif args.sqlite:
+                target = {"type": "sqlite", "path": args.sqlite}
+            elif args.sql_file:
+                target = {"type": "sqlfile", "path": args.sql_file, "dialect": args.dialect or svc.get(args.connection).kind}
+            else:
+                raise SystemExit("請指定目的地：--to、--sqlite 或 --sql-file")
+            opts = {"tables": [x.strip() for x in (args.tables or "").split(",") if x.strip()] or None,
+                    "views": not args.no_views, "if_exists": "replace" if args.replace else "fail",
+                    "skip_bad_rows": args.skip_bad_rows}
+            plan = mm.plan(svc.get(args.connection).id, target, opts)
+            print(f"來源：{plan['source']['name']}（{plan['source']['kind']}，{plan['source']['schema']}）")
+            print(f"目的地：{plan['target'].get('label')}（{plan['target']['kind']}）")
+            print(f"{len(plan['tables'])} 個資料表、{len(plan['views'])} 個檢視表，約 "
+                  f"{sum(t['rows_estimate'] or 0 for t in plan['tables']):,} 列")
+            for n in plan["notes"]:
+                where = ".".join(x for x in (n["table"], n["column"]) if x)
+                print(f"  {'⚠' if n['level'] == 'warn' else '·'} {where + '：' if where else ''}{n['message']}")
+            if plan["conflicts"]:
+                print(f"目的地已有同名資料表：{', '.join(plan['conflicts'])}" +
+                      ("（會先刪除再重建）" if args.replace else "（加上 --replace 才會覆蓋）"))
+            if args.plan:
+                return
+            if not args.yes:
+                if input("開始遷移？輸入 yes 確認：").strip().lower() not in ("y", "yes"):
+                    print("已取消")
+                    return
+            job = mm.get(mm.start(plan["source"]["id"], target, opts)["id"])
+        last = ""
+        while job.thread and job.thread.is_alive():
+            d = job.public()
+            pr = d["progress"]
+            line = f"\r{d['phase']:<13} {pr['tables_done']}/{pr['tables_total']} 表  {pr['rows_copied']:,} 列"
+            if line != last:
+                print(line, end="", flush=True, file=sys.stderr)
+                last = line
+            job.thread.join(0.5)
+        d = job.public()
+        print(file=sys.stderr)
+        out(["table", "status", "copied", "source", "target", "sample diff"],
+            [[t["name"], t["status"], t["rows_copied"], t["source_rows"], t["target_rows"], t["sample_mismatches"]]
+             for t in d["tables"]])
+        for v in d.get("value_issues") or []:
+            print(f"· {v['table']}.{v['column']}：{v['message']}（{v['rows']} 列）")
+        for tname, b in (d.get("skipped_rows") or {}).items():
+            print(f"⚠ {tname}：略過 {b['count']} 列，例如 {b['examples'][0]['row']}：{b['examples'][0]['error']}")
+        if d["status"] != "done":
+            print(f"錯誤：{d.get('error')}\n可修正後執行 sinobee db migrate --resume {d['id']}", file=sys.stderr)
+            sys.exit(1)
+        if d["target"]["type"] in ("sqlfile", "sqlite"):
+            print(f"已寫入 {d['target']['path']}")
+    except MigrationError as e:
+        print(f"錯誤：{e}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        mm.stop(job.id)
+        job.thread.join(10)
+        print(f"\n已停止；之後可執行 sinobee db migrate --resume {job.id}", file=sys.stderr)
+        sys.exit(130)
 
 
 def _share_cmd(args) -> None:
@@ -555,11 +634,24 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("logout", help="sign out of sinobee.ai on this machine")
     sub.add_parser("whoami", help="show the signed-in sinobee.ai account")
     dbp = sub.add_parser("db", help="query saved database connections from the shell (read-only)")
-    dbp.add_argument("action", choices=["list", "schema", "query", "queries"])
-    dbp.add_argument("connection", nargs="?", help="connection id or name")
+    dbp.add_argument("action", choices=["list", "schema", "query", "queries", "migrate", "migrations"])
+    dbp.add_argument("connection", nargs="?", help="connection id or name (migrate: the source)")
     dbp.add_argument("arg", nargs="?", help="schema: table name; query: SQL (or - for stdin)")
     dbp.add_argument("--format", choices=["md", "csv", "json"], default="md")
     dbp.add_argument("--limit", type=int, default=100)
+    mg = dbp.add_argument_group("migrate (copy structure + data)")
+    mg.add_argument("--to", help="target: saved connection id or name")
+    mg.add_argument("--target-schema", help="PostgreSQL schema in the target (default public)")
+    mg.add_argument("--sqlite", help="target: a SQLite file (created if missing)")
+    mg.add_argument("--sql-file", help="target: write a .sql (or .sql.gz) script")
+    mg.add_argument("--dialect", choices=["mysql", "postgres", "sqlite"], help="SQL dialect of --sql-file")
+    mg.add_argument("--tables", help="comma-separated table names (default: all)")
+    mg.add_argument("--no-views", action="store_true")
+    mg.add_argument("--replace", action="store_true", help="drop and recreate tables that already exist in the target")
+    mg.add_argument("--skip-bad-rows", action="store_true", help="skip rows the target refuses instead of stopping")
+    mg.add_argument("--plan", action="store_true", help="only show what would happen")
+    mg.add_argument("--resume", metavar="JOB", help="continue a stopped or failed migration")
+    mg.add_argument("-y", "--yes", action="store_true", help="do not ask for confirmation")
     sh = sub.add_parser("share", help="conversations shared on sinobee.ai: list, import, revoke")
     sh.add_argument("action", choices=["list", "import", "revoke"])
     sh.add_argument("ref", nargs="?", help="share URL (import) or id (revoke)")

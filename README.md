@@ -88,6 +88,31 @@ SinoBee 讀取專案文件，整理出「這是什麼」、核心概念表、流
 
 ![分享對話](docs/images/share.png)
 
+### 8. 搬移資料庫
+
+把整個資料庫（結構＋資料）搬到別的地方，例如把 AWS Aurora / RDS 搬到自架的 MySQL 或 PostgreSQL。
+
+- **目的地**：另一個 MySQL / MariaDB、PostgreSQL、SQLite 資料庫，新的 SQLite 檔，或匯出成 `.sql`（可壓縮成 `.gz`）。
+- **跨類型自動轉換**：MySQL ↔ PostgreSQL ↔ SQLite 的型別、預設值、自動遞增、索引、外鍵與檢視表都會自動轉換；轉不過去的會在開始前列出來，例如全文索引、`ON UPDATE CURRENT_TIMESTAMP`、預存程序與觸發器。
+- **安全**：
+  - 來源只會被讀取，在一致性快照中一頁一頁讀出。
+  - 目的地有同名資料表時預設不會開始。
+  - 每批資料寫入後就記錄進度，中斷後可以從中斷處繼續。
+- **完成後自動驗證**：逐表比對列數，並逐欄比對最前與最後 50 列。數值有變動時（例如 `0000-00-00` 日期改存 NULL）會告訴你是哪一欄、幾列。
+- **連不進去的資料庫**：
+  - 連線設定可開啟「透過 SSH 跳板機連線」，經由同一個 VPC 裡的 EC2 連到私有子網路的 RDS / Aurora。
+  - 跳板機的主機金鑰會在第一次連線時記住，之後改變會拒絕連線。
+  - Amazon RDS 的 CA 憑證可一鍵選用。
+
+在資料庫瀏覽器按「遷移」圖示，或使用指令：
+
+```bash
+sinobee db migrate aurora --to 新家-postgres --plan        # 先看會怎麼轉換
+sinobee db migrate aurora --to 新家-postgres               # 開始（會先請你確認）
+sinobee db migrate aurora --sql-file backup.sql.gz --dialect mysql
+sinobee db migrate --resume <工作編號> --skip-bad-rows       # 從中斷處繼續
+```
+
 ### 還可以
 
 - **操作瀏覽器**：開網頁、登入、填表、下載報表（使用真的 Chromium，登入狀態會保留）。

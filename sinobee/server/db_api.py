@@ -26,10 +26,15 @@ def register(app: FastAPI, rt_getter) -> None:
     async def save(body: dict):
         try:
             c = svc().store.save(body, password=(body.get("password") or None), cid=body.get("id") or None,
-                                 keep_password=not body.get("clear_password"))
+                                 keep_password=not body.get("clear_password"),
+                                 ssh_secret=(body.get("ssh_secret") or None),
+                                 ssh_passphrase=body.get("ssh_passphrase") if body.get("ssh_secret") else None)
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
-        return {"connection": c.public(bool(svc().store.password(c)))}
+        if body.get("ssh_fingerprint") and c.ssh_host and not c.ssh_fingerprint:
+            # pinned from the "test connection" the user just looked at
+            c = svc().store.update_meta(c.id, ssh_fingerprint=str(body["ssh_fingerprint"])[:120])
+        return {"connection": c.public(bool(svc().store.password(c)), bool(svc().store.ssh_secret(c)[0]))}
 
     @app.delete("/api/db/connections/{cid}")
     async def delete(cid: str):
@@ -41,7 +46,80 @@ def register(app: FastAPI, rt_getter) -> None:
 
     @app.post("/api/db/test")
     async def test(body: dict):
-        return await guard(svc().test(body, body.get("password"), body.get("id") or None))
+        return await guard(svc().test(body, body.get("password"), body.get("id") or None,
+                                      body.get("ssh_secret") or None, body.get("ssh_passphrase")))
+
+    @app.post("/api/db/{cid}/retrust")
+    async def retrust(cid: str):
+        try:
+            c = svc().retrust(cid)
+        except DbError as e:
+            raise HTTPException(404, str(e)) from None
+        return {"connection": c.public(bool(svc().store.password(c)), bool(svc().store.ssh_secret(c)[0]))}
+
+    # ---------- migrations ----------
+    from ..db.migration.runner import MigrationError
+
+    async def mig(fn, *a, **kw):
+        import asyncio
+        try:
+            return await asyncio.to_thread(fn, *a, **kw)
+        except (MigrationError, DbError, ValueError) as e:
+            raise HTTPException(400, str(e)) from None
+
+    @app.get("/api/db/migrations")
+    async def migrations():
+        return {"jobs": svc().migrations.list()}
+
+    @app.post("/api/db/migrations/plan")
+    async def migration_plan(body: dict):
+        return await mig(svc().migrations.plan, str(body.get("source") or ""), body.get("target") or {},
+                         body.get("options") or {})
+
+    @app.post("/api/db/migrations")
+    async def migration_start(body: dict):
+        if body.get("confirm") is not True:
+            raise HTTPException(400, "開始遷移需要確認（confirm: true）")
+        return await mig(svc().migrations.start, str(body.get("source") or ""), body.get("target") or {},
+                         body.get("options") or {})
+
+    @app.get("/api/db/migrations/{jid}")
+    async def migration_get(jid: str):
+        try:
+            return svc().migrations.get(jid).public()
+        except MigrationError as e:
+            raise HTTPException(404, str(e)) from None
+
+    @app.post("/api/db/migrations/{jid}/stop")
+    async def migration_stop(jid: str):
+        return await mig(svc().migrations.stop, jid)
+
+    @app.post("/api/db/migrations/{jid}/resume")
+    async def migration_resume(jid: str, body: dict | None = None):
+        return await mig(svc().migrations.resume, jid, (body or {}).get("options") or {})
+
+    @app.delete("/api/db/migrations/{jid}")
+    async def migration_delete(jid: str):
+        await mig(svc().migrations.delete, jid)
+        return {"ok": True}
+
+    @app.get("/api/db/migrations/{jid}/download")
+    async def migration_download(jid: str):
+        from pathlib import Path
+        from fastapi.responses import FileResponse
+        try:
+            job = svc().migrations.get(jid)
+        except MigrationError as e:
+            raise HTTPException(404, str(e)) from None
+        tgt = job.d.get("target") or {}
+        if tgt.get("type") not in ("sqlfile", "sqlite") or job.d.get("status") != "done":
+            raise HTTPException(400, "只有完成的 SQL 檔或 SQLite 檔可以下載")
+        p = Path(tgt["path"])
+        if not p.is_file():
+            raise HTTPException(404, "檔案已不存在")
+        media = "application/gzip" if p.suffix == ".gz" else "application/sql" if tgt["type"] == "sqlfile" \
+            else "application/vnd.sqlite3"
+        return FileResponse(str(p), media_type=media, filename=p.name)
 
     @app.post("/api/db/parse")
     async def parse(body: dict):

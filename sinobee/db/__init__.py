@@ -44,6 +44,8 @@ class DbService:
     def __init__(self, config):
         self.config = config
         self.store = ConnectionStore(config.home, config.secrets)
+        from . import tls
+        tls.set_home(config.home)
         self._locks: dict[str, asyncio.Lock] = {}
         self._running: dict[str, Session] = {}
 
@@ -57,11 +59,22 @@ class DbService:
             raise DbError(f"找不到連線「{ref}」")
         return c
 
-    async def _with_session(self, c: Connection, fn, read_only: bool = True, password: str | None = None):
+    def session(self, c: Connection, read_only: bool = True, password: str | None = None,
+                ssh: tuple | None = None) -> Session:
+        """A (blocking) session with the stored secrets; pins the bastion host key on first use."""
         pw = password if password is not None else self.store.password(c)
+        ssh = ssh if ssh is not None else self.store.ssh_secret(c)
 
+        def pin(fp: str):
+            c.ssh_fingerprint = fp
+            if self.store.get(c.id):
+                self.store.update_meta(c.id, ssh_fingerprint=fp)
+        return Session(c, pw, read_only=read_only, ssh=ssh, on_pin=pin)
+
+    async def _with_session(self, c: Connection, fn, read_only: bool = True, password: str | None = None,
+                            ssh: tuple | None = None):
         def work():
-            with Session(c, pw, read_only=read_only) as s:
+            with self.session(c, read_only, password, ssh) as s:
                 self._running[c.id] = s
                 try:
                     return fn(s)
@@ -83,14 +96,21 @@ class DbService:
         return False
 
     def listing(self) -> list[dict]:
-        return [c.public(bool(self.store.password(c))) for c in self.store.list()]
+        return [c.public(bool(self.store.password(c)), bool(self.store.ssh_secret(c)[0])) for c in self.store.list()]
 
     # ---------- connection management ----------
-    async def test(self, data: dict, password: str | None = None, cid: str | None = None) -> dict:
+    async def test(self, data: dict, password: str | None = None, cid: str | None = None,
+                   ssh_secret: str | None = None, ssh_passphrase: str | None = None) -> dict:
         clean = validate(data)
         existing = self.store.get(cid) if cid else None
         if existing and password in (None, ""):
             password = self.store.password(existing)
+        if existing and not ssh_secret:
+            ssh_secret, stored_pass = self.store.ssh_secret(existing)
+            ssh_passphrase = ssh_passphrase if ssh_passphrase is not None else stored_pass
+        if existing and clean.get("ssh_host") == existing.ssh_host and \
+                int(clean.get("ssh_port") or 22) == int(existing.ssh_port or 22):
+            clean["ssh_fingerprint"] = existing.ssh_fingerprint
         c = Connection(id=cid or "_test", name=clean.get("name") or "test",
                        **{k: v for k, v in clean.items() if k != "name"})
         t0 = time.time()
@@ -98,8 +118,32 @@ class DbService:
         def probe(s: Session):
             return {"version": s.version(), "schemas": len(s.schemas())}
 
-        info = await self._with_session(c, probe, password=password or "")
-        return {"ok": True, "latency_ms": int((time.time() - t0) * 1000), **info}
+        # a test never pins: the fingerprint is shown and saved with the connection
+        def work():
+            with Session(c, password or "", ssh=(ssh_secret, ssh_passphrase)) as s:
+                return probe(s), (s.tunnel.fingerprint if s.tunnel else "")
+        async with self._lock(c.id):
+            try:
+                info, fp = await asyncio.wait_for(asyncio.to_thread(work), timeout=c.timeout_s + 30)
+            except asyncio.TimeoutError:
+                raise DbError(f"操作逾時（{c.timeout_s} 秒）") from None
+        if c.ssh_host and cid != "_test" and existing and not existing.ssh_fingerprint and fp:
+            self.store.update_meta(existing.id, ssh_fingerprint=fp)
+        return {"ok": True, "latency_ms": int((time.time() - t0) * 1000), "ssh_fingerprint": fp or None, **info}
+
+    @property
+    def migrations(self):
+        if getattr(self, "_migrations", None) is None:
+            from .migration.runner import MigrationManager
+            self._migrations = MigrationManager(self)
+        return self._migrations
+
+    def retrust(self, ref: str) -> Connection:
+        """Forget the pinned bastion host key (after the user checked why it changed)."""
+        c = self.get(ref)
+        from .tunnel import POOL
+        POOL.close(c.id)
+        return self.store.update_meta(c.id, ssh_fingerprint="")
 
     # ---------- browsing ----------
     async def schema_tree(self, ref: str) -> dict:

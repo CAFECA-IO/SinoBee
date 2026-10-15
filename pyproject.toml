@@ -23,6 +23,7 @@ dependencies = [
   "python-multipart>=0.0.9",
   "cryptography>=42",       # vault (X25519 / scrypt / AES-GCM), hub signatures
   "segno>=1.6",             # QR codes for sinobee.ai sign-in (Docker / no browser)
+  "paramiko>=3.4",          # SSH tunnels to databases behind a bastion host
 ]
 
 [project.optional-dependencies]
