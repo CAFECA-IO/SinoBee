@@ -1,0 +1,142 @@
+{
+  "title": "茶園的一天",
+  "intent": "拍一支茶農清晨採茶的短紀錄片",
+  "genre": "documentary",
+  "language": "zh-TW",
+  "aspect": "16:9",
+  "fps": 24,
+  "delivery": "1080p",
+  "quality": "draft",
+  "style": {
+    "look": "Realistic documentary footage, natural available light, observational, true-to-life color",
+    "palette": [
+      "#2f5d3a",
+      "#e8c27a",
+      "#f4efe6"
+    ],
+    "lut": null,
+    "camera": "handheld with natural breathing shake",
+    "motion_strength": 0.3,
+    "ambience": "birdsong, light wind through the leaves, distant rooster",
+    "music": "sparse solo guqin melody, very quiet",
+    "negative": "",
+    "bgm_file": null,
+    "voice": ""
+  },
+  "script": {
+    "format": "two-column",
+    "body": "| 旁白 | 畫面 |\n|---|---|\n| 清晨五點，阿明已經在茶園裡。 | 茶園全景，薄霧 |"
+  },
+  "subjects": [
+    {
+      "id": "S1",
+      "name": "阿明",
+      "kind": "person",
+      "appearance": "Taiwanese tea farmer in his 60s, tanned weathered face, short grey hair",
+      "wardrobe": "faded blue work shirt, conical bamboo hat",
+      "capability_ceiling": "expert tea picker, ordinary stamina",
+      "negative_boundary": "never rushes, never theatrical",
+      "linguistic_blueprint": "slow Taiwanese Hokkien, short sentences",
+      "kinematic_signature": "slightly stooped, picks with quick small finger movements",
+      "voice": "",
+      "sheet": []
+    }
+  ],
+  "environments": [
+    {
+      "id": "E1",
+      "name": "茶園",
+      "description": "terraced tea garden on a misty hillside in Nantou",
+      "light": "soft dawn light from the left, low sun",
+      "palette": "greens and warm gold",
+      "materials": "",
+      "master": null
+    }
+  ],
+  "shots": [
+    {
+      "id": "SH01",
+      "group": "SC01",
+      "scene": "Dawn in the tea garden",
+      "env": "E1",
+      "subjects": [
+        "S1"
+      ],
+      "duration": 4.0,
+      "narration": "清晨五點，阿明已經在茶園裡。",
+      "dialogue": [],
+      "audio_file": null,
+      "shot_size": "medium",
+      "angle": "eye level",
+      "lens": "35mm",
+      "focus": "Ming's hands and face, moderate depth of field",
+      "composition": "Ming on the left third, rows of tea leading to the misty hills",
+      "action": "Ming picks tea leaves along a row",
+      "performance": "",
+      "camera_move": "handheld slow push in",
+      "sfx": "",
+      "music": "",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": null
+    },
+    {
+      "id": "SH02",
+      "group": "SC01",
+      "scene": "Dawn in the tea garden",
+      "env": "E1",
+      "subjects": [
+        "S1"
+      ],
+      "duration": 2.0,
+      "narration": "",
+      "dialogue": [
+        {
+          "subject": "S1",
+          "line": "今年的茶很香。"
+        }
+      ],
+      "audio_file": null,
+      "shot_size": "close-up",
+      "angle": "eye level",
+      "lens": "35mm",
+      "focus": "his face and the leaves, shallow depth of field",
+      "composition": "centered, leaves near the lens",
+      "action": "Ming smells a handful of leaves and smiles",
+      "performance": "",
+      "camera_move": "static handheld",
+      "sfx": "",
+      "music": "",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": null
+    },
+    {
+      "id": "SH03",
+      "group": "SC02",
+      "scene": "The garden he has kept for forty years",
+      "env": "E1",
+      "subjects": [
+        "S1"
+      ],
+      "duration": 3.0,
+      "narration": "這片茶園，他守了四十年。",
+      "dialogue": [],
+      "audio_file": null,
+      "shot_size": "extreme wide",
+      "angle": "high angle",
+      "lens": "24mm",
+      "focus": "deep focus",
+      "composition": "Ming small in the lower third, terraces filling the frame",
+      "action": "Ming walks between rows, tiny in the landscape",
+      "performance": "",
+      "camera_move": "crane up slowly",
+      "sfx": "",
+      "music": "",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": null
+    }
+  ],
+  "renders": {}
+}
