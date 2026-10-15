@@ -283,6 +283,10 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .cardseg button.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
 .cardseg button.on::after,.srcseg button.on::after{content:"✓";position:absolute;top:10px;right:12px;color:var(--accent);font-weight:700}
 .cardseg button:disabled{opacity:.5;cursor:not-allowed}
+.dhead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 12px}
+.dhead h3{margin:0;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.dhead .badge{margin-left:auto;max-width:100%;white-space:normal;overflow-wrap:anywhere;line-height:1.45;text-align:left}
+.dhead .badge:empty{display:none}
 details.adv > summary{cursor:pointer;color:var(--muted);font-size:13px;padding:4px 0;list-style:none}
 details.adv > summary::before{content:"▸";display:inline-block;width:1em;margin-right:4px;transition:transform .15s}
 details.adv[open] > summary::before{transform:rotate(90deg)}
@@ -457,7 +461,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
     <button class="btn" id="setClose" type="button">關閉</button><button class="btn primary" id="setSave" type="button">儲存</button></div>
 </div></div>
 <div class="modal" id="dbForm"><div class="card" style="max-width:640px">
-  <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0" id="dfTitle">新增資料庫連線</h3><span class="badge" id="dfMsg"></span></div>
+  <div class="dhead"><h3 id="dfTitle">新增資料庫連線</h3><span class="badge" id="dfMsg"></span></div>
   <div class="seg" id="dfKind" style="margin:12px 0"><button data-k="postgres" type="button">PostgreSQL</button><button data-k="mysql" type="button">MySQL / MariaDB</button><button data-k="sqlite" type="button">SQLite</button></div>
   <label class="f" style="margin-bottom:10px">貼上連線字串（選填，例如 postgres://user:密碼@host:5432/db）<input id="dfDsn" autocomplete="off" spellcheck="false"></label>
   <div class="grid2">
@@ -491,7 +495,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   <div class="row"><button class="btn" id="shClose" type="button">關閉</button><button class="btn primary" id="shGo" type="button">建立分享連結</button></div>
 </div></div>
 <div class="modal" id="pubModal"><div class="card" style="max-width:560px">
-  <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">登錄到 SinoBee.ai</h3><span class="badge" id="pubState"></span></div>
+  <div class="dhead"><h3>登錄到 SinoBee.ai</h3><span class="badge" id="pubState"></span></div>
   <p style="font-size:13px;color:var(--muted);margin:6px 0 12px">工具只記錄連線目標與查詢方式；帳號密碼不會上傳。內容雜湊會在 Boltchain 存證。</p>
   <div class="srcseg" id="pubVis"><button type="button" data-v="PRIVATE"><b>私人</b><span>只有你看得到，立即可用；可加密同步帳號密碼到其他電腦</span></button>
     <button type="button" data-v="PUBLIC"><b>公開</b><span>審核後列在 sinobee.ai/tools，其他人填自己的帳號密碼使用</span></button></div>
