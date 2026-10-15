@@ -38,7 +38,8 @@ DEFAULTS: dict[str, Any] = {
         "language": "auto",
     },
     "permissions": {
-        "toolsets": ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database"],
+        "toolsets": ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database", "work"],
+        "toolsets_v": 2,
         "approval": "confirm",      # auto | confirm | readonly
         "allowed_paths": [],        # empty = unrestricted
     },
@@ -63,6 +64,11 @@ DEFAULTS: dict[str, Any] = {
         "hub_url": "https://sinobee.ai",
         "hub_keys": [],             # pinned ed25519 public keys of the hub (base64); empty = nothing verified
         "write_approval": False,
+    },
+    "work": {
+        "scheduler": True,          # run scheduled jobs (server only)
+        "max_parallel_runs": 2,     # background runs at the same time
+        "max_parallel_subagents": 3,
     },
     "learning": {
         "enabled": True,

@@ -1,0 +1,73 @@
+name: research-report
+title: 研究報告
+description: 把主題拆成幾個子問題，由研究員子代理並行搜尋，撰稿員彙整成報告，審查員把關後存成 Markdown。
+inputs:
+  topic: {type: text, label: 研究主題, required: true, placeholder: 例如：2026 年台灣電動機車市場與主要品牌}
+  focus: {type: text, label: 重點或讀者（選填）, placeholder: 例如：給管理層看，著重市佔與價格}
+  language: {type: select, label: 語言, options: [繁體中文, English], default: 繁體中文}
+nodes:
+  - id: plan
+    title: 拆解題目
+    type: agent
+    role: general
+    output: json
+    iterations: 8
+    prompt: |
+      研究主題：{{inputs.topic}}
+      重點／讀者：{{inputs.focus}}
+      把這個主題拆成 3 到 5 個可以各自獨立研究、彼此不重疊的子問題，並用 board_write(kind='goal') 記下整份報告的目標。
+      回覆格式：{"questions": ["子問題 1", "子問題 2", ...]}
+  - id: research
+    title: 並行研究
+    type: map
+    role: researcher
+    needs: [plan]
+    over: "{{nodes.plan.output.questions}}"
+    max_items: 5
+    prompt: |
+      整體主題：{{inputs.topic}}
+      你負責的子問題：{{item}}
+      找出最新、可信的資料（附來源網址），把每個重點用 board_write(kind='finding', key=<短主題>) 寫上黑板，最後回報摘要。
+  - id: write
+    title: 撰寫報告
+    type: agent
+    role: writer
+    needs: [research]
+    iterations: 15
+    prompt: |
+      根據黑板上的 findings，用{{inputs.language}}撰寫「{{inputs.topic}}」的研究報告（Markdown）。
+      重點／讀者：{{inputs.focus}}
+      結構：摘要（3–5 點）、各子題分析、比較表（如適用）、風險與不確定性、參考來源清單。
+      每個數字與論點都要能對應到來源。不需要存檔：直接把完整報告當作你的最後回覆。
+  - id: review
+    title: 審查
+    type: agent
+    role: reviewer
+    needs: [write]
+    iterations: 10
+    prompt: |
+      審查以下報告是否回答了主題「{{inputs.topic}}」、是否有缺乏來源的論點或前後矛盾，並對照黑板上的 findings。
+      報告：
+      {{nodes.write.output}}
+  - id: revise
+    title: 依審查修改
+    type: agent
+    role: writer
+    needs: [review]
+    when: "contains(nodes.review.output, 'VERDICT: revise')"
+    iterations: 12
+    prompt: |
+      依照審查意見修改報告，回覆修改後的完整報告（Markdown）。
+      審查意見：
+      {{nodes.review.output}}
+      原報告：
+      {{nodes.write.output}}
+  - id: report
+    title: 存成報告
+    type: action
+    action: report.write
+    needs: [write, review, revise]
+    allow_skipped: true
+    with:
+      title: "{{inputs.topic}}"
+      body: "{{nodes.revise.output or nodes.write.output}}"

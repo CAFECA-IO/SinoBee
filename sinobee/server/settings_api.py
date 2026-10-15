@@ -12,7 +12,7 @@ from ..providers import (PRESETS, build_provider, key_env_for, needs_key, provid
 from ..secrets import mask
 from ..types import Message
 
-ALL_TOOLSETS = ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database"]
+ALL_TOOLSETS = ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database", "work"]
 PROVIDER_LABELS = {
     "openai": "OpenAI", "anthropic": "Anthropic", "gemini": "Google Gemini", "openrouter": "OpenRouter",
     "deepseek": "DeepSeek", "groq": "Groq", "mistral": "Mistral", "xai": "xAI", "together": "Together",
@@ -51,7 +51,9 @@ def settings_payload(rt) -> dict:
         "model": {k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "embedding", "vision",
                                                       "context_window")},
         "context": _context_info(cfg),
-        "permissions": {"approval": cfg.get("permissions.approval"), "toolsets": cfg.get("permissions.toolsets"),
+        "permissions": {"approval": cfg.get("permissions.approval"),
+                        "toolsets": sorted(set(cfg.get("permissions.toolsets") or [])
+                                           | ({"work"} if int(cfg.get("permissions.toolsets_v") or 1) < 2 else set())),
                         "allowed_paths": cfg.get("permissions.allowed_paths")},
         "usage": cfg.get("usage"),
         "skills": {"auto_create": cfg.get("skills.auto_create"), "project_dir": str(cfg.project_dir),
@@ -125,6 +127,7 @@ def register(app: FastAPI, rt_getter) -> None:
                 perm["approval"] = p["approval"]
             if "toolsets" in p:
                 perm["toolsets"] = [t for t in p["toolsets"] if t in ALL_TOOLSETS]
+                perm["toolsets_v"] = 2
             if "allowed_paths" in p:
                 perm["allowed_paths"] = [x for x in p["allowed_paths"] if x]
             updates["permissions"] = perm

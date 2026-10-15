@@ -44,6 +44,7 @@ include = ["sinobee*"]
 [tool.setuptools.package-data]
 "sinobee.server" = ["static/*", "static/vendor/*"]
 "sinobee" = ["bundled_skills/**/*"]
+"sinobee.work" = ["workflows/*.yaml"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

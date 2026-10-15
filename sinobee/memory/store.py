@@ -497,9 +497,15 @@ class MemoryStore:
             self.db.execute("DELETE FROM context_checkpoints WHERE session_id=?", (sid,))
             self.db.commit()
 
-    def sessions(self, limit: int = 50) -> list[dict]:
+    def sessions(self, limit: int = 50, exclude_platforms: tuple = ("subagent", "job")) -> list[dict]:
+        """Conversations for the sidebar; background work (sub-agents, jobs) is listed under 工作 instead."""
+        q = "SELECT * FROM sessions"
+        params: list = []
+        if exclude_platforms:
+            q += f" WHERE COALESCE(platform,'') NOT IN ({','.join('?' * len(exclude_platforms))})"
+            params += list(exclude_platforms)
         with self._lock:
-            rows = self.db.execute("SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
+            rows = self.db.execute(q + " ORDER BY updated_at DESC LIMIT ?", (*params, limit)).fetchall()
         return [dict(r) for r in rows]
 
     def session_search(self, query: str, k: int = 8) -> list[dict]:
@@ -634,6 +640,26 @@ class MemoryStore:
                  time.time()))
             self.db.commit()
             return int(cur.lastrowid)
+
+    def recent_turns(self, limit: int = 50, before: float | None = None, platforms: tuple = ("web", "cli")) -> list[dict]:
+        """Recent finished turns across conversations (for the work history)."""
+        sql = ("SELECT t.id, t.session_id, t.status, t.model, t.skills, t.tool_calls, t.cost_usd, t.duration_s, "
+               "t.created_at, s.title, s.platform FROM turns t LEFT JOIN sessions s ON s.id = t.session_id "
+               f"WHERE s.platform IN ({','.join('?' * len(platforms))})")
+        params: list = list(platforms)
+        if before:
+            sql += " AND t.created_at < ?"
+            params.append(before)
+        sql += " ORDER BY t.created_at DESC LIMIT ?"
+        params.append(limit)
+        with self._lock:
+            rows = self.db.execute(sql, params).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["skills"] = json.loads(d["skills"] or "[]")
+            out.append(d)
+        return out
 
     def turn(self, turn_id: int) -> dict | None:
         with self._lock:

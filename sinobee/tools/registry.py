@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable
 from ..types import ImagePart, TextPart, ToolCall, ToolResult, ToolSpec
 
 log = logging.getLogger("sinobee.tools")
+NEW_IN_V2 = {"work"}
 
 
 @dataclass
@@ -62,6 +63,8 @@ class Registry:
 
     def available(self, config) -> list[Tool]:
         enabled = set(config.get("permissions.toolsets") or [])
+        if int(config.get("permissions.toolsets_v") or 1) < 2:
+            enabled |= NEW_IN_V2          # toolsets added later are on for settings saved before they existed
         out = []
         for t in self.tools.values():
             if t.toolset not in enabled:

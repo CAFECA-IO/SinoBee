@@ -113,6 +113,36 @@ sinobee db migrate aurora --sql-file backup.sql.gz --dialect mysql
 sinobee db migrate --resume <工作編號> --skip-bad-rows       # 從中斷處繼續
 ```
 
+### 9. 背景工作：排程、持續追蹤、固定流程
+
+左側「工作」分頁一眼看到 SinoBee **做過什麼、正在做什麼、接下來要做什麼**；點「開啟工作中心」看完整紀錄、每一步的產出與子代理對話。
+
+- **排程工作**：
+  - 用一句話交代任務，或選一個固定流程。
+  - 可以只手動執行、在指定時間跑一次、每隔一段時間跑（最短 1 分鐘），或每天／每週固定時間跑；進階可用 cron。
+  - 也可以直接在對話中說「每天早上九點幫我檢查訂單」，SinoBee 會請你確認後建立。
+- **持續性工作**：同一個工作每次執行都會讀到上一次的結果與它留下的筆記（例如「上次檢查到第 10234 筆訂單」），接著往下做。
+- **子代理**：
+  - 任務可以拆開時，SinoBee 會派出研究員、資料分析師、審查員、撰稿員等子代理並行處理，再彙整結果。
+  - 子代理不能再派子代理，也不能建立排程或改記憶與技能。
+- **共用黑板**：主代理與子代理把目標、計畫、發現、決定與產出檔案寫在同一塊黑板上，彼此看得到，下次執行也看得到。
+- **固定流程**：內建三種，也可以把自己的 YAML 放到 `~/.sinobee/workflows/`：
+  - 資料庫健檢報告：大小、列數、缺主鍵、與上次比較的成長，經分析與審查後存成報告；
+  - 資料庫遷移＋驗證：先預覽，經你核准後搬移，再由審查員檢查驗證結果；
+  - 研究報告：拆題、並行研究、撰寫、審查、修改。
+- **你不在時**：遇到需要核准的操作（刪除、寫入資料庫、危險指令…），工作會暫停在「等你核准」，在「工作」頁按核准後繼續。
+- **重新啟動**：SinoBee 重新啟動時，中斷的流程會從完成的步驟之後接著做。
+
+報告存在工作資料夾的 `reports/` 底下。指令：
+
+```bash
+sinobee work                 # 過去／現在／接下來
+sinobee work jobs            # 排程工作
+sinobee work runs [工作編號]  # 執行紀錄
+sinobee work workflows       # 可用的固定流程
+sinobee work pause|resume|delete <工作編號>
+```
+
 ### 還可以
 
 - **操作瀏覽器**：開網頁、登入、填表、下載報表（使用真的 Chromium，登入狀態會保留）。
@@ -263,6 +293,7 @@ sinobee keys list|set <provider>|rm <provider>
 sinobee memory list|search <q>|forget <id>
 sinobee skills list|install|export|trust|validate …
 sinobee usage month --by model
+sinobee work                                        # 背景工作：過去／現在／接下來
 ```
 </details>
 

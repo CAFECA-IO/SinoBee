@@ -194,7 +194,11 @@ def _title(text: str) -> str:
 
 class Agent:
     def __init__(self, runtime: Runtime, session_id: str | None = None, *, platform: str = "cli",
-                 emit: EmitFn | None = None, approve: ApproveFn | None = None):
+                 emit: EmitFn | None = None, approve: ApproveFn | None = None, tool_filter=None,
+                 system_extra: str = "", max_iterations: int | None = None, board_scope: str | None = None,
+                 title: str | None = None, learn: bool = True, depth: int = 0):
+        """tool_filter(tool) -> bool narrows the tools (sub-agents / workflow roles); board_scope is the shared
+        blackboard this agent reads and writes (default: its own session); depth > 0 marks a sub-agent."""
         self.rt = runtime
         self.config = runtime.config
         self.session_id = session_id or uuid.uuid4().hex[:12]
@@ -202,15 +206,28 @@ class Agent:
         self.emit_fn = emit
         self.usage = Usage()
         self._cancel = False
-        self.tools = REGISTRY.available(self.config)
+        self.depth = depth
+        self.learn = learn
+        self.max_iterations = max_iterations
+        self.tool_filter = tool_filter
+        tools = REGISTRY.available(self.config)
+        if tool_filter is not None:
+            tools = [t for t in tools if tool_filter(t)]
+        self.tools = tools
         self.tool_names = {t.name for t in self.tools}
         self.ctx = ToolContext(config=self.config, session_id=self.session_id, memory=runtime.memory,
                                skills=runtime.skills, emit=self._emit, approve=approve)
-        runtime.memory.ensure_session(self.session_id, platform)
+        self.ctx.state["runtime"] = runtime
+        self.ctx.state["board_scope"] = board_scope or f"session:{self.session_id}"
+        self.ctx.state["depth"] = depth
+        self.ctx.state["agent"] = self
+        runtime.memory.ensure_session(self.session_id, platform, title=title)
         self.history: list[Message] = self._load_history()
         self._core_at_start = {m.id: m.content for m in runtime.memory.core()}
-        self.system = Message("system", build_system_prompt(self.config, runtime.memory.render_core(),
-                                                            sorted(self.tool_names)))
+        system = build_system_prompt(self.config, runtime.memory.render_core(), sorted(self.tool_names))
+        if system_extra:
+            system += "\n\n" + system_extra
+        self.system = Message("system", system)
         self._persisted = len(self.history)
 
     # ------------------------------------------------------------------ utils
@@ -248,8 +265,18 @@ class Agent:
                 int(self.config.get("skills.index_all_threshold", 20)), int(self.config.get("skills.retrieve_n", 6)))
         if recalled:
             self._emit("recall", {"memories": [m.brief() for m in recalled]})
-        return build_context_block(recalled=recalled, skills_index=skills_index, working=self.ctx.working,
-                                   core_changes=self._core_changes())
+        block = build_context_block(recalled=recalled, skills_index=skills_index, working=self.ctx.working,
+                                    core_changes=self._core_changes())
+        if "board_read" in self.tool_names:
+            try:
+                from ..work.hub import get_hub
+                brief = get_hub(self.rt).board_brief(self.ctx.state["board_scope"])
+            except Exception:  # noqa: BLE001
+                log.exception("blackboard unavailable")
+                brief = ""
+            if brief:
+                block = block.replace("\n</context>", "\n\n" + brief + "\n</context>")
+        return block
 
     # ------------------------------------------------------------------ main loop
     async def run(self, user_input: str | list) -> str:
@@ -259,6 +286,8 @@ class Agent:
     async def _run(self, user_input: str | list, usage_scope) -> str:
         self._cancel = False
         self.tools = REGISTRY.available(self.config)   # settings may have changed toolsets
+        if self.tool_filter is not None:
+            self.tools = [t for t in self.tools if self.tool_filter(t)]
         try:
             self.rt.skills.refresh()
         except Exception:
@@ -284,7 +313,7 @@ class Agent:
 
         context_block = await self._build_context(query)
         final_text = ""
-        max_iter = int(self.config.get("agent.max_iterations", 60))
+        max_iter = int(self.max_iterations or self.config.get("agent.max_iterations", 60))
         max_tokens = self._max_tokens()
         empty_replies = 0
         overflow_retried = False
@@ -615,7 +644,7 @@ class Agent:
 
     # ------------------------------------------------------------------ learning
     def _maybe_learn(self, turn_start: int, stats: dict) -> None:
-        if not self.config.get("learning.enabled", True):
+        if not self.config.get("learning.enabled", True) or not self.learn:
             return
         if stats.get("status", "done") != "done":
             return  # failed / stopped turns teach nothing reliable (and must not rate skills)

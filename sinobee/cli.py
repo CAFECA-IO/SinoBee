@@ -586,6 +586,65 @@ def _tools_cmd(args) -> None:
         sys.exit(1)
 
 
+def _work_cmd(args) -> None:
+    """Background work from the shell: what ran, what runs now, what is scheduled next.
+    Jobs are executed by `sinobee serve` (its scheduler); this command reads and manages them."""
+    import time as _t
+    from pathlib import Path
+    from .config import Config
+    from .work import schedule as S
+    from .work.graph import catalog
+    from .work.store import ACTIVE, WorkStore
+    cfg = Config.load()
+    store = WorkStore(Path(cfg.home) / "work.db")
+    fmt = lambda t: _t.strftime("%m-%d %H:%M", _t.localtime(t)) if t else "—"   # noqa: E731
+    act = args.action
+    if act in ("status", "jobs"):
+        jobs = store.jobs()
+        if act == "status":
+            running = store.runs(status=ACTIVE, limit=20)
+            print("現在：" + ("沒有" if not running else ""))
+            for r in running:
+                print(f"  [{r['status']}] {r['name']}  {r['id']}  {r.get('activity') or ''}")
+            pend = store.approvals("pending")
+            if pend:
+                print(f"等你核准：{len(pend)} 項（在 Web UI 的「工作」頁核准）")
+            print("接下來：" + ("沒有排程" if not any(j['enabled'] and j['next_run_at'] for j in jobs) else ""))
+            for j in sorted((j for j in jobs if j["enabled"] and j["next_run_at"]), key=lambda j: j["next_run_at"]):
+                print(f"  {fmt(j['next_run_at'])}  {j['name']}（{S.describe(j['schedule'])}）")
+            print("過去：")
+            for r in store.runs(limit=args.limit if args.limit != 100 else 10):
+                if r["status"] in ACTIVE:
+                    continue
+                print(f"  {fmt(r.get('finished_at') or r['created_at'])}  [{r['status']}] {r['name']}  "
+                      f"{(r.get('error') or r.get('summary') or '')[:80]}")
+            return
+        if not jobs:
+            print("（沒有排程工作）")
+        for j in jobs:
+            print(f"{j['id']}  {'on ' if j['enabled'] else 'off'}  {j['name']}  {S.describe(j['schedule'])}  "
+                  f"下次 {fmt(j['next_run_at']) if j['enabled'] else '—'}  上次 {j.get('last_status') or '—'}")
+    elif act == "runs":
+        for r in store.runs(job_id=args.ref, limit=args.limit):
+            print(f"{r['id']}  {fmt(r['created_at'])}  [{r['status']}] {r['name']}  "
+                  f"{(r.get('error') or r.get('summary') or r.get('activity') or '')[:100]}")
+    elif act == "workflows":
+        for w in catalog(Path(cfg.home)).values():
+            ins = ", ".join(f"{k}{'' if v.get('required') else '?'}" for k, v in (w.get("inputs") or {}).items())
+            print(f"{w['name']}  {w['title']}  ({ins})\n  {w['description']}")
+    elif act in ("pause", "resume", "delete"):
+        if not args.ref or not store.job(args.ref):
+            print("用法：sinobee work " + act + " <job id>（見 sinobee work jobs）")
+            sys.exit(1)
+        if act == "delete":
+            store.delete_job(args.ref)
+        else:
+            job = store.job(args.ref)
+            nxt = S.next_run(job["schedule"], _t.time(), job.get("last_run_at")) if act == "resume" else None
+            store.update_job(args.ref, enabled=1 if act == "resume" else 0, next_run_at=nxt)
+        print("ok（若 sinobee serve 正在執行，幾秒內生效）")
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="sinobee", description="SinoBee autonomous agent")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -661,6 +720,11 @@ def main(argv: list[str] | None = None) -> None:
     tl.add_argument("--public", action="store_true", help="publish for everyone (reviewed; no credentials)")
     tl.add_argument("--sync", action="store_true", help="private only: keep connection + password in your encrypted vault")
     tl.add_argument("--no-schema", action="store_true", help="do not include table/column names")
+    wk = sub.add_parser("work", help="background work: status (past/now/next), jobs, runs, workflows, pause/resume/delete")
+    wk.add_argument("action", nargs="?", default="status",
+                    choices=["status", "jobs", "runs", "workflows", "pause", "resume", "delete"])
+    wk.add_argument("ref", nargs="?", help="job id (runs/pause/resume/delete)")
+    wk.add_argument("--limit", type=int, default=100)
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -692,6 +756,8 @@ def main(argv: list[str] | None = None) -> None:
         _share_cmd(args)
     elif args.cmd == "db":
         _db_cmd(args)
+    elif args.cmd == "work":
+        _work_cmd(args)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,53 @@
+name: db-migrate
+title: 資料庫遷移＋驗證
+description: 先預覽轉換計劃，經你核准後把資料庫搬到另一個資料庫、SQLite 檔或 SQL 檔，完成後由審查員檢查驗證結果並產出報告。可排程做定期備份（例如每晚匯出 SQL 檔）。
+inputs:
+  source: {type: connection, label: 來源連線, required: true}
+  target_type: {type: select, label: 目的地, options: [connection, sqlite, sqlfile], labels: [另一個資料庫連線, SQLite 檔案, SQL 檔], default: sqlfile}
+  target: {type: connection, label: 目的地連線（目的地為資料庫時）}
+  path: {type: text, label: 檔案路徑（SQLite／SQL 檔；留空使用預設位置）}
+  dialect: {type: select, label: SQL 檔語法, options: [mysql, postgres, sqlite], default: mysql}
+  replace: {type: bool, label: 覆蓋目的地已有的同名資料表, default: false}
+  confirm_each_run: {type: bool, label: 每次執行前都要我核准, default: true}
+nodes:
+  - id: plan
+    title: 預覽計劃
+    type: action
+    action: db.migration_plan
+    with:
+      source: "{{inputs.source}}"
+      target: {type: "{{inputs.target_type}}", id: "{{inputs.target}}", path: "{{inputs.path}}", dialect: "{{inputs.dialect}}"}
+  - id: confirm
+    title: 等你核准
+    type: approval
+    needs: [plan]
+    when: "inputs.confirm_each_run or (nodes.plan.output.conflicts and inputs.replace)"
+    message: "即將寫入：{{nodes.plan.output.summary}}"
+  - id: migrate
+    title: 搬移資料
+    type: action
+    action: db.migrate
+    needs: [confirm]
+    allow_skipped: true
+    with:
+      source: "{{inputs.source}}"
+      target: {type: "{{inputs.target_type}}", id: "{{inputs.target}}", path: "{{inputs.path}}", dialect: "{{inputs.dialect}}"}
+      options: {if_exists: "{{'replace' if inputs.replace else 'fail'}}"}
+  - id: review
+    title: 檢查驗證結果
+    type: agent
+    role: reviewer
+    needs: [migrate]
+    iterations: 6
+    prompt: |
+      以下是資料庫遷移的結果（每個表的來源列數、目的地列數、抽樣比對差異、轉換說明與資料變動）：
+      {{json(nodes.migrate.output)}}
+      用繁體中文寫一段簡短的驗收說明：是否全部一致、哪些表或欄位需要人工確認、轉換時改變了哪些資料、還有哪些物件需要手動建立。
+  - id: report
+    title: 存成報告
+    type: action
+    action: report.write
+    needs: [review]
+    with:
+      title: "資料庫遷移：{{nodes.plan.output.source.name}} → {{nodes.plan.output.target.label}}"
+      body: "{{nodes.migrate.output.summary}}\n\n{{nodes.review.output}}"

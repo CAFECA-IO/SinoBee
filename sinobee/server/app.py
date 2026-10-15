@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from ..agent import Agent, Runtime
 from ..config import Config
 from ..tools import desktop as desktop_tools
-from . import account_api, db_api, share_api, files_api, local_api, settings_api, skills_api
+from . import account_api, db_api, share_api, files_api, local_api, settings_api, skills_api, work_api
 
 log = logging.getLogger("sinobee.server")
 STATIC = Path(__file__).resolve().parent / "static"
@@ -26,7 +26,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app):
+        hub = None
+        if rt().config.get("work.scheduler", True):
+            from ..work.hub import get_hub
+            hub = get_hub(rt())
+            hub.listeners.append(lambda k, d: broadcast(k, d))
+            hub.start()
         yield
+        if hub:
+            await hub.stop()
         from ..tools import browser
         await browser.shutdown()
         if state["rt"]:
@@ -238,6 +246,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 run["task"].cancel()           # stuck in a long model/tool call -> force stop
 
     skills_api.register_feedback(app, rt, lambda k, d: broadcast(k, d))
+    work_api.register(app, rt, lambda: run_snapshot())
     state["local"] = local_api.register(app, rt, lambda k, d: broadcast(k, d))
 
     @app.get("/api/running")

@@ -305,6 +305,40 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .migstat{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 4px}.migstat div{flex:1;min-width:130px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
 .migstat b{display:block;font-size:20px;font-variant-numeric:tabular-nums}.migstat span{font-size:12px;color:var(--muted)}
 .ok-t{color:var(--ok)}.err-t{color:var(--err)}.warn-t{color:var(--warn,#c48a00)}
+.wkcard{max-width:1100px;width:100%;height:calc(100vh - 40px);display:flex;flex-direction:column}
+.wktabs{margin:10px 0 0;align-self:flex-start}
+.wkbody{flex:1;min-height:0;overflow:auto;margin-top:12px}
+.wkcols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.wkcol h4{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:6px;white-space:nowrap}.wkcol h4 svg{width:16px;height:16px;flex:none}.wkcol h4 small{color:var(--muted);font-weight:400}
+.wkitem{display:block;width:100%;text-align:left;font:inherit;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:8px;cursor:pointer}
+.wkitem:hover{border-color:var(--accent2)}
+.wkitem b{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wkitem small{display:block;color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wkitem .sum{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.wkst{display:inline-block;white-space:nowrap;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-right:6px;font-weight:500}
+.wkst.running,.wkst.queued{color:var(--accent);border-color:var(--accent)}.wkst.waiting{color:var(--warn);border-color:var(--warn)}
+.wkst.done{color:var(--ok)}.wkst.failed,.wkst.error,.wkst.interrupted{color:var(--err)}.wkst.cancelled,.wkst.stopped,.wkst.skipped{color:var(--muted)}
+.wkapv{border:1px solid var(--warn);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:color-mix(in srgb,var(--warn) 8%,var(--panel2))}
+.wkapv .row{margin-top:8px;justify-content:flex-end}
+.wkempty{color:var(--muted);font-size:12px;padding:8px 2px}
+.wkgraph{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px;align-items:stretch}
+.wkgraph .lvl{display:flex;flex-direction:column;gap:8px;justify-content:center;min-width:150px}
+.wkgraph .arrow{align-self:center;color:var(--muted)}
+#workModal svg.i,#jobForm svg.i{width:16px;height:16px;flex:none}#workModal .note svg.i{display:inline-block;vertical-align:-3px;margin-right:4px}
+#workModal a[data-job],#workModal a[data-run],#workModal a[data-sess]{color:var(--ink);font-weight:600;text-decoration:none}#workModal a[data-job]:hover,#workModal a[data-run]:hover,#workModal a[data-sess]:hover{color:var(--accent);text-decoration:underline}
+.wknode{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--panel2);font-size:12px;cursor:pointer}
+.wknode b{display:block;font-size:13px}.wknode.running{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.wknode.done{border-color:color-mix(in srgb,var(--ok) 50%,transparent)}.wknode.failed{border-color:var(--err)}.wknode.waiting{border-color:var(--warn)}
+.wknode.skipped{opacity:.55}
+.wkboard{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.wkboard div{padding:6px 10px;border-radius:8px;background:var(--panel2);white-space:pre-wrap;word-break:break-word}
+.wkboard em{font-style:normal;color:var(--muted);font-size:11px;margin-right:6px}
+.wkout{white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px}
+.side-sec{padding:8px 10px 2px;font-size:11px;color:var(--muted);letter-spacing:.03em;display:flex;align-items:center;gap:6px}
+.side-sec b{color:var(--ink);font-weight:600}
+.dayc{display:flex;gap:6px;flex-wrap:wrap}.dayc button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);border-radius:999px;padding:3px 10px;cursor:pointer}
+.dayc button.on{border-color:var(--accent);color:var(--accent)}
+@media (max-width:760px){table.wkt,table.wkt tbody{display:block}table.wkt thead{display:none}table.wkt tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:10px 4px;border-bottom:1px solid var(--line)}table.wkt td{display:block;border:0;padding:0;white-space:normal}table.wkt td:first-child,table.wkt td:last-child{flex-basis:100%}table.wkt td.num{text-align:left}#wkBody .migsrc{flex-wrap:wrap}#wkBody .migsrc .btn{white-space:nowrap}.wkcols{grid-template-columns:1fr}.wkcols>.wkcol:first-child{order:3}.wkcard{height:100vh;border-radius:0}}
 .dhead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 12px}
 .dhead h3{margin:0;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .dhead .badge{margin-left:auto;max-width:100%;white-space:normal;overflow-wrap:anywhere;line-height:1.45;text-align:left}
@@ -351,7 +385,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 <body>
 <aside>
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2fb3a0"/><stop offset="1" stop-color="#7fe8b6"/></linearGradient></defs><ellipse cx="12" cy="14" rx="5" ry="6" fill="url(#bg1)" stroke="none"/><path d="M7.5 12h9M7.5 15.5h9" stroke="var(--bg)"/><path d="M9 8c-3-4-7-2-6 1s5 2 6 1M15 8c3-4 7-2 6 1s-5 2-6 1" stroke="var(--accent)"/></svg><b>SinoBee</b></div>
-  <div class="tabs" role="tablist"><button data-tab="sessions" class="on" role="tab" data-icon="chat" aria-label="對話"></button><button data-tab="memory" role="tab" data-icon="brain" aria-label="記憶"></button><button data-tab="skills" role="tab" data-icon="puzzle" aria-label="技能"></button><button data-tab="data" role="tab" data-icon="database" aria-label="資料庫"></button></div>
+  <div class="tabs" role="tablist"><button data-tab="sessions" class="on" role="tab" data-icon="chat" aria-label="對話"></button><button data-tab="memory" role="tab" data-icon="brain" aria-label="記憶"></button><button data-tab="skills" role="tab" data-icon="puzzle" aria-label="技能"></button><button data-tab="data" role="tab" data-icon="database" aria-label="資料庫"></button><button data-tab="work" role="tab" data-icon="clock" aria-label="工作：過去、現在、接下來"></button></div>
   <div class="list" id="side"></div>
   <div class="status" id="status">連線中…</div>
   <canvas class="ht" data-ht="side"></canvas>
@@ -546,6 +580,16 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   <div id="migBody" class="migbody"></div>
   <div class="row" id="migFoot"></div>
 </div></div>
+<div class="modal" id="workModal"><div class="card wide wkcard">
+  <div class="dhead"><h3 id="wkTitle">工作中心</h3><span class="badge" id="wkMsg"></span><button class="btn icon sm tip-left" id="wkX" data-icon="x" aria-label="關閉" type="button"></button></div>
+  <div class="seg wktabs" id="wkTabs"><button data-v="overview" type="button">總覽</button><button data-v="jobs" type="button">排程工作</button><button data-v="workflows" type="button">固定流程</button><button data-v="history" type="button">紀錄</button></div>
+  <div id="wkBody" class="wkbody"></div>
+</div></div>
+<div class="modal" id="jobForm"><div class="card wide" style="max-width:760px;width:100%;max-height:calc(100vh - 40px);display:flex;flex-direction:column">
+  <div class="dhead"><h3 id="jfTitle">新增工作</h3><span class="badge" id="jfMsg"></span></div>
+  <div id="jfBody" class="migbody"></div>
+  <div class="row"><span style="flex:1"></span><button class="btn" id="jfCancel" type="button">取消</button><button class="btn primary" id="jfSave" type="button">儲存</button></div>
+</div></div>
 <div class="modal" id="shareModal"><div class="card wide" style="max-width:860px">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 style="margin:0">分享對話</h3><span class="badge" id="shState"></span></div>
   <p style="font-size:13px;color:var(--muted);margin:6px 0 12px">下面就是會上傳到 sinobee.ai 的內容。金鑰、密碼、權杖與本機路徑已自動遮蔽；內容雜湊會在 Boltchain 存證，可隨時撤回。</p>
@@ -628,6 +672,7 @@ const ICONS = {
   external: '<path d="M14 3h7v7M21 3l-9 9"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',
   share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>',
   upload: '<path d="M12 21V9M7 14l5-5 5 5M4 3h16"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   migrate: '<ellipse cx="7" cy="5" rx="4" ry="2"/><path d="M3 5v6c0 1.1 1.8 2 4 2s4-.9 4-2V5"/><ellipse cx="17" cy="13" rx="4" ry="2"/><path d="M13 13v6c0 1.1 1.8 2 4 2s4-.9 4-2v-6"/><path d="M14 4h3a2 2 0 0 1 2 2v3m-2-2 2 2 2-2"/>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
@@ -804,6 +849,14 @@ async function sendFeedback(turnId, rating, tags, comment){
 }
 function handle(ev, replay = false){
   if (ev.type === 'local_progress' || ev.type === 'local_changed') { onLocalEvent(ev); return; }
+  if (ev.type === 'work') { onWorkEvent(ev); return; }
+  if (ev.type === 'subagent' && !replay) {
+    const r = RUNNING[ev.session_id];
+    if (r && ev.event === 'tool_call') Object.assign(r, {activity: `子代理（${ev.role_label}）`, tool: ev.tool});
+    if (ev.session_id === sessionId && ev.event === 'start') add(`ⓘ 子代理（${esc(ev.role_label)}）開始：${esc(ev.task || '')} <a href="#" onclick="openSession({id:'${esc(ev.sub_session)}'});return false">查看</a>`, 'note');
+    if (ev.session_id === sessionId && ev.event === 'turn_end') add(`ⓘ 子代理（${esc(ev.role_label)}）${ev.status === 'done' ? '完成' : '結束：' + esc(ev.status || '')}`, 'note');
+    return;
+  }
   if (ev.type === 'hello') { setRunning(ev.running);
     const ap = (ev.approvals || []).find(a => a.session_id === sessionId); if (ap) handle({...ap, type: 'approval_request'}); return; }
   if (ev.type === 'run_state') { setRunning(ev.running); return; }
@@ -967,6 +1020,8 @@ async function fillSide(side){
     }
   } else if (tab === 'data') {
     await fillData(side);
+  } else if (tab === 'work') {
+    await fillWork(side);
   } else {
     const data = await api('/api/skills');
     const pj = data.project || {};
@@ -1085,6 +1140,7 @@ const TOOLSET_INFO = {
   skills: {name: '技能', desc: '查看、使用與改進技能', icon: 'puzzle'},
   usage: {name: '用量查詢', desc: '讓 SinoBee 回答花了多少 token 與費用', icon: 'chart'},
   database: {name: '資料庫', desc: '查詢已儲存的資料庫連線；寫入每次都要核准', icon: 'database'},
+  work: {name: '子代理與背景工作', desc: '分派子代理並行處理、執行固定流程、建立排程工作（建立排程需要你確認）', icon: 'clock'},
 };
 function showPane(name){
   document.querySelectorAll('#setNav button').forEach(b => b.classList.toggle('on', b.dataset.pane === name));
@@ -2114,6 +2170,284 @@ async function loadUsage(){
 window.addEventListener('resize', () => { if ($('#usage').classList.contains('open')) loadUsage(); });
 connect();
 drawHalftones();
+// ---------------- background work: past / now / next ----------------
+const WK = {view: 'overview', data: null, timer: null, runId: null, jobId: null, wfs: null, conns: null};
+const WK_STATUS = {queued: '排隊中', running: '執行中', waiting: '等你核准', done: '完成', failed: '失敗', cancelled: '已停止',
+  interrupted: '已中斷', stopped: '已停止', error: '錯誤', incomplete: '未完成', blocked: '已暫停', skipped: '略過', pending: '等待中'};
+const WK_TRIGGER = {schedule: '排程', manual: '手動', chat: '對話中', retry: '重新執行'};
+const wkSt = s => `<span class="wkst ${esc(s)}">${esc(WK_STATUS[s] || s)}</span>`;
+const wkWhen = t => { if (!t) return ''; const d = new Date(t * 1000), now = new Date(), diff = (t * 1000 - now) / 1000;
+  const sameDay = d.toDateString() === now.toDateString();
+  const hm = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  if (Math.abs(diff) < 60) return diff > 0 ? '1 分鐘內' : '剛剛';
+  if (Math.abs(diff) < 3600) return diff > 0 ? `${Math.round(diff / 60)} 分鐘後` : `${Math.round(-diff / 60)} 分鐘前`;
+  return (sameDay ? '今天 ' : d.toLocaleDateString([], {month: 'numeric', day: 'numeric'}) + ' ') + hm; };
+const wkDur = (a, b) => { if (!a || !b) return ''; const s = Math.round(b - a); return s < 60 ? `${s} 秒` : s < 3600 ? `${Math.round(s / 60)} 分鐘` : `${(s / 3600).toFixed(1)} 小時`; };
+async function wkLoad(){ WK.data = await api('/api/work?history=60'); return WK.data; }
+async function wkJ(path, body, method = 'POST'){ const {ok, j} = await jreq(path, body, method); if (!ok) { alert(j.detail || '失敗'); throw new Error(j.detail); } return j; }
+
+// sidebar tab
+async function fillWork(side){
+  const d = await wkLoad();
+  const head = document.createElement('div'); head.className = 'skhead';
+  head.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><span style="flex:1">工作</span>
+    <button class="btn icon sm" id="wkOpen" aria-label="開啟工作中心">${ic('external')}</button><button class="btn icon sm tip-left" id="wkAdd" aria-label="新增排程工作">${ic('plus')}</button></div>
+    <div style="margin-top:6px">SinoBee 做過、正在做與接下來要做的事。</div>`;
+  side.appendChild(head); head.querySelector('#wkAdd').onclick = () => openJobForm(); head.querySelector('#wkOpen').onclick = () => openWork('overview');
+  const sec = (title, count) => { const e = document.createElement('div'); e.className = 'side-sec'; e.innerHTML = `<b>${title}</b>${count != null ? ' · ' + count : ''}`; side.appendChild(e); };
+  const item = (html, onclick) => { const e = document.createElement('div'); e.className = 'item'; e.innerHTML = html; e.onclick = onclick; side.appendChild(e); return e; };
+  if (d.approvals.length) { sec('等你核准', d.approvals.length);
+    for (const a of d.approvals) item(`<span class="wkst waiting">核准</span>${esc(a.reason || a.tool)}<small>${esc(runName(a.run_id))}</small>`, () => openWork('run', a.run_id)); }
+  const now = d.running.length + d.chat_running.length;
+  sec('現在', now || '沒有');
+  for (const r of d.chat_running) item(`<span class="wkst running">對話</span>${esc(r.activity || '執行中')}<small>第 ${r.step || 1} 步</small>`, () => openSession({id: r.session_id}));
+  for (const r of d.running) item(`${wkSt(r.status)}${esc(r.name)}<small>${esc(r.activity || '')}${r.progress ? ` · ${r.progress.done}/${r.progress.total} 步` : ''}</small>`, () => openWork('run', r.id));
+  sec('接下來', d.upcoming.length || '沒有排程');
+  for (const u of d.upcoming.slice(0, 6)) item(`${esc(u.name)}<small>${wkWhen(u.at)} · ${esc(u.schedule_text)}</small>`, () => openWork('job', u.job_id));
+  if (d.plans.length) item(`<span class="wkst">計畫</span>${d.plans.length} 項待辦<small>${esc(d.plans[0].content.slice(0, 60))}</small>`, () => openWork('overview'));
+  sec('過去', null);
+  for (const h of d.history.slice(0, 12)) item(`${wkSt(h.status)}${esc(h.name)}<small>${wkWhen(h.finished_at || h.created_at)}${h.type === 'chat' ? ' · 對話' : ' · ' + (WK_TRIGGER[h.trigger] || '')}</small>`,
+    () => h.type === 'chat' ? openSession({id: h.session_id, title: h.name}) : openWork('run', h.id));
+}
+function runName(rid){ const r = (WK.data?.running || []).find(x => x.id === rid); return r ? r.name : rid || ''; }
+
+// work centre
+$('#wkX').onclick = () => { $('#workModal').classList.remove('open'); clearInterval(WK.timer); };
+document.querySelectorAll('#wkTabs button').forEach(b => b.onclick = () => openWork(b.dataset.v));
+async function openWork(view = 'overview', id = null){
+  WK.view = view; if (view === 'run') WK.runId = id; if (view === 'job') WK.jobId = id;
+  $('#workModal').classList.add('open');
+  document.querySelectorAll('#wkTabs button').forEach(b => b.classList.toggle('on', b.dataset.v === view || (view === 'run' && b.dataset.v === 'history') || (view === 'job' && b.dataset.v === 'jobs')));
+  clearInterval(WK.timer); await wkRender(); WK.timer = setInterval(() => { if ($('#workModal').classList.contains('open') && ['overview', 'run'].includes(WK.view)) wkRender(true); }, 3000);
+}
+async function wkRender(quiet = false){
+  const body = $('#wkBody'), keep = body.scrollTop;
+  try {
+    if (WK.view === 'overview') body.innerHTML = await wkOverview();
+    else if (WK.view === 'jobs') body.innerHTML = await wkJobs();
+    else if (WK.view === 'job') body.innerHTML = await wkJob(WK.jobId);
+    else if (WK.view === 'workflows') body.innerHTML = await wkWorkflows();
+    else if (WK.view === 'history') body.innerHTML = await wkHistory();
+    else if (WK.view === 'run') body.innerHTML = await wkRun(WK.runId);
+  } catch (e) { if (!quiet) body.innerHTML = `<div class="wkempty">${esc(e.message || e)}</div>`; return; }
+  if (quiet) body.scrollTop = keep;
+  wkWire(body);
+}
+function wkWire(root){
+  root.querySelectorAll('[data-run]').forEach(e => e.onclick = ev => { ev.stopPropagation(); openWork('run', e.dataset.run); });
+  root.querySelectorAll('[data-job]').forEach(e => e.onclick = ev => { ev.stopPropagation(); openWork('job', e.dataset.job); });
+  root.querySelectorAll('[data-sess]').forEach(e => e.onclick = ev => { ev.stopPropagation(); $('#workModal').classList.remove('open'); openSession({id: e.dataset.sess, title: e.dataset.title || ''}); });
+  root.querySelectorAll('[data-apv]').forEach(e => e.onclick = async ev => { ev.stopPropagation(); await wkJ('/api/work/approvals/' + e.dataset.apv, {ok: e.dataset.ok === '1'}); wkRender(true); if (tab === 'work') loadSide(); });
+  root.querySelectorAll('[data-act]').forEach(e => e.onclick = async ev => { ev.stopPropagation(); await wkAct(e.dataset.act, e.dataset.id, e); });
+  root.querySelectorAll('[data-node]').forEach(e => e.onclick = () => { const t = root.querySelector('#node-' + e.dataset.node); if (t) { t.open = true; t.scrollIntoView({behavior: 'smooth', block: 'start'}); } });
+}
+async function wkAct(act, id, el){
+  if (act === 'run-job') { const r = await wkJ(`/api/work/jobs/${id}/run`, {}); return openWork('run', r.id); }
+  if (act === 'toggle-job') { await wkJ(`/api/work/jobs/${id}`, {enabled: el.checked}, 'PATCH'); return wkRender(true); }
+  if (act === 'edit-job') { const j = await api('/api/work/jobs/' + id); return openJobForm(j); }
+  if (act === 'del-job') { if (!confirm('刪除這個工作？它的長期黑板也會一併刪除，過去的執行紀錄會保留。')) return; await wkJ(`/api/work/jobs/${id}`, undefined, 'DELETE'); return openWork('jobs'); }
+  if (act === 'stop-run') { await wkJ(`/api/work/runs/${id}/stop`, {}); return wkRender(true); }
+  if (act === 'resume-run') { const r = await wkJ(`/api/work/runs/${id}/resume`, {}); return openWork('run', r.id); }
+  if (act === 'wf-run') return openJobForm(null, {kind: 'workflow', workflow: id, schedule: {type: 'manual'}, run_now: true});
+  if (act === 'wf-schedule') return openJobForm(null, {kind: 'workflow', workflow: id});
+  if (act === 'new-job') return openJobForm();
+}
+function wkApprovals(list){
+  return list.map(a => `<div class="wkapv"><b>${esc(a.reason || a.tool)}</b><div class="sd">${esc(runName(a.run_id))} · ${esc(a.tool)} · ${wkWhen(a.created_at)}</div>
+    ${a.arguments && Object.keys(a.arguments).length ? `<pre class="wkout">${esc(JSON.stringify(a.arguments, null, 2)).slice(0, 1500)}</pre>` : ''}
+    <div class="row"><button class="btn sm" type="button" data-apv="${esc(a.id)}" data-ok="0">拒絕</button><button class="btn sm primary" type="button" data-apv="${esc(a.id)}" data-ok="1">核准</button></div></div>`).join('');
+}
+async function wkOverview(){
+  const d = await wkLoad();
+  const now = [...d.chat_running.map(r => `<button class="wkitem" type="button" data-sess="${esc(r.session_id)}"><b><span class="wkst running">對話</span>${esc(r.activity || '執行中')}</b><small>第 ${r.step || 1} 步 · 開始於 ${wkWhen(r.started)}</small></button>`),
+    ...d.running.map(r => `<button class="wkitem" type="button" data-run="${esc(r.id)}"><b>${wkSt(r.status)}${esc(r.name)}</b><small>${esc(r.activity || '')}</small><small>${r.progress ? `${r.progress.done}/${r.progress.total} 步 · ` : ''}${WK_TRIGGER[r.trigger] || ''} · ${wkWhen(r.started_at || r.created_at)}</small></button>`)];
+  const next = d.upcoming.map(u => `<button class="wkitem" type="button" data-job="${esc(u.job_id)}"><b>${esc(u.name)}</b><small>${wkWhen(u.at)} · ${esc(u.schedule_text)}</small>${(u.later || []).length ? `<small>之後：${u.later.map(wkWhen).join('、')}</small>` : ''}</button>`);
+  const plans = d.plans.map(p => `<div class="wkitem" style="cursor:default"><b><span class="wkst">${esc(p.status)}</span>${esc(p.content.slice(0, 120))}</b><small>${esc(p.scope)} · ${wkWhen(p.updated_at)}</small></div>`);
+  const past = d.history.slice(0, 25).map(h => h.type === 'chat'
+    ? `<button class="wkitem" type="button" data-sess="${esc(h.session_id)}" data-title="${esc(h.name)}"><b>${wkSt(h.status)}${esc(h.name)}</b><small>對話 · ${wkWhen(h.finished_at)} · ${h.tool_calls || 0} 個工具呼叫${h.cost_usd ? ' · ' + fmtCost(h.cost_usd) : ''}</small></button>`
+    : `<button class="wkitem" type="button" data-run="${esc(h.id)}"><b>${wkSt(h.status)}${esc(h.name)}</b><small>${WK_TRIGGER[h.trigger] || ''} · ${wkWhen(h.finished_at || h.created_at)}${h.started_at && h.finished_at ? ' · ' + wkDur(h.started_at, h.finished_at) : ''}${h.cost_usd ? ' · ' + fmtCost(h.cost_usd) : ''}</small>${h.summary || h.error ? `<small class="sum">${esc((h.error || h.summary).slice(0, 200))}</small>` : ''}</button>`);
+  return `${d.approvals.length ? `<div class="migsec" style="margin-top:0"><h4>等你核准（${d.approvals.length}）</h4>${wkApprovals(d.approvals)}</div>` : ''}
+    <div class="wkcols">
+      <div class="wkcol"><h4>${ic('checkCircle')} 過去 <small>做過的工作與對話</small></h4>${past.join('') || '<div class="wkempty">還沒有紀錄</div>'}</div>
+      <div class="wkcol"><h4>${ic('play')} 現在 <small>正在進行</small></h4>${now.join('') || '<div class="wkempty">目前沒有進行中的工作</div>'}</div>
+      <div class="wkcol"><h4>${ic('clock')} 接下來 <small>排程與計畫</small></h4>${next.join('') || '<div class="wkempty">沒有排程中的工作</div>'}
+        ${plans.length ? `<h4 style="margin-top:14px">待辦計畫</h4>${plans.join('')}` : ''}
+        <button class="btn sm" type="button" data-act="new-job" style="margin-top:6px">＋ 新增工作</button></div>
+    </div>`;
+}
+async function wkJobs(){
+  const d = await wkLoad();
+  if (!d.jobs.length) return `<div class="wkempty">還沒有排程工作。可以在這裡新增，也可以直接在對話中說「每天早上九點幫我…」。</div><button class="btn primary" type="button" data-act="new-job">＋ 新增工作</button>`;
+  return `<div class="row" style="justify-content:flex-end;margin:0 0 8px"><button class="btn sm primary" type="button" data-act="new-job">＋ 新增工作</button></div>
+    <table class="migtbl wkt"><thead><tr><th>工作</th><th>排程</th><th>下次</th><th>上次</th><th>啟用</th><th></th></tr></thead><tbody>${d.jobs.map(j => `<tr>
+    <td><a href="#" data-job="${esc(j.id)}"><b>${esc(j.name)}</b></a><div class="sd">${j.kind === 'workflow' ? '流程：' + esc(j.workflow_title || j.workflow) : esc((j.prompt || '').slice(0, 50))}${j.created_by === 'agent' ? ' · SinoBee 建立' : ''}</div></td>
+    <td>${esc(j.schedule_text)}</td><td>${j.enabled && j.upcoming[0] ? wkWhen(j.upcoming[0]) : '—'}</td><td>${j.last_status ? wkSt(j.last_status) : '—'}${j.last_run_at ? ' ' + wkWhen(j.last_run_at) : ''}</td>
+    <td><input type="checkbox" class="sw" role="switch" data-act="toggle-job" data-id="${esc(j.id)}" ${j.enabled ? 'checked' : ''} aria-label="啟用"></td>
+    <td class="num"><button class="btn sm" type="button" data-act="run-job" data-id="${esc(j.id)}">立即執行</button> <button class="btn sm" type="button" data-act="edit-job" data-id="${esc(j.id)}">編輯</button></td></tr>`).join('')}</tbody></table>`;
+}
+async function wkJob(jid){
+  const j = await api('/api/work/jobs/' + jid);
+  if (j.detail) return `<div class="wkempty">${esc(j.detail)}</div>`;
+  const board = (j.board || []).filter(b => b.kind !== 'snapshot');
+  return `<div class="migsrc"><b>${esc(j.name)}</b><span class="sd">${esc(j.schedule_text)}${j.enabled ? '' : '（已停用）'} · ${j.kind === 'workflow' ? '流程：' + esc(j.workflow_title) : '任務'}</span><span style="flex:1"></span>
+      <button class="btn sm" type="button" data-act="run-job" data-id="${esc(j.id)}">立即執行</button><button class="btn sm" type="button" data-act="edit-job" data-id="${esc(j.id)}">編輯</button><button class="btn sm danger" type="button" data-act="del-job" data-id="${esc(j.id)}">刪除</button></div>
+    ${j.kind === 'task' ? `<div class="migsec"><h4>任務內容</h4><div class="wkout">${esc(j.prompt)}</div></div>` : `<div class="migsec"><h4>流程參數</h4><div class="wkout">${esc(JSON.stringify(j.inputs, null, 2))}</div></div>`}
+    <div class="migsec"><h4>接下來</h4>${j.upcoming.length ? j.upcoming.map(t => `<span class="wkst">${wkWhen(t)}</span>`).join(' ') : '<span class="sd">沒有排定的時間</span>'}</div>
+    <div class="migsec"><h4>執行紀錄</h4>${j.runs.length ? `<table class="migtbl"><tbody>${j.runs.map(r => `<tr><td>${wkSt(r.status)}</td><td>${wkWhen(r.created_at)}</td><td>${WK_TRIGGER[r.trigger] || ''}</td><td>${wkDur(r.started_at, r.finished_at)}</td><td style="white-space:normal">${esc((r.error || r.summary || r.activity || '').slice(0, 140))}</td><td class="num"><button class="btn sm" type="button" data-run="${esc(r.id)}">查看</button></td></tr>`).join('')}</tbody></table>` : '<div class="wkempty">還沒有執行過</div>'}</div>
+    <div class="migsec"><h4>長期黑板 <small class="sd">每次執行之間延續的筆記與計畫</small></h4>${wkBoard(board) || '<div class="wkempty">空的</div>'}</div>`;
+}
+function wkBoard(rows){
+  return rows.length ? `<div class="wkboard">${rows.map(b => `<div><em>${esc(b.kind)}${b.key ? ' · ' + esc(b.key) : ''}${b.status ? ' · ' + esc(b.status) : ''} · ${esc(b.author || '')} · ${wkWhen(b.updated_at)}</em>${esc(b.content.slice(0, 1500))}</div>`).join('')}</div>` : '';
+}
+async function wkWorkflows(){
+  const {workflows} = await api('/api/work/workflows'); WK.wfs = workflows;
+  return workflows.map(w => `<div class="migsec" style="margin-top:0;margin-bottom:18px"><div class="migsrc"><b>${esc(w.title)}</b><span class="sd">${esc(w.name)}${w.bundled ? ' · 內建' : ''}</span><span style="flex:1"></span>
+      <button class="btn sm" type="button" data-act="wf-schedule" data-id="${esc(w.name)}">排程</button><button class="btn sm primary" type="button" data-act="wf-run" data-id="${esc(w.name)}">執行</button></div>
+    <div class="sd" style="margin:8px 2px">${esc(w.description)}</div>${wkGraph(w.levels, Object.fromEntries(w.nodes.map(n => [n.id, {title: n.title, type: n.type, role: n.role, status: ''}])))}</div>`).join('')
+    + '<div class="note">自訂流程：把 YAML 檔放到 ~/.sinobee/workflows/（格式見 sinobee/work/graph.py）。</div>';
+}
+const WK_ROLE = {researcher: '研究員', analyst: '資料分析師', reviewer: '審查員', writer: '撰稿員', general: '通用助手'};
+const WK_TYPE = {agent: '子代理', map: '並行子代理', action: '動作', approval: '核准'};
+function wkGraph(levels, nodes){
+  return `<div class="wkgraph">${(levels || []).map((lv, i) => `${i ? '<span class="arrow">→</span>' : ''}<div class="lvl">${lv.map(id => { const n = nodes[id] || {};
+    return `<div class="wknode ${esc(n.status || '')}" data-node="${esc(id)}"><b>${esc(n.title || id)}</b>${esc(WK_TYPE[n.type] || n.type || '')}${n.role ? ' · ' + esc(WK_ROLE[n.role] || n.role) : ''}${n.status ? '<br>' + wkSt(n.status) : ''}</div>`; }).join('')}</div>`).join('')}</div>`;
+}
+async function wkHistory(){
+  const d = await wkLoad();
+  return `<table class="migtbl wkt"><thead><tr><th></th><th>工作</th><th>時間</th><th>耗時</th><th>結果</th></tr></thead><tbody>${d.history.map(h => `<tr>
+    <td>${wkSt(h.status)}</td><td>${h.type === 'chat' ? `<a href="#" data-sess="${esc(h.session_id)}" data-title="${esc(h.name)}">${esc(h.name)}</a><div class="sd">對話</div>` : `<a href="#" data-run="${esc(h.id)}">${esc(h.name)}</a><div class="sd">${WK_TRIGGER[h.trigger] || ''}</div>`}</td>
+    <td>${wkWhen(h.finished_at || h.created_at)}</td><td>${h.type === 'chat' ? (h.duration_s ? h.duration_s + ' 秒' : '') : wkDur(h.started_at, h.finished_at)}</td>
+    <td style="white-space:normal;max-width:420px">${esc((h.error || h.summary || '').slice(0, 160))}</td></tr>`).join('')}</tbody></table>`;
+}
+async function wkRun(rid){
+  const r = await api('/api/work/runs/' + rid);
+  if (r.detail) return `<div class="wkempty">${esc(r.detail)}</div>`;
+  const active = ['queued', 'running', 'waiting'].includes(r.status);
+  const nodes = r.state?.nodes || {};
+  const nodeDetail = Object.entries(nodes).map(([id, n]) => `<details class="migsec" id="node-${esc(id)}" style="margin-top:8px"><summary>${wkSt(n.status)}<b>${esc(n.title || id)}</b> <span class="sd">${esc(WK_TYPE[n.type] || n.type || '')}${n.started && n.finished ? ' · ' + wkDur(n.started, n.finished) : ''}${n.reason ? ' · ' + esc(n.reason) : ''}</span></summary>
+      ${n.error ? `<div class="err-t" style="margin:6px 0">${esc(n.error)}</div>` : ''}
+      ${(n.sessions || []).length ? `<div style="margin:6px 0">${n.sessions.map((s, i) => `<button class="btn sm" type="button" data-sess="${esc(s)}">子代理對話 ${i + 1}</button>`).join(' ')}</div>` : ''}
+      ${n.output != null ? `<div class="wkout">${esc(typeof n.output === 'string' ? n.output : JSON.stringify(n.output, null, 2)).slice(0, 6000)}</div>` : ''}</details>`).join('');
+  const artifacts = (r.board || []).filter(b => b.kind === 'artifact').map(b => { let p = b.content; try { p = JSON.parse(b.content).path || p; } catch {} return p; });
+  return `<div class="migsrc"><b>${esc(r.name)}</b>${wkSt(r.status)}<span class="sd">${WK_TRIGGER[r.trigger] || ''} · ${wkWhen(r.started_at || r.created_at)}${r.finished_at ? ' · ' + wkDur(r.started_at, r.finished_at) : ''}${r.cost_usd ? ' · ' + fmtCost(r.cost_usd) : ''}</span><span style="flex:1"></span>
+      ${r.job_id ? `<button class="btn sm" type="button" data-job="${esc(r.job_id)}">工作設定</button>` : ''}
+      ${r.session_id ? `<button class="btn sm" type="button" data-sess="${esc(r.session_id)}" data-title="${esc(r.name)}">查看對話</button>` : ''}
+      ${active ? `<button class="btn sm danger" type="button" data-act="stop-run" data-id="${esc(r.id)}">停止</button>` : ['failed', 'interrupted', 'cancelled'].includes(r.status) ? `<button class="btn sm primary" type="button" data-act="resume-run" data-id="${esc(r.id)}">${r.kind === 'workflow' ? '從中斷處繼續' : '重新執行'}</button>` : ''}</div>
+    ${active && r.activity ? `<div class="note" style="margin-top:8px">${ic('play')} ${esc(r.activity)}</div>` : ''}
+    ${r.approvals?.length ? `<div class="migsec">${wkApprovals(r.approvals)}</div>` : ''}
+    ${r.error ? `<div class="migsec err-t">${esc(r.error)}</div>` : ''}
+    ${r.summary ? `<div class="migsec"><h4>結果</h4><div class="msg assistant md" style="max-width:none">${md(r.summary)}</div></div>` : ''}
+    ${artifacts.length ? `<div class="migsec"><h4>產出檔案</h4>${artifacts.map(p => `<div class="md">${md(`[${p.split('/').pop()}](${p})`)}</div>`).join('')}</div>` : ''}
+    ${r.state?.levels ? `<div class="migsec"><h4>流程</h4>${wkGraph(r.state.levels, nodes)}${nodeDetail}</div>` : ''}
+    <div class="migsec"><h4>黑板 <small class="sd">這次工作中各代理共用的筆記</small></h4>${wkBoard((r.board || []).filter(b => b.kind !== 'node_output')) || '<div class="wkempty">空的</div>'}</div>
+    ${r.job_board?.length ? `<div class="migsec"><h4>工作的長期黑板</h4>${wkBoard(r.job_board.filter(b => b.kind !== 'snapshot'))}</div>` : ''}`;
+}
+
+// job editor
+const JF = {job: null, kind: 'task', sched: {type: 'daily', time: '09:00'}, wf: null};
+$('#jfCancel').onclick = () => $('#jobForm').classList.remove('open');
+async function openJobForm(job = null, preset = null){
+  JF.job = job; const v = {...(job || {}), ...(preset || {})};
+  JF.kind = v.kind || 'task'; JF.sched = v.schedule || {type: 'daily', time: '09:00'}; JF.runNow = !!v.run_now;
+  JF.wfs = (await api('/api/work/workflows')).workflows; JF.conns = (await api('/api/db/connections')).connections || [];
+  JF.wf = v.workflow || JF.wfs[0]?.name; JF.inputs = v.inputs || {};
+  $('#jfTitle').textContent = job ? '編輯工作：' + job.name : (JF.runNow ? '執行流程' : '新增工作'); $('#jfMsg').textContent = '';
+  $('#jfBody').innerHTML = `
+    <div class="migsec" style="margin-top:0"><h4>要做什麼</h4>
+      <div class="cardseg" id="jfKind"><button type="button" data-v="task"><b>用文字描述任務</b><span>像在對話中交代一樣，SinoBee 會在背景自己完成</span></button>
+        <button type="button" data-v="workflow"><b>固定流程</b><span>多個子代理與步驟組成的流程，例如健檢、遷移、研究報告</span></button></div>
+      <label class="f" style="margin-top:10px">名稱<input id="jfName" value="${esc(v.name || '')}" placeholder="例如：每日訂單異常檢查"></label>
+      <div id="jfWhat" style="margin-top:10px"></div></div>
+    <div class="migsec" id="jfWhenSec"><h4>什麼時候</h4>
+      <div class="cardseg" id="jfSched"><button type="button" data-v="manual"><b>手動</b><span>只在你按「立即執行」時</span></button>
+        <button type="button" data-v="once"><b>一次</b><span>在指定時間執行一次</span></button><button type="button" data-v="interval"><b>每隔一段時間</b><span>持續巡檢，例如每 30 分鐘</span></button>
+        <button type="button" data-v="daily"><b>每天／每週</b><span>固定時間</span></button><button type="button" data-v="cron"><b>進階（cron）</b><span>例如 */15 9-18 * * 1-5</span></button></div>
+      <div id="jfWhen" style="margin-top:10px"></div><div class="sd" id="jfPreview" style="margin-top:8px"></div></div>
+    <div class="note" style="margin-top:12px">背景工作遇到需要核准的操作（刪除、寫入資料庫、執行危險指令…）會暫停，等你在「工作」頁核准後才繼續。</div>`;
+  const kindUi = () => { document.querySelectorAll('#jfKind button').forEach(b => b.classList.toggle('on', b.dataset.v === JF.kind)); jfWhat(v); };
+  document.querySelectorAll('#jfKind button').forEach(b => b.onclick = () => { JF.kind = b.dataset.v; kindUi(); });
+  document.querySelectorAll('#jfSched button').forEach(b => b.onclick = () => { JF.sched = {type: b.dataset.v, ...(b.dataset.v === 'daily' ? {time: '09:00'} : b.dataset.v === 'interval' ? {every: 3600} : {})}; jfWhen(); });
+  $('#jfWhenSec').hidden = JF.runNow && !job;
+  kindUi(); jfWhen();
+  $('#jfSave').textContent = JF.runNow && !job ? '開始執行' : '儲存';
+  $('#jobForm').classList.add('open');
+}
+function jfInputs(wf){
+  if (!wf) return '';
+  return Object.entries(wf.inputs || {}).map(([k, s]) => {
+    const val = JF.inputs[k] ?? s.default ?? '';
+    const lab = `${esc(s.label || k)}${s.required ? ' *' : ''}`;
+    if (s.type === 'connection') return `<label class="f">${lab}<select data-in="${esc(k)}"><option value="">（選擇連線）</option>${JF.conns.map(c => `<option value="${esc(c.id)}" ${c.id === val ? 'selected' : ''}>${esc(c.name)}（${DB_KIND_LABEL[c.kind]}）</option>`).join('')}</select></label>`;
+    if (s.type === 'select') return `<label class="f">${lab}<select data-in="${esc(k)}">${(s.options || []).map((o, i) => `<option value="${esc(o)}" ${o === val ? 'selected' : ''}>${esc((s.labels || [])[i] || o)}</option>`).join('')}</select></label>`;
+    if (s.type === 'bool') return `<div class="srow"><div class="sl"><b>${lab}</b></div><div class="sc sw-c"><input type="checkbox" class="sw" role="switch" data-in="${esc(k)}" ${val ? 'checked' : ''}></div></div>`;
+    return `<label class="f">${lab}<input data-in="${esc(k)}" value="${esc(val)}" placeholder="${esc(s.placeholder || '')}"></label>`;
+  }).join('');
+}
+function jfWhat(v){
+  const box = $('#jfWhat');
+  if (JF.kind === 'task') { box.innerHTML = `<label class="f">任務內容<textarea id="jfPrompt" rows="5" placeholder="例如：檢查 isuncc 資料庫過去一天的訂單，有異常（金額為負、重複訂單）就列出來；記下這次檢查到的最後一筆訂單編號，下次從那裡繼續">${esc(v.prompt || '')}</textarea></label>`; return; }
+  box.innerHTML = `<label class="f">流程<select id="jfWf">${JF.wfs.map(w => `<option value="${esc(w.name)}" ${w.name === JF.wf ? 'selected' : ''}>${esc(w.title)}</option>`).join('')}</select></label>
+    <div class="sd" id="jfWfDesc" style="margin:6px 2px 10px"></div><div class="grid2" id="jfIn"></div>`;
+  const sync = () => { JF.wf = $('#jfWf').value; const wf = JF.wfs.find(w => w.name === JF.wf); $('#jfWfDesc').textContent = wf?.description || ''; $('#jfIn').innerHTML = jfInputs(wf);
+    if (!$('#jfName').value || JF.wfs.some(w => w.title === $('#jfName').value)) $('#jfName').value = wf?.title || ''; };
+  $('#jfWf').onchange = sync; sync();
+}
+function jfWhen(){
+  document.querySelectorAll('#jfSched button').forEach(b => b.classList.toggle('on', b.dataset.v === JF.sched.type));
+  const s = JF.sched, box = $('#jfWhen');
+  if (s.type === 'once') { const d = s.at ? new Date(s.at * 1000) : new Date(Date.now() + 3600e3); const loc = new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
+    box.innerHTML = `<label class="f">時間<input type="datetime-local" id="jfAt" value="${loc}"></label>`; }
+  else if (s.type === 'interval') { const e = s.every || 3600, unit = e % 3600 === 0 ? 3600 : 60;
+    box.innerHTML = `<div class="grid2"><label class="f">每隔<input type="number" min="1" id="jfEvery" value="${e / unit}"></label><label class="f">單位<select id="jfUnit"><option value="60" ${unit === 60 ? 'selected' : ''}>分鐘</option><option value="3600" ${unit === 3600 ? 'selected' : ''}>小時</option><option value="86400">天</option></select></label></div>`; }
+  else if (s.type === 'daily') { const days = s.days || [];
+    box.innerHTML = `<div class="grid2"><label class="f">時間<input type="time" id="jfTime" value="${esc(s.time || '09:00')}"></label><div class="f"><span class="sd">星期（不選＝每天）</span><div class="dayc" id="jfDays">${'一二三四五六日'.split('').map((d, i) => `<button type="button" data-d="${i}" class="${days.includes(i) ? 'on' : ''}">${d}</button>`).join('')}</div></div></div>`;
+    $('#jfDays').querySelectorAll('button').forEach(b => b.onclick = () => { b.classList.toggle('on'); jfPreview(); }); }
+  else if (s.type === 'cron') box.innerHTML = `<label class="f">cron（分 時 日 月 星期，本機時間）<input id="jfCron" value="${esc(s.expr || '0 9 * * 1-5')}" spellcheck="false"></label>`;
+  else box.innerHTML = '';
+  box.querySelectorAll('input,select').forEach(e => e.addEventListener('input', jfPreview)); jfPreview();
+}
+function jfSchedule(){
+  const t = JF.sched.type;
+  if (t === 'once') return {type: 'once', at: new Date($('#jfAt').value).getTime() / 1000};
+  if (t === 'interval') return {type: 'interval', every: Math.round(+$('#jfEvery').value * +$('#jfUnit').value)};
+  if (t === 'daily') return {type: 'daily', time: $('#jfTime').value, days: [...document.querySelectorAll('#jfDays button.on')].map(b => +b.dataset.d)};
+  if (t === 'cron') return {type: 'cron', expr: $('#jfCron').value.trim()};
+  return {type: 'manual'};
+}
+let JF_PT = 0;
+async function jfPreview(){
+  clearTimeout(JF_PT); JF_PT = setTimeout(async () => {
+    const {ok, j} = await jreq('/api/work/schedule/preview', {schedule: jfSchedule()});
+    $('#jfPreview').innerHTML = ok ? `${esc(j.text)}${j.upcoming.length ? '：' + j.upcoming.slice(0, 4).map(t => wkWhen(t)).join('、') : ''}` : `<span class="err-t">${esc(j.detail)}</span>`;
+  }, 250);
+}
+$('#jfSave').onclick = async () => {
+  const inputs = {}; document.querySelectorAll('#jfIn [data-in]').forEach(e => inputs[e.dataset.in] = e.type === 'checkbox' ? e.checked : e.value);
+  const body = {name: $('#jfName').value.trim(), kind: JF.kind, prompt: $('#jfPrompt')?.value.trim() || '', workflow: JF.kind === 'workflow' ? JF.wf : '',
+    inputs, schedule: JF.runNow && !JF.job ? {type: 'manual'} : jfSchedule()};
+  let res;
+  if (JF.runNow && !JF.job && JF.kind === 'workflow') res = await jreq(`/api/work/workflows/${encodeURIComponent(JF.wf)}/run`, {inputs});
+  else if (JF.job) res = await jreq('/api/work/jobs/' + JF.job.id, body, 'PATCH');
+  else res = await jreq('/api/work/jobs', {...body, run_now: JF.runNow});
+  if (!res.ok) { $('#jfMsg').innerHTML = `<span class="err-t">✕ ${esc(res.j.detail || '失敗')}</span>`; return; }
+  $('#jobForm').classList.remove('open');
+  if (JF.runNow && !JF.job && JF.kind === 'workflow') openWork('run', res.j.id); else openWork('job', res.j.id || JF.job?.id);
+  if (tab === 'work') loadSide();
+};
+
+// live updates
+let WK_DEB = 0;
+function onWorkEvent(ev){
+  clearTimeout(WK_DEB); WK_DEB = setTimeout(() => {
+    if (tab === 'work') loadSide();
+    if ($('#workModal').classList.contains('open') && ['overview', 'run', 'jobs', 'job'].includes(WK.view)) wkRender(true);
+  }, 400);
+  if (ev.what === 'approval' && ev.reason && !ev.decided) {
+    if (Notification?.permission === 'granted') try { new Notification('SinoBee 需要你核准', {body: ev.reason}); } catch {}
+    add(`ⓘ 背景工作「${esc(ev.name || '')}」等你核准：${esc(ev.reason)} <a href="#" onclick="openWork('run','${esc(ev.run_id)}');return false">前往核准</a>`, 'note');
+  }
+}
+
 </script>
 </body>
 </html>

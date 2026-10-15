@@ -276,11 +276,33 @@ sinobee/local/
 | `POST /api/local/use` | 設為主要或 Embedding 模型 |
 | `PUT /api/local/settings` | 服務位址、num_ctx、keep_alive、記憶體覆寫 |
 
-## 14. 後續路線
+## 14. 背景工作：子代理、圖流程、黑板與排程
 
-1. 子代理（delegate）與平行工作流
-2. MCP client：接入外部 MCP 工具
-3. 訊息閘道：Slack / Telegram / LINE
-4. 排程任務（cron）
-5. sinobee.ai Skill Hub 服務端（協定見 SKILL_HUB.md；用戶端已完成）
-6. Electron 桌面殼：包裝 Web UI，並以主機模式運行
+SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在它外面加上三種結構，彼此可以組合：
+
+| 結構 | 模組 | 說明 |
+|---|---|---|
+| 子代理 | `work/agents.py`、工具 `delegate` | 子代理是同一個 `Agent` 類別的新實例，有自己的 session。它用角色的工具白名單、角色提示詞和步數上限執行，深度固定 1。子代理拿不到 `CHILD_DENY` 裡的工具：再委派、排程、寫記憶與技能。並行數由 `work.max_parallel_subagents` 限制，預設 3。 |
+| 圖流程 | `work/graph.py`、`work/workflows/*.yaml` | 流程是 YAML 定義的 DAG，節點型態有四種：`agent`（子代理）、`map`（對清單並行派子代理）、`action`（內建動作，如 `db.health_collect`、`db.migrate`、`report.write`）、`approval`（等你核准）。<br>節點欄位：<br>• `needs`：相依的前置節點；<br>• `when`：執行條件，用安全的運算式求值器判斷；<br>• `allow_skipped`：前置節點被略過時仍執行；<br>• `output: json`：輸出解析成 JSON。<br>樣板語法 `{{nodes.x.output.y}}`。<br>執行方式：同一層的節點並行執行；前置節點失敗或略過時，後續節點也略過；每個節點的狀態都存下來，中斷後從已完成的節點之後繼續。 |
+| 黑板 | `work/store.py` 的 `board` 表、工具 `board_write`／`board_read` | 黑板有三種範圍：`session:<id>`、`run:<id>`、`job:<id>`。<br>條目種類：goal、plan、finding、decision、issue、question、artifact、note。同一 kind 加同一 key 的條目會被取代。<br>每一輪都把黑板摘要放進 `<context>`，主代理、子代理和同一工作的後續執行都看得到。 |
+| 排程 | `work/schedule.py`、`work/hub.py` | 排程型態：manual、once、interval（最短 60 秒）、daily／weekly、cron（本地時間）。<br>`WorkHub` 在 `sinobee serve` 內每 10 秒檢查一次到期的工作，同時執行數受 `work.max_parallel_runs` 限制，超過的排隊。<br>持續性工作靠兩樣東西接續：`job:<id>` 黑板，以及上一次執行的摘要。 |
+
+無人在場時的核准：背景工作的 `approve` 會在 `approvals` 表新增一筆，再等待一個 asyncio Future，執行狀態變成 `waiting`。Web UI 的「工作」頁或 `/api/work/approvals/{id}` 決定後，工作才繼續。伺服器重啟時，未決定的核准會作廢，被中斷的流程會自動續跑。
+
+「過去／現在／接下來」由 `WorkHub.overview()` 組成：
+
+- 過去：執行紀錄加上對話回合；
+- 現在：背景執行加上進行中的對話；
+- 接下來：各工作的下幾次執行時間，加上黑板上未完成的 plan。
+
+資料存在 `~/.sinobee/work.db`，API 在 `/api/work/*`，命令列是 `sinobee work`。
+
+## 15. 後續路線
+
+1. MCP client：接入外部 MCP 工具
+2. 訊息閘道：Slack / Telegram / LINE（背景工作完成與待核准通知）
+3. 流程編輯器：在 Web UI 以圖形方式編輯 YAML 流程
+4. sinobee.ai Skill Hub 服務端（協定見 SKILL_HUB.md；用戶端已完成）
+5. Electron 桌面殼：包裝 Web UI，並以主機模式運行
+
+（子代理、平行工作流與排程任務已在第 14 節實作。）

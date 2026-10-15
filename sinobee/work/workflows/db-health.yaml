@@ -1,0 +1,55 @@
+name: db-health
+title: 資料庫健檢報告
+description: 讀取資料表大小、列數與結構，與上次健檢比較變化，由資料分析師找出問題、審查員把關，產出健檢報告。適合設成每天或每週執行。
+inputs:
+  connection: {type: connection, label: 資料庫連線, required: true}
+  focus: {type: text, label: 特別關注（選填）, placeholder: 例如：orders 表的成長、慢查詢}
+nodes:
+  - id: collect
+    title: 收集數據
+    type: action
+    action: db.health_collect
+    with: {connection: "{{inputs.connection}}"}
+  - id: analyze
+    title: 分析
+    type: agent
+    role: analyst
+    needs: [collect]
+    when: "nodes.collect.output.ok"
+    iterations: 20
+    prompt: |
+      以下是資料庫「{{nodes.collect.output.connection}}」（{{nodes.collect.output.kind}} {{nodes.collect.output.version}}）的健檢數據：
+      {{json(nodes.collect.output)}}
+      特別關注：{{inputs.focus}}
+      請用 db_query（唯讀）做必要的補充檢查，例如：成長異常的表最近的資料、沒有主鍵的大表、空表是否可以清理、
+      重要表是否有合適索引。不要執行任何寫入。
+      輸出一份 Markdown 健檢報告：總覽（大小、表數、與上次比較）、需要處理的問題（依嚴重度排序，附證據與建議）、
+      觀察到的趨勢。數字只能來自上面的數據或你的查詢結果。
+  - id: review
+    title: 審查
+    type: agent
+    role: reviewer
+    needs: [analyze]
+    iterations: 8
+    prompt: |
+      審查這份資料庫健檢報告：數字是否對得上下面的原始數據、建議是否合理、有沒有遺漏明顯的問題。
+      原始數據：{{json(nodes.collect.output)}}
+      報告：
+      {{nodes.analyze.output}}
+  - id: report
+    title: 存成報告
+    type: action
+    action: report.write
+    needs: [review]
+    with:
+      title: "資料庫健檢：{{nodes.collect.output.connection}}"
+      body: "{{nodes.analyze.output or nodes.collect.output.summary}}\n\n---\n\n## 審查意見\n\n{{nodes.review.output}}"
+  - id: unreachable
+    title: 連線失敗通知
+    type: action
+    action: report.write
+    needs: [collect]
+    when: "not nodes.collect.output.ok"
+    with:
+      title: "資料庫健檢失敗：{{inputs.connection}}"
+      body: "無法連線：{{nodes.collect.output.error}}"
