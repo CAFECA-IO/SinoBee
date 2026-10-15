@@ -274,10 +274,11 @@ docker exec -it sinobee sinobee keys set openai
 需要 Python 3.10 以上。
 
 ```bash
-pip install -e ".[all]"          # macOS/Windows 操作桌面請改用 ".[all,desktop-native]"
-python -m playwright install chromium
-sinobee serve                    # 開啟 http://localhost:8000
+bash scripts/install-command.sh  # 只需一次：建立 .venv、安裝（含瀏覽器元件），並讓 sinobee 在任何終端機都能用
+sinobee serve                    # 之後在任何資料夾執行即可，開啟 http://127.0.0.1:8000
 ```
+
+`sinobee serve` 預設只接受本機連線（127.0.0.1）；要讓區網其他裝置連入，改用 `sinobee serve --host 0.0.0.0` 並設定 `SINOBEE_SERVER_TOKEN`。macOS/Windows 操作桌面請自行 `.venv/bin/pip install -e ".[all,desktop-native]"`。
 
 macOS 需在「系統設定 → 隱私權與安全性」授予終端機「輔助使用」與「螢幕錄製」權限。在實體電腦上建議保持核准模式 `confirm`。
 </details>

@@ -102,7 +102,7 @@ DEFAULTS: dict[str, Any] = {
         "think": None,              # None = model default; False disables thinking for faster answers
     },
     "pricing": {},                  # per-model price overrides (USD / 1M tokens), edited in the Web UI
-    "server": {"host": "0.0.0.0", "port": 8000, "token": None},
+    "server": {"host": "127.0.0.1", "port": 8000, "token": None},
 }
 
 
