@@ -52,6 +52,12 @@ SinoBee 讀取專案文件，整理出「這是什麼」、核心概念表、流
 
 - **中間產物立即可看**：工具產生的檔案（圖片、影片、報告、試算表、字幕…）會在該步驟下方顯示縮圖、播放器或檔案卡，點開即可預覽或下載；完成時再列出「本次產出」。重新打開對話也看得到。
 - **執行中可以插話**：任務跑到一半直接在輸入框補充或修改需求（例如「改成直式 9:16」），按 Enter 送出，會在目前這一步結束後納入，不必重來；按輸入框旁的 ■ 則停止目前任務並改做你剛輸入的要求；上方的停止鍵是單純停止。
+- **每輪對話都有執行紀錄**：「工作」頁的現在與過去同時列出對話、排程工作與固定流程。對話紀錄會顯示每個步驟、產出檔案、你的補充與完成檢查結果；被中斷或未完成的可以按「續跑」，在原對話從中斷處接著做。
+- **完成檢查與自動換強模型**：多步驟任務結束前，SinoBee 會先確認是否真的完成，沒完成會再做一輪，仍沒完成就標示「未完成」並說明缺什麼。在設定的「升級模型」填一個較強的模型後，遇到以下情況會自動改用它：
+  - 連續失敗；
+  - 步驟太多；
+  - 沒通過完成檢查；
+  - 執行影片製作這類複雜技能。
 - 結束後會標示完成、錯誤或未完成，出錯時說明原因與建議怎麼做；最後一步失敗就不會標成完成。重新整理頁面或換一台裝置打開，狀態都還在。
 
 ![任務執行中](docs/images/task-running.png)
@@ -157,6 +163,13 @@ sinobee work pause|resume|delete <工作編號>
 4. 鏡頭語言與首幀：規格化景別、角度、焦段與構圖，先渲染首幀確認。
 5. 運鏡與動態：依片型控制運鏡與動態幅度，用 MiniMax H3 同時生成畫面、對白、環境音與配樂。
 6. 後期整合：依時間軸剪接、統一調色、升頻、補幀、旁白混音（音樂自動避讓）、字幕，並做品質檢查。
+
+最穩的用法是固定流程「AI 影片製作」：在「工作」頁的「固定流程」按「執行」並輸入一句話，或在對話中請 SinoBee 拍片（它會啟動這個流程）。流程如下：
+
+1. AI 先寫企劃並自動檢查、補齊。
+2. 配音、定裝照、草稿渲染、品管全部自動完成。
+3. 產出草稿預覽後，請你核准正式渲染（拒絕則以草稿交付）。
+4. 正式渲染與剪接完成後，影片出現在該次執行的產出檔案中。
 
 需要一台跑 ComfyUI + MiniMax H3 的 GPU 主機（`COMFYUI_URL`，預設 `http://127.0.0.1:8188`，可用 SSH 通道）與 ffmpeg；旁白可用 `edge-tts`。
 
@@ -274,7 +287,7 @@ docker exec -it sinobee sinobee keys set openai
 
 | 啟動參數 | 用途 |
 |---|---|
-| `SINOBEE_MODEL` / `SINOBEE_FALLBACKS` / `SINOBEE_AUX_MODEL` / `SINOBEE_EMBEDDING_MODEL` | 主要／備援／輔助／Embedding 模型（格式 `供應商/模型`） |
+| `SINOBEE_MODEL` / `SINOBEE_FALLBACKS` / `SINOBEE_AUX_MODEL` / `SINOBEE_ESCALATE_MODEL` / `SINOBEE_EMBEDDING_MODEL` | 主要／備援／輔助／升級／Embedding 模型（格式 `供應商/模型`） |
 | `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GEMINI_API_KEY`、`OPENROUTER_API_KEY`、`DEEPSEEK_API_KEY`、`DASHSCOPE_API_KEY`… | 各家金鑰 |
 | `SINOBEE_APPROVAL` / `SINOBEE_TOOLSETS` | 核准模式 / 開放的能力 |
 | `SINOBEE_DAILY_BUDGET` / `SINOBEE_MONTHLY_BUDGET` | 預算（USD） |

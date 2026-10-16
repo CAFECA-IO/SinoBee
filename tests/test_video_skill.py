@@ -218,3 +218,39 @@ def test_skill_run_names_the_scripts():
     fn = getattr(skill_tools.skill_run, "fn", None) or getattr(skill_tools.skill_run, "func", None) or skill_tools.skill_run
     res = asyncio.run(fn(ctx, "ai-video-production", "videos/x/project.json"))
     assert res.is_error and "scripts/next.py" in res.content and "args" in res.content
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_autopilot_stops_before_the_final_render_with_a_draft_preview(tmp_path, monkeypatch):
+    import http.server
+    import threading
+
+    class Ok(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), Ok)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setenv("COMFYUI_URL", f"http://127.0.0.1:{srv.server_port}")
+    root = project(tmp_path)
+    data = json.loads((root / "project.json").read_text())
+    data.update(skip_tts=True, skip_sheets=True, target_quality="final")
+    (root / "project.json").write_text(json.dumps(data, ensure_ascii=False))
+    run("project.py", "prompts", root)
+    data = json.loads((root / "project.json").read_text())
+    for uid, secs in (("SC01", 6.2), ("SC02", 5.2)):
+        clip = root / "clips" / f"{uid}_t1.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"testsrc2=s=320x180:r=24:d={secs}", "-f",
+                        "lavfi", "-i", f"sine=f=200:d={secs}", "-shortest", "-pix_fmt", "yuv420p", str(clip)],
+                       check=True)
+        data["renders"][uid].update(status="done", clip=f"clips/{uid}_t1.mp4", quality="draft")
+    (root / "project.json").write_text(json.dumps(data, ensure_ascii=False))
+    code, out = run("run.py", root, "--until", "final", "--budget", "200")
+    srv.shutdown()
+    assert out["status"] == "ready_for_final", out
+    assert out["units"] == 2 and (root / "out" / "draft.mp4").exists() and not (root / "out" / "final.mp4").exists()
+    assert any("qc.py" in s for s in out["steps_done"]) and "draft preview out/draft.mp4" in out["steps_done"]

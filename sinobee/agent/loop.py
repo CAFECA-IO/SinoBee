@@ -74,8 +74,11 @@ class _Unconfigured:
 class Runtime:
     """Shared, long-lived resources (one per process)."""
 
-    def __init__(self, config: Config | None = None, *, provider=None, aux_provider=None, embedder=None):
+    def __init__(self, config: Config | None = None, *, provider=None, aux_provider=None, embedder=None,
+                 strong_provider=None):
         self.config = config or Config.load()
+        self._strong = strong_provider
+        self._strong_spec = None
         self._fixed_provider = provider is not None
         self.provider_error: str | None = None
         if provider is not None:
@@ -141,6 +144,23 @@ class Runtime:
             out[name] = item
         return out
 
+    def strong(self):
+        """The stronger model to escalate to (model.escalate), or None when none is configured / it is the same."""
+        if self._strong is not None and (self._fixed_provider or self._strong_spec is None):
+            return self._strong
+        spec = self.config.get("model.escalate")
+        if not spec or spec == self.config.get("model.default"):
+            return None
+        if self._strong_spec != spec:
+            try:
+                self._strong = build_chain(self.config, spec)
+                self._strong.recorder = self._record
+                self._strong_spec = spec
+            except Exception as e:  # noqa: BLE001
+                log.warning("escalation model %s unavailable: %s", spec, e)
+                return None
+        return self._strong
+
     def _build_models(self):
         """Build provider chain; never crash startup - an unconfigured model surfaces in the UI instead."""
         try:
@@ -159,6 +179,7 @@ class Runtime:
         self.config.reload()
         if not self._fixed_provider:
             self.provider, self.aux, emb = self._build_models()
+            self._strong, self._strong_spec = None, None      # rebuilt on demand with the new settings
             self.memory.embedder = emb
             self._wire_recorders(emb)
         self.memory.core_char_limit = int(self.config.get("memory.core_char_limit", 1500))
@@ -256,6 +277,8 @@ class Agent:
             self.history.append(Message("user", f"[使用者在執行中補充指示] {text}\n"
                                                 "（請把這個補充納入目前的任務：調整計畫後繼續；若它要求停止或改做別的事，照做。）"))
             self._persist()
+            if getattr(self, "_run_rec", None):
+                self._run_rec.steer(text)
             self._emit("steer_applied", {"text": text})
 
     def _core_changes(self) -> list[str]:
@@ -292,6 +315,65 @@ class Agent:
             if brief:
                 block = block.replace("\n</context>", "\n\n" + brief + "\n</context>")
         return block
+
+    # ------------------------------------------------------------------ completion check & model escalation
+    def _event(self, text: str) -> None:
+        self._emit("status", {"message": text})
+        if getattr(self, "_run_rec", None):
+            self._run_rec.event(text)
+
+    def _complex_task(self, explicit) -> bool:
+        """Skills marked sinobee-complexity: high (long multi-stage pipelines) start on the stronger model."""
+        names = set(explicit or []) | set(self.ctx.state.get("skills_used", set()))
+        return any(str(getattr(self.rt.skills.skills.get(n), "metadata", {}).get("sinobee-complexity", "")).lower()
+                   == "high" for n in names if self.rt.skills.skills.get(n))
+
+    def _escalate(self, why: str, stats: dict) -> bool:
+        strong = self.rt.strong()
+        if strong is None or strong is self._prov or stats.get("escalated"):
+            return False
+        stats["escalated"] = True
+        old = self._prov.label
+        self._prov = strong
+        self._event(f"改用較強的模型 {strong.label}（{why}；原本 {old}）")
+        return True
+
+    def _should_verify(self, stats: dict) -> bool:
+        return bool(self.config.get("agent.verify", True)) and \
+            stats["tool_calls"] >= int(self.config.get("agent.verify_min_tool_calls", 3)) and \
+            not stats.get("learn_command")
+
+    async def _verify(self, query: str, answer: str, stats: dict) -> dict | None:
+        """Ask a (cheap) model whether the turn really did what was asked. None = could not check."""
+        steps = []
+        for m in self.history[-60:]:
+            for c in m.tool_calls:
+                steps.append(f"- {c.name} {json.dumps(c.arguments or {}, ensure_ascii=False)[:160]}")
+            if m.role == "tool":
+                t = m.text()
+                steps.append(f"  -> {'FAILED: ' if t.lstrip().startswith('ERROR') else ''}{t[:200]}")
+        steers = [m.text() for m in self.history if m.role == "user" and
+                  isinstance(m.content, str) and m.content.startswith("[使用者在執行中補充指示]")]
+        files = [a["path"] for a in stats.get("artifacts", [])][:20]
+        prompt = (
+            "You check whether an AI assistant really finished the user's task. Judge only from the evidence.\n"
+            f"USER REQUEST:\n{query[:3000]}\n"
+            + ("LATER INSTRUCTIONS:\n" + "\n".join(steers)[:1500] + "\n" if steers else "")
+            + "TOOL STEPS (newest last):\n" + "\n".join(steps[-40:])[:6000]
+            + (f"\nFILES PRODUCED: {', '.join(files)}" if files else "")
+            + f"\nFINAL ANSWER:\n{answer[:3000]}\n\n"
+            "Complete means: what was asked was actually done and the answer reports it truthfully. Also complete: "
+            "the assistant asks the user a needed question, or clearly explains an external blocker it cannot "
+            "remove. Not complete: it claims success the steps do not show, stops halfway, or only describes "
+            "what it would do.\nReply with JSON only: {\"complete\": true|false, \"missing\": \"<what is not done, "
+            "in the user's language, one sentence>\"}")
+        try:
+            resp = await self.rt.aux.chat([Message("user", prompt)], None, temperature=0, max_tokens=300)
+            m = re.search(r"\{.*\}", resp.message.text(), re.S)
+            return json.loads(m.group(0)) if m else None
+        except Exception as e:  # noqa: BLE001 - a failed check never blocks the answer
+            log.info("completion check skipped: %s", e)
+            return None
 
     def _active_skill_notes(self) -> str:
         """How to invoke each skill in use, repeated every step so it survives compaction and long tool output."""
@@ -344,8 +426,16 @@ class Agent:
         nudge = False
         tool_specs = self._tool_specs()
         status, error_info, started, steps = "done", None, time.time(), 0
+        self._prov = self.rt.provider
+        stats["verify_rounds"] = 0
+        if self._complex_task(explicit):
+            self._escalate("任務屬於複雜類型", stats)
         self._turn_started = started
         stats["artifacts"] = []
+        from ..work.chatrun import ChatRun
+        self._run_rec = ChatRun(self, query, _title(query))
+        if self._run_rec.rid and not self.ctx.state.get("job_run"):
+            self.ctx.state["run_id"] = self._run_rec.rid
 
         for iteration in range(max_iter):
             steps = iteration + 1
@@ -385,9 +475,11 @@ class Agent:
             if nudge:  # transient: not stored in history
                 request.append(Message("user", EMPTY_NUDGE))
                 nudge = False
-            self._emit("thinking", {"iteration": iteration, "step": steps, "model": self.rt.provider.label})
+            if steps > int(self.config.get("agent.escalate_after_steps", 25)) and not stats.get("escalated"):
+                self._escalate(f"已進行 {steps - 1} 步仍未完成", stats)
+            self._emit("thinking", {"iteration": iteration, "step": steps, "model": self._prov.label})
             try:
-                resp = await self.rt.provider.chat(request, tool_specs,
+                resp = await self._prov.chat(request, tool_specs,
                                                    temperature=self.config.get("model.temperature", 0.3),
                                                    max_tokens=max_tokens)
             except Exception as e:
@@ -427,7 +519,7 @@ class Agent:
                                                      f"{'提高輸出上限並' if truncated else ''}要求繼續"})
                     nudge = True
                     continue
-                final_text = (f"⚠︎ 模型 {resp.model or self.rt.provider.label} 連續 {empty_replies} 次回傳空白回覆"
+                final_text = (f"⚠︎ 模型 {resp.model or self._prov.label} 連續 {empty_replies} 次回傳空白回覆"
                               f"（finish_reason={resp.stop_reason or 'n/a'}），任務沒有完成。建議改用能力較強的模型，"
                               "或在設定頁提高輸出上限後重試。")
                 self.history.append(Message("assistant", "[上一次嘗試失敗：模型沒有產生回覆]"))
@@ -443,6 +535,23 @@ class Agent:
                 self._emit("assistant", {"text": msg.text(), "final": not msg.tool_calls})
             if not msg.tool_calls:
                 final_text = msg.text()
+                if not stats.get("consecutive_errors") and self._should_verify(stats):
+                    verdict = await self._verify(query, final_text, stats)
+                    if verdict and not verdict.get("complete"):
+                        missing = str(verdict.get("missing") or "任務尚未完成")[:400]
+                        if stats["verify_rounds"] < 1:
+                            stats["verify_rounds"] += 1
+                            self._event(f"完成檢查未通過：{missing}；繼續執行")
+                            self._escalate("完成檢查未通過", stats)
+                            self.history.append(Message("user", f"[自動完成檢查] 任務還沒有完成：{missing}\n"
+                                                                "請接著把它完成；如果確實無法完成，請明確說明原因與目前的進度。"))
+                            self._persist()
+                            continue
+                        status = "incomplete"
+                        error_info = {"summary": f"完成檢查未通過：{missing}",
+                                      "hint": "可以回覆「繼續」讓我接著做，或補充更明確的要求。", "detail": ""}
+                    elif verdict:
+                        self._event("完成檢查通過")
                 if stats.get("consecutive_errors"):
                     # the model stopped right after failures: do not report the task as done
                     status = "incomplete"
@@ -454,6 +563,9 @@ class Agent:
                 result_msg = await self._execute(call, stats)
                 self.history.append(result_msg)
             self._persist()
+            if (stats.get("consecutive_errors", 0) >= int(self.config.get("agent.escalate_after_errors", 3))
+                    or stats.get("repeats")) and not stats.get("escalated"):
+                self._escalate(f"連續 {stats.get('consecutive_errors', 0)} 次工具錯誤", stats)
             limit = int(self.config.get("agent.max_consecutive_errors", 6))
             if stats.get("consecutive_errors", 0) >= limit or stats.get("repeats", 0) >= 3:
                 status = "incomplete"
@@ -486,7 +598,7 @@ class Agent:
         turn_id = None
         try:
             turn_id = self.rt.memory.record_turn(self.session_id, db_start, self.rt.memory.last_index(self.session_id),
-                                                 status, self.rt.provider.label, turn_skills, stats["tool_calls"],
+                                                 status, self._prov.label, turn_skills, stats["tool_calls"],
                                                  turn_usage.get("cost_usd", 0), round(time.time() - started, 1))
         except Exception:
             log.exception("could not record turn")
@@ -496,6 +608,8 @@ class Agent:
                                 "session_cost_usd": session_usage["cost_usd"],
                                 "session_tokens": session_usage["total_tokens"],
                                 "artifacts": stats.get("artifacts", [])[-30:]})
+        if getattr(self, "_run_rec", None):
+            self._run_rec.finish(status, final_text, error_info, turn_usage.get("cost_usd", 0), turn_id)
         bs = self.rt.budget_status()
         if bs["warn"]:
             self._emit("budget", bs)
@@ -670,6 +784,12 @@ class Agent:
     async def _execute(self, call: ToolCall, stats: dict) -> Message:
         self._emit("tool_call", {"id": call.id, "name": call.name, "arguments": call.arguments})
         t0 = time.time()
+        rec = getattr(self, "_run_rec", None)
+        if rec:
+            rec.tool_started(call.name)
+        sk = (call.arguments or {}).get("name") if call.name in ("skill_view", "skill_run") else None
+        if sk and self._complex_task([sk]) and not stats.get("escalated"):
+            self._escalate(f"技能 {sk} 是多階段的複雜任務", stats)
         sig = call.name + json.dumps(call.arguments or {}, sort_keys=True, ensure_ascii=False, default=str)
         failed = stats.setdefault("failed_calls", {})
         if sig in failed:
@@ -702,6 +822,9 @@ class Agent:
         image_b64 = next((p.data for p in result.content if isinstance(p, ImagePart)), None) if has_image else None
         self._emit("tool_result", {"id": call.id, "name": call.name, "error": result.is_error, "duration_s": elapsed,
                                    "preview": preview[:3000], "image": image_b64})
+        if rec:
+            rec.step(call.name, call.arguments or {}, not result.is_error, elapsed,
+                     preview[:300] if result.is_error else "")
         if not result.is_error:
             try:
                 arts = artifacts.collect(self.config, call.name, call.arguments or {}, preview,
@@ -712,6 +835,8 @@ class Agent:
                 arts = []
             if arts:
                 stats.setdefault("artifacts", []).extend(arts)
+                if rec:
+                    rec.files(arts)
                 self._emit("artifact", {"id": call.id, "tool": call.name, "files": arts})
         return Message("tool", result.content, tool_call_id=call.id, name=call.name)
 

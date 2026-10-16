@@ -391,5 +391,7 @@ class WorkflowRun:
                                                message)
         st["status"] = "running"
         if not ok:
+            if n.get("on_reject") == "continue":      # a "no" chooses the other branch instead of failing the run
+                return {"approved": False, "summary": "未核准"}
             raise WorkflowError("未獲核准")
         return {"approved": True, "summary": "已核准"}

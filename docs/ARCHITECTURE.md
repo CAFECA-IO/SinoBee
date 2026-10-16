@@ -310,8 +310,8 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
 | 4 | 技能只是文字，呼叫方式要模型自己組出 script 與 args | 把 project.json 當成腳本，或自行發明指令 | 技能可宣告 `sinobee-entry` 與 `sinobee-quickstart`；最自然的呼叫 `skill_run(name, args)` 或把檔案放在 `script` 都會改由入口腳本執行 |
 | 5 | 長流程全靠模型記住下一步，壓縮上下文後技能說明可能遺失 | 迷路、重做、停下來問 | 使用中技能的 quick start 每一步都固定附在請求裡；影片技能改由 autopilot（`run.py`）推進機械步驟 |
 | 6 | 對話執行中是封閉的 | 不能插話；中間產物埋在工具輸出文字裡 | 執行中可插話（steer），或「停止並改做」（interrupt）；產生的檔案以 `artifact` 事件即時顯示，重開對話也還在（`/api/sessions/{id}/artifacts`） |
-| 7 | 對話任務與背景工作（WorkHub run）是兩套系統 | 對話沒有步驟、產出、檢查點與續跑；圖流程只用在背景工作 | 見下方建議（尚未實作） |
-| 8 | 模型能力和任務難度沒有對應 | 小模型被派去跑 30 步以上的多階段任務 | 見下方建議（尚未實作） |
+| 7 | 對話任務與背景工作（WorkHub run）是兩套系統 | 對話沒有步驟、產出、檢查點與續跑；圖流程只用在背景工作 | 已實作：每輪對話也是一筆 run；技能可宣告固定流程（見下方） |
+| 8 | 模型能力和任務難度沒有對應 | 小模型被派去跑 30 步以上的多階段任務 | 已實作：完成檢查與模型升級（見下方） |
 
 ### 執行中互動（已實作）
 - **補充指示**：任務執行中送出的訊息透過 WebSocket `mode: steer` 呼叫 `Agent.steer()`，放進 inbox。
@@ -323,18 +323,48 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
   - 腳本輸出中的相對路徑，會以參數裡的資料夾為基準解析。
   - 介面在對應步驟下方顯示縮圖、播放器或檔案卡；`turn_end` 再附上「本次產出」清單。
 
-### 是否需要重構導入特定工作流程架構：建議漸進統一，不整套替換
-我不建議換成外部框架（LangGraph 等）。SinoBee 已經有圖流程引擎、黑板、子代理與 run store。問題在於對話這條路徑沒有用到它們，而且「完成」沒有被驗證。建議分三步：
+### 架構決定：漸進統一，不整套替換
+我不換成外部框架。對話這條路徑改為使用既有的 run store 與圖流程引擎，並加上完成驗證：
 
-1. **Run 統一（優先）**：每一輪對話也建立一筆 run，與背景工作共用 `work.db`。
-   - run 記錄步驟、產出、inbox、狀態與檢查點，「過去／現在／接下來」與續跑因此一體適用。
-   - 中斷後可從最後檢查點恢復，產出不必再從訊息推斷。
-2. **技能可宣告固定流程**：例如在技能中加上 `sinobee-workflow: video-production`，由圖流程執行。
-   - 以影片技能為例：`plan` agent 節點只負責產生並以 schema 驗證 plan.json；其餘是 action 節點（TTS → timing → sheets → render → QC → final → assemble），final 渲染前設 approval 節點控制成本。
-   - LLM 只做創意與判斷，流程推進不再依賴模型的閱讀理解。
-3. **完成驗證與模型分級**：
-   - 對話任務先在黑板寫出 plan 項目和完成條件，結束前由 verifier（便宜模型或規則）確認；未達成就標示 incomplete 並說明原因。
-   - 連續失敗、步驟數或任務類型超過門檻時，自動升級到較強的模型（`model.escalate`），或改走固定流程。
+**1. 每輪對話都是一筆 run**（`work/chatrun.py`）
+- `kind=chat`、`trigger=chat`，與背景工作共用 `work.db`。
+- 記錄的內容：
+  - 要求本身；
+  - 每個工具步驟：成功或失敗、耗時、錯誤摘要；
+  - 產出檔案，同時寫進 `run:<id>` 黑板；
+  - 執行中補充、完成檢查與模型升級等事件；
+  - 最後的狀態、摘要與花費。
+- 「工作」頁的現在與過去因此同時涵蓋對話、背景工作與流程。對話 run 的詳細頁會列出步驟、補充、產出和檢查紀錄，並可前往該對話。
+- 被中斷或未完成的對話 run 可以「續跑」：在原對話送出一則「從中斷處接著做」的訊息（`WorkHub.chat_resumer`）。對話歷史本身就是逐步保存的檢查點，所以不會重做已完成的步驟。從「工作」頁停止對話 run，會透過 `chat_canceller` 停掉那一輪。
+
+**2. 技能可以宣告固定流程**（技能 metadata 加上 `sinobee-workflow: <name>`，檔案放在技能內的 `workflows/<name>.yaml`）
+- `WorkHub.workflows()` 會把這類流程與內建流程一起列出。只有能執行腳本的技能會被列出，未信任或被封鎖的技能不會。
+- 技能的 quick start 會直接告訴模型：優先呼叫 `run_workflow(name, inputs, wait=false)`。
+- 影片製作（`video-production`）的節點如下：
+
+  | 節點 | 類型 | 做什麼 |
+  |---|---|---|
+  | `plan` | action `skill.plan` | 企劃子代理（`planner` 角色）依範例格式產生 plan.json。技能入口腳本檢查內容，缺什麼就把清單交回去補，最多 3 輪。只有這一步需要 LLM。 |
+  | `drafts` | action `skill.autopilot` | 執行 `run.py --until final`：配音、定裝照、草稿渲染、品管與自動重拍，最後輸出 720p 草稿預覽 `out/draft.mp4`。 |
+  | `confirm_final` | approval（`on_reject: continue`） | 顯示段數、秒數、預覽路徑與預估 GPU 分鐘數，請使用者核准正式渲染。 |
+  | `final` 或 `deliver_draft` | action | 核准就做正式渲染與剪接；拒絕就以草稿品質交付。 |
+
+- 渲染伺服器連不上時，autopilot 會等待（最多 30 分鐘）而不是直接失敗。產出的影片、預覽與品管圖都會記成 run 的 artifact。
+- approval 節點新增 `on_reject: continue`：拒絕時輸出 `{approved: false}`、改走另一條分支，而不是讓整個流程失敗。
+
+**3. 完成檢查與模型升級**（`agent.verify`、`model.escalate`）
+- **完成檢查**：使用了 `agent.verify_min_tool_calls`（預設 3）個以上工具的回合，在回報完成前，會由輔助模型依證據判斷是否真的完成。證據包括要求、執行中補充、工具步驟與結果、產出檔案與最後回答。
+  - 沒完成時，加入一則「[自動完成檢查]」訊息讓 agent 再做一輪。
+  - 第二次仍沒完成，狀態就標成 incomplete，並寫明缺什麼。
+  - 檢查本身失敗不會阻擋回答。
+- **模型升級**：只要設定了 `model.escalate`（或 `SINOBEE_ESCALATE_MODEL`），以下任一情況會讓這一輪剩下的步驟改用較強的模型：
+  - 連續工具錯誤達 `agent.escalate_after_errors`（預設 3）；
+  - 重複呼叫已失敗的操作；
+  - 步驟超過 `agent.escalate_after_steps`（預設 25）；
+  - 完成檢查未通過；
+  - 使用了標示 `sinobee-complexity: high` 的技能。
+
+  每輪最多升級一次，事件會顯示在對話與 run 紀錄中。設定頁的「模型」區可以填寫升級模型、開關完成檢查。
 
 ## 16. 後續路線
 

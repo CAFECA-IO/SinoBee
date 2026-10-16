@@ -22,6 +22,7 @@ DEFAULTS: dict[str, Any] = {
         "default": None,         # "provider/model"; set in the Web UI or with -e SINOBEE_MODEL=...
         "fallbacks": [],
         "auxiliary": None,       # cheaper model for reflection / compression (None = default)
+        "escalate": None,        # stronger model to switch to when a task keeps failing or is too complex
         "embedding": None,       # e.g. openai/text-embedding-3-small ; None = BM25 only
         "temperature": 0.3,
         "max_tokens": 8192,
@@ -36,6 +37,10 @@ DEFAULTS: dict[str, Any] = {
         "context_budget": "auto",   # optional cap in tokens; "auto" = the model's context window (see model.context_window)
         "tool_output_limit": 12000, # chars per tool result
         "language": "auto",
+        "verify": True,             # check the task is really finished before reporting "done"
+        "verify_min_tool_calls": 3, # only verify turns that used at least this many tools
+        "escalate_after_errors": 3, # consecutive tool errors before switching to model.escalate
+        "escalate_after_steps": 25, # steps in one turn before switching to model.escalate
     },
     "permissions": {
         "toolsets": ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database", "work"],
@@ -200,6 +205,8 @@ class Config:
             lock("model.fallbacks", csv(env["SINOBEE_FALLBACKS"]))
         if env.get("SINOBEE_AUX_MODEL"):
             lock("model.auxiliary", env["SINOBEE_AUX_MODEL"])
+        if env.get("SINOBEE_ESCALATE_MODEL"):
+            lock("model.escalate", env["SINOBEE_ESCALATE_MODEL"])
         if env.get("SINOBEE_EMBEDDING_MODEL"):
             lock("model.embedding", env["SINOBEE_EMBEDDING_MODEL"])
         if env.get("SINOBEE_APPROVAL"):

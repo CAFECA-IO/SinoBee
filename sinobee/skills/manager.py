@@ -94,12 +94,23 @@ class Skill:
         return e if e and (self.path / e).is_file() else None
 
     @property
+    def workflow(self) -> tuple[str, Path] | None:
+        """Optional fixed workflow (metadata sinobee-workflow: <name>, file workflows/<name>.yaml in the skill)."""
+        name = str(self.metadata.get("sinobee-workflow") or "").strip()
+        f = self.path / "workflows" / f"{name}.yaml"
+        return (name, f) if name and f.is_file() else None
+
+    @property
     def quickstart(self) -> str:
         """A few lines an agent must not lose: how to invoke the skill (pinned in context while it is active)."""
         q = str(self.metadata.get("sinobee-quickstart") or "").strip()
         if self.entry:
             q = (f'Run it with skill_run(name="{self.name}", args="<input>") - this runs {self.entry}. '
                  f"Pass `script` only to run another file of the skill. " + q).strip()
+        if self.workflow:
+            q = (f'Preferred: run_workflow(name="{self.workflow[0]}", inputs={{...}}, wait=false) - a fixed workflow '
+                 "does every step and asks the user for approval where needed; then tell the user it is running "
+                 "(progress, files and approvals appear in the 工作 tab). Otherwise: " + q).strip()
         return q
 
     @property
@@ -494,7 +505,8 @@ class SkillManager:
             extra.append(f"success {int(st['success_rate'] * 100)}%")
         if st.get("needs_revision"):
             extra.append("NEEDS REVISION")
-        run = f" [run: skill_run(name=\"{s.name}\", args=…)]" if s.entry else ""
+        run = f" [workflow: run_workflow(name=\"{s.workflow[0]}\")]" if s.workflow else \
+            f" [run: skill_run(name=\"{s.name}\", args=…)]" if s.entry else ""
         return f"- {s.name}: {s.description} ({', '.join(extra)}){run}"
 
     def index_block(self, query: str, available_tools: set[str] | None, mode: str = "auto",

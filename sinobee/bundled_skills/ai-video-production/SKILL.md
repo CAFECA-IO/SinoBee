@@ -4,12 +4,14 @@ description: Turns a one-line idea into a finished AI video (film, documentary, 
 license: MIT
 compatibility: Needs ffmpeg/ffprobe and a ComfyUI server with MiniMax H3 (fl2va; ref2va optional) reachable at COMFYUI_URL (default http://127.0.0.1:8188, e.g. through an SSH tunnel to a GPU server). TTS via edge-tts, macOS say or espeak-ng is optional.
 metadata:
-  version: 1.2.0
+  version: 1.3.0
   author: sinobee
   sinobee-tags: video, film, documentary, vlog, comfyui, minimax-h3, generation
   sinobee-triggers: 影片, 短片, 拍片, 生成影片, 做影片, 短影音, 紀錄片, 廣告, 預告片, 動畫短片, MV, vlog, video, film, clip, trailer
   sinobee-requires-tools: skill_run, read_file, write_file
   sinobee-entry: scripts/run.py
+  sinobee-workflow: video-production
+  sinobee-complexity: high
   sinobee-quickstart: "1) write videos/<slug>/plan.json (shape of assets/example-film-duel.json); 2) skill_run(name=ai-video-production, args=videos/<slug>); 3) repeat step 2 while status is working or needs_content (fix plan.json first); 4) status done: deliver the film path."
 ---
 
@@ -18,7 +20,23 @@ The user wants a video made from an idea ("幫我做一支 30 秒介紹台灣茶
 They only state the intent: you make every craft decision and deliver `out/final.mp4`. Do not use it to edit the
 user's own camera footage (use ffmpeg directly for that).
 
-# The short way (do exactly this)
+# The easiest way: the fixed workflow (prefer this)
+```
+run_workflow(name="video-production", inputs={"intent": "<the user's request, in their words>"}, wait=false)
+```
+Optional inputs: `aspect` (16:9 / 9:16 / 1:1), `length` (e.g. "30 秒"), `draft_only` (true = faster, no final render).
+
+The workflow then runs on its own:
+1. A planner writes and checks the whole plan (script, profiles, locations, shots).
+2. It renders and QCs drafts and makes a draft preview.
+3. It asks the user to approve the costly final render. A "no" delivers the drafts.
+4. It renders the final version and assembles it.
+
+After starting it, tell the user it is running. Progress, the preview, approvals and the finished film all
+appear in the 工作 tab. You do not need to read the rest of this file unless the user wants to change
+something by hand.
+
+# The short way without the workflow (do exactly this)
 1. Write the whole film as ONE JSON file with `write_file`: `videos/<slug>/plan.json`. Copy the structure of
    `assets/example-film-duel.json` (read it: `skill_view(name="ai-video-production",
    path="assets/example-film-duel.json")`). It holds title, genre, aspect, language, style, script.body,

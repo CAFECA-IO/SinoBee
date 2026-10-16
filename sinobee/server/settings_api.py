@@ -48,8 +48,9 @@ def settings_payload(rt) -> dict:
         prov = split_model(default)[0]
         needs_setup = needs_key(prov, cfg) and not resolve_key(prov, cfg)[0]
     return {
-        "model": {k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "embedding", "vision",
-                                                      "context_window")},
+        "model": {k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "escalate", "embedding",
+                                                      "vision", "context_window")},
+        "agent": {"verify": cfg.get("agent.verify", True)},
         "context": _context_info(cfg),
         "permissions": {"approval": cfg.get("permissions.approval"),
                         "toolsets": sorted(set(cfg.get("permissions.toolsets") or [])
@@ -91,7 +92,7 @@ def register(app: FastAPI, rt_getter) -> None:
         errors: list[str] = []
         if "model" in body:
             m = {}
-            for k in ("default", "auxiliary", "embedding"):
+            for k in ("default", "auxiliary", "escalate", "embedding"):
                 if k in body["model"]:
                     v = (body["model"][k] or "").strip() or None
                     if v and not _valid_spec(v):
@@ -131,6 +132,8 @@ def register(app: FastAPI, rt_getter) -> None:
             if "allowed_paths" in p:
                 perm["allowed_paths"] = [x for x in p["allowed_paths"] if x]
             updates["permissions"] = perm
+        if isinstance(body.get("agent"), dict) and "verify" in body["agent"]:
+            updates.setdefault("agent", {})["verify"] = bool(body["agent"]["verify"])
         if "usage" in body:
             u = {}
             for k in ("daily_budget_usd", "monthly_budget_usd", "currency_rate"):

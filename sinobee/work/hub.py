@@ -35,6 +35,8 @@ TASK_PREAMBLE = """[SinoBee 背景工作] 這是背景執行的工作「{name}�
 class WorkHub:
     def __init__(self, rt):
         self.rt = rt
+        self.chat_resumer = None        # set by the web server: (session_id, text) -> starts a turn
+        self.chat_canceller = None      # set by the web server: (session_id) -> stops that turn
         self.store = WorkStore(Path(rt.config.home) / "work.db")
         self.listeners: list = []
         self.tasks: dict[str, asyncio.Task] = {}
@@ -61,6 +63,19 @@ class WorkHub:
         if self._wf_cache and time.time() - self._wf_cache[0] < 5:
             return self._wf_cache[1]
         wfs = catalog(Path(self.rt.config.home))
+        # fixed workflows shipped inside skills (metadata sinobee-workflow), only from skills allowed to run scripts
+        from .graph import WorkflowError, load_file
+        for s in list(getattr(self.rt.skills, "skills", {}).values()):
+            wf_decl = getattr(s, "workflow", None)
+            if not wf_decl or s.disabled or s.policy.scripts == "deny":
+                continue
+            try:
+                wf = load_file(wf_decl[1])
+            except WorkflowError as e:
+                log.warning("workflow of skill %s skipped: %s", s.name, e)
+                continue
+            wf.update(skill=s.name, bundled=s.trust == "builtin")
+            wfs.setdefault(wf["name"], wf)
         self._wf_cache = (time.time(), wfs)
         return wfs
 
@@ -261,6 +276,10 @@ class WorkHub:
             a = self.store.approval(aid)
             if a and a["run_id"] == rid and not fut.done():
                 fut.set_result(False)
+        if run and run["kind"] == "chat" and run["status"] in ACTIVE and self.chat_canceller and run.get("session_id"):
+            self.chat_canceller(run["session_id"])        # the turn ends itself and records "cancelled"
+            self.notify("run", {"run_id": rid})
+            return
         t = self.tasks.get(rid)
         if t and not t.done():
             asyncio.get_event_loop().call_later(5, lambda: (not t.done()) and t.cancel())
@@ -315,6 +334,15 @@ class WorkHub:
             raise WorkError("找不到這次執行")
         if run["status"] in ACTIVE:
             raise WorkError("這次執行仍在進行中")
+        if run["kind"] == "chat":      # a conversation continues in its session from where it stopped
+            if not self.chat_resumer or not run.get("session_id"):
+                raise WorkError("這段對話需要在網頁介面中續跑")
+            req = (run.get("state") or {}).get("input") or run.get("name") or ""
+            self.chat_resumer(run["session_id"],
+                              "[續跑] 上一次的任務在中途被中斷了。已完成的步驟都在這段對話裡：先確認做到哪裡，"
+                              f"從中斷處接著完成，不要重做已完成的部分。原本的要求：{req}")
+            self.store.update_run(rid, summary=(run.get("summary") or "") + "（已續跑）")
+            return self.store.run(rid)
         if run["kind"] == "task":      # a task starts over in a new run (same job, same blackboard)
             if run.get("job_id"):
                 return self.run_job(run["job_id"], trigger="retry")
@@ -395,6 +423,10 @@ class WorkHub:
     def overview(self, chat_running: list[dict] | None = None, history_limit: int = 30) -> dict:
         now = time.time()
         active = self.store.runs(status=ACTIVE, limit=50)
+        live = {c["session_id"]: c for c in chat_running or []}
+        chat_sessions = {r["session_id"] for r in active if r["kind"] == "chat"}
+        # chat turns that have a run record are shown as runs (with live step info); older ones as before
+        chat_running = [c for c in chat_running or [] if c["session_id"] not in chat_sessions]
         jobs = [self.public_job(j) for j in self.store.jobs()]
         upcoming = []
         for j in jobs:
@@ -410,7 +442,10 @@ class WorkHub:
                                                      "started_at", "finished_at", "summary", "error", "cost_usd",
                                                      "session_id")}}
                    for r in self.store.runs(limit=history_limit) if r["status"] not in ACTIVE]
+        first_chat_run = min((r["created_at"] for r in self.store.runs(limit=500) if r["kind"] == "chat"), default=None)
         for t in self.rt.memory.recent_turns(history_limit):
+            if first_chat_run is not None and t["created_at"] >= first_chat_run - 1:
+                continue
             history.append({"type": "chat", "id": f"turn-{t['id']}", "session_id": t["session_id"],
                             "name": t["title"] or "對話", "status": t["status"], "created_at": t["created_at"],
                             "finished_at": t["created_at"], "duration_s": t["duration_s"], "cost_usd": t["cost_usd"],
@@ -418,7 +453,10 @@ class WorkHub:
         history.sort(key=lambda x: x.get("finished_at") or x["created_at"], reverse=True)
         return {
             "now": now,
-            "running": [self.public_run(r, brief=True) for r in active],
+            "running": [{**self.public_run(r, brief=True),
+                         **({"step": live[r["session_id"]].get("step"), "activity": live[r["session_id"]].get("activity")
+                             or r["activity"]} if r["kind"] == "chat" and r.get("session_id") in live else {})}
+                        for r in active],
             "chat_running": chat_running or [],
             "approvals": self.store.approvals("pending"),
             "upcoming": upcoming[:30],
@@ -434,6 +472,8 @@ class WorkHub:
             nodes = st["nodes"]
             d["progress"] = {"done": sum(1 for n in nodes.values() if n["status"] in ("done", "skipped")),
                              "total": len(nodes)}
+        if d.get("kind") == "chat":
+            d["progress_steps"] = len(st.get("steps") or [])
         if brief:
             d["state"] = {"levels": st.get("levels"), "nodes": {k: {kk: v.get(kk) for kk in ("status", "title", "type")}
                                                                 for k, v in (st.get("nodes") or {}).items()}}

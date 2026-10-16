@@ -189,3 +189,147 @@ async def report_write(ctx: ActionContext, title: str, body, folder: str | None 
         ctx.hub.store.board_write(f"job:{ctx.job['id']}", "artifact", {"path": str(path), "title": title,
                                                                       "run": ctx.run["id"]}, author="report.write")
     return {"path": str(path), "title": title, "summary": f"報告已存到 {path}"}
+
+
+# ------------------------------------------------------------------ skills with an autopilot entry script
+def _skill(ctx: ActionContext, name: str):
+    s = ctx.rt.skills.skills.get(name)
+    if s is None or not s.entry:
+        from .graph import WorkflowError
+        raise WorkflowError(f"技能「{name}」不存在或沒有入口腳本")
+    return s
+
+
+async def _run_entry(ctx: ActionContext, skill, args: list[str], timeout: float = 3600) -> dict:
+    """Runs the skill's entry script in the workspace; returns its JSON answer."""
+    import sys as _sys
+    ws = Path(ctx.rt.config.workspace)
+    ws.mkdir(parents=True, exist_ok=True)
+    proc = await asyncio.create_subprocess_exec(_sys.executable, str(skill.path / skill.entry), *args, cwd=str(ws),
+                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        proc.kill()
+        raise
+    text = out.decode("utf-8", "replace")
+    try:
+        return json.loads(text[text.find("{"):]) if "{" in text else {"status": "error", "error": err.decode()[-800:]}
+    except json.JSONDecodeError:
+        return {"status": "error", "error": (text + err.decode("utf-8", "replace"))[-800:]}
+
+
+def _record_files(ctx: ActionContext, folder: str, out: dict, keys=("film", "preview", "subtitles")) -> list[str]:
+    ws = Path(ctx.rt.config.workspace)
+    paths = []
+    for k in keys:
+        v = out.get(k)
+        if isinstance(v, str) and v:
+            p = Path(v) if Path(v).is_absolute() else ws / v
+            if p.exists():
+                paths.append(str(p))
+                ctx.hub.store.board_write(ctx.board_scope, "artifact", {"path": str(p), "title": k},
+                                          key=k, author="skill.autopilot")
+    for v in (out.get("review") or [])[:12]:
+        p = Path(v) if Path(v).is_absolute() else ws / v
+        if p.exists():
+            ctx.hub.store.board_write(ctx.board_scope, "artifact", {"path": str(p), "title": p.name},
+                                      key=f"review:{p.name}", author="skill.autopilot")
+    return paths
+
+
+@action("skill.plan")
+async def skill_plan(ctx: ActionContext, skill: str, intent: str, folder: str = "", example: str = "",
+                     guide: str = "", rounds: int = 3, **extra):
+    """A planner sub-agent writes <folder>/plan.json for the skill; the skill's entry checks it and the planner fixes
+    whatever is missing (up to `rounds` times). Only this node needs a model's judgement."""
+    from .agents import extract_json, run_subagent
+    from .graph import WorkflowError
+    s = _skill(ctx, skill)
+    ws = Path(ctx.rt.config.workspace)
+    if not folder:
+        folder = f"videos/{dt.datetime.now().strftime('%Y%m%d-%H%M')}-{_slug(intent)[:24] or 'film'}"
+    root = ws / folder
+    root.mkdir(parents=True, exist_ok=True)
+    example_text = (s.path / example).read_text(encoding="utf-8") if example and (s.path / example).is_file() else ""
+    hints = "\n".join(f"- {k}: {v}" for k, v in extra.items() if v not in (None, "", False))
+    plan, missing = None, []
+    for i in range(int(rounds)):
+        ctx.activity(f"撰寫企劃（第 {i + 1} 輪）")
+        if plan is None:
+            task = (f"Write the complete plan for this request: {intent}\n"
+                    + (f"User preferences:\n{hints}\n" if hints else "")
+                    + (f"\nRules:\n{guide}\n" if guide else "")
+                    + "\nReturn ONLY one JSON object with exactly the same structure as this example (same keys, "
+                      "same kinds of values; replace every value with content for THIS request; keep the four "
+                      "profiling fields for every subject; actions in English; dialogue/narration in the user's "
+                      f"language):\n```json\n{example_text}\n```")
+        else:
+            task = ("Your plan was checked and these fields are missing or wrong:\n- " + "\n- ".join(missing)
+                    + "\nReturn the whole corrected JSON object (only the JSON):\n```json\n"
+                    + json.dumps(plan, ensure_ascii=False, indent=1) + "\n```")
+        res = await run_subagent(ctx.rt, role="planner", task=task, board_scope=ctx.board_scope,
+                                 parent_session=ctx.run.get("session_id"), hub=ctx.hub, owner=ctx.run["id"],
+                                 title=f"[{ctx.run.get('name')}] 企劃", emit=ctx.hub.run_emitter(ctx.run["id"]),
+                                 approve=ctx.hub.approver(ctx.run))
+        ctx.node_state.setdefault("sessions", []).append(res["session_id"])
+        data = extract_json(res.get("result") or "")
+        if not isinstance(data, dict):
+            missing = ["the answer was not a JSON object - return only the JSON object"]
+            continue
+        plan = data
+        plan["intent"] = intent            # the user's own words, not the example's
+        (root / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+        out = await _run_entry(ctx, s, [folder, "--budget", "3"], timeout=300)
+        if out.get("status") == "needs_content":
+            missing = [str(m) for m in out.get("missing") or []] or ["plan.json is incomplete"]
+            continue
+        if out.get("status") in ("error",):
+            missing = [str(out.get("error"))[:500]]
+            continue
+        shots = plan.get("shots") or []
+        secs = sum(float(x.get("duration") or 0) for x in shots if isinstance(x, dict))
+        summary = f"企劃完成：{plan.get('title') or intent}（{len(shots)} 個鏡頭，約 {secs:.0f} 秒）"
+        ctx.hub.store.board_write(ctx.board_scope, "decision", summary, key="plan", author="skill.plan")
+        ctx.hub.store.board_write(ctx.board_scope, "artifact", {"path": str(root / "plan.json"), "title": "企劃"},
+                                  key="plan.json", author="skill.plan")
+        return {"folder": folder, "title": plan.get("title"), "shots": len(shots), "seconds": round(secs, 1),
+                "summary": summary}
+    raise WorkflowError("企劃沒有通過檢查：" + "；".join(missing)[:600])
+
+
+@action("skill.autopilot")
+async def skill_autopilot(ctx: ActionContext, skill: str, folder: str, until: str = "", draft_only: bool = False,
+                          accept: list | None = None, **_):
+    """Calls the skill's entry script until it reports one of `accept` (default: done); records produced files."""
+    from .graph import WorkflowError
+    s = _skill(ctx, skill)
+    accept = accept or (["ready_for_final", "done"] if until == "final" else ["done"])
+    args = [folder, "--budget", "600"] + (["--until", until] if until else []) + (["--draft-only"] if draft_only else [])
+    blocked_since = None
+    while True:
+        if ctx.hub.cancelled(ctx.run["id"]):
+            raise asyncio.CancelledError()
+        out = await _run_entry(ctx, s, args, timeout=1800)
+        st = out.get("status")
+        steps = out.get("steps_done") or []
+        if steps:
+            ctx.activity(f"{steps[-1]}")
+        if st in accept:
+            _record_files(ctx, folder, out)
+            film = out.get("film") or out.get("preview")
+            return {**{k: v for k, v in out.items() if k not in ("call_again",)},
+                    "summary": f"{'草稿預覽' if st == 'ready_for_final' else '影片'}：{film}" if film else st}
+        if st == "working":
+            ctx.activity("GPU 渲染中：" + ", ".join(out.get("rendering") or []) if out.get("rendering") else
+                         (out.get("what") or "處理中")[:120])
+            await asyncio.sleep(10)
+            continue
+        if st == "blocked":       # e.g. ComfyUI not reachable: wait a while (the user may be starting it)
+            blocked_since = blocked_since or time.time()
+            ctx.activity("等待渲染伺服器：" + str(out.get("what", ""))[:120])
+            if time.time() - blocked_since > 1800:
+                raise WorkflowError(str(out.get("what") or "renderer unreachable"))
+            await asyncio.sleep(60)
+            continue
+        raise WorkflowError(f"{st}: {out.get('error') or out.get('missing') or out.get('what')}"[:800])

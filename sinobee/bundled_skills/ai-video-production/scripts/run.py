@@ -17,6 +17,8 @@ Answers (JSON, field `status`):
   needs_content - fields are missing: fix plan.json (see `missing`), call again
   working       - renders are running on the GPU server: call again (same args) in a minute or two
   blocked       - the renderer is unreachable: tell the user what to start (see `what`)
+  ready_for_final - (only with --until final) drafts are done; `preview` is a draft film; approve, then call
+                  again without --until
   done          - `film` is the finished video: deliver it, and look at `review` images if you can
   error         - a step failed: read `error`, fix the cause (usually project.json content), call again
 """
@@ -55,7 +57,7 @@ def finish(status: str, folder: str, log: list, **extra) -> None:
     if status in ("working", "needs_content", "error"):
         msg["call_again"] = again
     emit(msg)
-    sys.exit(0 if status in ("done", "working", "needs_content") else 1)
+    sys.exit(0 if status in ("done", "working", "needs_content", "ready_for_final") else 1)
 
 
 def resolve_folder(arg: str) -> Path:
@@ -71,6 +73,8 @@ def main() -> None:
     p.add_argument("folder", nargs="?")
     p.add_argument("--budget", type=float, default=240, help="seconds to work before answering (fits skill_run)")
     p.add_argument("--draft-only", action="store_true", help="deliver draft quality (faster)")
+    p.add_argument("--until", choices=["final"], help="stop before the final-quality render (status ready_for_final, "
+                                                     "with a draft preview film) so a person can approve the cost")
     a = p.parse_args()
     if not a.folder:
         print(__doc__)
@@ -130,6 +134,26 @@ def main() -> None:
                    what="Deliver the film to the user. Look at the review images (read_file) to describe it; "
                         "to change a shot, edit plan.json and call again.", warnings=n.get("warnings"))
         phase, call = n.get("phase", ""), n.get("call") or {}
+        if a.until == "final" and phase.startswith("5 final render"):
+            preview = root / "out" / "draft.mp4"
+            newest = max((p.stat().st_mtime for p in (root / "clips").glob("*.mp4")), default=0)
+            if not preview.exists() or preview.stat().st_mtime < newest:
+                code, out = script("assemble.py", F, "--out", "out/draft.mp4", "--delivery", "720p", "--subs", "burn",
+                                   timeout=1800)
+                if code:   # burned subtitles need libass; a preview without them is fine
+                    code, out = script("assemble.py", F, "--out", "out/draft.mp4", "--delivery", "720p", timeout=1800)
+                if code:
+                    finish("error", F, log, step="draft preview", error=out.get("error"))
+                log.append("draft preview out/draft.mp4")
+            proj = json.loads(proj_file.read_text(encoding="utf-8"))
+            units = [u for u, st in proj.get("renders", {}).items() if st.get("status") == "done"]
+            secs = sum(float(s.get("duration") or 0) for s in proj.get("shots", []))
+            qc = root / "qc"
+            finish("ready_for_final", F, log, preview=str(preview), units=len(units), seconds=round(secs, 1),
+                   estimate_minutes=max(5, 10 * len(units)),
+                   review=sorted(str(x) for x in qc.glob("*.jpg")) if qc.exists() else [],
+                   what="Drafts are done and QC'd. Rendering the final quality takes about "
+                        f"{max(5, 10 * len(units))} GPU minutes; call again without --until to continue.")
         if phase.startswith("1-4"):
             finish("needs_content", F, log, missing=n.get("missing"),
                    what=f"Fill these fields in {F}/plan.json (same shape as project.json; ids like S1/E1/SH01 "

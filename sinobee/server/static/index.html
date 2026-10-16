@@ -321,6 +321,8 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .wkapv{border:1px solid var(--warn);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:color-mix(in srgb,var(--warn) 8%,var(--panel2))}
 .wkapv .row{margin-top:8px;justify-content:flex-end}
 .wkempty{color:var(--muted);font-size:12px;padding:8px 2px}
+.wkstep{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px}
+.wkstep .n{color:var(--muted);min-width:22px}.wkstep.bad b{color:var(--err)}.wkstep .err-t{flex-basis:100%;font-size:12px}
 .arts{margin:4px 0 8px 18px;padding:8px 10px;border:1px dashed var(--line);border-radius:10px;background:var(--panel2)}
 .arts-h{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:6px}.arts-h svg.i{width:14px;height:14px}
 .arts-b{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
@@ -462,6 +464,10 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
             <div class="sc"><input class="inp" id="mFallbacks" placeholder="openai/gpt-5.4, gemini/gemini-2.5-flash"><span class="lock" data-lock="model.fallbacks"></span></div></div>
           <div class="srow"><div class="sl"><b>輔助模型</b><span class="sd">反思、壓縮長對話等背景工作；留空則用主要模型（建議選便宜的）</span></div>
             <div class="sc"><input class="inp" id="mAux" list="modelList" placeholder="留空＝主要模型"><span class="lock" data-lock="model.auxiliary"></span></div></div>
+          <div class="srow"><div class="sl"><b>升級模型</b><span class="sd">任務連續失敗、步驟太多、未通過完成檢查或屬於複雜技能（如影片製作）時，自動改用這個較強的模型；留空則不升級</span></div>
+            <div class="sc"><input class="inp" id="mEsc" list="modelList" placeholder="例如 anthropic/claude-opus-4-1"><span class="lock" data-lock="model.escalate"></span></div></div>
+          <div class="srow"><div class="sl"><b>完成檢查</b><span class="sd">多步驟任務結束前，用輔助模型確認真的完成；沒完成會再試一次，仍未完成就標示「未完成」</span></div>
+            <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="aVerify" aria-label="完成檢查"></div></div>
           <div class="srow"><div class="sl"><b>Embedding 模型</b><span class="sd">讓記憶搜尋更準確；留空用關鍵字搜尋</span></div>
             <div class="sc"><input class="inp" id="mEmb" placeholder="openai/text-embedding-3-small"><span class="lock" data-lock="model.embedding"></span></div></div>
           <div class="srow"><div class="sl"><b>模型看得懂圖片</b><span class="sd">開啟後操作桌面或瀏覽器時會把截圖給模型看</span></div>
@@ -933,7 +939,7 @@ function handle(ev, replay = false){
       if (ev.feedback?.length) parts.push(`技能評分 ${ev.feedback.length}`);
       if (parts.length) add('✨ 背景學習：' + parts.join('、'), 'note learn');
       loadSide(); refreshStatus(false); break; }
-    case 'status': if (/空白回覆|停止|activated|pre-approved/.test(ev.message || '')) add('ⓘ ' + esc(ev.message), 'note'); break;
+    case 'status': if (/空白回覆|停止|activated|pre-approved|較強的模型|完成檢查|流程「/.test(ev.message || '')) add('ⓘ ' + esc(ev.message), 'note'); break;
     case 'turn_end': {
       // mark any tool card still spinning (e.g. force-stopped) as interrupted
       document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
@@ -1229,7 +1235,7 @@ function keySource(p){
 function renderSettings(){
   const m = SET.model;
   $('#mDefault').value = m.default || ''; $('#mFallbacks').value = (m.fallbacks || []).join(', ');
-  $('#mAux').value = m.auxiliary || ''; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : '';
+  $('#mAux').value = m.auxiliary || ''; $('#mEsc').value = m.escalate || ''; $("#aVerify").checked = (SET.agent || {}).verify !== false; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : '';
   { const c = SET.context || {}, k = n => n >= 1e6 ? `${+(n / 1e6).toFixed(2)}M` : `${Math.round(n / 1000)}K`;
     $('#mCtxNote').textContent = c.window ? `目前以 ${k(c.window)} tokens 計算（${{setting: '手動設定', local: '本機 num_ctx', model: '依模型', default: '未知模型的預設值'}[c.source] || c.source}），對話超過約 ${k(Math.round(c.budget * 0.8))} 時，較早的內容會自動整理成摘要` : '對話超過約八成時，較早的內容會自動整理成摘要；auto 依模型自動判斷'; }
   $('#keyRows').innerHTML = SET.providers.filter(p => p.name !== 'ollama').map(p => `<div class="krow" data-p="${esc(p.name)}">
@@ -1338,7 +1344,7 @@ async function openSettings(firstRun = false, pane = null){
   $('#settings').classList.add('open');
 }
 function collectSettings(){
-  const body = {model: {default: $('#mDefault').value, fallbacks: $('#mFallbacks').value, auxiliary: $('#mAux').value,
+  const body = {agent: {verify: $('#aVerify').checked}, model: {default: $('#mDefault').value, fallbacks: $('#mFallbacks').value, auxiliary: $('#mAux').value, escalate: $('#mEsc').value,
                         embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto'},
                 permissions: {approval: $('#pApproval').value, toolsets: [...document.querySelectorAll('#pToolsets input:checked')].map(i => i.value)},
                 usage: {daily_budget_usd: $('#uDaily').value, monthly_budget_usd: $('#uMonthly').value, currency: $('#uCurrency').value,
@@ -2375,16 +2381,27 @@ async function wkRun(rid){
       ${n.error ? `<div class="err-t" style="margin:6px 0">${esc(n.error)}</div>` : ''}
       ${(n.sessions || []).length ? `<div style="margin:6px 0">${n.sessions.map((s, i) => `<button class="btn sm" type="button" data-sess="${esc(s)}">子代理對話 ${i + 1}</button>`).join(' ')}</div>` : ''}
       ${n.output != null ? `<div class="wkout">${esc(typeof n.output === 'string' ? n.output : JSON.stringify(n.output, null, 2)).slice(0, 6000)}</div>` : ''}</details>`).join('');
-  const artifacts = (r.board || []).filter(b => b.kind === 'artifact').map(b => { let p = b.content; try { p = JSON.parse(b.content).path || p; } catch {} return p; });
+  const seenArt = new Set();
+  const artifacts = (r.board || []).filter(b => b.kind === 'artifact').map(b => { let p = b.content; try { p = JSON.parse(b.content).path || p; } catch {} return p; })
+    .filter(p => p && !seenArt.has(p) && seenArt.add(p))
+    .map(p => ({path: p, name: baseName(p), kind: IMG_RE.test(p) ? 'image' : VIDEO_RE.test(p) ? 'video' : AUDIO_RE.test(p) ? 'audio' : 'doc'}));
+  const cs = r.kind === 'chat' ? (r.state || {}) : null;
+  const chatPart = cs ? `
+    ${cs.input ? `<div class="migsec"><h4>要求</h4><div class="md">${md(cs.input)}</div></div>` : ''}
+    ${(cs.steers || []).length ? `<div class="migsec"><h4>執行中補充 <small class="sd">${cs.steers.length}</small></h4>${cs.steers.map(x => `<div class="wkstep"><span class="sd">${wkWhen(x.t)}</span> ${esc(x.text)}</div>`).join('')}</div>` : ''}
+    ${(cs.events || []).length ? `<div class="migsec"><h4>檢查與模型</h4>${cs.events.map(x => `<div class="wkstep"><span class="sd">${wkWhen(x.t)}</span> ${esc(x.text)}</div>`).join('')}</div>` : ''}
+    <div class="migsec"><h4>步驟 <small class="sd">${(cs.steps || []).length} 步${cs.model ? ' · ' + esc(cs.model) : ''}</small></h4>${(cs.steps || []).map(x =>
+      `<div class="wkstep${x.ok ? '' : ' bad'}"><span class="n">${x.n}</span><b>${esc(x.tool)}</b> <span class="sd">${esc(x.brief || '')}</span><span class="sd" style="margin-left:auto">${x.s != null ? x.s + ' 秒' : ''}</span>${x.error ? `<div class="err-t">${esc(x.error)}</div>` : ''}</div>`).join('') || '<div class="wkempty">還沒有步驟</div>'}</div>` : '';
   return `<div class="migsrc"><b>${esc(r.name)}</b>${wkSt(r.status)}<span class="sd">${WK_TRIGGER[r.trigger] || ''} · ${wkWhen(r.started_at || r.created_at)}${r.finished_at ? ' · ' + wkDur(r.started_at, r.finished_at) : ''}${r.cost_usd ? ' · ' + fmtCost(r.cost_usd) : ''}</span><span style="flex:1"></span>
       ${r.job_id ? `<button class="btn sm" type="button" data-job="${esc(r.job_id)}">工作設定</button>` : ''}
       ${r.session_id ? `<button class="btn sm" type="button" data-sess="${esc(r.session_id)}" data-title="${esc(r.name)}">查看對話</button>` : ''}
-      ${active ? `<button class="btn sm danger" type="button" data-act="stop-run" data-id="${esc(r.id)}">停止</button>` : ['failed', 'interrupted', 'cancelled'].includes(r.status) ? `<button class="btn sm primary" type="button" data-act="resume-run" data-id="${esc(r.id)}">${r.kind === 'workflow' ? '從中斷處繼續' : '重新執行'}</button>` : ''}</div>
+      ${active ? `<button class="btn sm danger" type="button" data-act="stop-run" data-id="${esc(r.id)}">停止</button>` : (['failed', 'interrupted', 'cancelled'].includes(r.status) || (r.kind === 'chat' && r.status === 'incomplete')) ? `<button class="btn sm primary" type="button" data-act="resume-run" data-id="${esc(r.id)}">${r.kind === 'workflow' ? '從中斷處繼續' : '重新執行'}</button>` : ''}</div>
     ${active && r.activity ? `<div class="note" style="margin-top:8px">${ic('play')} ${esc(r.activity)}</div>` : ''}
     ${r.approvals?.length ? `<div class="migsec">${wkApprovals(r.approvals)}</div>` : ''}
     ${r.error ? `<div class="migsec err-t">${esc(r.error)}</div>` : ''}
     ${r.summary ? `<div class="migsec"><h4>結果</h4><div class="msg assistant md" style="max-width:none">${md(r.summary)}</div></div>` : ''}
-    ${artifacts.length ? `<div class="migsec"><h4>產出檔案</h4>${artifacts.map(p => `<div class="md">${md(`[${p.split('/').pop()}](${p})`)}</div>`).join('')}</div>` : ''}
+    ${artifacts.length ? `<div class="migsec">${artStrip(artifacts, '產出檔案')}</div>` : ''}
+    ${chatPart}
     ${r.state?.levels ? `<div class="migsec"><h4>流程</h4>${wkGraph(r.state.levels, nodes)}${nodeDetail}</div>` : ''}
     <div class="migsec"><h4>黑板 <small class="sd">這次工作中各代理共用的筆記</small></h4>${wkBoard((r.board || []).filter(b => b.kind !== 'node_output')) || '<div class="wkempty">空的</div>'}</div>
     ${r.job_board?.length ? `<div class="migsec"><h4>工作的長期黑板</h4>${wkBoard(r.job_board.filter(b => b.kind !== 'snapshot'))}</div>` : ''}`;

@@ -53,6 +53,7 @@ def config(home):
     cfg = Config.load()
     cfg.data["permissions"]["approval"] = "auto"
     cfg.data["permissions"]["toolsets"] = ["shell", "files", "web", "memory", "skills"]
+    cfg.data["agent"]["verify"] = False      # scripted fake models: the completion check is tested on its own
     return cfg
 
 

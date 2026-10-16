@@ -281,6 +281,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             if not run["task"].done():
                 run["task"].cancel()           # stuck in a long model/tool call -> force stop
 
+    from ..work.hub import get_hub as _get_hub
+    _hub = _get_hub(rt())
+    _hub.chat_resumer = lambda sid, text: asyncio.create_task(start_turn(sid, text))
+    _hub.chat_canceller = lambda sid: asyncio.create_task(cancel_turn(sid))
+
     skills_api.register_feedback(app, rt, lambda k, d: broadcast(k, d))
     work_api.register(app, rt, lambda: run_snapshot())
     state["local"] = local_api.register(app, rt, lambda k, d: broadcast(k, d))

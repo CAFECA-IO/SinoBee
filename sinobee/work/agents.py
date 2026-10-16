@@ -54,6 +54,14 @@ ROLES: dict[str, dict] = {
                   "with a verdict line: 'VERDICT: pass' or 'VERDICT: revise - <reason>'.",
         "iterations": 15,
     },
+    "planner": {
+        "label": "企劃",
+        "tools": {"read_file", "list_dir", "search_files", "skill_view", "web_search", "web_fetch"} | BOARD_TOOLS,
+        "prompt": "You are a PLANNER sub-agent. Produce the requested plan in exactly the requested format (usually "
+                  "ONE JSON object) as your final answer, with every required field filled with concrete, specific "
+                  "content. Do not write files and do not ask questions: make reasonable creative decisions yourself.",
+        "iterations": 8,
+    },
     "writer": {
         "label": "撰稿員",
         "tools": {"read_file", "write_file", "edit_file", "list_dir", "search_files", "skill_view", "working_memory"}
