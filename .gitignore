@@ -17,3 +17,4 @@ node_modules/
 # local sync artifacts
 Claude outputs/
 logs/
+_to_delete/

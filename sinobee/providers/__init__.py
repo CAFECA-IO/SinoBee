@@ -8,9 +8,11 @@ from .anthropic import AnthropicProvider
 from .base import FallbackChain, Provider, ProviderError
 from .ollama import OllamaProvider
 from .openai_compat import OpenAICompatProvider
+from .sinobee import SinoBeeProvider
 
 # name: (transport, base_url, api_key_env)
 PRESETS: dict[str, tuple[str, str, str | None]] = {
+    "sinobee": ("sinobee", "", None),  # SinoBee.ai subscription (relay; signed in, no vendor key)
     "openai": ("openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
     "anthropic": ("anthropic", "https://api.anthropic.com", "ANTHROPIC_API_KEY"),
     "openrouter": ("openai", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
@@ -29,7 +31,8 @@ PRESETS: dict[str, tuple[str, str, str | None]] = {
     "vllm": ("openai", "http://localhost:8000/v1", "VLLM_API_KEY"),
 }
 ALIASES = {"google": "gemini", "claude": "anthropic", "dashscope": "qwen", "grok": "xai"}
-TRANSPORTS = {"openai": OpenAICompatProvider, "anthropic": AnthropicProvider, "ollama": OllamaProvider}
+TRANSPORTS = {"openai": OpenAICompatProvider, "anthropic": AnthropicProvider, "ollama": OllamaProvider,
+              "sinobee": SinoBeeProvider}
 
 
 def key_env_for(prov: str, config: Config) -> str | None:
@@ -44,6 +47,14 @@ def key_env_for(prov: str, config: Config) -> str | None:
 def needs_key(prov: str, config: Config) -> bool:
     """Local servers (ollama, lmstudio) need no key; custom endpoints may work without one."""
     return prov in PRESETS and PRESETS[prov][2] is not None and prov != "vllm"
+
+
+def usable_now(prov: str, config: Config) -> bool:
+    """Can calls to this provider be made: a key when one is needed; for sinobee, signed in with the llm scope."""
+    if prov == "sinobee":
+        from .. import account
+        return account.can_relay(config)
+    return not needs_key(prov, config) or bool(resolve_key(prov, config)[0])
 
 
 def resolve_key(prov: str, config: Config) -> tuple[str | None, str | None]:
@@ -82,6 +93,11 @@ def build_provider(spec: str, config: Config) -> Provider:
     transport, base_url, key_env = PRESETS.get(prov, (None, None, None))
     transport = override.get("transport", transport or "openai")
     base_url = override.get("base_url") or os.environ.get(f"{prov.upper()}_BASE_URL") or base_url
+    if transport == "sinobee":
+        from .. import account
+        return SinoBeeProvider(model, override.get("base_url") or account.relay_base(config), config=config,
+                               extra_headers=override.get("headers"),
+                               vision=bool(override.get("vision", config.get("model.vision", True))))
     if prov == "ollama" and transport == "ollama" and not base_url:
         from ..local.ollama import resolve_url
         base_url = resolve_url(config)[0]
@@ -119,4 +135,4 @@ def build_embedder(config: Config) -> Provider | None:
 
 __all__ = ["Provider", "ProviderError", "FallbackChain", "PRESETS", "build_provider", "build_chain",
            "build_auxiliary", "build_embedder", "split_model", "resolve_key", "key_env_for", "needs_key",
-           "provider_names"]
+           "provider_names", "usable_now", "SinoBeeProvider"]

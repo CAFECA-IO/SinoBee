@@ -8,12 +8,13 @@ from fastapi import FastAPI, HTTPException
 from ..accounting import scope
 from ..pricing import PRICES_CHECKED, table
 from ..providers import (PRESETS, build_provider, key_env_for, needs_key, provider_names, resolve_key,
-                         split_model)
+                         split_model, usable_now)
 from ..secrets import mask
 from ..types import Message
 
 ALL_TOOLSETS = ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database", "work"]
 PROVIDER_LABELS = {
+    "sinobee": "SinoBee.ai 訂閱",
     "openai": "OpenAI", "anthropic": "Anthropic", "gemini": "Google Gemini", "openrouter": "OpenRouter",
     "deepseek": "DeepSeek", "groq": "Groq", "mistral": "Mistral", "xai": "xAI", "together": "Together",
     "fireworks": "Fireworks", "moonshot": "Moonshot (Kimi)", "qwen": "Qwen (DashScope)", "zhipu": "Zhipu (GLM)",
@@ -46,7 +47,7 @@ def settings_payload(rt) -> dict:
     needs_setup = not default
     if default and _valid_spec(default):
         prov = split_model(default)[0]
-        needs_setup = needs_key(prov, cfg) and not resolve_key(prov, cfg)[0]
+        needs_setup = not usable_now(prov, cfg)
     return {
         "model": {k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "escalate", "embedding",
                                                       "vision", "context_window")},
@@ -70,8 +71,7 @@ def settings_payload(rt) -> dict:
 
 
 def _role_usable(spec: str, cfg) -> bool:
-    prov = split_model(spec)[0]
-    return not needs_key(prov, cfg) or bool(resolve_key(prov, cfg)[0])
+    return usable_now(split_model(spec)[0], cfg)
 
 
 def _selected(cfg) -> dict:
@@ -209,9 +209,10 @@ def register(app: FastAPI, rt_getter) -> None:
         rt.reload()
         payload = settings_payload(rt)
         names = {"default": "主要模型", "auxiliary": "輔助模型", "escalate": "升級模型", "embedding": "Embedding 模型"}
-        warnings = [f"{names[r]} {v['spec']} 的供應商還沒有設定金鑰" for r, v in payload["selected"].items()
+        why = lambda spec: "需要登入 SinoBee.ai" if str(spec).startswith("sinobee/") else "的供應商還沒有設定金鑰"  # noqa: E731
+        warnings = [f"{names[r]} {v['spec']} {why(v['spec'])}" for r, v in payload["selected"].items()
                     if r in names and v["spec"] and not v["ok"]]
-        warnings += [f"備援模型 {f['spec']} 的供應商還沒有設定金鑰" for f in payload["selected"]["fallbacks"] if not f["ok"]]
+        warnings += [f"備援模型 {f['spec']} {why(f['spec'])}" for f in payload["selected"]["fallbacks"] if not f["ok"]]
         return {**payload, "ignored_locked": ignored + [f"api_key:{n}" for n in key_ignored], "warnings": warnings}
 
     @app.post("/api/settings/test")

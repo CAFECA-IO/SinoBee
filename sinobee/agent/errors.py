@@ -4,6 +4,14 @@ from __future__ import annotations
 import re
 
 RULES = [
+    (r"SinoBee\.ai quota 6h", "SinoBee.ai 訂閱的 6 小時額度用完了",
+     "額度會隨時間逐步釋放；可以等候、改用備援模型，或到 sinobee.ai 升級方案。"),
+    (r"SinoBee\.ai quota 168h", "SinoBee.ai 訂閱的 7 天額度用完了",
+     "額度會隨時間逐步釋放；可以改用備援模型（例如自己的 API 金鑰或本機模型），或到 sinobee.ai 升級方案。"),
+    (r"SinoBee\.ai quota subscription", "沒有有效的 SinoBee.ai 訂閱",
+     "到 sinobee.ai 訂閱或續訂方案，或在「設定 → 模型」改用自己的 API 金鑰。"),
+    (r"SinoBee\.ai sign-in expired|需要先登入 sinobee\.ai|登入權杖沒有 llm", "SinoBee.ai 登入已失效",
+     "到「設定 → SinoBee.ai 帳號」重新登入，或執行 sinobee login。"),
     (r"本地模型尚未下載|ollama/\S+ .*model .*not found", "這個本地模型還沒下載",
      "到「設定 → 本地模型」按「下載」，完成後再試。"),
     (r"does not support tools", "這個本地模型不支援工具呼叫，無法操作電腦",
@@ -35,5 +43,9 @@ def explain_error(err: Exception | str) -> dict:
             break
     else:
         summary, hint = "執行時發生未預期的錯誤", "可以重試一次；若持續發生，請把詳細內容回報給開發者。"
-    m = re.match(r"^([\w.-]+/[\w.:-]+)\s", detail)
-    return {"summary": summary, "hint": hint, "detail": detail[:3000], "model": m.group(1) if m else None}
+    m = re.match(r"^([\w.-]+/[\w.:/-]+)\s", detail)
+    out = {"summary": summary, "hint": hint, "detail": detail[:3000], "model": m.group(1) if m else None}
+    window = getattr(err, "window", None)
+    if window:   # SinoBee.ai quota stop: the GUI offers waiting, a fallback model or an upgrade
+        out["quota"] = {"window": window, "retry_at": getattr(err, "retry_at", None)}
+    return out

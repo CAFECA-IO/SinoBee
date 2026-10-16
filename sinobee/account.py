@@ -293,3 +293,50 @@ def send(config, method: str, url: str, scope: str | None = None, timeout: float
     out = {k: v for k, v in req.headers.items() if k.lower() not in ("content-length", "host")}
     out.update(sign_headers(config, method, str(req.url), body))
     return httpx.request(method, str(req.url), headers=out, content=body, timeout=timeout)
+
+
+# ───────────── SinoBee.ai subscription models (relay) ─────────────
+
+def relay_base(config) -> str:
+    """OpenAI-format relay root; the Anthropic format lives under /anthropic (…/anthropic/v1/messages)."""
+    return f"{base_url(config)}/api/v1/llm"
+
+
+def can_relay(config) -> bool:
+    """Signed in with the llm scope (older sign-ins lack it: sign in again)."""
+    acc = account(config)
+    return bool(acc) and "llm" in (acc.get("scopes") or [])
+
+
+def relay_headers(config, method: str, url: str, body: bytes = b"") -> dict:
+    """Authorization plus the request signature for one relay call (used by the `sinobee` provider)."""
+    if not token(config):
+        raise AccountError("需要先登入 sinobee.ai 才能使用訂閱模型（設定 → SinoBee.ai 帳號，或執行 sinobee login）")
+    headers = auth_headers(config, "llm")
+    headers.update(sign_headers(config, method, url, body))
+    return headers
+
+
+def quota(config) -> dict:
+    """Subscription status and the 6 h / 7 day rings from sinobee.ai (GET /api/v1/llm/quota).
+    Returns {"status": ok|signed_out|no_scope|no_subscription|offline|error, ...}."""
+    if not token(config):
+        return {"status": "signed_out"}
+    if not can_relay(config):
+        return {"status": "no_scope"}
+    try:
+        r = send(config, "GET", f"{relay_base(config)}/quota", scope="llm", timeout=15)
+    except (httpx.HTTPError, AccountError) as e:
+        return {"status": "offline", "error": str(e)[:300]}
+    try:
+        body = r.json()
+    except ValueError:
+        body = {}
+    if r.status_code == 200:
+        return {"status": "ok", **body}
+    err = (body.get("error") or {}) if isinstance(body, dict) else {}
+    if r.status_code == 402 or err.get("code") == "subscription" or err.get("quota") == "subscription":
+        return {"status": "no_subscription", "error": err.get("message"), "subscribe_url": f"{base_url(config)}/subscribe"}
+    if r.status_code == 401:
+        return {"status": "signed_out", "error": err.get("message")}
+    return {"status": "error", "error": err.get("message") or f"HTTP {r.status_code}"}

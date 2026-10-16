@@ -373,14 +373,16 @@ def _doctor(args) -> None:
     cfg = Config.load()
     ok = lambda b: f"{GRN}✓{RST}" if b else f"{RED}✗{RST}"  # noqa: E731
     print(f"home: {cfg.home}\nworkspace: {cfg.workspace}")
-    from .providers import needs_key, resolve_key
+    from .providers import resolve_key, usable_now
     if not cfg.get("model.default"):
         print(f"{ok(False)} no model selected (Web UI → Settings, or -e SINOBEE_MODEL=provider/model)")
     for spec in [s for s in [cfg.get("model.default")] + list(cfg.get("model.fallbacks") or []) if s]:
         prov, _ = split_model(spec)
         key, src = resolve_key(prov, cfg)
-        has = bool(key) or not needs_key(prov, cfg)
-        print(f"{ok(has)} model {spec} (key: {src or ('not needed' if has else 'missing')})")
+        has = usable_now(prov, cfg)
+        how = ("SinoBee.ai subscription" + ("" if has else ": run sinobee login")) if prov == "sinobee" else \
+            f"key: {src or ('not needed' if has else 'missing')}"
+        print(f"{ok(has)} model {spec} ({how})")
     try:
         import playwright  # noqa: F401
         pw = True

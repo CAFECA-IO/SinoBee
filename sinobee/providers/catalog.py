@@ -15,13 +15,14 @@ import time
 from . import PRESETS, build_provider, needs_key, provider_names, resolve_key
 
 LABELS = {
+    "sinobee": "SinoBee.ai 訂閱",
     "openai": "OpenAI", "anthropic": "Anthropic", "gemini": "Google Gemini", "openrouter": "OpenRouter",
     "deepseek": "DeepSeek", "groq": "Groq", "mistral": "Mistral", "xai": "xAI", "together": "Together",
     "fireworks": "Fireworks", "moonshot": "Moonshot (Kimi)", "qwen": "Qwen (DashScope)", "zhipu": "Zhipu (GLM)",
     "ollama": "Ollama（本機）", "lmstudio": "LM Studio（本機）", "vllm": "vLLM（自架）",
 }
 # the providers most people use, shown first; the rest sit under "more providers"
-POPULAR = ["anthropic", "openai", "gemini", "ollama", "openrouter", "deepseek"]
+POPULAR = ["sinobee", "anthropic", "openai", "gemini", "ollama", "openrouter", "deepseek"]
 LOCAL = {"ollama", "lmstudio", "vllm"}
 KEY_URLS = {
     "openai": "https://platform.openai.com/api-keys", "anthropic": "https://console.anthropic.com/settings/keys",
@@ -33,6 +34,8 @@ KEY_URLS = {
 # curated picks: (model id, short note). Shown first and used when live listing fails.
 RECOMMENDED: dict[str, list[tuple[str, str]]] = {
     "anthropic": [("claude-sonnet-5-5", "平衡，推薦"), ("claude-opus-5-5", "最強"), ("claude-haiku-5-5", "便宜快速")],
+    "sinobee": [("anthropic/claude-sonnet-5-5", "平衡，推薦"), ("openai/gpt-5.6-terra", "OpenAI"),
+                ("anthropic/claude-haiku-5-5", "便宜快速")],
     "openai": [("gpt-5.5", "平衡，推薦"), ("gpt-5.4-mini", "便宜快速"), ("gpt-5.5-pro", "最強，昂貴"),
                ("text-embedding-3-small", "記憶搜尋")],
     "gemini": [("gemini-flash-latest", "平衡，推薦"), ("gemini-pro-latest", "最強"),
@@ -61,6 +64,10 @@ def kind_of(model_id: str) -> str:
 def _fingerprint(name: str, cfg) -> str:
     key, _ = resolve_key(name, cfg)
     base = ((cfg.get("providers") or {}).get(name) or {}).get("base_url") or ""
+    if name == "sinobee":
+        from .. import account
+        key = (account.account(cfg) or {}).get("account") or ""
+        base = account.relay_base(cfg)
     if name == "ollama":
         base = str(cfg.get("local.base_url") or "")
     return hashlib.sha256(f"{name}|{key or ''}|{base}".encode()).hexdigest()[:16]
@@ -80,6 +87,9 @@ def _order(name: str, ids: list[str]) -> list[dict]:
 
 def usable(name: str, cfg) -> bool:
     """Worth asking for models: a key is set, or the provider needs none (local / custom endpoints)."""
+    if name == "sinobee":
+        from .. import account
+        return account.can_relay(cfg)
     if needs_key(name, cfg):
         return bool(resolve_key(name, cfg)[0])
     if name in ("lmstudio", "vllm"):
@@ -94,6 +104,10 @@ async def provider_models(name: str, cfg, *, refresh: bool = False) -> dict:
     info = {"name": name, "label": LABELS.get(name, name), "has_key": bool(key), "key_source": source,
             "needs_key": needs_key(name, cfg), "local": name in LOCAL, "popular": name in POPULAR,
             "custom": name not in PRESETS, "key_url": KEY_URLS.get(name, ""), "models": [], "error": ""}
+    if name == "sinobee":
+        from .. import account
+        info.update(needs_key=False, subscription=True, signed_in=bool(account.account(cfg)),
+                    has_scope=account.can_relay(cfg), hub_url=account.base_url(cfg))
     if not usable(name, cfg):
         return {**info, "status": "no_key",
                 "models": [_entry(name, m, n, True) for m, n in RECOMMENDED.get(name, [])]}

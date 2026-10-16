@@ -111,6 +111,8 @@ def price_for(provider: str, model: str, overrides: dict | None = None) -> tuple
         return best[1], "override"
     if provider in FREE_PROVIDERS:
         return {"input": 0, "output": 0}, "free"
+    if provider == "sinobee":   # prepaid subscription: charged against the plan's windows, not per call
+        return {"input": 0, "output": 0}, "subscription"
     for k in sorted(PRICES, key=len, reverse=True):
         if nm.startswith(_norm_key(k)):
             return PRICES[k], "builtin"

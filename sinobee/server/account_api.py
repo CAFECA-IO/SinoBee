@@ -74,4 +74,20 @@ def register(app: FastAPI, rt) -> None:
     async def logout():
         account.logout(rt().config)
         state["login"] = None
+        state.pop("quota", None)
         return {"ok": True}
+
+    @app.get("/api/llm/quota")
+    async def llm_quota(refresh: bool = False):
+        """SinoBee.ai subscription rings (6 h / 7 days), plan and expiry; cached 20 s (the GUI polls it)."""
+        cfg = rt().config
+        hit = state.get("quota")
+        if hit and not refresh and time.time() - hit[0] < 20 and hit[2] == account.token(cfg):
+            return hit[1]
+        q = await asyncio.to_thread(account.quota, cfg)
+        q = {**q, "hub_url": account.base_url(cfg), "subscribe_url": f"{account.base_url(cfg)}/subscribe",
+             "in_use": any(str(s or "").startswith("sinobee/") for s in
+                           [cfg.get("model.default"), *(cfg.get("model.fallbacks") or [])]),
+             "fetched_at": time.time()}
+        state["quota"] = (time.time(), q, account.token(cfg))
+        return q

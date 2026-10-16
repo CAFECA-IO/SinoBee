@@ -424,6 +424,25 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   header{padding:8px 10px;gap:6px}
   #form{padding-left:10px;padding-right:10px}
 }
+/* SinoBee.ai subscription: quota rings */
+.qring{display:inline-flex;align-items:center;gap:8px;min-width:0}.qring svg{flex:none;display:block}
+.qring .qr-bg{stroke:var(--grid)}.qring .qr-fg{stroke:var(--accent);transition:stroke-dashoffset .5s ease}
+.qring.warn .qr-fg{stroke:var(--warn)}.qring.full .qr-fg{stroke:var(--err)}
+.qring .qr-pct{font:600 11px/1 ui-sans-serif,system-ui;fill:var(--ink)}
+.qring .qr-t{display:flex;flex-direction:column;gap:2px;font-size:12px;min-width:0}.qring .qr-t b{font-size:12px}.qring .qr-t span{color:var(--muted);font-size:11px}
+.qrings{display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+#quotaBar{margin:0 10px 6px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);font-size:12px;display:flex;flex-direction:column;gap:6px;cursor:pointer;position:relative;z-index:1}
+#quotaBar[hidden]{display:none}#quotaBar .qb-h{display:flex;align-items:center;gap:6px}#quotaBar .qb-h b{font-size:12px}
+#quotaBar .qb-h .badge{margin-left:auto}#quotaBar .qwarn{color:var(--warn)}#quotaBar .qerr{color:var(--err)}
+.qrel{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--muted);margin-top:6px}.qrel span b{color:var(--ink);font-weight:600}
+.choose3{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:8px}
+.choose3 button{all:unset;cursor:pointer;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.choose3 button b{color:var(--ink);font-size:14px}.choose3 button:hover,.choose3 button:focus-visible{border-color:var(--accent);outline:none}
+.choose3 button.rec{border-color:color-mix(in srgb,var(--accent) 55%,var(--line))}.choose3 .tag{align-self:flex-start;font-size:10px;padding:1px 7px;border-radius:999px;background:var(--accent);color:var(--accent-ink)}
+.qshare{color:var(--muted)}
+#quotaModal .qm-opts{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+#quotaModal .qm-opts .btn{display:flex;align-items:center;gap:8px;justify-content:flex-start;text-align:left;text-decoration:none}
+#quotaModal .qm-opts svg{width:16px;height:16px;flex:none}
 </style>
 </head>
 <body>
@@ -431,6 +450,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2fb3a0"/><stop offset="1" stop-color="#7fe8b6"/></linearGradient></defs><ellipse cx="12" cy="14" rx="5" ry="6" fill="url(#bg1)" stroke="none"/><path d="M7.5 12h9M7.5 15.5h9" stroke="var(--bg)"/><path d="M9 8c-3-4-7-2-6 1s5 2 6 1M15 8c3-4 7-2 6 1s-5 2-6 1" stroke="var(--accent)"/></svg><b>SinoBee</b></div>
   <div class="tabs" role="tablist"><button data-tab="sessions" class="on" role="tab" data-icon="chat" aria-label="對話"></button><button data-tab="memory" role="tab" data-icon="brain" aria-label="記憶"></button><button data-tab="skills" role="tab" data-icon="puzzle" aria-label="技能"></button><button data-tab="data" role="tab" data-icon="database" aria-label="資料庫"></button><button data-tab="work" role="tab" data-icon="clock" aria-label="工作：過去、現在、接下來"></button></div>
   <div class="list" id="side"></div>
+  <div id="quotaBar" hidden role="button" tabindex="0" aria-label="SinoBee.ai 訂閱額度"></div>
   <div class="status" id="status">連線中…</div>
   <canvas class="ht" data-ht="side"></canvas>
 </aside>
@@ -561,6 +581,8 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 
       <!-- ───── 帳號 ───── -->
       <section class="pane" data-pane="account">
+        <div class="grp" id="subSec" hidden><div class="grp-h">SinoBee.ai 訂閱<span class="grp-d">訂閱後可直接使用 SinoBee.ai 提供的模型，不必自己申請金鑰；額度以 6 小時與 7 天兩個滾動區間計算，用掉的部分到期後自動釋放</span></div>
+          <div id="subBody"></div></div>
         <div class="grp" id="acctSec"><div class="grp-h">SinoBee.ai 帳號<span class="grp-d">發佈技能、登錄工具、加密同步、分享對話時使用；權杖只存在 secrets.json，不會傳給模型</span></div>
           <div id="acctBody"></div></div>
       </section>
@@ -650,10 +672,15 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 </div></div>
 <div class="modal" id="skillModal"><div class="card wide"><h3 id="skTitle" style="margin-top:0"></h3><div id="skInfo"></div>
   <pre id="skBody" style="max-height:45vh;margin-top:12px"></pre><div class="row" id="skActs"></div></div></div>
+<div class="modal" id="quotaModal"><div class="card" style="max-width:520px" role="alertdialog" aria-labelledby="qmTitle">
+  <h3 id="qmTitle" style="margin-top:0">SinoBee.ai 額度用完了</h3><div id="qmBody"></div>
+  <div class="qm-opts" id="qmOpts"></div>
+  <div class="row"><button class="btn" type="button" id="qmClose">關閉</button></div></div></div>
 <div class="modal" id="usage"><div class="card wide">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Token 用量與成本</h3>
     <div class="seg" id="uRange"><button data-d="7">7 天</button><button data-d="30" class="on">30 天</button><button data-d="90">90 天</button></div></div>
   <div id="uWarn"></div>
+  <div class="sec" id="uQuota" hidden></div>
   <div class="tiles" id="uTiles" style="margin-top:12px"></div>
   <div class="sec"><h4>每日花費</h4><div class="chartbox"><svg id="uChart" role="img" aria-label="每日花費長條圖"></svg><div class="tip" id="uTip"></div></div></div>
   <div class="sec"><h4>依模型</h4><table class="t" id="uByModel"></table></div>
@@ -935,7 +962,9 @@ function setRunning(list){ RUNNING = {}; for (const r of list || []) RUNNING[r.s
 function resultCard(ev){
   const u = ev.usage || {};
   const meta = [ev.steps ? `${ev.steps} 步` : '', ev.duration_s != null ? `${ev.duration_s} 秒` : '',
-    u.calls ? `${fmtTok((u.input_tokens || 0) + (u.output_tokens || 0))} tokens` : '', u.calls ? fmtCost(u.cost_usd) + (u.unpriced ? '（部分模型未設定費率）' : '') : ''].filter(Boolean).join(' · ');
+    u.calls ? `${fmtTok((u.input_tokens || 0) + (u.output_tokens || 0))} tokens` : '',
+    u.quota_6h_pct != null ? `<span class="qshare" title="這次回答用掉 SinoBee.ai 訂閱 6 小時額度的比例">占 6 小時額度 ${fmtPct(u.quota_6h_pct)}</span>` : '',
+    u.calls && (u.cost_usd || u.quota_6h_pct == null) ? fmtCost(u.cost_usd) + (u.unpriced ? '（部分模型未設定費率）' : '') : ''].filter(Boolean).join(' · ');
   const st = ev.status || 'done';
   if (st === 'done') { const c = add(`<b>✓ 完成</b>${meta ? ' · ' + meta : ''}`, 'result done'); if (ev.turn_id) attachFeedback(c, ev.turn_id, null); return c; }
   if (st === 'stopped') return add(`<b>■ 已停止</b>${meta ? ' · ' + meta : ''}`, 'result stopped');
@@ -1008,6 +1037,7 @@ function handle(ev, replay = false){
   switch (ev.type) {
     case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
     case 'notice': add('ⓘ ' + esc(ev.error || ev.message), 'note'); break;
+    case 'quota': onQuotaEvent(ev, replay); break;
     case 'steer': if (ev.client_ref !== CLIENT_REF) { procClose(); } if (ev.client_ref !== CLIENT_REF) add(`<span class="steer-tag">執行中補充</span>` + md(ev.text), 'msg user steer');
       add('ⓘ 已收到，會在目前這一步結束後納入。', 'note'); break;
     case 'steer_applied': add('✓ 已把你的補充納入任務', 'note'); break;
@@ -1058,6 +1088,8 @@ function handle(ev, replay = false){
       // mark any tool card still spinning (e.g. force-stopped) as interrupted
       document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
       { const c = resultCard(ev); if (ev.artifacts?.length && c) c.insertAdjacentHTML('beforeend', artStrip(ev.artifacts, '本次產出')); }
+      if (!replay && ev.usage?.quota) quotaFromTurn(ev.usage.quota);
+      if (ev.error?.quota && !replay) showQuotaModal(ev.error.quota, ev.error.model);
       loadSide(); refreshStatus(false); break; }
     case 'feedback_learned': {
       const parts = [];
@@ -1399,7 +1431,7 @@ function renderSettings(){
   lockNotes();
   syncSegs();
   setDirty(false);
-  $('#setBanner').innerHTML = SET.needs_setup ? '<div class="banner" style="margin-top:10px">👋 第一次使用：在「模型供應商」填入任一家的 API 金鑰後按「連線」，或開啟「Ollama（本機）」在這台電腦執行免費模型；再到上方選擇主要模型。</div>'
+  $('#setBanner').innerHTML = SET.needs_setup ? firstRunChooser()
     : (SET.provider_error ? `<div class="banner" style="margin-top:10px">⚠︎ ${esc(SET.provider_error)}</div>` : '');
 }
 // ---------------- model pickers + provider cards ----------------
@@ -1476,11 +1508,12 @@ function provCard(p){
   const s = (SET?.providers || []).find(x => x.name === p.name) || {};
   const status = p.status || 'checking';
   const n = (p.models || []).filter(m => m.kind !== 'other').length;
-  const badge = {ready: `✓ ${p.local ? '可用' : '已連線'} · ${n} 個模型`, no_key: p.local ? '未設定' : '未設定金鑰', error: '✕ 連線失敗',
+  const badge = {ready: `✓ ${p.local ? '可用' : '已連線'} · ${n} 個模型`, no_key: p.subscription ? (p.signed_in ? '需要重新登入' : '未登入') : p.local ? '未設定' : '未設定金鑰', error: '✕ 連線失敗',
                  offline: p.local ? '○ 未執行' : '⚠︎ 無法連線', checking: '檢查中…'}[status];
   const uses = ROLES.filter(r => provOf($(r.id).value) === p.name).map(r => `<span class="tb t-builtin">${r.name}</span>`).join('');
   let body = '';
-  if (p.name === 'ollama') body = `<div class="pkey"><span class="sd" style="flex:1">${status === 'ready' ? `已下載 ${n} 個模型` : '在這台電腦下載並執行開放模型'}</span><button class="btn sm primary" type="button" data-act="local">管理本機模型</button></div>`;
+  if (p.name === 'sinobee') body = sbCardBody(p);
+  else if (p.name === 'ollama') body = `<div class="pkey"><span class="sd" style="flex:1">${status === 'ready' ? `已下載 ${n} 個模型` : '在這台電腦下載並執行開放模型'}</span><button class="btn sm primary" type="button" data-act="local">管理本機模型</button></div>`;
   else if (s.key_source === 'env') body = `<div class="pkey"><span class="badge env">🔒 啟動參數 ${esc(s.key_env)} ${esc(s.key_masked)}</span></div>`;
   else if (p.needs_key !== false || p.custom) body = `<div class="pkey"><input class="inp" type="password" autocomplete="off" placeholder="${p.has_key ? `已設定 ${esc(s.key_masked || '')}；輸入新金鑰可更換` : '貼上 API 金鑰'}">
       <button class="btn sm primary" type="button" data-act="connect">${p.has_key ? '更換' : '連線'}</button>${p.has_key && s.key_source === 'gui' ? '<button class="btn sm" type="button" data-act="clear">清除</button>' : ''}${p.has_key ? '<button class="btn icon sm tip-left" type="button" data-act="retry" aria-label="重新檢查">' + ic('refresh') + '</button>' : ''}</div>
@@ -1503,6 +1536,8 @@ function renderProviders(){
 async function provAction(card, act, btn){
   const name = card.dataset.p, msg = card.querySelector('.pmsg');
   if (act === 'local') { openLocal(true); return; }
+  if (act === 'sb-use') { useSubscription(btn); return; }
+  if (act === 'sb-account') { showPane('account'); return; }
   if (act === 'use') { const spec = btn.dataset.spec;
     const r = await post('/api/settings', {model: {default: spec}}, 'PUT');
     SET.model = r.model; SET.selected = r.selected; SET.needs_setup = r.needs_setup; $('#mDefault').value = spec; delete PROV_SUG[name];
@@ -1558,8 +1593,12 @@ function renderAccount(){
     el.insertAdjacentHTML('beforeend', '<div id="vaultBox" style="margin-top:8px"></div><div id="mySharesBox" style="margin-top:8px"></div>');
     renderVaultBox(); renderMyShares();
     paintIcons(el);
+    if (!QUOTA || QUOTA.status === 'signed_out' || QUOTA.status === 'no_scope') loadQuota(true).then(() => {
+      if (CAT && !readyProviders().some(p => p.name === 'sinobee')) loadCatalog(true, ['sinobee']);
+      if (SB_PENDING) { SB_PENDING = false; useSubscription(); } });
+    else paintSubPane();
     $('#acctLogout').onclick = async () => { if (!confirm('登出 sinobee.ai？這台電腦的權杖會被刪除。')) return;
-      await api('/api/account/logout', {method: 'POST'}); loadAccount(); };
+      await api('/api/account/logout', {method: 'POST'}); loadAccount(); loadQuota(true); if (CAT) loadCatalog(true, ['sinobee']); };
     return;
   }
   if (lg && lg.status === 'pending'){
@@ -1643,6 +1682,181 @@ $('#refreshModels').onclick = async () => { $('#testResult').textContent = '重�
   const n = (CAT?.providers || []).filter(p => p.status === 'ready').reduce((a, p) => a + p.models.length, 0);
   $('#testResult').textContent = `已更新：${n} 個模型`; };
 
+// ---------------- SinoBee.ai subscription: quota rings, first run, quota stops ----------------
+let QUOTA = null, quotaTimer = null, QUOTA_LOADING = null;
+const SB_RECOMMENDED = 'sinobee/anthropic/claude-sonnet-5-5';
+const fmtPct = v => { v = +v || 0; return (v > 0 && v < 0.1 ? '<0.1' : v < 10 ? v.toFixed(1) : Math.round(v)) + '%'; };
+const WIN_NAME = {'6h': '6 小時', '168h': '7 天'};
+function fmtWhen(iso){
+  if (!iso) return '';
+  const t = new Date(iso), ms = t - Date.now();
+  const clock = t.toLocaleTimeString('zh-TW', {hour: '2-digit', minute: '2-digit', hour12: false});
+  const day = t.toDateString() === new Date().toDateString() ? '' : `${t.getMonth() + 1}/${t.getDate()} `;
+  if (ms <= 0) return '現在';
+  const m = Math.round(ms / 60000);
+  return `${day}${clock}（${m < 60 ? m + ' 分鐘' : m < 2880 ? Math.round(m / 6) / 10 + ' 小時' : Math.round(m / 1440) + ' 天'}後）`;
+}
+function fmtDate(iso){ if (!iso) return ''; const d = new Date(iso); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`; }
+/** one quota ring: % used of a rolling window */
+function ring(pct, title, sub = '', size = 48){
+  pct = Math.max(0, Math.min(100, +pct || 0));
+  const r = size / 2 - 5, c = 2 * Math.PI * r, cls = pct >= 90 ? 'full' : pct >= 70 ? 'warn' : '';
+  return `<div class="qring ${cls}" role="img" aria-label="${esc(title)} 已用 ${Math.round(pct)}%"><svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle class="qr-bg" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke-width="5"/>
+    <circle class="qr-fg" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke-width="5" stroke-linecap="round"
+      stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - pct / 100)).toFixed(2)}" transform="rotate(-90 ${size / 2} ${size / 2})"/>
+    <text class="qr-pct" x="50%" y="50%" text-anchor="middle" dominant-baseline="central"${size < 40 ? ' style="font-size:9px"' : ''}>${Math.round(pct)}%</text></svg>
+    ${title ? `<div class="qr-t"><b>${esc(title)}</b>${sub ? `<span>${sub}</span>` : ''}</div>` : ''}</div>`;
+}
+const qWin = k => (QUOTA?.windows || []).find(w => w.window === k);
+function winSub(w){
+  if (!w) return '';
+  const next = (w.releases || [])[0];
+  const left = w.remainingTokens ? `約剩 ${fmtTok(w.remainingTokens)} tokens` : '';
+  return [left, w.usedPct > 0 && next ? `${fmtWhen(next.at).replace(/（.*/, '')} 起釋放` : ''].filter(Boolean).join(' · ');
+}
+function quotaRings(size = 48){
+  return `<div class="qrings">${['6h', '168h'].map(k => ring(qWin(k)?.usedPct, WIN_NAME[k] + '額度', winSub(qWin(k)), size)).join('')}</div>`;
+}
+/** expiry reminder: the plan ends within 3 days */
+function expiryNote(){
+  if (!QUOTA?.endsAt) return '';
+  const days = (new Date(QUOTA.endsAt) - Date.now()) / 86400000;
+  if (days > 3) return '';
+  return `<div class="qwarn">⚠︎ 方案將於 ${fmtDate(QUOTA.endsAt)} 到期${days < 1 ? '（不到 1 天）' : `（剩 ${Math.ceil(days)} 天）`}，<a href="${esc(QUOTA.subscribe_url)}" target="_blank" rel="noopener">續訂</a>後額度與天數會接續累加</div>`;
+}
+async function loadQuota(refresh = false){
+  if (QUOTA_LOADING && !refresh) return QUOTA_LOADING;
+  QUOTA_LOADING = api('/api/llm/quota' + (refresh ? '?refresh=true' : '')).then(q => (QUOTA = q)).catch(() => QUOTA).finally(() => { QUOTA_LOADING = null; });
+  await QUOTA_LOADING; paintQuota(); return QUOTA;
+}
+function quotaFromTurn(q){
+  if (!QUOTA || QUOTA.status !== 'ok') { loadQuota(true); return; }
+  for (const w of QUOTA.windows || []) if (q[w.window] != null) w.usedPct = q[w.window];
+  paintQuota(); clearTimeout(quotaTimer); quotaTimer = setTimeout(() => loadQuota(true), 4000);   // tokens left / releases
+}
+function paintQuota(){
+  const q = QUOTA, bar = $('#quotaBar');
+  // sidebar: only when a SinoBee.ai model is in use (or a subscription exists)
+  const show = q && (q.in_use || q.status === 'ok');
+  bar.hidden = !show;
+  if (show) {
+    if (q.status === 'ok') {
+      const w6 = qWin('6h'), w7 = qWin('168h');
+      bar.innerHTML = `<div class="qb-h">${ring(w6?.usedPct, '', '', 34)}<div style="min-width:0;flex:1"><b>SinoBee.ai ${esc(q.plan?.name || '')}</b>
+        <div style="color:var(--muted);white-space:nowrap">6 小時 ${fmtPct(w6?.usedPct)} · 7 天 ${fmtPct(w7?.usedPct)}</div>
+        ${q.endsAt && !expiryNote() ? `<div style="color:var(--muted)">方案至 ${fmtDate(q.endsAt)}</div>` : ''}</div></div>${expiryNote()}`;
+    } else {
+      const msg = {signed_out: '尚未登入 SinoBee.ai，訂閱模型無法使用', no_scope: '請重新登入 SinoBee.ai 以啟用訂閱模型',
+                   no_subscription: '沒有有效的 SinoBee.ai 訂閱', offline: '暫時連不上 sinobee.ai', error: '無法讀取訂閱額度'}[q.status] || '';
+      bar.innerHTML = `<div class="qb-h"><b>SinoBee.ai 訂閱</b></div><div class="${q.status === 'offline' ? 'qwarn' : 'qerr'}">${esc(msg)}</div>`;
+    }
+  }
+  if (!quotaTimer && q && (q.in_use || q.status === 'ok')) quotaTimer = setInterval(() => { if (!document.hidden) loadQuota(true); }, 60000);
+  paintSubPane(); paintUsageQuota();
+  const card = $('.pcard[data-p="sinobee"]'), sbp = (CAT?.providers || []).find(x => x.name === 'sinobee');
+  if (card && sbp) { const msg = card.querySelector('.pmsg')?.textContent || ''; card.outerHTML = provCard(sbp);
+    const fresh = $('.pcard[data-p="sinobee"]'); paintIcons(fresh); if (msg) fresh.querySelector('.pmsg').textContent = msg; }
+}
+$('#quotaBar').onclick = () => openSettings(false, 'account');
+$('#quotaBar').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#quotaBar').click(); } };
+/** settings → SinoBee.ai 帳號 → 訂閱 */
+function paintSubPane(){
+  const sec = $('#subSec'), el = $('#subBody'); if (!sec) return;
+  const q = QUOTA; sec.hidden = !q || q.status === 'signed_out';
+  if (sec.hidden) return;
+  if (q.status === 'ok') {
+    el.innerHTML = `<div class="lcard"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <b style="font-size:15px">${esc(q.plan?.name || '')}</b><span class="badge ok">使用中</span>
+        <span class="sd">到期 ${fmtDate(q.endsAt)} · 同時執行 ${q.plan?.concurrency ?? '—'} 個任務</span><span style="flex:1"></span>
+        <a class="btn sm" href="${esc(q.subscribe_url)}" target="_blank" rel="noopener">續訂／升級</a></div>
+      ${quotaRings(56)}${expiryNote()}
+      <div class="note" style="margin:8px 0 0">剩餘 tokens 以最便宜的模型估算${q.tokensBasis ? `（${esc(q.tokensBasis.label)}，輸入：輸出 = 3：1）` : ''}；較貴的模型用得比較快。</div></div>`;
+  } else if (q.status === 'no_subscription') {
+    el.innerHTML = `<div class="lcard" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div style="flex:1;min-width:200px;font-size:13px">目前沒有有效的訂閱。訂閱後即可使用 Claude、GPT、Gemini 等模型，不必自己申請金鑰。</div>
+      <a class="btn primary" href="${esc(q.subscribe_url)}" target="_blank" rel="noopener">查看方案</a><button class="btn icon tip-left" type="button" data-icon="refresh" aria-label="重新檢查" id="subRetry"></button></div>`;
+    paintIcons(el); $('#subRetry').onclick = () => loadQuota(true);
+  } else if (q.status === 'no_scope') {
+    el.innerHTML = `<div class="lcard" style="font-size:13px">這次登入沒有包含「訂閱模型」權限（較舊的登入）。請登出後重新登入一次。</div>`;
+  } else {
+    el.innerHTML = `<div class="lcard" style="font-size:13px;color:var(--warn)">⚠︎ ${esc(q.error || '暫時無法讀取訂閱狀態')}</div>`;
+  }
+}
+/** usage modal: rings with the release timeline */
+function paintUsageQuota(){
+  const box = $('#uQuota'); if (!box) return;
+  const q = QUOTA; box.hidden = !q || q.status !== 'ok';
+  if (box.hidden) return;
+  const rel = w => (w?.releases || []).slice(0, 6).map(r => `<span><b>${fmtWhen(r.at).replace(/（.*/, '')}</b> 釋放 ${fmtPct(r.pct)}</span>`).join('');
+  box.innerHTML = `<h4>SinoBee.ai 訂閱額度 · ${esc(q.plan?.name || '')}</h4>${quotaRings(64)}
+    ${['6h', '168h'].map(k => { const w = qWin(k), r = rel(w); return r ? `<div class="qrel"><span>${WIN_NAME[k]}區間接下來釋放：</span>${r}</div>` : ''; }).join('')}
+    <div class="note" style="margin:8px 0 0">訂閱模型的花費以方案額度計算，下方的美元金額只包含你自己金鑰的模型。</div>`;
+}
+/** settings banner on first run: three ways to get a model */
+function firstRunChooser(){
+  return `<div class="banner" style="margin-top:10px"><b>👋 第一次使用：選一種方式開始</b>
+    <div class="choose3">
+      <button type="button" class="rec" data-first="sinobee"><span class="tag">推薦</span><b>使用 SinoBee.ai 訂閱</b>免申請金鑰，登入後就能用 Claude、GPT、Gemini；按月訂閱、額度透明</button>
+      <button type="button" data-first="keys"><b>使用自己的 API 金鑰</b>貼上 Anthropic、OpenAI、Gemini 等任一家的金鑰，依用量付費給供應商</button>
+      <button type="button" data-first="local"><b>在這台電腦執行</b>用 Ollama 下載開放模型，免費、資料不出門；需要較好的電腦</button>
+    </div></div>`;
+}
+$('#setBanner').addEventListener('click', async e => {
+  const b = e.target.closest('[data-first]'); if (!b) return;
+  if (b.dataset.first === 'keys') { showPane('model'); $('#provList').scrollIntoView({behavior: 'smooth', block: 'start'}); return; }
+  if (b.dataset.first === 'local') { showPane('model'); openLocal(true); return; }
+  await useSubscription(b);
+});
+/** sign in if needed, check the subscription, then make a SinoBee.ai model the main model */
+async function useSubscription(btn){
+  const a = ACCT || await loadAccount();
+  if (!a?.signed_in) { showPane('account'); setTimeout(() => $('#acctLogin')?.click(), 50); SB_PENDING = true; return; }
+  const q = await loadQuota(true);
+  if (q.status === 'no_scope') { showPane('account'); return; }
+  if (q.status === 'no_subscription') { window.open(q.subscribe_url, '_blank', 'noopener'); showPane('account'); return; }
+  if (q.status !== 'ok') { alert(q.error || '暫時無法連線到 sinobee.ai'); return; }
+  if (btn) btn.disabled = true;
+  await loadCatalog(true, ['sinobee']);
+  const sbp = (CAT?.providers || []).find(p => p.name === 'sinobee');
+  const spec = sbp?.models?.find(m => m.spec === SB_RECOMMENDED) ? SB_RECOMMENDED : (sbp?.models?.find(m => m.kind === 'chat')?.spec || SB_RECOMMENDED);
+  const r = await post('/api/settings', {model: {default: spec}}, 'PUT');
+  SET.model = r.model; SET.selected = r.selected; SET.needs_setup = r.needs_setup; $('#mDefault').value = spec;
+  $('#setBanner').innerHTML = ''; showPane('model'); $('#setSaved').textContent = `✓ 主要模型已改為 ${spec}`;
+  renderRoles(); renderProviders(); refreshStatus(false); loadQuota(true);
+}
+let SB_PENDING = false;   // "use the subscription" was picked before signing in: finish after sign-in
+/** provider card body for the subscription */
+function sbCardBody(p){
+  if (!p.signed_in) return `<div class="pkey"><span class="sd" style="flex:1">登入 SinoBee.ai 並訂閱後即可使用，不必填金鑰</span><button class="btn sm primary" type="button" data-act="sb-use">登入並使用</button></div>`;
+  if (!p.has_scope) return `<div class="pkey"><span class="sd" style="flex:1">請重新登入 SinoBee.ai，以取得訂閱模型的使用權限</span><button class="btn sm" type="button" data-act="sb-account">帳號</button></div>`;
+  const q = QUOTA;
+  if (q?.status === 'no_subscription') return `<div class="pkey"><span class="sd" style="flex:1">沒有有效的訂閱</span><a class="btn sm primary" href="${esc(q.subscribe_url)}" target="_blank" rel="noopener">查看方案</a></div>`;
+  if (q?.status !== 'ok') return `<div class="pkey"><span class="sd" style="flex:1">${q ? esc(q.error || '讀取額度中…') : '讀取額度中…'}</span></div>`;
+  return `<div class="pkey" style="flex-wrap:wrap;gap:12px">${quotaRings(40)}<span style="flex:1"></span><span class="sd">${esc(q.plan?.name || '')} · 至 ${fmtDate(q.endsAt)}</span></div>${expiryNote()}`;
+}
+/** a model call hit the quota (stopped) or a fallback model answered instead */
+function onQuotaEvent(ev, replay){
+  const win = WIN_NAME[ev.window] ? WIN_NAME[ev.window] + '額度' : '訂閱';
+  if (!ev.stopped) add(`ⓘ SinoBee.ai ${win}已用完，這次改由 <b>${esc(ev.answered_by || ev.fallback || '備援模型')}</b> 回答${ev.retry_at ? `；額度約 ${esc(fmtWhen(ev.retry_at))}開始釋放` : ''}`, 'note');
+  if (!replay) loadQuota(true);
+}
+function showQuotaModal(qe, model){
+  const sub = qe.window === 'subscription';
+  const fallbacks = (SET?.model?.fallbacks) || [];
+  $('#qmTitle').textContent = sub ? '沒有有效的 SinoBee.ai 訂閱' : `SinoBee.ai ${WIN_NAME[qe.window] || ''}額度用完了`;
+  $('#qmBody').innerHTML = sub ? '<p>訂閱已到期或尚未訂閱，所以這個任務沒有完成。</p>'
+    : `<p>這個任務因為 ${esc(WIN_NAME[qe.window] || '')}額度用完而暫停${model ? `（${esc(model)}）` : ''}。${qe.retry_at ? `額度約在 <b>${esc(fmtWhen(qe.retry_at))}</b> 開始釋放，之後就能繼續。` : ''}</p>
+       ${QUOTA?.status === 'ok' ? quotaRings(48) : ''}`;
+  const subUrl = QUOTA?.subscribe_url || ((ACCT?.hub_url || 'https://sinobee.ai') + '/subscribe');
+  $('#qmOpts').innerHTML = [
+    !sub && qe.retry_at ? `<button class="btn" type="button" data-q="wait">${ic('clock')} 等額度釋放後，回覆「繼續」接著做</button>` : '',
+    `<button class="btn" type="button" data-q="model">${ic('sparkles')} ${fallbacks.length ? '改用其他模型或調整備援模型' : '設定備援模型（額度用完時自動改用自己的金鑰或本機模型）'}</button>`,
+    `<a class="btn primary" href="${esc(subUrl)}" target="_blank" rel="noopener">${ic('external')} ${sub ? '訂閱方案' : '升級或加購方案'}</a>`].join('');
+  $('#qmOpts').querySelectorAll('[data-q]').forEach(b => b.onclick = () => { $('#quotaModal').classList.remove('open');
+    if (b.dataset.q === 'model') openSettings(false, 'model'); else $('#input').focus(); });
+  $('#quotaModal').classList.add('open'); loadQuota(true);
+}
+$('#qmClose').onclick = () => $('#quotaModal').classList.remove('open');
 // ---------------- theme + halftone (brand: navy → teal → mint dot field) ----------------
 function isDark(){ const t = document.documentElement.dataset.theme; return t === 'dark' || (t === 'auto' && !matchMedia('(prefers-color-scheme: light)').matches); }
 function themeLabel(){ $('#themeBtn').innerHTML = ic(isDark() ? 'sun' : 'moon'); $('#themeBtn').setAttribute('aria-label', isDark() ? '切換為淺色' : '切換為深色'); }
@@ -2428,7 +2642,7 @@ function budgetTile(name, b){
 function rows(list, label){
   if (!list.length) return '<tr><td style="color:var(--muted)">尚無資料</td></tr>';
   return '<thead><tr><th>' + label + '</th><th>呼叫</th><th>輸入</th><th>快取命中</th><th>輸出</th><th>花費</th></tr></thead><tbody>' + list.map(r =>
-    `<tr><td>${r._label ?? esc(r.key ?? '—')}</td><td>${r.calls}</td><td>${fmtTok(r.input_tokens)}</td><td>${fmtTok(r.cache_read_tokens)}</td><td>${fmtTok(r.output_tokens)}</td><td>${r.unpriced_calls == r.calls && r.calls ? '<span title="未設定費率">—</span>' : fmtCost(r.cost_usd)}</td></tr>`).join('') + '</tbody>';
+    `<tr><td>${r._label ?? esc(r.key ?? '—')}</td><td>${r.calls}</td><td>${fmtTok(r.input_tokens)}</td><td>${fmtTok(r.cache_read_tokens)}</td><td>${fmtTok(r.output_tokens)}</td><td>${String(r.key || '').startsWith('sinobee/') ? '<span class="sd" title="由 SinoBee.ai 訂閱額度支付">訂閱額度</span>' : r.unpriced_calls == r.calls && r.calls ? '<span title="未設定費率">—</span>' : fmtCost(r.cost_usd)}</td></tr>`).join('') + '</tbody>';
 }
 function drawChart(data){
   const svg = $('#uChart'), W = svg.clientWidth || 800, H = 220, L = 52, R = 8, T = 10, B = 26;
@@ -2456,6 +2670,7 @@ function drawChart(data){
   });
 }
 async function loadUsage(){
+  loadQuota(true);
   const u = await api('/api/usage?days=' + uDays);
   CUR = {code: u.currency || 'USD', rate: u.currency_rate};
   $('#uTiles').innerHTML = tile('今日', u.totals.today) + tile('本月', u.totals.month) + tile(`近 ${u.days} 天`, u.totals.range) + tile('累計', u.totals.all)
@@ -2482,6 +2697,7 @@ async function loadUsage(){
 window.addEventListener('resize', () => { if ($('#usage').classList.contains('open')) loadUsage(); });
 connect();
 drawHalftones();
+loadQuota();
 // ---------------- background work: past / now / next ----------------
 const WK = {view: 'overview', data: null, timer: null, runId: null, jobId: null, wfs: null, conns: null};
 const WK_STATUS = {queued: '排隊中', running: '執行中', waiting: '等你核准', done: '完成', failed: '失敗', cancelled: '已停止',

@@ -533,6 +533,8 @@ class Agent:
                                                    temperature=self.config.get("model.temperature", 0.3),
                                                    max_tokens=max_tokens)
             except Exception as e:
+                for qe in current_scope.get().drain_quota_events():
+                    self._emit("quota", {**qe, "stopped": True})
                 if OVERFLOW_RE.search(str(e)) and not overflow_retried:
                     # the estimate was too optimistic for this model: compact hard and try once more
                     overflow_retried = True
@@ -555,6 +557,8 @@ class Agent:
                 self.history.append(Message("assistant", f"[上一次嘗試失敗：{error_info['summary']}]"))
                 log.error("model call failed: %s", e)
                 break
+            for qe in current_scope.get().drain_quota_events():   # quota used up; a fallback model answered
+                self._emit("quota", {**qe, "stopped": False, "answered_by": resp.model})
             self.usage.add(resp.usage)
             msg = resp.message
             log.info("model %s replied: %d chars, %d tool calls, finish=%s", resp.model, len(msg.text()),
