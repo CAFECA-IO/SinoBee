@@ -371,9 +371,34 @@ volumes: ~/.sinobee → config.yaml、settings.json、secrets.json、sinobee.db�
 
 | 入口 | 方式 |
 |---|---|
-| Web UI | 設定頁：主要／備援／輔助／Embedding 模型、各供應商金鑰、自訂 OpenAI 相容端點、核准模式與能力、預算與幣別、費率覆寫；可載入供應商模型清單、測試連線 |
+| Web UI | 設定頁「模型」：上方依角色（主要／輔助／升級／Embedding／備援）從所有已連線供應商的模型挑選；下方是供應商卡片，金鑰按「連線」即時儲存並驗證；Ollama 卡片展開本機模型管理。另有核准模式與能力、預算與幣別、費率覆寫 |
 | Docker 啟動 | `scripts/docker-run.sh -m <model> -k <provider>[=key]`（未給值時隱藏輸入，以 `-e VAR` 傳遞避免出現在 `ps`），或 `docker run -e` / `VAR=... docker compose up` |
 | 執行中容器 | `docker exec -it sinobee sinobee keys set <provider>` |
+
+**模型目錄（`providers/catalog.py`）**
+
+舊版的設定頁有兩個問題：
+
+- 「雲端 API／本機模型」是二選一的模式。主要模型是本機模型時，雲端的金鑰欄與模型欄整個被隱藏；儲存後畫面又依主要模型切回本機模式。
+- 「載入可用模型」只查主要模型所屬的供應商（ollama）。
+
+所以填了 Gemini 金鑰之後，Gemini 的模型永遠不會出現。
+
+新版改為單一目錄：
+
+- **列出可用的供應商**：`GET /api/models/catalog` 同時查詢所有可用的供應商，也就是已有金鑰的、本機服務、以及自訂端點。
+- **取得模型清單**：
+  - 呼叫各家的 `/models`，逾時 8 秒，結果快取 10 分鐘；
+  - 依名稱分成 chat、embedding 與 other（TTS、圖像、影片等無法執行 agent 的模型）；
+  - 推薦模型排在最前面；
+  - 查詢失敗時退回內建的推薦清單。
+- **設定金鑰（`PUT /api/providers/{name}/key`）**：
+  - 立即寫入 `secrets.json`；
+  - 熱重建模型鏈，再用列出模型的方式驗證金鑰；
+  - 401、403 或 "API key not valid" 會顯示為「金鑰無效」；
+  - 只有在主要模型無法使用時，才建議改用新連線供應商的推薦模型。
+- **儲存檢查**：`PUT /api/settings` 會回傳 `warnings`，列出哪個角色選了還沒設定金鑰的供應商。
+- **混用**：本機與雲端模型可以任意搭配，例如主要模型用本機，升級模型或備援模型用 Gemini。
 
 ## 11. Token 用量與成本
 

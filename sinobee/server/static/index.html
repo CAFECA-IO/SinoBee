@@ -384,7 +384,18 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 .tsrow .risk{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:1px 7px;color:var(--warn);margin-left:6px;font-weight:500}
 .setfoot{display:flex;align-items:center;gap:8px;padding:12px 18px;border-top:1px solid var(--line);background:var(--panel)}
 #setDirty.on{color:var(--warn)}
-#keyRows .krow:last-child{border-bottom:0}
+.plist{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin:4px 0 8px}
+.pcard{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.pcard.st-ready{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}.pcard.st-error{border-color:color-mix(in srgb,var(--err) 45%,var(--line))}
+.pcard .ph{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.pcard .ph b{font-size:14px}
+.pcard .pbadge{margin-left:auto;font-size:11px;padding:2px 8px;border-radius:999px;background:var(--tool);color:var(--muted);white-space:nowrap}
+.pcard.st-ready .pbadge{color:var(--ok)}.pcard.st-error .pbadge{color:var(--err)}.pcard.st-offline .pbadge{color:var(--warn)}
+.pcard .pkey{display:flex;gap:6px;align-items:center}.pcard .pkey .inp{flex:1;min-width:0;padding:6px 9px;font-size:13px}
+.pcard .perr{color:var(--err);font-size:12px;overflow-wrap:anywhere}.pcard .psug{background:var(--user);border-radius:8px;padding:6px 8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pcard .pmsg:empty{display:none}.pcard a.sd{color:var(--accent);text-decoration:none}
+.mpick .pwarn{color:var(--warn);font-size:12px}.mpick select optgroup{font-style:normal}
+.fbchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+#provMore[hidden]{display:none}
 @media (max-width:760px){
   .setcard{height:100vh;max-height:none;border-radius:0}
   .setbody{grid-template-columns:1fr;grid-template-rows:auto 1fr}
@@ -455,10 +466,20 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
     <div class="setpanes">
       <!-- ───── 模型 ───── -->
       <section class="pane on" data-pane="model">
-        <div class="grp"><div class="grp-h">模型從哪裡來</div>
-          <div class="srcseg" id="srcSeg"><button type="button" data-src="cloud"><b>☁︎ 雲端 API</b><span>OpenAI、Anthropic、Gemini…，需要 API 金鑰、依用量計費</span></button>
-            <button type="button" data-src="local"><b>⌂ 本機架設模型</b><span>在這台電腦上執行開放模型，免金鑰、免費、資料不出門</span></button></div>
-          <div id="localPanel" hidden>
+        <div class="grp"><div class="grp-h">使用哪些模型<span class="grp-d">從已連線的供應商挑選；雲端與本機模型可以混用</span></div>
+          <input type="hidden" id="mDefault"><input type="hidden" id="mAux"><input type="hidden" id="mEsc"><input type="hidden" id="mEmb"><input type="hidden" id="mFallbacks">
+          <div id="roleRows"></div>
+          <div id="roleHint" class="note" hidden></div>
+          <div class="srow end"><span id="testResult" class="sd"></span>
+            <button class="btn" id="refreshModels" type="button">重新整理模型清單</button><button class="btn" id="testModel" type="button">測試主要模型</button></div>
+        </div>
+        <div class="grp"><div class="grp-h">模型供應商<span class="grp-d">按「連線」會立即儲存並驗證金鑰，成功後模型馬上出現在上方清單。金鑰只存在這台電腦的 secrets.json（權限 600），啟動時用 -e 帶入的金鑰在此唯讀</span></div>
+          <div id="provList" class="plist"></div>
+          <details class="adv" id="provMore"><summary>更多供應商</summary><div id="provMoreList" class="plist"></div></details>
+        </div>
+        <div class="grp" id="localWrap" hidden><div class="grp-h">本機模型（Ollama）<span class="grp-d">下載、啟動與管理在這台電腦執行的開放模型；免金鑰、免費、資料不出門</span>
+            <span style="flex:1"></span><button class="btn sm" type="button" id="localClose">收起</button></div>
+          <div id="localPanel">
             <div class="lcard" id="lRuntime"></div>
             <div class="lcard" id="lHardware"></div>
             <div id="lRec"></div>
@@ -474,31 +495,16 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
             </details>
           </div>
         </div>
-        <div class="grp" id="cloudModelSec"><div class="grp-h">使用哪些模型</div>
-          <div class="srow"><div class="sl"><b>主要模型</b><span class="sd">格式為「供應商/模型」，平常的對話與任務都用它</span></div>
-            <div class="sc"><input class="inp" id="mDefault" list="modelList" placeholder="anthropic/claude-sonnet-4-5"><span class="lock" data-lock="model.default"></span></div></div>
-          <div class="srow"><div class="sl"><b>備援模型</b><span class="sd">主要模型失敗或額度用完時依序改用；以逗號分隔</span></div>
-            <div class="sc"><input class="inp" id="mFallbacks" placeholder="openai/gpt-5.4, gemini/gemini-2.5-flash"><span class="lock" data-lock="model.fallbacks"></span></div></div>
-          <div class="srow"><div class="sl"><b>輔助模型</b><span class="sd">反思、壓縮長對話等背景工作；留空則用主要模型（建議選便宜的）</span></div>
-            <div class="sc"><input class="inp" id="mAux" list="modelList" placeholder="留空＝主要模型"><span class="lock" data-lock="model.auxiliary"></span></div></div>
-          <div class="srow"><div class="sl"><b>升級模型</b><span class="sd">任務連續失敗、步驟太多、未通過完成檢查或屬於複雜技能（如影片製作）時，自動改用這個較強的模型；留空則不升級</span></div>
-            <div class="sc"><input class="inp" id="mEsc" list="modelList" placeholder="例如 anthropic/claude-opus-4-1"><span class="lock" data-lock="model.escalate"></span></div></div>
+        <details class="grp adv" id="modelAdv"><summary>進階：完成檢查、看圖、上下文上限、自訂端點</summary>
           <div class="srow"><div class="sl"><b>完成檢查</b><span class="sd">多步驟任務結束前，用輔助模型確認真的完成；沒完成會再試一次，仍未完成就標示「未完成」</span></div>
             <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="aVerify" aria-label="完成檢查"></div></div>
-          <div class="srow"><div class="sl"><b>Embedding 模型</b><span class="sd">讓記憶搜尋更準確；留空用關鍵字搜尋</span></div>
-            <div class="sc"><input class="inp" id="mEmb" placeholder="openai/text-embedding-3-small"><span class="lock" data-lock="model.embedding"></span></div></div>
           <div class="srow"><div class="sl"><b>模型看得懂圖片</b><span class="sd">開啟後操作桌面或瀏覽器時會把截圖給模型看</span></div>
             <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="mVision" aria-label="模型看得懂圖片"></div></div>
           <div class="srow"><div class="sl"><b>上下文上限</b><span class="sd" id="mCtxNote">對話超過約八成時，較早的內容會自動整理成摘要；auto 依模型自動判斷</span></div>
             <div class="sc"><input class="inp" id="mCtx" placeholder="auto（例如 200k）"><span class="lock" data-lock="model.context_window"></span></div></div>
-          <div class="srow end"><span id="testResult" class="sd"></span>
-            <button class="btn" id="loadModels" type="button">載入可用模型</button><button class="btn" id="testModel" type="button">測試連線</button></div>
-          <datalist id="modelList"></datalist>
-        </div>
-        <div class="grp" id="keySec"><div class="grp-h">API 金鑰<span class="grp-d">只存在這台電腦的 secrets.json（權限 600），不會完整回傳到瀏覽器；啟動時用 -e 帶入的金鑰在此唯讀</span></div>
-          <div id="keyRows"></div></div>
-        <details class="grp adv" id="customSec"><summary>自訂 OpenAI 相容端點（自架 vLLM、公司內部閘道…）</summary>
-          <div id="customRows"></div><button class="btn" id="addCustom" type="button">＋ 新增端點</button></details>
+          <div class="srow"><div class="sl"><b>自訂 OpenAI 相容端點</b><span class="sd">自架 vLLM、公司內部閘道…；儲存後會出現在供應商清單，可在那裡填金鑰</span></div></div>
+          <div id="customRows"></div><button class="btn" id="addCustom" type="button">＋ 新增端點</button>
+        </details>
       </section>
 
       <!-- ───── 權限與安全 ───── -->
@@ -1328,7 +1334,7 @@ let SET_DIRTY = false;
 function setDirty(on){ SET_DIRTY = on; const d = $('#setDirty'); d.textContent = on ? '● 有尚未儲存的變更' : ''; d.classList.toggle('on', on); }
 ['input', 'change'].forEach(ev => $('#settings .setpanes').addEventListener(ev, e => {
   // the account pane and local-model actions apply immediately; everything else waits for 儲存
-  if (e.target.closest('[data-pane="account"], #localPanel .lfilter, #lModels, #lCustom')) return;
+  if (e.target.closest('[data-pane="account"], #localPanel .lfilter, #lModels, #lCustom, #provList, #provMoreList, #localWrap .adv')) return;
   setDirty(true); $('#setSaved').textContent = ''; }));
 function closeSettings(){
   if (SET_DIRTY && !confirm('有尚未儲存的變更，確定要關閉嗎？')) return;
@@ -1351,14 +1357,9 @@ function keySource(p){
 function renderSettings(){
   const m = SET.model;
   $('#mDefault').value = m.default || ''; $('#mFallbacks').value = (m.fallbacks || []).join(', ');
-  $('#mAux').value = m.auxiliary || ''; $('#mEsc').value = m.escalate || ''; $("#aVerify").checked = (SET.agent || {}).verify !== false; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : '';
+  $('#mAux').value = m.auxiliary || ''; $('#mEsc').value = m.escalate || ''; $('#mEmb').value = m.embedding || ''; $("#aVerify").checked = (SET.agent || {}).verify !== false; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : '';
   { const c = SET.context || {}, k = n => n >= 1e6 ? `${+(n / 1e6).toFixed(2)}M` : `${Math.round(n / 1000)}K`;
     $('#mCtxNote').textContent = c.window ? `目前以 ${k(c.window)} tokens 計算（${{setting: '手動設定', local: '本機 num_ctx', model: '依模型', default: '未知模型的預設值'}[c.source] || c.source}），對話超過約 ${k(Math.round(c.budget * 0.8))} 時，較早的內容會自動整理成摘要` : '對話超過約八成時，較早的內容會自動整理成摘要；auto 依模型自動判斷'; }
-  $('#keyRows').innerHTML = SET.providers.filter(p => p.name !== 'ollama').map(p => `<div class="krow" data-p="${esc(p.name)}">
-    <b>${esc(p.label)}</b><span style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis">${esc(p.base_url)}</span>
-    <input class="inp" type="password" autocomplete="off" placeholder="${p.key_source === 'env' ? '由啟動參數提供' : (p.has_key ? '輸入新金鑰以更換' : '貼上 API Key')}" ${p.key_source === 'env' ? 'disabled' : ''}>
-    <span style="display:flex;gap:6px;align-items:center;justify-content:flex-end">${keySource(p)}${p.key_source === 'gui' ? '<button class="btn" type="button" data-clear>清除</button>' : ''}</span></div>`).join('');
-  $('#keyRows').querySelectorAll('[data-clear]').forEach(b => b.onclick = () => { b.closest('.krow').dataset.clear = '1'; b.textContent = '將清除'; b.disabled = true; });
   const customs = SET.providers.filter(p => p.custom);
   $('#customRows').innerHTML = ''; customs.forEach(c => addCustomRow(c.name, c.base_url));
   $('#pApproval').value = SET.permissions.approval;
@@ -1371,13 +1372,137 @@ function renderSettings(){
   const sk = SET.skills || {}; $('#sAuto').value = String(sk.auto_create === true ? 'auto' : sk.auto_create === false ? 'off' : sk.auto_create || 'auto');
   $('#sProject').value = sk.project_dir || ''; $('#sInterop').checked = sk.interop !== false;
   const tb = $('#priceTable tbody'); tb.innerHTML = ''; Object.entries(SET.pricing || {}).forEach(([k, v]) => addPriceRow(k, v));
+  renderRoles(); renderProviders();
   lockNotes();
   syncSegs();
-  setSrc(srcFromSettings());
   setDirty(false);
-  $('#setBanner').innerHTML = SET.needs_setup ? '<div class="banner" style="margin-top:10px">👋 第一次使用：選擇「雲端 API」並填入金鑰，或選「本機架設模型」直接在這台電腦執行（免金鑰）。</div>'
+  $('#setBanner').innerHTML = SET.needs_setup ? '<div class="banner" style="margin-top:10px">👋 第一次使用：在「模型供應商」填入任一家的 API 金鑰後按「連線」，或開啟「Ollama（本機）」在這台電腦執行免費模型；再到上方選擇主要模型。</div>'
     : (SET.provider_error ? `<div class="banner" style="margin-top:10px">⚠︎ ${esc(SET.provider_error)}</div>` : '');
 }
+// ---------------- model pickers + provider cards ----------------
+let CAT = null, CAT_LOADING = null;
+const PROV_SUG = {};
+const ROLES = [
+  {k: 'default', id: '#mDefault', name: '主要模型', desc: '平常的對話與任務都用它', kind: 'chat', empty: '— 請選擇 —', lock: 'model.default'},
+  {k: 'auxiliary', id: '#mAux', name: '輔助模型', desc: '反思、摘要長對話、記憶整理等背景工作；建議選便宜快速的', kind: 'chat', empty: '同主要模型', lock: 'model.auxiliary'},
+  {k: 'escalate', id: '#mEsc', name: '升級模型', desc: '任務連續失敗、步驟太多、未通過完成檢查或屬於複雜技能（如影片製作）時自動改用；建議選最強的', kind: 'chat', empty: '不升級', lock: 'model.escalate'},
+  {k: 'embedding', id: '#mEmb', name: 'Embedding 模型', desc: '讓記憶搜尋更準確；不使用時改用關鍵字搜尋', kind: 'embedding', empty: '不使用（關鍵字搜尋）', lock: 'model.embedding'},
+];
+async function loadCatalog(refresh = false, only = null){
+  const q = '/api/models/catalog' + (refresh ? '?refresh=true' : '');
+  if (!CAT) renderProviders();
+  try {
+    const job = CAT_LOADING = api(q); const r = await job; if (job !== CAT_LOADING) return;
+    if (only && CAT) { for (const p of r.providers) if (only.includes(p.name)) { const i = CAT.providers.findIndex(x => x.name === p.name); if (i >= 0) CAT.providers[i] = p; else CAT.providers.push(p); } }
+    else CAT = r;
+    if (SET && r.selected) SET.selected = r.selected;
+  } catch { return; }
+  renderRoles(); renderProviders();
+}
+const provOf = spec => String(spec || '').includes('/') ? spec.split('/')[0] : '';
+function readyProviders(){ return (CAT?.providers || []).filter(p => p.status === 'ready'); }
+function modelOptions(kind, current, empty, okFlag){
+  let html = `<option value="">${esc(empty)}</option>`, found = !current;
+  for (const p of readyProviders()) {
+    const ms = p.models.filter(m => m.kind === kind); if (!ms.length) continue;
+    const short = esc(String(p.label).replace(/[（(].*$/, '').replace(/^Google /, ''));
+    html += `<optgroup label="${esc(p.label)}">` + ms.map(m => { if (m.spec === current) found = true;
+      return `<option value="${esc(m.spec)}"${m.spec === current ? ' selected' : ''}>${short} · ${m.recommended ? '★ ' : ''}${esc(m.id)}${m.note ? '　' + esc(m.note) : ''}</option>`; }).join('') + '</optgroup>';
+  }
+  if (!found) html += `<optgroup label="目前設定"><option value="${esc(current)}" selected>${esc(current)}${okFlag === false ? '（供應商未連線）' : ''}</option></optgroup>`;
+  return html + '<option value="__custom">其他（手動輸入「供應商/模型」）…</option>';
+}
+function roleState(spec){
+  if (!spec) return {ok: true};
+  const p = (CAT?.providers || []).find(x => x.name === provOf(spec)) || (SET?.providers || []).find(x => x.name === provOf(spec));
+  if (!p) return {ok: false, msg: `找不到供應商「${provOf(spec)}」`};
+  if (p.status === 'no_key' || (p.needs_key && !p.has_key)) return {ok: false, msg: `${p.label} 還沒設定金鑰，請在下方「模型供應商」連線`};
+  if (p.status === 'offline') return {ok: false, msg: `${p.label} 目前連不上${p.local ? '（本機服務未執行）' : ''}`};
+  if (p.status === 'error') return {ok: false, msg: `${p.label} 連線失敗：${p.error || ''}`};
+  return {ok: true};
+}
+function renderRoles(){
+  if (!SET) return;
+  const locked = k => (SET.locked || []).includes(k);
+  const rows = ROLES.map(r => { const cur = $(r.id).value, st = roleState(cur);
+    return `<div class="srow"><div class="sl"><b>${r.name}</b><span class="sd">${r.desc}</span></div>
+      <div class="sc mpick" data-role="${r.k}"><select class="inp" ${locked(r.lock) ? 'disabled' : ''} aria-label="${r.name}">${modelOptions(r.kind, cur, r.empty, st.ok)}</select>
+        <input class="inp" hidden placeholder="例如 gemini/gemini-flash-latest" value="${esc(cur)}">
+        ${st.ok ? '' : `<span class="pwarn">⚠︎ ${esc(st.msg)}</span>`}${locked(r.lock) ? '<span class="lock">🔒 由啟動參數提供（docker -e），此處唯讀</span>' : ''}</div></div>`; });
+  const fb = $('#mFallbacks').value.split(',').map(x => x.trim()).filter(Boolean);
+  rows.push(`<div class="srow"><div class="sl"><b>備援模型</b><span class="sd">主要模型失敗或額度用完時依序改用；可跨供應商（例如本機模型掛掉時改用雲端）</span></div>
+    <div class="sc"><div class="fbchips">${fb.map((f, i) => `<span class="chip">${esc(f)}${roleState(f).ok ? '' : ' ⚠︎'}<button type="button" data-fb="${i}" aria-label="移除">×</button></span>`).join('') || '<span class="sd">未設定</span>'}</div>
+      <select class="inp" id="fbAdd" ${locked('model.fallbacks') ? 'disabled' : ''}>${modelOptions('chat', '', '＋ 加入備援模型…')}</select></div></div>`);
+  $('#roleRows').innerHTML = rows.join('');
+  $('#roleRows').querySelectorAll('.mpick').forEach(box => {
+    const role = ROLES.find(r => r.k === box.dataset.role), sel = box.querySelector('select'), inp = box.querySelector('input');
+    sel.onchange = () => { if (sel.value === '__custom') { inp.hidden = false; inp.focus(); return; }
+      inp.hidden = true; $(role.id).value = sel.value; renderRoles(); };
+    inp.onchange = () => { $(role.id).value = inp.value.trim(); renderRoles(); };
+  });
+  $('#roleRows').querySelectorAll('[data-fb]').forEach(b => b.onclick = () => { fb.splice(+b.dataset.fb, 1); $('#mFallbacks').value = fb.join(', '); setDirty(true); renderRoles(); });
+  const add = $('#fbAdd'); add.onchange = () => { let v = add.value;
+    if (v === '__custom') v = (prompt('備援模型（供應商/模型）', '') || '').trim();
+    if (v && !fb.includes(v)) { fb.push(v); $('#mFallbacks').value = fb.join(', '); setDirty(true); } renderRoles(); };
+  const ready = readyProviders().map(p => p.label), missing = (CAT?.providers || []).filter(p => p.popular && p.status === 'no_key').map(p => p.label);
+  const hint = !CAT ? '正在載入各供應商的模型清單…' : !ready.length ? '還沒有可用的供應商：在下方填入 API 金鑰並按「連線」，或開啟 Ollama 使用本機模型。'
+    : `可選：${ready.join('、')}${missing.length ? `。${missing.join('、')} 尚未連線，填入金鑰後就會出現在清單中` : ''}`;
+  $('#roleHint').hidden = false; $('#roleHint').textContent = hint;
+}
+function provCard(p){
+  const s = (SET?.providers || []).find(x => x.name === p.name) || {};
+  const status = p.status || 'checking';
+  const n = (p.models || []).filter(m => m.kind !== 'other').length;
+  const badge = {ready: `✓ ${p.local ? '可用' : '已連線'} · ${n} 個模型`, no_key: p.local ? '未設定' : '未設定金鑰', error: '✕ 連線失敗',
+                 offline: p.local ? '○ 未執行' : '⚠︎ 無法連線', checking: '檢查中…'}[status];
+  const uses = ROLES.filter(r => provOf($(r.id).value) === p.name).map(r => `<span class="tb t-builtin">${r.name}</span>`).join('');
+  let body = '';
+  if (p.name === 'ollama') body = `<div class="pkey"><span class="sd" style="flex:1">${status === 'ready' ? `已下載 ${n} 個模型` : '在這台電腦下載並執行開放模型'}</span><button class="btn sm primary" type="button" data-act="local">管理本機模型</button></div>`;
+  else if (s.key_source === 'env') body = `<div class="pkey"><span class="badge env">🔒 啟動參數 ${esc(s.key_env)} ${esc(s.key_masked)}</span></div>`;
+  else if (p.needs_key !== false || p.custom) body = `<div class="pkey"><input class="inp" type="password" autocomplete="off" placeholder="${p.has_key ? `已設定 ${esc(s.key_masked || '')}；輸入新金鑰可更換` : '貼上 API 金鑰'}">
+      <button class="btn sm primary" type="button" data-act="connect">${p.has_key ? '更換' : '連線'}</button>${p.has_key && s.key_source === 'gui' ? '<button class="btn sm" type="button" data-act="clear">清除</button>' : ''}${p.has_key ? '<button class="btn icon sm tip-left" type="button" data-act="retry" aria-label="重新檢查">' + ic('refresh') + '</button>' : ''}</div>
+      ${p.key_url && !p.has_key ? `<a class="sd" href="${esc(p.key_url)}" target="_blank" rel="noopener">取得 ${esc(p.label)} 金鑰 ↗</a>` : ''}`;
+  else body = `<div class="pkey"><span class="sd" style="flex:1">${esc(s.base_url || '')}</span></div>`;
+  const err = p.error && status !== 'ready' ? `<div class="perr">${esc(p.error)}</div>` : (p.error ? `<div class="sd">${esc(p.error)}</div>` : '');
+  const sug = PROV_SUG[p.name] ? `<div class="psug">要把主要模型改為 <b>${esc(PROV_SUG[p.name])}</b> 嗎？<button class="btn sm primary" type="button" data-act="use" data-spec="${esc(PROV_SUG[p.name])}">設為主要模型</button></div>` : '';
+  return `<div class="pcard st-${status}" data-p="${esc(p.name)}"><div class="ph"><b>${esc(p.label || s.label || p.name)}</b>${uses}<span class="pbadge">${badge}</span></div>${body}${err}${sug}<div class="pmsg sd"></div></div>`;
+}
+function renderProviders(){
+  if (!SET) return;
+  const list = CAT?.providers || SET.providers.map(p => ({...p, status: 'checking', popular: ['anthropic', 'openai', 'gemini', 'ollama', 'openrouter', 'deepseek'].includes(p.name), local: ['ollama', 'lmstudio', 'vllm'].includes(p.name)}));
+  const main = [], more = [];
+  for (const p of list) ((p.popular || p.has_key || p.custom || p.status === 'ready') ? main : more).push(p);
+  $('#provList').innerHTML = main.map(provCard).join('');
+  $('#provMoreList').innerHTML = more.map(provCard).join('');
+  $('#provMore').hidden = !more.length;
+  paintIcons($('#provList')); paintIcons($('#provMoreList'));
+}
+async function provAction(card, act, btn){
+  const name = card.dataset.p, msg = card.querySelector('.pmsg');
+  if (act === 'local') { openLocal(true); return; }
+  if (act === 'use') { const spec = btn.dataset.spec;
+    const r = await post('/api/settings', {model: {default: spec}}, 'PUT');
+    SET.model = r.model; SET.selected = r.selected; SET.needs_setup = r.needs_setup; $('#mDefault').value = spec; delete PROV_SUG[name];
+    $('#setBanner').innerHTML = ''; $('#setSaved').textContent = `✓ 主要模型已改為 ${spec}`; renderRoles(); renderProviders(); refreshStatus(false); return; }
+  if (act === 'retry') { btn.disabled = true; await loadCatalog(true, [name]); return; }
+  const key = act === 'clear' ? '' : (card.querySelector('input')?.value || '').trim();
+  if (act === 'connect' && !key) { msg.textContent = '請先貼上金鑰'; return; }
+  if (act === 'clear' && !confirm('清除這個供應商的金鑰？使用它的模型將無法運作。')) return;
+  btn.disabled = true; msg.textContent = act === 'clear' ? '清除中…' : '儲存並驗證中…';
+  const r = await fetch(`/api/providers/${encodeURIComponent(name)}/key?token=` + encodeURIComponent(token), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key})});
+  const j = await r.json().catch(() => ({}));
+  btn.disabled = false;
+  if (!r.ok) { msg.textContent = '✕ ' + (j.detail || '失敗'); return; }
+  const fresh = await api('/api/settings'); SET.providers = fresh.providers; SET.selected = fresh.selected; SET.needs_setup = fresh.needs_setup; SET.provider_error = fresh.provider_error;
+  if (CAT) { const i = CAT.providers.findIndex(x => x.name === name); if (i >= 0) CAT.providers[i] = j.provider; else CAT.providers.push(j.provider); }
+  if (j.suggest_default) PROV_SUG[name] = j.suggest_default; else delete PROV_SUG[name];
+  renderRoles(); renderProviders();
+  const m2 = $(`.pcard[data-p="${name}"] .pmsg`);
+  if (m2) m2.textContent = act === 'clear' ? '已清除金鑰' : j.provider.status === 'ready' ? `✓ 金鑰有效，已載入 ${j.provider.models.filter(m => m.kind !== 'other').length} 個模型，可在上方選用` : '金鑰已儲存，但驗證失敗（見上方訊息）';
+  refreshStatus(false);
+}
+['#provList', '#provMoreList'].forEach(id => $(id).addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b) provAction(b.closest('.pcard'), b.dataset.act, b); }));
+['#provList', '#provMoreList'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.pcard input')) { e.preventDefault(); e.target.closest('.pcard').querySelector('[data-act="connect"]')?.click(); } }));
 function addCustomRow(name = '', url = ''){
   const d = document.createElement('div'); d.className = 'krow'; d.dataset.custom = '1';
   d.innerHTML = `<input class="inp" placeholder="名稱，例如 mylab" value="${esc(name)}"><input class="inp" placeholder="http://gpu-box:8000/v1" value="${esc(url)}"><span style="font-size:12px;color:var(--muted)">金鑰請在上方設定（儲存後出現）</span><span style="text-align:right"><button class="btn icon sm danger tip-left" type="button" aria-label="移除端點">${ic('trash')}</button></span>`;
@@ -1455,7 +1580,7 @@ async function renderVaultBox(){
     if (!r.ok) { alert((await r.json()).detail); return; } renderVaultBox(); };
 }
 async function openSettings(firstRun = false, pane = null){
-  SET = await api('/api/settings'); renderSettings(); loadAccount(true);
+  SET = await api('/api/settings'); renderSettings(); loadAccount(true); loadCatalog();
   if (pane || firstRun || SET.needs_setup) showPane(pane || 'model'); $('#setSaved').textContent = ''; $('#testResult').textContent = '';
   $('#settings').classList.add('open');
 }
@@ -1467,9 +1592,6 @@ function collectSettings(){
                         currency_rate: $('#uRate').value, enforce_budget: $('#uEnforce').checked},
                 skills: {auto_create: $('#sAuto').value, project_dir: $('#sProject').value, interop: $('#sInterop').checked},
                 api_keys: {}, custom_providers: {}, pricing: {}};
-  document.querySelectorAll('#keyRows .krow').forEach(r => {
-    const v = r.querySelector('input').value.trim();
-    if (r.dataset.clear) body.api_keys[r.dataset.p] = ''; else if (v) body.api_keys[r.dataset.p] = v; });
   document.querySelectorAll('#customRows .krow').forEach(r => { const [n, u] = r.querySelectorAll('input'); if (n.value.trim() && u.value.trim()) body.custom_providers[n.value.trim()] = {base_url: u.value.trim()}; });
   document.querySelectorAll('#priceTable tbody tr').forEach(tr => { const name = tr.querySelector('input').value.trim(); if (!name) return;
     const p = {}; tr.querySelectorAll('[data-k]').forEach(i => { if (i.value !== '') p[i.dataset.k] = +i.value; }); body.pricing[name] = p; });
@@ -1484,8 +1606,9 @@ $('#setSave').onclick = async () => {
   const r = await fetch('/api/settings?token=' + encodeURIComponent(token), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(collectSettings())});
   const data = await r.json();
   if (!r.ok) { $('#setSaved').textContent = '✕ ' + (data.detail || '儲存失敗'); return; }
-  SET = data; renderSettings();
-  $('#setSaved').textContent = '✓ 已儲存並套用' + (data.ignored_locked?.length ? `（${data.ignored_locked.length} 項由啟動參數鎖定，未變更）` : '');
+  SET = data; renderSettings(); loadCatalog();
+  $('#setSaved').textContent = '✓ 已儲存並套用' + (data.ignored_locked?.length ? `（${data.ignored_locked.length} 項由啟動參數鎖定，未變更）` : '')
+    + (data.warnings?.length ? '　⚠︎ ' + data.warnings.join('；') : '');
   refreshStatus(false);
 };
 $('#testModel').onclick = async () => {
@@ -1493,12 +1616,9 @@ $('#testModel').onclick = async () => {
   const r = await api('/api/settings/test', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({model: $('#mDefault').value})});
   $('#testResult').innerHTML = r.ok ? `<span style="color:var(--ok)">✓ ${esc(r.model)} 回應「${esc(r.reply)}」· ${r.latency_ms} ms</span>` : `<span style="color:var(--err)">✕ ${esc(r.error || '失敗')}</span>`;
 };
-$('#loadModels').onclick = async () => {
-  const spec = $('#mDefault').value || ''; const prov = spec.includes('/') ? spec.split('/')[0] : prompt('要載入哪個供應商的模型？例如 openai', 'openai');
-  if (!prov) return; const r = await api('/api/providers/' + encodeURIComponent(prov) + '/models');
-  $('#modelList').innerHTML = (r.models || []).map(m => `<option value="${esc(prov + '/' + m)}">`).join('');
-  $('#testResult').textContent = r.models?.length ? `已載入 ${r.models.length} 個 ${prov} 模型，點選輸入框即可挑選` : ('無法載入：' + (r.error || '無資料'));
-};
+$('#refreshModels').onclick = async () => { $('#testResult').textContent = '重新整理中…'; await loadCatalog(true);
+  const n = (CAT?.providers || []).filter(p => p.status === 'ready').reduce((a, p) => a + p.models.length, 0);
+  $('#testResult').textContent = `已更新：${n} 個模型`; };
 
 // ---------------- theme + halftone (brand: navy → teal → mint dot field) ----------------
 function isDark(){ const t = document.documentElement.dataset.theme; return t === 'dark' || (t === 'auto' && !matchMedia('(prefers-color-scheme: light)').matches); }
@@ -1538,16 +1658,15 @@ const AUTO_USE = new Set();
 const LOC_LABEL = {local: '本機', host: 'Docker 主機（host.docker.internal）', sidecar: 'Ollama 容器（compose）', remote: '遠端主機'};
 const CAP_LABEL = {tools: '工具', vision: '看圖', thinking: '思考', embedding: '向量', insert: '補全'};
 const FIT_ORDER = {great: 0, ok: 1, slow: 2, no: 3};
-function srcFromSettings(){ return String(SET?.model?.default || '').startsWith('ollama/') ? 'local' : 'cloud'; }
-function setSrc(src){
-  SRC = src;
-  document.querySelectorAll('#srcSeg button').forEach(b => b.classList.toggle('on', b.dataset.src === src));
-  $('#localPanel').hidden = src !== 'local';
-  ['#keySec', '#customSec', '#cloudModelSec'].forEach(id => $(id).hidden = src === 'local');
+function openLocal(on = true){
+  SRC = on ? 'local' : 'cloud';
+  $('#localWrap').hidden = !on;
   clearInterval(lPoll); lPoll = null;
-  if (src === 'local') { loadLocal(); lPoll = setInterval(() => { if ($('#settings').classList.contains('open') && SRC === 'local') loadLocal(true); else { clearInterval(lPoll); lPoll = null; } }, 5000); }
+  if (on) { loadLocal(); $('#localWrap').scrollIntoView({behavior: 'smooth', block: 'start'});
+    lPoll = setInterval(() => { if ($('#settings').classList.contains('open') && SRC === 'local') loadLocal(true); else { clearInterval(lPoll); lPoll = null; } }, 5000); }
+  else loadCatalog(false, ['ollama']);
 }
-document.querySelectorAll('#srcSeg button').forEach(b => b.onclick = () => setSrc(b.dataset.src));
+$('#localClose').onclick = () => openLocal(false);
 document.querySelectorAll('#lFilter button').forEach(b => b.onclick = () => { LFILTER = b.dataset.f;
   document.querySelectorAll('#lFilter button').forEach(x => x.classList.toggle('on', x === b)); renderLocalModels(); });
 let lLoading = false;
@@ -1656,6 +1775,7 @@ async function useLocal(id, kind){
   if (SET) { SET.model[role] = r.model; SET.needs_setup = false; }
   (role === 'embedding' ? $('#mEmb') : $('#mDefault')).value = r.model;
   if (role === 'default') $('#mVision').checked = (allLocal().find(m => m.id === id)?.caps || []).includes('vision');
+  await loadCatalog(true, ['ollama']);
   $('#setSaved').textContent = `✓ 已改用本機模型 ${r.model}，免 API 金鑰`; $('#setBanner').innerHTML = '';
   refreshStatus(false);
 }
@@ -1673,7 +1793,7 @@ function onLocalEvent(ev){
     if (ev.state === 'done') for (const key of [...AUTO_USE]) { const [id, kind] = key.split('|');
       if (id === ev.model) { AUTO_USE.delete(key); useLocal(id, kind).then(() => loadLocal(true)); } }
   }
-  if (ev.type === 'local_changed') { if (!$('#localPanel').hidden && $('#settings').classList.contains('open')) loadLocal(true); footLocal(); }
+  if (ev.type === 'local_changed') { if (!$('#localWrap').hidden && $('#settings').classList.contains('open')) loadLocal(true); footLocal(); }
 }
 let FOOT_LOCAL = '';
 async function footLocal(model){

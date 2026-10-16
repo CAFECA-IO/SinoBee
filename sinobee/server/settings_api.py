@@ -64,8 +64,25 @@ def settings_payload(rt) -> dict:
         "locked": sorted(cfg.locked),
         "all_toolsets": ALL_TOOLSETS,
         "needs_setup": needs_setup,
+        "selected": _selected(cfg),
         "provider_error": rt.provider_error,
     }
+
+
+def _role_usable(spec: str, cfg) -> bool:
+    prov = split_model(spec)[0]
+    return not needs_key(prov, cfg) or bool(resolve_key(prov, cfg)[0])
+
+
+def _selected(cfg) -> dict:
+    """The model chosen for each role and whether its provider can be used (key present)."""
+    out = {}
+    for role in ("default", "auxiliary", "escalate", "embedding"):
+        spec = cfg.get(f"model.{role}")
+        out[role] = {"spec": spec, "ok": bool(spec) and _valid_spec(spec) and _role_usable(spec, cfg)}
+    out["fallbacks"] = [{"spec": f, "ok": _valid_spec(f) and _role_usable(f, cfg)}
+                        for f in (cfg.get("model.fallbacks") or [])]
+    return out
 
 
 def _context_info(cfg) -> dict:
@@ -186,8 +203,16 @@ def register(app: FastAPI, rt_getter) -> None:
                 key_ignored.append(name)  # provided at startup; GUI cannot override
                 continue
             cfg.secrets.set(name, (key or "").strip() or None)
+        if body.get("api_keys"):
+            from ..providers import catalog
+            catalog.forget()
         rt.reload()
-        return {**settings_payload(rt), "ignored_locked": ignored + [f"api_key:{n}" for n in key_ignored]}
+        payload = settings_payload(rt)
+        names = {"default": "主要模型", "auxiliary": "輔助模型", "escalate": "升級模型", "embedding": "Embedding 模型"}
+        warnings = [f"{names[r]} {v['spec']} 的供應商還沒有設定金鑰" for r, v in payload["selected"].items()
+                    if r in names and v["spec"] and not v["ok"]]
+        warnings += [f"備援模型 {f['spec']} 的供應商還沒有設定金鑰" for f in payload["selected"]["fallbacks"] if not f["ok"]]
+        return {**payload, "ignored_locked": ignored + [f"api_key:{n}" for n in key_ignored], "warnings": warnings}
 
     @app.post("/api/settings/test")
     async def test_model(body: dict | None = None):
@@ -207,6 +232,38 @@ def register(app: FastAPI, rt_getter) -> None:
                     "reply": resp.message.text()[:200]}
         except Exception as e:
             return {"ok": False, "model": spec, "error": str(e)[:600]}
+
+    @app.get("/api/models/catalog")
+    async def models_catalog(refresh: bool = False):
+        """Every usable provider with its models (live list, cached), for the model pickers."""
+        from ..providers import catalog
+        rt = rt_getter()
+        return {**await catalog.catalog(rt.config, refresh=refresh), "selected": _selected(rt.config)}
+
+    @app.put("/api/providers/{name}/key")
+    async def set_provider_key(name: str, body: dict):
+        """Save (or clear) one provider's key right away, then verify it by listing that provider's models."""
+        from ..providers import ALIASES, catalog
+        rt = rt_getter()
+        cfg = rt.config
+        name = ALIASES.get(name.strip().lower(), name.strip().lower())
+        if name not in provider_names(cfg):
+            raise HTTPException(404, f"unknown provider {name}")
+        if resolve_key(name, cfg)[1] == "env":
+            raise HTTPException(409, "這個金鑰由啟動參數提供，無法在介面修改")
+        key = (body.get("key") or "").strip()
+        if key and (len(key) < 8 or any(c.isspace() for c in key)):
+            raise HTTPException(400, "金鑰格式看起來不正確（太短或含空白）")
+        cfg.secrets.set(name, key or None)
+        catalog.forget()
+        rt.reload()
+        entry = await catalog.provider_models(name, rt.config, refresh=True)
+        out = {"provider": entry, "selected": _selected(rt.config)}
+        main = rt.config.get("model.default")
+        main_ok = _valid_spec(main) and _role_usable(main, rt.config)
+        if key and entry["status"] == "ready" and not main_ok:
+            out["suggest_default"] = catalog.suggest_default(entry)
+        return out
 
     @app.get("/api/providers/{name}/models")
     async def provider_models(name: str):
