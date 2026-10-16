@@ -80,8 +80,9 @@ async def schema_snapshot(service, c: Connection) -> list[dict]:
 
 def _client(config, method: str, path: str, scope: str | None, **kw) -> httpx.Response:
     try:
-        return httpx.request(method, f"{account.base_url(config)}{path}",
-                             headers=account.auth_headers(config, scope) if scope else account.UA, timeout=60, **kw)
+        if scope:
+            return account.send(config, method, f"{account.base_url(config)}{path}", scope=scope, timeout=60, **kw)
+        return httpx.request(method, f"{account.base_url(config)}{path}", headers=account.UA, timeout=60, **kw)
     except httpx.HTTPError as e:
         raise HubToolError(f"無法連線到 sinobee.ai：{e}") from None
 

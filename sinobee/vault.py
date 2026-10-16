@@ -121,8 +121,7 @@ class VaultClient:
 
     def _req(self, method: str, path: str, **kw) -> httpx.Response:
         try:
-            r = httpx.request(method, f"{self.base}{path}", headers=account.auth_headers(self.config, "vault:rw"),
-                              timeout=self.timeout, **kw)
+            r = account.send(self.config, method, f"{self.base}{path}", scope="vault:rw", timeout=self.timeout, **kw)
         except httpx.HTTPError as e:
             raise VaultError(f"無法連線到 sinobee.ai：{e}") from None
         if r.status_code == 401:

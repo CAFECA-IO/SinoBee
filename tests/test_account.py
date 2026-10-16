@@ -56,8 +56,13 @@ def hub(monkeypatch):
         kw.pop("timeout", None)
         with real(transport=transport) as c:
             return c.get(url, **kw)
+    def request(method, url, **kw):
+        kw.pop("timeout", None)
+        with real(transport=transport) as c:
+            return c.request(method, url, **kw)
     monkeypatch.setattr(account.httpx, "post", post)
     monkeypatch.setattr(account.httpx, "get", get)
+    monkeypatch.setattr(account.httpx, "request", request)
     monkeypatch.setattr(account.time, "sleep", lambda s: None)
     return h
 
@@ -114,3 +119,55 @@ def test_web_api_login(config, hub):
         assert "sbh_" not in json.dumps(st)
         assert c.post("/api/account/logout").json()["ok"]
         assert c.get("/api/account").json()["signed_in"] is False
+
+
+def test_signed_requests_and_refresh(config, monkeypatch):
+    """P5: the install signs every request with its Ed25519 key and refreshes its 15-minute token in time."""
+    import base64
+    import hashlib
+    from urllib.parse import urlsplit
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    pub = base64.b64decode(account.signing_public_key(config))
+    assert len(pub) == 32 and account.signing_public_key(config) == base64.b64encode(pub).decode(), "stable key"
+    verify_key = Ed25519PublicKey.from_public_bytes(pub)
+    seen = []
+
+    def check(req: httpx.Request):
+        u = urlsplit(str(req.url))
+        body = req.read()
+        msg = "\n".join([req.method, u.path + (f"?{u.query}" if u.query else ""), req.headers["x-sb-timestamp"],
+                         req.headers["x-sb-nonce"], hashlib.sha256(body).hexdigest()])
+        verify_key.verify(base64.b64decode(req.headers["x-sb-signature"]), msg.encode())  # raises if wrong
+        seen.append((req.method, u.path, req.headers.get("authorization"), body))
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        check(req)
+        if req.url.path == "/api/v1/device/token":
+            assert json.loads(req.content) == {"grant_type": "refresh_token", "refresh_token": "sbr_" + "r" * 40}
+            return httpx.Response(200, json={"access_token": "sbh_" + "n" * 40, "refresh_token": "sbr_" + "s" * 40, "expires_in": 900})
+        return httpx.Response(200, json={"ok": True})
+
+    real = httpx.Client
+
+    def call(method, url, **kw):
+        kw.pop("timeout", None)
+        with real(transport=httpx.MockTransport(handler)) as c:
+            return c.request(method, url, **kw)
+    monkeypatch.setattr(account.httpx, "request", call)
+    monkeypatch.setattr(account.httpx, "post", lambda url, **kw: call("POST", url, **kw))
+
+    account.save(config, {"access_token": "sbh_" + "a" * 40, "refresh_token": "sbr_" + "r" * 40, "expires_in": 900, "scope": "llm vault:rw"})
+    r = account.send(config, "POST", "https://sinobee.ai/api/v1/vault/key?x=1", scope="vault:rw", json={"wrapped": "abc"})
+    assert r.status_code == 200 and seen[-1][2] == "Bearer sbh_" + "a" * 40
+    # about to expire → refreshed (signed) before the call, and both tokens rotate
+    info = json.loads(config.secrets.get_secret(account.ACCOUNT))
+    info["expires_at"] = 0
+    config.secrets.set_secret(account.ACCOUNT, json.dumps(info))
+    account.send(config, "GET", "https://sinobee.ai/api/v1/me")
+    assert [s[1] for s in seen[-2:]] == ["/api/v1/device/token", "/api/v1/me"]
+    assert seen[-1][2] == "Bearer sbh_" + "n" * 40
+    assert config.secrets.get_secret(account.REFRESH) == "sbr_" + "s" * 40
+    # multipart bodies are signed over the exact bytes sent
+    account.send(config, "POST", "https://sinobee.ai/api/v1/shares", files={"files": ("a.txt", b"hello")}, data={"share": "{}"})
+    assert b"hello" in seen[-1][3]

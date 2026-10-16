@@ -300,8 +300,7 @@ def attach_files(config, messages: list[dict]) -> list[dict]:
 
 def _req(config, method: str, path: str, **kw) -> httpx.Response:
     try:
-        return httpx.request(method, f"{account.base_url(config)}{path}", headers=account.auth_headers(config, "shares:write"),
-                             timeout=600, **kw)
+        return account.send(config, method, f"{account.base_url(config)}{path}", scope="shares:write", timeout=600, **kw)
     except httpx.HTTPError as e:
         raise ShareError(f"無法連線到 sinobee.ai：{e}") from None
 
@@ -402,11 +401,10 @@ def fetch_share(config, url: str) -> tuple[str, dict, str]:
     sid = m.group(1)
     base = url.strip().split("/s/")[0]
     base = re.sub(r"/[a-z]{2}(?:-[A-Z]{2})?$", "", base)
-    headers = dict(account.UA)
-    if account.token(config) and base.rstrip("/") == account.base_url(config):
-        headers.update(account.auth_headers(config))
+    mine = bool(account.token(config)) and base.rstrip("/") == account.base_url(config)
     try:
-        r = httpx.get(f"{base}/api/v1/shares/{sid}", headers=headers, timeout=60)
+        r = account.send(config, "GET", f"{base}/api/v1/shares/{sid}", timeout=60) if mine else \
+            httpx.get(f"{base}/api/v1/shares/{sid}", headers=account.UA, timeout=60)
     except httpx.HTTPError as e:
         raise ShareError(f"無法連線到 {base}：{e}") from None
     if r.status_code in (401, 403):
@@ -422,14 +420,13 @@ def import_share(config, memory, url: str) -> dict:
     from .types import Message
     sid, data, base = fetch_share(config, url)
     doc = data["doc"]
-    headers = dict(account.UA)
-    if account.token(config) and base.rstrip("/") == account.base_url(config):
-        headers.update(account.auth_headers(config))
+    mine = bool(account.token(config)) and base.rstrip("/") == account.base_url(config)
     folder = Path(config.workspace) / "imports" / sid
     names: dict[str, str] = {}
     for f in doc.get("files") or []:
         try:
-            r = httpx.get(f"{base}/api/shares/{sid}/files/{f['id']}", headers=headers, timeout=120)
+            fu = f"{base}/api/shares/{sid}/files/{f['id']}"
+            r = account.send(config, "GET", fu, timeout=120) if mine else httpx.get(fu, headers=account.UA, timeout=120)
             if r.status_code == 200 and len(r.content) <= MAX_FILE:
                 folder.mkdir(parents=True, exist_ok=True)
                 safe = re.sub(r"[^\w.\-]+", "_", f["name"])[:120] or f"file-{f['id']}"
