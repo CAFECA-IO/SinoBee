@@ -321,6 +321,20 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .wkapv{border:1px solid var(--warn);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:color-mix(in srgb,var(--warn) 8%,var(--panel2))}
 .wkapv .row{margin-top:8px;justify-content:flex-end}
 .wkempty{color:var(--muted);font-size:12px;padding:8px 2px}
+.proc{margin:2px 0 10px;border-radius:10px}
+.proc-h{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;padding:6px 4px;color:var(--muted);font:inherit;font-size:14px;cursor:pointer;text-align:left;border-radius:8px}
+.proc-h:hover{background:var(--panel2)}
+.proc-st{display:inline-flex;width:18px;justify-content:center;flex:none}.proc-st svg.i{width:15px;height:15px;color:var(--ok)}
+.proc-st .spin{width:13px;height:13px;border-width:2px}.proc-st .warn{color:var(--warn);font-weight:700}
+.proc-t{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proc.running .proc-t{color:var(--ink)}
+.proc-th{display:flex;gap:6px;flex:none}.proc-th img{width:46px;height:30px;object-fit:cover;border-radius:5px;border:1px solid var(--line)}
+.proc-fi{display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:30px;padding:0 4px;border-radius:5px;border:1px solid var(--line);font-size:10px;color:var(--muted);background:var(--panel2)}
+.proc-d{flex:none;font-size:12px;font-variant-numeric:tabular-nums}
+.proc-cv{flex:none;display:inline-flex;transition:transform .15s}.proc-cv svg.i{width:16px;height:16px}.proc.open .proc-cv{transform:rotate(90deg)}
+.proc-b{padding:4px 0 2px 26px;border-left:2px solid var(--line);margin-left:12px}
+.proc-b .arts{margin-left:0}.msg.assistant.interim{font-size:13px;color:var(--muted);background:none;padding:2px 0 6px}
+@media (max-width:760px){.proc-th img{width:34px;height:24px}.proc-th .proc-fi{min-width:28px;height:24px}.proc-th > :nth-child(n+3){display:none}}
 .wkstep{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px}
 .wkstep .n{color:var(--muted);min-width:22px}.wkstep.bad b{color:var(--err)}.wkstep .err-t{flex-basis:100%;font-size:12px}
 .arts{margin:4px 0 8px 18px;padding:8px 10px;border:1px dashed var(--line);border-radius:10px;background:var(--panel2)}
@@ -666,6 +680,7 @@ const ICONS = {
   thumbDown: '<g transform="rotate(180 12 12)"><path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3zm0 0 4-8a2.5 2.5 0 0 1 2.5 2.5V9h5.6a2 2 0 0 1 2 2.3l-1.3 8a2 2 0 0 1-2 1.7H7"/></g>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  chevron: '<path d="m9 18 6-6-6-6"/>',
   checkCircle: '<circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16.5 9.5"/>',
   download: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6"/>',
@@ -741,8 +756,62 @@ function showArtifacts(callId, files){
   const anchor = toolEls[callId]; const html = artStrip(files, '產出檔案');
   if (anchor) { anchor.insertAdjacentHTML('afterend', html); const el = anchor.nextElementSibling; el.querySelectorAll('[data-info]').forEach(fillInfo); }
   else add(html, 'note');
+  const g = anchor?.closest('.proc')?._proc; if (g) { g.arts.push(...files); procPaint(g); }
   $('#chat').scrollTop = 1e9;
 }
+// ---------- the work a turn does (tool calls, interim notes, files) collapses into one line ----------
+let PROC = null, REPLAY = false;
+const PROC_VERB = {shell: ['執行', '個指令'], read_file: ['讀取', '個檔案'], write_file: ['寫入', '個檔案'], edit_file: ['修改', '個檔案'],
+  list_dir: ['查看', '個資料夾'], search_files: ['搜尋檔案', '次'], web_search: ['搜尋網路', '次'], web_fetch: ['讀取', '個網頁'],
+  browser: ['操作瀏覽器', '次'], screenshot: ['截圖', '次'], mouse: ['操作滑鼠', '次'], keyboard: ['輸入', '次'],
+  skill_view: ['載入技能', '次'], skill_run: ['執行技能', '次'], db_query: ['查詢資料庫', '次'], delegate: ['派出子代理', '次'],
+  run_workflow: ['啟動流程', '次'], memory_save: ['記住', '件事'], memory_search: ['查詢記憶', '次']};
+function procGroup(){
+  if (PROC) return PROC;
+  clearEmpty();
+  const el = document.createElement('div'); el.className = 'proc running';
+  el.innerHTML = `<button type="button" class="proc-h" aria-expanded="false"><span class="proc-st"></span><span class="proc-t"></span>` +
+    `<span class="proc-th"></span><span class="proc-d"></span><span class="proc-cv">${ic('chevron')}</span></button><div class="proc-b" hidden></div>`;
+  $('#chat').appendChild(el);
+  const g = {el, body: el.querySelector('.proc-b'), counts: {}, n: 0, errs: 0, arts: [], t0: Date.now(), t1: null, running: true, current: null, live: !REPLAY};
+  el._proc = g;
+  el.querySelector('.proc-h').onclick = () => { const open = g.body.hidden; g.body.hidden = !open; el.classList.toggle('open', open);
+    el.querySelector('.proc-h').setAttribute('aria-expanded', String(open)); };
+  PROC = g; procPaint(g); return g;
+}
+function procText(g){
+  if (g.running && g.current) { const v = PROC_VERB[g.current]; return `正在${v ? v[0] : (TOOL_LABEL[g.current] || g.current)}…`; }
+  const parts = Object.entries(g.counts).sort((a, b) => b[1] - a[1]).map(([t, n]) => { const v = PROC_VERB[t];
+    return v ? `${v[0]} ${n} ${v[1]}` : `${TOOL_LABEL[t] || t} ×${n}`; });
+  let txt = parts.slice(0, 3).join('、') + (parts.length > 3 ? '…' : '');
+  if (!txt) return g.running ? '思考中…' : '過程';
+  const extra = [g.n > 1 ? `${g.n} 步` : '', g.errs ? `${g.errs} 個失敗` : ''].filter(Boolean).join('，');
+  return txt + (extra ? `（${extra}）` : '');
+}
+function procDur(g){
+  if (!g.live && !g.durS) return '';
+  const sec = g.durS != null && !g.live ? g.durS : Math.max(0, Math.round(((g.t1 || Date.now()) - g.t0) / 1000));
+  return sec >= 60 ? `${Math.floor(sec / 60)} 分 ${sec % 60} 秒` : `${sec} 秒`;
+}
+function procPaint(g){
+  const el = g.el;
+  el.classList.toggle('running', g.running); el.classList.toggle('bad', !g.running && g.errs > 0 && g.errs === g.n);
+  el.querySelector('.proc-st').innerHTML = g.running ? '<span class="spin"></span>' : (g.errs ? '<span class="warn">!</span>' : ic('check'));
+  el.querySelector('.proc-t').textContent = procText(g);
+  el.querySelector('.proc-d').textContent = procDur(g);
+  const imgs = g.arts.filter(f => f.kind === 'image'), others = g.arts.filter(f => f.kind !== 'image');
+  const shown = imgs.slice(0, 3).map(f => `<img src="${esc(fileUrl(f.path))}" alt="" title="${esc(f.name)}" loading="lazy">`)
+    .concat(others.slice(0, Math.max(0, 4 - Math.min(3, imgs.length))).map(f => `<span class="proc-fi" title="${esc(f.name)}">${esc(((f.name.split('.').pop()) || 'file').slice(0, 4).toUpperCase())}</span>`));
+  const more = g.arts.length - shown.length;
+  el.querySelector('.proc-th').innerHTML = shown.join('') + (more > 0 ? `<span class="proc-fi">+${more}</span>` : '');
+}
+function procClose(){
+  const g = PROC; if (!g) return;
+  g.running = false; g.current = null; g.t1 = g.t1 || Date.now();
+  g.el.querySelectorAll('details.tool.pending').forEach(d => { if (!REPLAY) return; d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
+  procPaint(g); PROC = null;
+}
+setInterval(() => { if (PROC && PROC.running && PROC.live) PROC.el.querySelector('.proc-d').textContent = procDur(PROC); }, 1000);
 const mdRenderer = {
   image({href, title, text}) {
     const url = fileUrl(href), cap = text || title || '';
@@ -907,15 +976,20 @@ function handle(ev, replay = false){
   switch (ev.type) {
     case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
     case 'notice': add('ⓘ ' + esc(ev.error || ev.message), 'note'); break;
-    case 'steer': if (ev.client_ref !== CLIENT_REF) add(`<span class="steer-tag">執行中補充</span>` + md(ev.text), 'msg user steer');
+    case 'steer': if (ev.client_ref !== CLIENT_REF) { procClose(); } if (ev.client_ref !== CLIENT_REF) add(`<span class="steer-tag">執行中補充</span>` + md(ev.text), 'msg user steer');
       add('ⓘ 已收到，會在目前這一步結束後納入。', 'note'); break;
     case 'steer_applied': add('✓ 已把你的補充納入任務', 'note'); break;
     case 'artifact': showArtifacts(ev.id, ev.files); break;
-    case 'assistant': add(md(ev.text), 'msg assistant'); break;
+    case 'assistant':
+      if (ev.final === false) { const g = procGroup(); const d = document.createElement('div'); d.className = 'msg assistant interim'; d.innerHTML = md(ev.text);
+        g.body.appendChild(d); enhance(d); break; }
+      procClose(); add(md(ev.text), 'msg assistant'); break;
     case 'tool_call': {
       const d = document.createElement('details'); d.className = 'tool pending';
       d.innerHTML = `<summary><span class="st"></span> <b>${esc(ev.name)}</b> ${esc(summarize(ev.name, ev.arguments))}<span class="dur"></span></summary><div class="body">${esc(JSON.stringify(ev.arguments, null, 2))}</div>`;
-      clearEmpty(); $('#chat').appendChild(d); toolEls[ev.id] = d; $('#chat').scrollTop = 1e9; break; }
+      const g = procGroup(); g.body.appendChild(d); toolEls[ev.id] = d;
+      g.n += 1; g.counts[ev.name] = (g.counts[ev.name] || 0) + 1; g.current = ev.name; procPaint(g);
+      $('#chat').scrollTop = 1e9; break; }
     case 'tool_result': {
       const d = toolEls[ev.id]; if (!d) break;
       d.classList.remove('pending');
@@ -924,7 +998,10 @@ function handle(ev, replay = false){
       if (ev.duration_s != null) d.querySelector('.dur').textContent = `${ev.duration_s} 秒`;
       if (ev.error) d.classList.add('err');
       d.querySelector('.body').innerHTML += '\n\n── 結果 ──\n' + esc(ev.preview) + (ev.image ? `<img src="data:image/png;base64,${ev.image}">` : '');
-      if (ev.image) d.open = true; break; }
+      if (ev.image) d.open = true;
+      { const g = d.closest('.proc')?._proc; if (g) { if (ev.error) g.errs += 1; g.current = null; g.t1 = Date.now();
+          if (ev.image) g.arts.push({path: `data:image/png;base64,${ev.image}`, name: '截圖', kind: 'image'}); procPaint(g); } }
+      break; }
     case 'approval_request': pendingApproval = ev.request_id; $('#apReason').innerHTML = `<b>${esc(ev.tool)}</b>：${esc(DANGER_ZH[ev.reason] || ev.reason)}`;
       $('#apArgs').textContent = JSON.stringify(ev.arguments, null, 2); $('#approval').classList.add('open'); break;
     case 'approval_resolved': if (ev.request_id === pendingApproval) $('#approval').classList.remove('open'); break;
@@ -941,6 +1018,7 @@ function handle(ev, replay = false){
       loadSide(); refreshStatus(false); break; }
     case 'status': if (/空白回覆|停止|activated|pre-approved|較強的模型|完成檢查|流程「/.test(ev.message || '')) add('ⓘ ' + esc(ev.message), 'note'); break;
     case 'turn_end': {
+      procClose();
       // mark any tool card still spinning (e.g. force-stopped) as interrupted
       document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
       { const c = resultCard(ev); if (ev.artifacts?.length && c) c.insertAdjacentHTML('beforeend', artStrip(ev.artifacts, '本次產出')); }
@@ -996,7 +1074,7 @@ async function submitText(mode){
   let text = $('#input').value.trim(); if (!text && !PENDING.length) return;
   try { text = (text || '請查看附件') + await uploadPending(); }
   catch (err) { add('ⓘ ' + esc(err.message), 'note'); sendState('idle'); return; }
-  add(`<span class="steer-tag">${mode === 'interrupt' ? '停止並改做' : '執行中補充'}</span>` + md(text), 'msg user steer'); $('#input').value = '';
+  procClose(); add(`<span class="steer-tag">${mode === 'interrupt' ? '停止並改做' : '執行中補充'}</span>` + md(text), 'msg user steer'); $('#input').value = '';
   ws.send(JSON.stringify({type: 'message', session_id: sessionId, text, client_ref: CLIENT_REF, mode}));
   if (mode === 'interrupt') $('#rbText').textContent = '正在停止，接著改做新的要求…';
 }
@@ -1008,35 +1086,40 @@ $('#form').onsubmit = async e => {
   if (await interceptDsn(text)) return;
   try { text = (text || '請查看附件') + await uploadPending(); }
   catch (err) { add('ⓘ ' + esc(err.message), 'note'); sendState('idle'); return; }
-  add(md(text), 'msg user'); $('#input').value = '';
+  procClose(); add(md(text), 'msg user'); $('#input').value = '';
   if (!sessionId) $('#title').textContent = text.slice(0, 60);
   ws.send(JSON.stringify({type:'message', session_id: sessionId, text, client_ref: CLIENT_REF}));
 };
 $('#input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#form').requestSubmit(); } });
-$('#newBtn').onclick = () => { sessionId = null; setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
+$('#newBtn').onclick = () => { PROC = null; sessionId = null; setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
 $('#stopBtn').onclick = () => ws.send(JSON.stringify({type:'cancel', session_id: sessionId}));
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); tab = b.dataset.tab; loadSide(); });
 
 async function openSession(s){
-  sessionId = s.id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {};
+  sessionId = s.id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {}; PROC = null; REPLAY = true;
   const [msgs, turns, arts] = await Promise.all([api('/api/sessions/' + s.id), api('/api/sessions/' + s.id + '/turns'),
     api('/api/sessions/' + s.id + '/artifacts').catch(() => [])]);
   const chat = $('#chat');
   for (const [idx, m] of msgs.entries()) {
     const before = chat.childElementCount;
     const text = typeof m.content === 'string' ? m.content : (m.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n');
+    if (m.role === 'user') procClose();
     if (m.role === 'user' && text.startsWith('[使用者在執行中補充指示]')) add(`<span class="steer-tag">執行中補充</span>` + md(text.replace('[使用者在執行中補充指示] ', '').split('\n（請把這個補充')[0]), 'msg user steer');
     else if (m.role === 'user') add(md((text.startsWith('<skill_content') ? text.split('\n').pop() : text).replace(/\n?\[image omitted\]/g, '')), 'msg user');
     else if (m.role === 'assistant') {
       const fail = text.match(/^\[上一次嘗試失敗：(.*)\]$/);
       if (fail) add(`<b>✕ 這一輪未完成：${esc(fail[1])}</b>`, 'result error');
       else if (/^Model error:/.test(text)) add(`<b>✕ 這一輪未完成</b><details><summary>技術細節</summary><pre>${esc(text)}</pre></details>`, 'result error');
-      else if (text) add(md(text), 'msg assistant');
+      else if (text) handle({type: 'assistant', text, final: !(m.tool_calls || []).length}, true);
       for (const t of m.tool_calls || []) handle({type:'tool_call', id: t.id, name: t.name, arguments: t.arguments}, true); }
     else if (m.role === 'tool') handle({type:'tool_result', id: m.tool_call_id, preview: text.slice(0, 3000), error: text.startsWith('ERROR')}, true);
     for (let k = before; k < chat.childElementCount; k++) chat.children[k].dataset.idx = idx;
+    if (PROC) PROC.el.dataset.idx = idx;
   }
+  const replayLast = PROC;
+  if (!RUNNING[s.id]) procClose();
+  REPLAY = false; if (replayLast && RUNNING[s.id]) { replayLast.live = true; }
   for (const a of Array.isArray(arts) ? arts : []) showArtifacts(a.id, a.files);
   for (const t of Array.isArray(turns) ? turns : []) {
     const els = [...chat.querySelectorAll('[data-idx]')].filter(e => +e.dataset.idx <= t.end_idx);
