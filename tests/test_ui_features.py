@@ -103,3 +103,19 @@ def test_mermaid_source_survives_sanitizer():
 def test_session_title_strips_markdown():
     from sinobee.agent.loop import _title
     assert _title("看圖 ![a.png](/tmp/x/a.png)") == "看圖 [a.png]"
+
+
+def test_favicon_and_app_icons_are_served_without_a_token(home, provider):
+    from fastapi.testclient import TestClient
+    from sinobee.agent import Runtime
+    from sinobee.config import Config
+    from sinobee.server import create_app
+    c = TestClient(create_app(Runtime(Config.load(), provider=provider)))
+    for path, mime in (("/favicon.ico", "image/x-icon"), ("/icons/favicon.svg", "image/svg+xml"),
+                       ("/apple-touch-icon.png", "image/png"), ("/icons/icon-512.png", "image/png"),
+                       ("/icons/manifest.webmanifest", "application/manifest+json")):
+        r = c.get(path)
+        assert r.status_code == 200 and r.headers["content-type"].startswith(mime), path
+    assert c.get("/icons/../index.html").status_code == 404
+    html = c.get("/").text
+    assert 'rel="icon" href="/icons/favicon.svg"' in html and 'rel="manifest"' in html

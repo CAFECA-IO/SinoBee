@@ -41,6 +41,28 @@ def register(app: FastAPI, rt_getter) -> None:
             raise HTTPException(404)
         return FileResponse(f, headers={"Cache-Control": "public, max-age=604800"})
 
+    icons = (STATIC / "icons").resolve()
+    icon_types = {".svg": "image/svg+xml", ".ico": "image/x-icon", ".png": "image/png",
+                  ".webmanifest": "application/manifest+json"}
+
+    def icon(name: str) -> FileResponse:
+        f = (icons / name).resolve()
+        if f.parent != icons or not f.is_file() or f.suffix not in icon_types:
+            raise HTTPException(404)
+        return FileResponse(f, media_type=icon_types[f.suffix], headers={"Cache-Control": "public, max-age=86400"})
+
+    @app.get("/icons/{name}")
+    async def icons_file(name: str):
+        return icon(name)
+
+    @app.get("/favicon.ico")
+    async def favicon():
+        return icon("favicon.ico")
+
+    @app.get("/apple-touch-icon.png")
+    async def apple_icon():
+        return icon("apple-touch-icon.png")
+
     @app.get("/api/files")
     async def get_file(path: str, download: bool = False):
         f = resolve_file(rt_getter().config, path)

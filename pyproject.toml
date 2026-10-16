@@ -42,7 +42,7 @@ sinobee = "sinobee.cli:main"
 include = ["sinobee*"]
 
 [tool.setuptools.package-data]
-"sinobee.server" = ["static/*", "static/vendor/*"]
+"sinobee.server" = ["static/*", "static/vendor/*", "static/icons/*"]
 "sinobee" = ["bundled_skills/**/*"]
 "sinobee.work" = ["workflows/*.yaml"]
 
