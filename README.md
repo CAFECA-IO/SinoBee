@@ -322,7 +322,7 @@ sinobee chat -m anthropic/claude-sonnet-4-5        # 終端機對話
 sinobee run "幫我整理 ~/Downloads 裡的 PDF 並列出清單"
 sinobee doctor                                      # 檢查模型、瀏覽器、桌面控制
 sinobee keys list|set <provider>|rm <provider>
-sinobee memory list|search <q>|forget <id>|pin|unpin|stats|compress [--apply]
+sinobee memory list|search <q>|forget <id>|pin|unpin|restore|stats|maintain|compress [--apply]
 sinobee skills list|install|export|trust|validate …
 sinobee usage month --by model
 sinobee work                                        # 背景工作：過去／現在／接下來

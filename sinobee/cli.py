@@ -172,6 +172,13 @@ def _memory(args) -> None:
         print(store.update(args.query[0], pinned=False))
     elif args.action == "consolidate":
         print(store.consolidate(archive_after_days=float(cfg.get("memory.archive_after_days", 90))))
+    elif args.action == "restore":
+        print(store.restore(args.query[0]))
+    elif args.action == "maintain":
+        from .memory.maintain import maintain
+        rt = _runtime(args)
+        print(json.dumps(asyncio.run(maintain(rt, reason="cli", force=True)), ensure_ascii=False, indent=1,
+                         default=str))
     elif args.action == "stats":
         print(json.dumps(store.stats(), ensure_ascii=False, indent=1))
     elif args.action == "compress":
@@ -681,7 +688,8 @@ def main(argv: list[str] | None = None) -> None:
             sp.add_argument("--host")
             sp.add_argument("--port", type=int)
     m = sub.add_parser("memory")
-    m.add_argument("action", choices=["list", "search", "forget", "pin", "unpin", "consolidate", "stats", "compress"])
+    m.add_argument("action", choices=["list", "search", "forget", "pin", "unpin", "restore", "consolidate", "maintain",
+                                      "stats", "compress"])
     m.add_argument("query", nargs="*")
     m.add_argument("--tier", help="core | short | long | permanent | archive")
     m.add_argument("--hard", action="store_true")

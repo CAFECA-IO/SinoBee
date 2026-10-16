@@ -42,6 +42,30 @@ def _db(ctx: ActionContext):
     return service(ctx.rt.config)
 
 
+# ------------------------------------------------------------------ memory upkeep
+@action("memory.maintain")
+async def memory_maintain(ctx: ActionContext, **_):
+    """Scheduled memory upkeep (consolidate, expire short-term, merge when large). No model unless merging."""
+    from ..memory.maintain import maintain
+    ctx.activity("整理記憶中")
+    rep = await maintain(ctx.rt, reason="schedule", force=True)
+    c = rep.get("consolidation", {})
+    comp = rep.get("compression") or {}
+    lines = [f"短期記憶轉長期 {len(c.get('kept_short', []))} 則、到期封存 {len(c.get('expired_short', []))} 則",
+             f"久未使用封存 {len(c.get('archived', []))} 則、升為核心 {len(c.get('promoted', []))} 則、"
+             f"合併重複 {len(c.get('merged', []))} 則"]
+    if comp:
+        lines.append(f"合併相關記憶 {len(comp.get('merged', []))} 組，省下 {comp.get('saved_chars', 0)} 字")
+        if comp.get("forget_candidates"):
+            lines.append(f"建議檢查是否刪除：{'、'.join(comp['forget_candidates'][:10])}")
+    if rep.get("core_over_limit"):
+        lines.append("注意：永久的核心記憶已超過核心容量上限")
+    after = rep.get("after", {})
+    lines.append("目前：" + "、".join(f"{n} {after.get(k, {}).get('count', 0)} 則" for k, n in
+                                    (("permanent", "永久"), ("core", "核心"), ("short", "短期"), ("long", "長期"))))
+    return {"summary": "\n".join(lines), **rep}
+
+
 # ------------------------------------------------------------------ database health
 SIZE_SQL = {
     "mysql": ("SELECT table_name, table_rows, data_length + index_length, data_length, index_length, "

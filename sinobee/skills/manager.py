@@ -480,6 +480,24 @@ class SkillManager:
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:n]
 
+    def suggest(self, query: str, available_tools: set[str] | None = None) -> Skill | None:
+        """The best-ranked reviewed skill whose trigger words occur in the request (None if no clear match).
+        Latin triggers must match whole words, so "memory" does not fire on "memoryless"."""
+        ql = (query or "").lower()
+        for s, _score in self.search(query, 3, available_tools):
+            if s.trust not in ("builtin", "verified", "local") or s.disabled:
+                continue
+            for trig in s.triggers:
+                t = trig.strip().lower()
+                if len(t) < 2:
+                    continue
+                if re.fullmatch(r"[a-z0-9 .\-]+", t):
+                    if re.search(r"(?<![a-z0-9])" + re.escape(t) + r"(?![a-z0-9])", ql):
+                        return s
+                elif t in ql:
+                    return s
+        return None
+
     def _entry(self, s: Skill) -> str:
         st = self.stats(s.name)
         bits = []

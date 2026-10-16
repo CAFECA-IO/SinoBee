@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 from .store import RANK, Memory, MemoryStore, tokenize
 
@@ -109,9 +110,17 @@ def _merged_meta(group: list[Memory]) -> dict:
 async def compress(store: MemoryStore, aux=None, *, query: str | None = None, ids: list[str] | None = None,
                    tier: str | None = None, kind: str | None = None, tag: str | None = None,
                    target_chars: int | None = None, include_pinned: bool = False, dry_run: bool = True,
-                   limit: int = 200, threshold: float = 0.2) -> dict:
+                   limit: int = 200, threshold: float = 0.2, min_age_days: float = 0.0,
+                   exclude_core: bool = False) -> dict:
+    """min_age_days / exclude_core are used by automatic maintenance: it leaves memories that were just written or
+    changed (they may belong to the task in progress) and the core prompt block (its size has its own rule)."""
     mems = store.select(query=query, ids=ids, tier=tier, kind=kind, tag=tag, limit=limit)
     mems = [m for m in mems if m.tier != "archive" or tier == "archive"]
+    if min_age_days:
+        cutoff = time.time() - min_age_days * 86400
+        mems = [m for m in mems if m.updated_at <= cutoff]
+    if exclude_core:
+        mems = [m for m in mems if m.tier != "core"]
     skipped_pinned = [m.id for m in mems if m.pinned and not include_pinned]
     mems = [m for m in mems if include_pinned or not m.pinned]
     before = sum(len(m.content) for m in mems)

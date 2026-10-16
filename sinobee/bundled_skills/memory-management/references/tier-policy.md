@@ -18,7 +18,7 @@ long --(importance < 0.3, used < 2x, idle > 90 days)--> archive
 core --(over 1500 chars)--> least important non-permanent entry moves to long
 permanent: none of the arrows above apply; only an explicit user request changes or removes it
 ```
-Consolidation runs after reflection and with `sinobee memory consolidate`.
+Consolidation runs automatically: in the background after a turn (at most every `maintain_interval_hours`), in the daily 記憶整理 job, after reflection, and on demand with `memory_maintain` or `sinobee memory maintain`.
 
 ## Choosing a tier
 | Signal in the request or the task | Tier | Importance |
@@ -42,6 +42,11 @@ while a wrong long memory lingers.
 | `core_char_limit` | 1500 | size of the always-in-prompt core |
 | `half_life_days` | 30 | recency weighting in recall |
 | `write_approval` | false | stage every memory_save for the user's approval |
+| `auto_maintain` / `maintain_interval_hours` | true / 6 | background upkeep after turns |
+| `auto_compress` / `auto_compress_chars` / `auto_compress_min_age_days` | true / 12000 / 1 | automatic merging when memory is large |
+| `schedule` / `schedule_time` | true / 03:17 | the daily 記憶整理 job (created once) |
+| `flush_on_compact` | true | save key facts of conversation that is summarised away |
+| `working_char_limit` | 3000 | working memory above half of this is condensed when the context fills up |
 
 ## Safety
 - Every write is scanned; text that looks like a secret or a prompt injection is refused.

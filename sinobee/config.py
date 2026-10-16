@@ -56,9 +56,19 @@ DEFAULTS: dict[str, Any] = {
         "half_life_days": 30,
         "short_ttl_days": 14,       # short-term memories expire after this; useful ones are kept as long-term
         "archive_after_days": 90,   # unused low-importance long-term memories are archived after this
+        "auto_maintain": True,      # tidy memory in the background after turns (rate-limited)
+        "maintain_interval_hours": 6,
+        "auto_compress": True,      # automatic maintenance may merge related memories (reversible)
+        "auto_compress_chars": 12000,   # ... when short + long memory is larger than this
+        "auto_compress_min_age_days": 1,  # ... and only memories unchanged for this long
+        "schedule": True,           # create the daily "記憶整理" job in the work tab (once)
+        "schedule_time": "03:17",
+        "flush_on_compact": True,   # context near the limit: save key facts of the summarised part
+        "working_char_limit": 3000,     # working memory above half of this is condensed under context pressure
     },
     "skills": {
         "index_mode": "auto",       # auto | all | retrieve
+        "auto_suggest": True,       # name the matching skill (trigger words) with its quick start in the context
         "index_all_threshold": 20,
         "retrieve_n": 6,
         "auto_create": "auto",      # auto (create as experimental) | suggest (needs user approval) | off

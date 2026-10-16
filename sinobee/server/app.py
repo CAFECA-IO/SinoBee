@@ -135,7 +135,22 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.get("/api/memories/stats")
     async def memory_stats():
-        return rt().memory.stats()
+        m = rt().memory
+        rep = m.meta_get("maintain.last_report") or {}
+        return {**m.stats(), "last_maintain": {"at": rep.get("at"), "reason": rep.get("reason"),
+                                               "compression": rep.get("compression")}}
+
+    @app.post("/api/memories/maintain")
+    async def memory_maintain():
+        from ..memory.maintain import maintain
+        return await maintain(rt(), reason="manual", force=True)
+
+    @app.post("/api/memories/{mid}/restore")
+    async def memory_restore(mid: str):
+        try:
+            return rt().memory.restore(mid)
+        except Exception as e:
+            raise HTTPException(400, str(e))
 
     @app.post("/api/memories")
     async def add_memory(body: dict):

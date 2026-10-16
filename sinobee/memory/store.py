@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS context_checkpoints(
   session_id TEXT PRIMARY KEY, upto_idx INTEGER NOT NULL, summary TEXT NOT NULL, model TEXT, created_at REAL);
 CREATE TABLE IF NOT EXISTS pending_writes(
   id TEXT PRIMARY KEY, kind TEXT, payload TEXT, created_at REAL);
+CREATE TABLE IF NOT EXISTS memory_meta(key TEXT PRIMARY KEY, value TEXT, updated_at REAL);
 """
 
 
@@ -438,6 +439,42 @@ class MemoryStore:
                 self.db.execute("DELETE FROM memories_fts WHERE id=?", (sid,))
             self.db.commit()
         return {**res, "replaced": [s for s in source_ids if s != res["id"]]}
+
+    def restore(self, mid: str) -> dict:
+        """Undo a compression (or any content update): the memories `mid` replaced become current again and
+        `mid` is archived. Works on the merged memory's id."""
+        with self._lock:
+            m = self.get(mid)
+            if not m:
+                raise MemoryError_(f"memory {mid} not found")
+            rows = self.db.execute("SELECT * FROM memories WHERE superseded_by=?", (mid,)).fetchall()
+            if not rows:
+                raise MemoryError_(f"memory {mid} did not replace anything")
+            for r in rows:
+                self.db.execute("UPDATE memories SET superseded_by=NULL, updated_at=? WHERE id=?", (time.time(), r["id"]))
+                self._index(r["id"], r["content"], json.loads(r["tags"] or "[]"))
+            self.db.execute("UPDATE memories SET tier='archive', pinned=0, expires_at=NULL, updated_at=? WHERE id=?",
+                            (time.time(), mid))
+            self.db.execute("DELETE FROM memories_fts WHERE id=?", (mid,))
+            self.db.commit()
+        return {"id": mid, "status": "restored", "restored": [r["id"] for r in rows]}
+
+    def meta_get(self, key: str, default=None):
+        with self._lock:
+            r = self.db.execute("SELECT value FROM memory_meta WHERE key=?", (key,)).fetchone()
+        if not r:
+            return default
+        try:
+            return json.loads(r["value"])
+        except (TypeError, json.JSONDecodeError):
+            return default
+
+    def meta_set(self, key: str, value) -> None:
+        with self._lock:
+            self.db.execute("INSERT INTO memory_meta(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE "
+                            "SET value=excluded.value, updated_at=excluded.updated_at",
+                            (key, json.dumps(value, ensure_ascii=False, default=str), time.time()))
+            self.db.commit()
 
     def stats(self) -> dict:
         """Capacity overview per retention class, for memory_stats / the UI / the CLI."""

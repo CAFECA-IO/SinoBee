@@ -3,11 +3,11 @@ name: memory-management
 description: Manages the agent's layered memory - distills the key points of a task into task, short-term, long-term or permanent memories, compresses memory when it grows, and adds or removes memories on the user's instruction. Use when the user asks to remember, forget, pin, review, clean up or compress memories (記住、永久記住、忘記、刪除記憶、整理記憶、壓縮記憶、你記得什麼), or at the end of a long task to keep what matters.
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   author: sinobee
   sinobee-tags: memory, recall, compression, knowledge
-  sinobee-triggers: 記住, 記得, 永久記住, 不要忘記, 忘記, 忘掉, 刪除記憶, 移除記憶, 整理記憶, 壓縮記憶, 記憶, 你記得什麼, remember, forget, memory, pin, compress memory
-  sinobee-requires-tools: memory_save, memory_search, memory_update, memory_forget, memory_compress, memory_stats, working_memory
+  sinobee-triggers: 記住, 永久記住, 不要忘記, 別忘了, 忘記, 忘掉, 刪除記憶, 移除記憶, 清除記憶, 整理記憶, 壓縮記憶, 你記得什麼, 你還記得, 記憶整理, remember this, remember that, forget that, forget about, compress memory, clean up memory
+  sinobee-requires-tools: memory_save, memory_search, memory_update, memory_forget, memory_compress, memory_stats, memory_maintain, memory_restore, working_memory
   sinobee-quickstart: "remember -> memory_search first, then memory_save(tier=short|long|core; permanent only if the user says forever). forget -> memory_forget(query=...) preview, show it, then memory_forget(ids=[...], confirm=true). compress -> memory_stats, memory_compress(dry_run=true), show the merges, then dry_run=false."
 ---
 
@@ -18,6 +18,22 @@ metadata:
 - A long or multi-step task has just finished and produced facts worth keeping (distill step below).
 
 Do not use it for the scratch notes of the task you are doing right now: keep those in `working_memory`.
+
+# What runs automatically (you do not need to do it)
+SinoBee keeps memory tidy in code, without you choosing this skill:
+- **After a turn:** at most every 6 hours (`memory.maintain_interval_hours`), a background run expires short
+  memories, keeps the reused ones and archives stale long ones. When short + long memory grows past
+  `memory.auto_compress_chars`, it also merges related memories. Permanent, core and memories changed in the
+  last day are never touched.
+- **Daily job:** the same run is scheduled as the job 記憶整理 in the 工作 tab (03:17 by default). The user can
+  change the time or disable it.
+- **Near the model limit:** while a task runs, the shrinking happens in this order:
+  1. recalled memories are cut to the top 2;
+  2. an oversized `working_memory` is condensed;
+  3. only then is older conversation summarised;
+  4. the key facts of the summarised part are saved as short-term memories (tag `context-flush`).
+
+You still use this skill when the user asks, and to choose what is worth remembering.
 
 # The four layers
 | Layer | Where it lives | Lifetime | Use it for |
@@ -36,6 +52,9 @@ Details and edge cases: `references/tier-policy.md`.
 # Procedures
 
 ## A. Distill a finished task into memory
+Keep `working_memory` short while you work (goal, plan, next, key facts). Past ~1500 characters it is condensed
+automatically when the context fills up, so put long results in files, not in working memory.
+
 1. Read your `working_memory` and the outcome of the task.
 2. Pick at most 5 key points. Each is ONE self-contained statement with its subject, e.g.
    "SinoBee 專案的影片輸出在 videos/<slug>/out/final.mp4", not "輸出在 out/".
@@ -64,7 +83,8 @@ Details and edge cases: `references/tier-policy.md`.
    memory and confirmed it.
 5. Corrections are not removals: use `memory_update(id, content=...)`, which keeps the history.
 
-## D. Compress memory
+## D. Compress or tidy memory
+0. "整理記憶" without details: `memory_maintain()` runs the automatic upkeep now and reports what changed.
 1. `memory_stats` to see the size per layer and the core usage.
 2. `memory_compress(dry_run=true)`, optionally narrowed by `query`, `tier`, `kind` or `tag` and with a
    `target_chars` budget.
@@ -72,6 +92,8 @@ Details and edge cases: `references/tier-policy.md`.
 4. Apply with the same arguments and `dry_run=false`.
 5. If the result is still over `target_chars`, the report lists `forget_candidates`. Offer them to the user;
    never remove them without a yes.
+
+6. Undo a merge the user does not like: `memory_restore(id=<merged id>)` brings the originals back.
 
 How merging works and what it refuses to do: `references/compression.md`.
 

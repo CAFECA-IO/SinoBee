@@ -386,7 +386,22 @@ class WorkHub:
         for j in self.store.jobs():         # catch up schedules that passed while SinoBee was off
             if j["enabled"] and j["next_run_at"] is None and j["schedule"].get("type") not in ("manual",):
                 self.store.update_job(j["id"], next_run_at=S.next_run(j["schedule"], now, j.get("last_run_at")))
+        self.seed_system_jobs()
         self._loop_task = asyncio.get_event_loop().create_task(self._loop())
+
+    def seed_system_jobs(self) -> None:
+        """Built-in schedules, created once (a user who deletes or edits one keeps that choice)."""
+        cfg, mem = self.rt.config, self.rt.memory
+        if not cfg.get("memory.schedule", True) or mem.meta_get("seed.memory-maintenance"):
+            return
+        try:
+            hh, mm = str(cfg.get("memory.schedule_time", "03:17")).split(":")[:2]
+            job = self.create_job({"name": "記憶整理", "kind": "workflow", "workflow": "memory-maintenance",
+                                   "schedule": {"type": "daily", "time": f"{int(hh):02d}:{int(mm):02d}"},
+                                   "notes": "SinoBee 內建：每天整理一次記憶，可修改時間或停用。"}, created_by="system")
+            mem.meta_set("seed.memory-maintenance", job["id"])
+        except Exception:  # noqa: BLE001 - never block start-up
+            log.exception("could not create the memory maintenance job")
 
     async def stop(self) -> None:
         if self._loop_task:

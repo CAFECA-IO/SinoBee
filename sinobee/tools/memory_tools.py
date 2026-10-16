@@ -160,6 +160,27 @@ def memory_stats(ctx: ToolContext):
     return ctx.memory.stats()
 
 
+@tool("memory_maintain", "memory",
+      "Tidy memory now (the same upkeep that also runs automatically): expire short-term memories (keeping the "
+      "reused ones), archive stale unimportant ones, and merge related memories when memory is large. Never "
+      "touches permanent or core memories and never deletes. Use when the user asks to 整理記憶 / clean up memory.",
+      {"properties": {}})
+async def memory_maintain(ctx: ToolContext):
+    from ..memory.maintain import maintain
+    rt = ctx.state.get("runtime")
+    if rt is None:
+        return "ERROR: runtime unavailable"
+    return await maintain(rt, reason="tool", force=True, emit=ctx.emit)
+
+
+@tool("memory_restore", "memory",
+      "Undo a merge or an update: give the id of the memory that replaced others (from memory_compress, the "
+      "maintenance report or memory_update). The replaced memories come back and that one is archived.",
+      {"properties": {"id": {"type": "string"}}, "required": ["id"]})
+def memory_restore(ctx: ToolContext, id: str):
+    return ctx.memory.restore(id)
+
+
 @tool("session_search", "memory",
       "Full-text search over all past conversations (episodic memory). Returns snippets with session ids.",
       {"properties": {"query": {"type": "string"}, "k": {"type": "integer"}}, "required": ["query"]})
@@ -195,4 +216,9 @@ def working_memory(ctx: ToolContext, action: str, key: str | None = None, value:
         return "ERROR: invalid action/key"
     if ctx.emit:
         ctx.emit("working_memory", dict(wm))
-    return json.dumps(wm, ensure_ascii=False, indent=2) if wm else "(empty)"
+    out = json.dumps(wm, ensure_ascii=False, indent=2) if wm else "(empty)"
+    size, limit = sum(len(str(v)) for v in wm.values()), int(ctx.config.get("memory.working_char_limit", 3000))
+    if size > limit // 2:
+        out += (f"\n[note: working memory is {size} characters; keep it to the key points (goal, plan, next, key "
+                "facts) and put long results in files - it is condensed automatically when the context fills up]")
+    return out

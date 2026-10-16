@@ -1010,8 +1010,9 @@ function handle(ev, replay = false){
     case 'approval_resolved': if (ev.request_id === pendingApproval) $('#approval').classList.remove('open'); break;
     case 'recall': add('🧠 想起：' + ev.memories.map(m => esc(m.content)).join('；'), 'note'); break;
     case 'memory': {
-      const verb = {update: '已更新記憶', forget: '已移除記憶', compress: '已壓縮記憶'}[ev.action] || '已記住';
-      const what = ev.action === 'compress' ? `省下 ${ev.saved_chars} 字` : ev.action === 'forget' ? (ev.ids || []).join('、') : (ev.content || ev.id);
+      const verb = {update: '已更新記憶', forget: '已移除記憶', compress: '已壓縮記憶', maintain: '已自動整理記憶'}[ev.action] || '已記住';
+      const what = ev.action === 'compress' ? `省下 ${ev.saved_chars} 字` : ev.action === 'maintain' ? `封存 ${ev.archived} 則、省下 ${ev.saved_chars} 字`
+        : ev.action === 'forget' ? (ev.ids || []).join('、') : (ev.content || ev.id);
       add(`🧠 ${verb}：` + esc(what), 'note learn'); break; }
     case 'skill': add(`🛠 技能 ${esc(ev.name)} ${esc(ev.status)}${ev.trust ? '（' + esc(ev.trust) + '）' : ''}`, 'note learn'); loadSide(); break;
     case 'learned': {
@@ -1154,8 +1155,11 @@ async function fillMemory(side){
   const cu = st.core_usage;
   bar.innerHTML = [['', '全部'], ...Object.entries(MEM_TIER)].map(([k, n]) =>
     `<button data-t="${k}" class="${MEM_FILTER === k ? 'on' : ''}">${n}${k ? ' ' + (st[k]?.count ?? 0) : ''}</button>`).join('')
-    + `<small>核心 ${cu.chars}/${cu.limit} 字${cu.over_limit ? '（超出）' : ''}${st.short_expiring_3d ? ` · ${st.short_expiring_3d} 則短期記憶 3 天內到期` : ''}</small>`;
+    + `<small>核心 ${cu.chars}/${cu.limit} 字${cu.over_limit ? '（超出）' : ''}${st.short_expiring_3d ? ` · ${st.short_expiring_3d} 則短期記憶 3 天內到期` : ''}`
+    + ` · 上次整理 ${st.last_maintain?.at ? new Date(st.last_maintain.at * 1000).toLocaleString() : '尚未'} <a href="#" id="memTidy">立即整理</a></small>`;
   bar.querySelectorAll('button').forEach(b => b.onclick = () => { MEM_FILTER = b.dataset.t; loadSide(); });
+  bar.querySelector('#memTidy').onclick = async e => { e.preventDefault(); e.target.textContent = '整理中…';
+    await post('/api/memories/maintain', {}); loadSide(); };
   side.appendChild(bar);
   for (const m of await api('/api/memories' + (MEM_FILTER ? '?tier=' + MEM_FILTER : ''))) {
     if (!MEM_FILTER && m.tier === 'archive') continue;

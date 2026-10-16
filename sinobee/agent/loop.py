@@ -304,18 +304,63 @@ class Agent:
                 int(self.config.get("skills.index_all_threshold", 20)), int(self.config.get("skills.retrieve_n", 6)))
         if recalled:
             self._emit("recall", {"memories": [m.brief() for m in recalled]})
-        block = build_context_block(recalled=recalled, skills_index=skills_index, working=self.ctx.working,
-                                    core_changes=self._core_changes())
+        brief = ""
         if "board_read" in self.tool_names:
             try:
                 from ..work.hub import get_hub
                 brief = get_hub(self.rt).board_brief(self.ctx.state["board_scope"])
             except Exception:  # noqa: BLE001
                 log.exception("blackboard unavailable")
-                brief = ""
-            if brief:
-                block = block.replace("\n</context>", "\n\n" + brief + "\n</context>")
+        self._ctx_parts = {"recalled": recalled, "skills_index": skills_index, "board": brief,
+                           "suggest": self._suggest_skill(query)}
+        return self._render_context()
+
+    def _suggest_skill(self, query: str) -> str:
+        """A skill whose trigger words appear in the request is named explicitly with its quick start, so the
+        model (weak ones especially) picks it instead of improvising. Already active skills are not repeated."""
+        if "skill_view" not in self.tool_names or not self.config.get("skills.auto_suggest", True):
+            return ""
+        try:
+            s = self.rt.skills.suggest(query, self.tool_names)
+        except Exception:  # noqa: BLE001
+            log.exception("skill suggestion failed")
+            return ""
+        if not s or s.name in self.ctx.state.get("skills_used", set()):
+            return ""
+        qs = f"\nQuick start: {s.quickstart}" if s.quickstart else ""
+        return (f'<suggested_skill name="{s.name}">This request matches the skill "{s.name}". Call '
+                f'skill_view(name="{s.name}") first and follow it.{qs}</suggested_skill>')
+
+    def _render_context(self) -> str:
+        """Rebuilt before every model call so working-memory changes made during the task are visible at once."""
+        p = getattr(self, "_ctx_parts", None) or {"recalled": [], "skills_index": "", "board": "", "suggest": ""}
+        index = "\n".join(x for x in (p["suggest"], p["skills_index"]) if x)
+        block = build_context_block(recalled=p["recalled"], skills_index=index, working=self.ctx.working,
+                                    core_changes=self._core_changes())
+        if p["board"]:
+            block = block.replace("\n</context>", "\n\n" + p["board"] + "\n</context>")
         return block
+
+    async def _memory_diet(self) -> bool:
+        """Context near the model limit: shrink the memory parts first (recalled memories, oversized working
+        memory) before older conversation is summarised. Returns True when something was made smaller."""
+        changed = False
+        p = getattr(self, "_ctx_parts", None)
+        if p and len(p["recalled"]) > 2:
+            p["recalled"] = p["recalled"][:2]
+            changed = True
+        limit = int(self.config.get("memory.working_char_limit", 3000))
+        wm = self.ctx.working
+        if wm and sum(len(str(v)) for v in wm.values()) > limit // 2:
+            from ..memory.working import compress_working
+            new = await compress_working(wm, self.rt.aux, limit // 2)
+            if new != wm:
+                wm.clear()
+                wm.update(new)
+                self._emit("working_memory", dict(wm))
+                self._event("工作記憶過長，已壓縮重點")
+                changed = True
+        return changed
 
     # ------------------------------------------------------------------ completion check & model escalation
     def _event(self, text: str) -> None:
@@ -457,8 +502,12 @@ class Agent:
             self._drain_inbox()
             prune_images(self.history, keep_last=2)
             budget = self._context_budget(max_tokens)
+            context_block = self._render_context()
             if estimate_tokens([self.system] + self.history, tool_specs, context_block) > budget * 0.8:
-                turn_start = await self._compact(budget, tool_specs, context_block, turn_start)
+                if await self._memory_diet():
+                    context_block = self._render_context()
+                if estimate_tokens([self.system] + self.history, tool_specs, context_block) > budget * 0.8:
+                    turn_start = await self._compact(budget, tool_specs, context_block, turn_start)
             msgs = [self.system] + self.history
             # attach volatile context to the newest *real* user message of this turn
             request = list(msgs)
@@ -492,9 +541,11 @@ class Agent:
                                                              estimate_tokens(request, tool_specs, context_block))
                     budget = self._context_budget(max_tokens)
                     before = len(self.history)
+                    dieted = await self._memory_diet()
+                    context_block = self._render_context()
                     turn_start = await self._compact(budget, tool_specs, context_block, turn_start,
                                                      force=True, keep_ratio=0.25, reason="overflow")
-                    if self._last_compaction_changed or len(self.history) != before:
+                    if dieted or self._last_compaction_changed or len(self.history) != before:
                         continue
                 from .errors import explain_error
                 error_info = explain_error(e)
@@ -616,6 +667,9 @@ class Agent:
             self._emit("budget", bs)
         self.last_turn_usage = turn_usage
         self._maybe_learn(turn_start, stats)
+        if self.depth == 0 and "memory_save" in self.tool_names:
+            from ..memory.maintain import maybe_maintain
+            maybe_maintain(self.rt, reason="turn", emit=self._emit)
         return final_text
 
     IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)\s]+\.(?:png|jpe?g|gif|webp))\)", re.I)
@@ -714,6 +768,12 @@ class Agent:
         in_turn = len(self.history) - turn_start
         self.history = res.messages[1:]
         self._persisted = len(self.history)
+        if res.summary and self.depth == 0 and self.config.get("memory.flush_on_compact", True) \
+                and "memory_save" in self.tool_names:
+            # what is summarised away stays recallable: its key facts become short-term memories
+            from ..memory.maintain import flush_to_memory
+            self.rt.spawn(flush_to_memory(self.rt, self.session_id, res.summary))
+            self._event("對話接近模型上限：較早內容已摘要，重點存入短期記憶")
         if res.summary:
             upto = self.rt.memory.last_index(self.session_id) + 1 - res.tail_len
             try:

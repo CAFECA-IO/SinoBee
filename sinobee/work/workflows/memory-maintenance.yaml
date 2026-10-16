@@ -1,0 +1,8 @@
+name: memory-maintenance
+title: 記憶整理
+description: 定期整理 SinoBee 的記憶：到期的短期記憶中，用得到的轉為長期、其餘封存；長期未用又不重要的記憶封存；記憶量過大時合併相關記憶。永久與核心記憶不會被動到，也不會刪除任何記憶。預設每天凌晨執行一次。
+nodes:
+  - id: maintain
+    title: 整理記憶
+    type: action
+    action: memory.maintain
