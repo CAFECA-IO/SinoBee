@@ -355,12 +355,12 @@ supervisord
  ├── Xvfb :99 (1440x900)        虛擬顯示器
  ├── fluxbox                    視窗管理器
  ├── x11vnc → websockify/noVNC  :6080 觀看/接手桌面
- └── sinobee serve              :8000 Web UI + API
+ └── sinobee serve              :10024 Web UI + API
 volumes: ~/.sinobee → config.yaml、settings.json、secrets.json、sinobee.db、skills/、browser-profile/
          ~/workspace → 專案（<project>/.sinobee/skills）
 ```
 
-`docker compose up -d` 後開啟 `http://localhost:8000`，左側對話、右側即時桌面。
+`docker compose up -d` 後開啟 `http://localhost:10024`，左側對話、右側即時桌面。
 
 ## 10. 設定與金鑰管理
 
@@ -542,6 +542,24 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
   | `final` 或 `deliver_draft` | action | 核准就做正式渲染與剪接；拒絕就以草稿品質交付。 |
 
 - 渲染伺服器連不上時，autopilot 會等待（最多 30 分鐘）而不是直接失敗。產出的影片、預覽與品管圖都會記成 run 的 artifact。
+- **素材包（production kit）**：
+  - **匯出**：`scripts/kit.py export` 在完成時由 `run.py` 自動執行，產生 `out/<片名>-kit.zip`。內容：
+    - 給人看的文件：劇本、人物、場景、風格、分鏡表等 Markdown；
+    - 給 SinoBee 再用的檔案：`bible.json`（可直接重用的企劃與 seeds），以及含 sha256 的 `kit.json`；
+    - 素材檔：定裝照、場景母版、首尾幀、語音、配樂與 LUT。
+  - **匯入**：流程輸入 `kit`（新的 `file` 輸入型別，可直接上傳）與 `kit_mode`（series／remake）。`skill.plan` 會先執行 `kit.py import`，再把匯入後的企劃交給企劃子代理，作為新企劃的起點。
+  - **鎖定**：每次合併 plan.json 後，`kit.py lock` 依 `kit.lock.json` 還原以下欄位：
+    - 角色的身分、側寫、聲線與定裝照；
+    - 場景描述與母版；
+    - 整體風格；
+    - remake 時另加 render seeds。
+
+    改了 id 但同名的角色會被改回素材包的 id，新增的角色與場景不受影響。
+  - **安全檢查**：匯入時拒絕以下素材包：
+    - 路徑跳脫（zip slip）；
+    - 非預期的檔案類型；
+    - 超過 4 GB 或 2000 個檔案；
+    - 校驗碼不符。
 - approval 節點新增 `on_reject: continue`：拒絕時輸出 `{approved: false}`、改走另一條分支，而不是讓整個流程失敗。
 
 **3. 完成檢查與模型升級**（`agent.verify`、`model.escalate`）

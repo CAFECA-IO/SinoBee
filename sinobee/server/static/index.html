@@ -2680,6 +2680,8 @@ function jfInputs(wf){
     if (s.type === 'connection') return `<label class="f">${lab}<select data-in="${esc(k)}"><option value="">（選擇連線）</option>${JF.conns.map(c => `<option value="${esc(c.id)}" ${c.id === val ? 'selected' : ''}>${esc(c.name)}（${DB_KIND_LABEL[c.kind]}）</option>`).join('')}</select></label>`;
     if (s.type === 'select') return `<label class="f">${lab}<select data-in="${esc(k)}">${(s.options || []).map((o, i) => `<option value="${esc(o)}" ${o === val ? 'selected' : ''}>${esc((s.labels || [])[i] || o)}</option>`).join('')}</select></label>`;
     if (s.type === 'bool') return `<div class="srow"><div class="sl"><b>${lab}</b></div><div class="sc sw-c"><input type="checkbox" class="sw" role="switch" data-in="${esc(k)}" ${val ? 'checked' : ''}></div></div>`;
+    if (s.type === 'file') return `<label class="f">${lab}<span style="display:flex;gap:6px"><input data-in="${esc(k)}" value="${esc(val)}" placeholder="${esc(s.placeholder || '檔案路徑，或按「上傳」')}" style="flex:1;min-width:0">
+      <input type="file" hidden data-up="${esc(k)}" accept="${esc(s.accept || '')}"><button type="button" class="btn sm" data-upbtn="${esc(k)}">上傳</button></span></label>`;
     return `<label class="f">${lab}<input data-in="${esc(k)}" value="${esc(val)}" placeholder="${esc(s.placeholder || '')}"></label>`;
   }).join('');
 }
@@ -2691,6 +2693,13 @@ function jfWhat(v){
   const sync = () => { JF.wf = $('#jfWf').value; const wf = JF.wfs.find(w => w.name === JF.wf); $('#jfWfDesc').textContent = wf?.description || ''; $('#jfIn').innerHTML = jfInputs(wf);
     if (!$('#jfName').value || JF.wfs.some(w => w.title === $('#jfName').value)) $('#jfName').value = wf?.title || ''; };
   $('#jfWf').onchange = sync; sync();
+  $('#jfIn').onclick = e => { const b = e.target.closest('[data-upbtn]'); if (b) { e.preventDefault(); $(`#jfIn [data-up="${b.dataset.upbtn}"]`).click(); } };
+  $('#jfIn').onchange = async e => { const f = e.target.closest('[data-up]'); if (!f || !f.files.length) return;
+    const btn = $(`#jfIn [data-upbtn="${f.dataset.up}"]`), fd = new FormData(); fd.append('files', f.files[0]);
+    btn.disabled = true; btn.textContent = '上傳中…';
+    try { const r = await fetch('/api/upload?token=' + encodeURIComponent(token), {method: 'POST', body: fd}); const j = await r.json();
+      if (!r.ok) throw new Error(j.detail || '上傳失敗'); $(`#jfIn [data-in="${f.dataset.up}"]`).value = j[0].path; }
+    catch (err) { alert(err.message); } finally { btn.disabled = false; btn.textContent = '上傳'; } };
 }
 function jfWhen(){
   document.querySelectorAll('#jfSched button').forEach(b => b.classList.toggle('on', b.dataset.v === JF.sched.type));

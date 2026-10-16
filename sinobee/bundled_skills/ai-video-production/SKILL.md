@@ -1,13 +1,13 @@
 ---
 name: ai-video-production
-description: Turns a one-line idea into a finished AI video (film, documentary, vlog, commercial, music or explainer) with the Universal AI Video Pipeline - script and audio-first timing, subject profiling matrix, consistency assets, shot grammar and keyframes, camera and subject dynamics, then post-production - rendered with MiniMax H3 on a ComfyUI server and assembled with ffmpeg. Use when the user asks to make, shoot, generate or edit a video, short film, clip, trailer, ad, documentary or vlog (做影片、拍短片、生成影片、短影音、紀錄片、廣告片、預告片、MV).
+description: Turns a one-line idea into a finished AI video plus a reusable production kit (zip with script, characters, locations, style, music, voices, shot language and reference images), and makes style-consistent sequels or remakes from such a kit (film, documentary, vlog, commercial, music or explainer) with the Universal AI Video Pipeline - script and audio-first timing, subject profiling matrix, consistency assets, shot grammar and keyframes, camera and subject dynamics, then post-production - rendered with MiniMax H3 on a ComfyUI server and assembled with ffmpeg. Use when the user asks to make, shoot, generate or edit a video, short film, clip, trailer, ad, documentary or vlog (做影片、拍短片、生成影片、短影音、紀錄片、廣告片、預告片、MV).
 license: MIT
 compatibility: Needs ffmpeg/ffprobe and a ComfyUI server with MiniMax H3 (fl2va; ref2va optional) reachable at COMFYUI_URL (default http://127.0.0.1:8188, e.g. through an SSH tunnel to a GPU server). TTS via edge-tts, macOS say or espeak-ng is optional.
 metadata:
-  version: 1.3.0
+  version: 1.4.0
   author: sinobee
   sinobee-tags: video, film, documentary, vlog, comfyui, minimax-h3, generation
-  sinobee-triggers: 影片, 短片, 拍片, 生成影片, 做影片, 短影音, 紀錄片, 廣告, 預告片, 動畫短片, MV, vlog, video, film, clip, trailer
+  sinobee-triggers: 影片, 短片, 拍片, 生成影片, 做影片, 短影音, 紀錄片, 廣告, 預告片, 動畫短片, MV, vlog, 續集, 素材包, video, film, clip, trailer, sequel
   sinobee-requires-tools: skill_run, read_file, write_file
   sinobee-entry: scripts/run.py
   sinobee-workflow: video-production
@@ -24,13 +24,16 @@ user's own camera footage (use ffmpeg directly for that).
 ```
 run_workflow(name="video-production", inputs={"intent": "<the user's request, in their words>"}, wait=false)
 ```
-Optional inputs: `aspect` (16:9 / 9:16 / 1:1), `length` (e.g. "30 秒"), `draft_only` (true = faster, no final render).
+Optional inputs: `aspect` (16:9 / 9:16 / 1:1), `length` (e.g. "30 秒"), `draft_only` (true = faster, no final render),
+`kit` (path of a production kit zip from an earlier film) and `kit_mode` (`series` = same characters/look, new story;
+`remake` = same film, change only what is asked).
 
 The workflow then runs on its own:
 1. A planner writes and checks the whole plan (script, profiles, locations, shots).
 2. It renders and QCs drafts and makes a draft preview.
 3. It asks the user to approve the costly final render. A "no" delivers the drafts.
 4. It renders the final version and assembles it.
+5. It exports the production kit `out/<title>-kit.zip` next to the film.
 
 After starting it, tell the user it is running. Progress, the preview, approvals and the finished film all
 appear in the 工作 tab. You do not need to read the rest of this file unless the user wants to change
@@ -72,6 +75,48 @@ Rules that prevent the usual mistakes:
 - **Don't stop to ask.** Do not stop after a step to ask whether to continue; keep calling until `done`,
   `blocked` or a real question for the user.
 
+# Production kit (素材包): export and reuse
+Every finished film also produces `videos/<slug>/out/<title>-kit.zip`. Always give the user both the film and the
+kit. The kit holds:
+
+| In the zip | Content |
+|---|---|
+| `script.md` | 劇本 |
+| `characters.md` | 人物設定: appearance, wardrobe, the four profiling fields, voice |
+| `locations.md` | 場景設定: description, light, palette, materials |
+| `style.md` | look, palette, camera habits, music direction, ambience, narrator voice, negative rules |
+| `shotlist.md` | 鏡頭語言: shot size, angle, lens, focus, composition, camera move, action, performance per shot |
+| `refs/`, `keyframes/` | character sheets and location masters (the identity anchors), keyframes |
+| `audio/voice/`, `audio/music/` | narration/dialogue audio and the background music |
+| `bible.json`, `kit.json` | the machine-readable plan with seeds; manifest with checksums |
+
+Commands (all with `skill_run(name="ai-video-production", script="scripts/kit.py", args="…")`):
+
+| Goal | args |
+|---|---|
+| Export again (e.g. after edits; add `--with-film` to include the mp4) | `export videos/<slug>` |
+| Look inside a kit the user attached | `show <kit.zip>` |
+| Sequel: same characters, places, look, music, voices; new story | `import <kit.zip> videos/<new-slug> --mode series` |
+| Remake: copy everything, then change what the user asked | `import <kit.zip> videos/<new-slug> --mode remake` |
+
+**Using a kit the user gives you:**
+1. `show` it.
+2. Import it into a NEW folder. `--mode series` is the default; use `--mode remake` when the user wants the same
+   film changed.
+3. Open the new `plan.json`. It already holds the kit's subjects, environments and style.
+   - **series:** write the new `title`, `intent`, `script.body` and `shots`.
+   - **remake:** edit only what the user asked for.
+   - **Ids:** reuse the kit's ids (S1, E1, …) in the shots. Add new subjects or places only with new ids.
+4. Run the autopilot as usual.
+
+What stays locked:
+- The kit's identity fields, locations, style, music and voices.
+- They are restored after every merge (`kit.lock.json`), so do not try to change them.
+- Only if the user explicitly wants a change, import again with `--unlock subjects,environments,style` (any of
+  these).
+
+The workflow does the same when its `kit` input is set.
+
 # Manual control (optional)
 The single steps are separate scripts. Call them as
 `skill_run(name="ai-video-production", script="scripts/<file>.py", args="<command> videos/<slug> …")`.
@@ -84,6 +129,7 @@ The single steps are separate scripts. Call them as
 | `qc.py` | project, clip |
 | `assemble.py` | `<folder>` |
 | `next.py` | `<folder>`: prints the exact next manual call |
+| `kit.py` | export, import, lock, show (production kit, see above) |
 
 Use `project.py set videos/<slug> <field.path> <value>` for small edits. The field reference is
 `references/project-schema.md`.
@@ -133,8 +179,11 @@ Use `project.py set videos/<slug> <field.path> <value>` for small edits. The fie
      `comfy_h3.py keyframe videos/<slug> --unit <id> --set` before rendering.
    - **Long renders.** Several minutes per unit is normal. Pass `timeout` as next.py says. If a call times
      out, the render keeps going in ComfyUI; run next.py again (it will say `collect`).
-4. **Deliver.** Send `videos/<slug>/out/final.mp4` (and `final.srt`) with two lines: what it shows and its
-   length, and what could be changed in another take.
+4. **Deliver.** Send `videos/<slug>/out/final.mp4` (and `final.srt`) and the kit `out/<title>-kit.zip`, with
+   three lines:
+   - what the film shows and its length;
+   - what could be changed in another take;
+   - that the kit makes a consistent sequel possible.
 
 # Gotchas
 - **H3 clip length:**
@@ -156,3 +205,4 @@ Use `project.py set videos/<slug> <field.path> <value>` for small edits. The fie
 - You looked at every QC sheet.
 - `out/final.mp4` exists, its duration matches `project.py plan` total_seconds (±0.2 s), and the user got the
   path.
+- `out/*-kit.zip` exists and the user got its path too. Check it with `kit.py show`.

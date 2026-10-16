@@ -22,11 +22,11 @@ shape) or `project.py set <folder> <field.path> <value>`. The scripts keep `rend
 ## subjects[]
 `id`, `name`, `alias` (the name used in English action text, e.g. Ling Feng), `kind` (person, animal, object, presenter, self), `appearance`, `wardrobe`, `capability_ceiling`,
 `negative_boundary`, `linguistic_blueprint`, `kinematic_signature`, `voice`, and `sheet` (reference images;
-`comfy_h3.py sheet` fills it).
+`comfy_h3.py sheet` fills it), `sheet_seed` (seed of the sheet, kept for the production kit).
 
 ## environments[]
 `id`, `name`, `description`, `light` (direction, quality, time of day), `palette`, `materials`, and `master`
-(empty establishing still; `comfy_h3.py master` fills it).
+(empty establishing still; `comfy_h3.py master` fills it), `master_seed`.
 
 ## shots[] (in film order)
 | Field | Meaning |
@@ -50,3 +50,16 @@ shape) or `project.py set <folder> <field.path> <value>`. The scripts keep `rend
 - Progress: `status` (queued or done), `prompt_id`, `clip`.
 - History: `takes[]`.
 - `stale` is set when the prompt has changed since the last render.
+
+## Production kit
+`kit.py export` writes `out/<title>-kit.zip`. `kit.py import <zip> <folder>` creates `<folder>/kit/` (the kit's files),
+a pre-filled `plan.json` and `kit.lock.json`.
+
+`kit.lock.json` lists the fields restored after each merge:
+- **Top level:** genre, aspect, language, fps, delivery.
+- **Style:** all of it.
+- **Subjects:** the identity, profiling and voice fields, plus `sheet` and `sheet_seed`.
+- **Environments:** description, light, palette, materials, plus `master` and `master_seed`.
+- **Remake mode only:** the render seeds.
+
+Its `unlock` list exempts groups from this.

@@ -1,12 +1,14 @@
 name: video-production
 title: AI 影片製作
-description: 一句話做出一支影片：企劃（腳本、角色側寫、場景、分鏡）由 AI 撰寫並自動檢查，之後配音、定裝照、草稿渲染、品管、正式渲染、剪接混音字幕全部自動完成；正式渲染前會先給你看草稿並請你核准。
+description: 一句話做出一支影片（可附上一支影片的素材包，拍出角色與風格一致的續集）：企劃（腳本、角色側寫、場景、分鏡）由 AI 撰寫並自動檢查，之後配音、定裝照、草稿渲染、品管、正式渲染、剪接混音字幕全部自動完成；正式渲染前會先給你看草稿並請你核准。
 inputs:
   intent: {type: text, label: 想拍什麼（一句話即可）, required: true}
   folder: {type: text, label: 專案資料夾（留空自動建立）}
   aspect: {type: select, label: 畫面比例, options: ["", "16:9", "9:16", "1:1"], labels: [自動, 橫式 16:9, 直式 9:16, 方形 1:1], default: ""}
   length: {type: text, label: 長度（例如 30 秒，留空自動）}
   draft_only: {type: bool, label: 只要草稿品質（較快，不做正式渲染）, default: false}
+  kit: {type: file, label: 素材包（選填，上一支影片匯出的 zip）, accept: ".zip", placeholder: "例如 videos/xxx/out/xxx-kit.zip"}
+  kit_mode: {type: select, label: 素材包用法, options: [series, remake], labels: [續集：沿用角色、場景、風格、配樂與聲線，故事全新, 重拍：全部沿用，只改你要求的部分], default: series}
 nodes:
   - id: plan
     title: 撰寫企劃
@@ -18,6 +20,8 @@ nodes:
       folder: "{{inputs.folder}}"
       aspect: "{{inputs.aspect}}"
       length: "{{inputs.length}}"
+      kit: "{{inputs.kit}}"
+      kit_mode: "{{inputs.kit_mode}}"
       example: assets/example-film-duel.json
       guide: |
         - Pick genre, aspect (9:16 for short-form social video), language from the request; default length 20-30 s.

@@ -144,7 +144,7 @@ def _serve(args) -> None:
     from .server import create_app
     rt = _runtime(args)
     host = args.host or rt.config.get("server.host", "127.0.0.1")
-    port = args.port or int(rt.config.get("server.port", 8000))
+    port = args.port or int(rt.config.get("server.port", 10024))
     print(f"SinoBee UI → http://{'localhost' if host == '0.0.0.0' else host}:{port}")
     uvicorn.run(create_app(rt), host=host, port=port, log_level="info")
 

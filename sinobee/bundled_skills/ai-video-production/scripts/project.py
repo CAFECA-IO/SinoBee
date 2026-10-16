@@ -116,8 +116,9 @@ def cmd_prompts(a) -> None:
 TEMPLATES = {
     "subjects": {"name": "", "alias": "", "kind": "person", "appearance": "", "wardrobe": "", "capability_ceiling": "",
                  "negative_boundary": "", "linguistic_blueprint": "", "kinematic_signature": "", "voice": "",
-                 "sheet": []},
-    "environments": {"name": "", "description": "", "light": "", "palette": "", "materials": "", "master": None},
+                 "sheet": [], "sheet_seed": None},
+    "environments": {"name": "", "description": "", "light": "", "palette": "", "materials": "", "master": None,
+                     "master_seed": None},
     "shots": {"group": None, "scene": "", "env": None, "subjects": [], "duration": 3.0, "narration": "",
               "dialogue": [], "audio_file": None, "shot_size": "medium", "angle": "eye level", "lens": "50mm",
               "focus": "", "composition": "", "action": "", "performance": "", "camera_move": "static", "sfx": "",

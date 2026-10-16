@@ -34,7 +34,7 @@ USER bee
 # ~/.sinobee  : settings, secrets, memory DB, global skills (~/.sinobee/skills), browser profile
 # ~/workspace : projects the agent works on (project skills live in <project>/.sinobee/skills)
 VOLUME ["/home/bee/.sinobee", "/home/bee/workspace"]
-EXPOSE 8000 6080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fs http://localhost:8000/api/status >/dev/null || exit 1
+EXPOSE 10024 6080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fs http://localhost:10024/api/status >/dev/null || exit 1
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 CMD ["supervisord", "-n", "-c", "/etc/supervisor/conf.d/sinobee.conf"]

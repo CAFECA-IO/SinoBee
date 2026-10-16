@@ -354,6 +354,7 @@ def cmd_sheet(a) -> None:
         still(c, m, proj, subject_sheet_prompt(proj, s, v), dst, seed)   # same seed keeps the identity closer
         made.append(str(dst.relative_to(root)))
     s["sheet"] = made
+    s["sheet_seed"] = seed            # exported in the production kit, so a later film can rebuild the same look
     save_project(proj, path)
     emit({"ok": True, "subject": a.subject, "sheet": made, "seed": seed,
           "next": "look at every image (read_file); regenerate with another --seed if the identity drifts"})
@@ -366,8 +367,10 @@ def cmd_master(a) -> None:
     e = envs.get(a.env) or die(f"no environment {a.env}")
     c = Comfy(url_for(proj, a.url))
     dst = root / "refs" / f"{a.env}_master.png"
-    still(c, models(c, proj), proj, environment_master_prompt(proj, e), dst, a.seed or random.randint(1, 2**31 - 1))
+    seed = a.seed or e.get("master_seed") or random.randint(1, 2**31 - 1)
+    still(c, models(c, proj), proj, environment_master_prompt(proj, e), dst, seed)
     e["master"] = str(dst.relative_to(root))
+    e["master_seed"] = seed
     save_project(proj, path)
     emit({"ok": True, "env": a.env, "master": e["master"]})
 

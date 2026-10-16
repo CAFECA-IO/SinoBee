@@ -171,6 +171,19 @@ sinobee work pause|resume|delete <工作編號>
 2. 配音、定裝照、草稿渲染、品管全部自動完成。
 3. 產出草稿預覽後，請你核准正式渲染（拒絕則以草稿交付）。
 4. 正式渲染與剪接完成後，影片出現在該次執行的產出檔案中。
+5. 同時匯出**素材包** `out/<片名>-kit.zip`，內容包括：
+   - 劇本；
+   - 人物設定、場景設定；
+   - 視覺風格、配樂與語音；
+   - 鏡頭語言（分鏡表）；
+   - 定裝照、場景圖與語音檔。
+
+**拍續集或重拍**：在對話中附上素材包並說「用這個素材包拍續集：……」，或在流程的「素材包」欄上傳 zip。
+
+- **續集**：沿用角色、場景、風格、配樂與聲線，故事全新。
+- **重拍**：全部沿用，只改你要求的部分。
+
+角色與風格的設定會被鎖定，因此畫面保持一致。
 
 需要一台跑 ComfyUI + MiniMax H3 的 GPU 主機（`COMFYUI_URL`，預設 `http://127.0.0.1:8188`，可用 SSH 通道）與 ffmpeg；旁白可用 `edge-tts`。
 
@@ -193,7 +206,7 @@ git clone https://github.com/CAFECA-IO/SinoBee.git && cd SinoBee
 docker compose up -d --build
 ```
 
-打開 http://localhost:8000 。第一次開啟會自動跳出設定。
+打開 http://localhost:10024 。第一次開啟會自動跳出設定。
 
 ### 第 2 步：選擇模型
 
@@ -306,7 +319,7 @@ docker exec -it sinobee sinobee keys set openai
 
 ```bash
 bash scripts/install-command.sh  # 只需一次：建立 .venv、安裝（含瀏覽器元件），並讓 sinobee 在任何終端機都能用
-sinobee serve                    # 之後在任何資料夾執行即可，開啟 http://127.0.0.1:8000
+sinobee serve                    # 之後在任何資料夾執行即可，開啟 http://127.0.0.1:10024
 ```
 
 `sinobee serve` 預設只接受本機連線（127.0.0.1）；要讓區網其他裝置連入，改用 `sinobee serve --host 0.0.0.0` 並設定 `SINOBEE_SERVER_TOKEN`。macOS/Windows 操作桌面請自行 `.venv/bin/pip install -e ".[all,desktop-native]"`。

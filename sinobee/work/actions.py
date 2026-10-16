@@ -224,12 +224,15 @@ def _skill(ctx: ActionContext, name: str):
     return s
 
 
-async def _run_entry(ctx: ActionContext, skill, args: list[str], timeout: float = 3600) -> dict:
-    """Runs the skill's entry script in the workspace; returns its JSON answer."""
+async def _run_entry(ctx: ActionContext, skill, args: list[str], timeout: float = 3600, script: str = "") -> dict:
+    """Runs the skill's entry script (or another of its scripts) in the workspace; returns its JSON answer."""
     import sys as _sys
     ws = Path(ctx.rt.config.workspace)
     ws.mkdir(parents=True, exist_ok=True)
-    proc = await asyncio.create_subprocess_exec(_sys.executable, str(skill.path / skill.entry), *args, cwd=str(ws),
+    target = (skill.path / (script or skill.entry)).resolve()
+    if not str(target).startswith(str(skill.path.resolve()) + "/") or not target.is_file():
+        return {"status": "error", "error": f"script {script} not found in skill {skill.name}"}
+    proc = await asyncio.create_subprocess_exec(_sys.executable, str(target), *args, cwd=str(ws),
                                                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout)
@@ -243,7 +246,7 @@ async def _run_entry(ctx: ActionContext, skill, args: list[str], timeout: float 
         return {"status": "error", "error": (text + err.decode("utf-8", "replace"))[-800:]}
 
 
-def _record_files(ctx: ActionContext, folder: str, out: dict, keys=("film", "preview", "subtitles")) -> list[str]:
+def _record_files(ctx: ActionContext, folder: str, out: dict, keys=("film", "preview", "subtitles", "kit")) -> list[str]:
     ws = Path(ctx.rt.config.workspace)
     paths = []
     for k in keys:
@@ -264,9 +267,11 @@ def _record_files(ctx: ActionContext, folder: str, out: dict, keys=("film", "pre
 
 @action("skill.plan")
 async def skill_plan(ctx: ActionContext, skill: str, intent: str, folder: str = "", example: str = "",
-                     guide: str = "", rounds: int = 3, **extra):
+                     guide: str = "", rounds: int = 3, kit: str = "", kit_mode: str = "series", **extra):
     """A planner sub-agent writes <folder>/plan.json for the skill; the skill's entry checks it and the planner fixes
-    whatever is missing (up to `rounds` times). Only this node needs a model's judgement."""
+    whatever is missing (up to `rounds` times). Only this node needs a model's judgement.
+    kit: a production kit (zip or folder) exported by an earlier run; it is imported first (scripts/kit.py) and its
+    plan becomes the starting point, so characters, places and style stay the same."""
     from .agents import extract_json, run_subagent
     from .graph import WorkflowError
     s = _skill(ctx, skill)
@@ -277,10 +282,37 @@ async def skill_plan(ctx: ActionContext, skill: str, intent: str, folder: str = 
     root.mkdir(parents=True, exist_ok=True)
     example_text = (s.path / example).read_text(encoding="utf-8") if example and (s.path / example).is_file() else ""
     hints = "\n".join(f"- {k}: {v}" for k, v in extra.items() if v not in (None, "", False))
+    base_text = ""
+    if kit:
+        kit_path = Path(kit).expanduser()
+        if not kit_path.is_absolute():
+            kit_path = ws / kit_path
+        ctx.activity("匯入素材包")
+        imp = await _run_entry(ctx, s, ["import", str(kit_path), folder, "--mode", kit_mode or "series"],
+                               timeout=600, script="scripts/kit.py")
+        if not imp.get("ok"):
+            raise WorkflowError("素材包匯入失敗：" + str(imp.get("error"))[:500])
+        base_text = (root / "plan.json").read_text(encoding="utf-8")
+        ctx.hub.store.board_write(ctx.board_scope, "decision",
+                                  f"沿用素材包「{imp.get('kit')}」（{'續集' if kit_mode != 'remake' else '重拍'}）："
+                                  f"角色 {imp.get('subjects')}；場景 {imp.get('environments')}", key="kit",
+                                  author="skill.plan")
     plan, missing = None, []
     for i in range(int(rounds)):
         ctx.activity(f"撰寫企劃（第 {i + 1} 輪）")
-        if plan is None:
+        if plan is None and base_text:
+            task = (f"Write the complete plan for this request: {intent}\n"
+                    + (f"User preferences:\n{hints}\n" if hints else "")
+                    + (f"\nRules:\n{guide}\n" if guide else "")
+                    + "\nThis film continues an earlier production. Start from its plan below. Keep the subjects, "
+                      "environments and style EXACTLY as they are (same ids, same descriptions - they are locked to "
+                      "keep the look); reuse them in the new shots, and add new subjects/environments only when the "
+                      "story needs them (new ids). "
+                    + ("Write a NEW title, intent, script.body and shots for the request. "
+                       if kit_mode != "remake" else
+                       "It is a remake: keep everything and change only what the request asks for. ")
+                    + "Return ONLY the whole JSON object:\n```json\n" + base_text + "\n```")
+        elif plan is None:
             task = (f"Write the complete plan for this request: {intent}\n"
                     + (f"User preferences:\n{hints}\n" if hints else "")
                     + (f"\nRules:\n{guide}\n" if guide else "")
@@ -343,7 +375,9 @@ async def skill_autopilot(ctx: ActionContext, skill: str, folder: str, until: st
             _record_files(ctx, folder, out)
             film = out.get("film") or out.get("preview")
             return {**{k: v for k, v in out.items() if k not in ("call_again",)},
-                    "summary": f"{'草稿預覽' if st == 'ready_for_final' else '影片'}：{film}" if film else st}
+                    "summary": (f"{'草稿預覽' if st == 'ready_for_final' else '影片'}：{film}" if film else st)
+                    + (f"\n素材包（劇本、人物、場景、風格、配樂、語音、分鏡與參考圖，可用於下一支影片）：{out['kit']}"
+                       if out.get("kit") else "")}
         if st == "working":
             ctx.activity("GPU 渲染中：" + ", ".join(out.get("rendering") or []) if out.get("rendering") else
                          (out.get("what") or "處理中")[:120])

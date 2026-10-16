@@ -118,6 +118,10 @@ def main() -> None:
         if code:
             finish("error", F, log, error=out.get("error"))
         drop_placeholders(F, proj_file, plan)
+        if (root / "kit.lock.json").exists():      # a production kit: keep its characters, places and style
+            _, lk = script("kit.py", "lock", F)
+            if lk.get("notes"):
+                log.append("kit lock: " + "; ".join(lk["notes"][:8]))
         script("project.py", "set", F, "plan_merged_at", str(time.time()))
         log.append("merge plan.json" + (" (notes: " + "; ".join(out.get("notes", [])) + ")" if out.get("notes") else ""))
     if a.draft_only:
@@ -129,9 +133,12 @@ def main() -> None:
             finish("error", F, log, error=n.get("error") or "next.py failed")
         if n.get("done"):
             qc = root / "qc"
-            finish("done", F, log, film=n.get("film"), subtitles=n.get("subtitles"),
+            kit = export_kit(root, log)
+            finish("done", F, log, film=n.get("film"), subtitles=n.get("subtitles"), kit=kit,
                    review=sorted(str(x) for x in qc.glob("*.jpg")) if qc.exists() else [],
-                   what="Deliver the film to the user. Look at the review images (read_file) to describe it; "
+                   what="Deliver the film AND the production kit (kit: zip with script, characters, places, style, "
+                        "music, voices, shot list and reference images, for the next film) to the user. Look at the "
+                        "review images (read_file) to describe it; "
                         "to change a shot, edit plan.json and call again.", warnings=n.get("warnings"))
         phase, call = n.get("phase", ""), n.get("call") or {}
         if a.until == "final" and phase.startswith("5 final render"):
@@ -205,6 +212,21 @@ def main() -> None:
                     script("project.py", "set", F, f"renders.{u['unit']}.auto_retakes", "1")
                     script("comfy_h3.py", "render", F, "--unit", u["unit"], "--force", "--no-wait")
                     log.append(f"auto-retake {u['unit']} ({'; '.join(u['flags'])})")
+
+
+def export_kit(root: Path, log: list) -> str | None:
+    """The production kit (script, characters, places, style, music, voices, shot language, reference images) is
+    exported next to the film so the next video can reuse it. Rebuilt when the project changed."""
+    proj_file = root / "project.json"
+    existing = sorted((root / "out").glob("*-kit.zip"), key=lambda p: p.stat().st_mtime)
+    if existing and existing[-1].stat().st_mtime >= proj_file.stat().st_mtime:
+        return str(existing[-1])
+    code, out = script("kit.py", "export", str(root), timeout=600)
+    if code or not out.get("kit"):
+        log.append(f"kit export failed: {str(out.get('error'))[:200]}")
+        return None
+    log.append("production kit " + Path(out["kit"]).name)
+    return out["kit"]
 
 
 def drop_placeholders(F: str, proj_file: Path, plan: dict) -> None:

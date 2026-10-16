@@ -100,6 +100,12 @@ class WorkHub:
                     raise WorkError(str(e)) from None
             if spec.get("type") == "bool":
                 v = bool(v)
+            if spec.get("type") == "file" and v:
+                f = Path(str(v)).expanduser()
+                f = f if f.is_absolute() else Path(self.rt.config.workspace) / f
+                if not f.exists():
+                    raise WorkError(f"找不到檔案「{v}」（{spec.get('label') or k}）")
+                v = str(f)
             out[k] = v
         return out
 

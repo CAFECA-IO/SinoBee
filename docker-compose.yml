@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     shm_size: "1gb"                 # Chromium needs more than the 64MB default
     ports:
-      - "127.0.0.1:8000:8000"       # Web UI + API
+      - "127.0.0.1:10024:10024"       # Web UI + API
       - "127.0.0.1:6080:6080"       # noVNC live desktop
     environment:                    # pass-through: taken from the shell running `docker compose`, skipped if unset
       - SINOBEE_MODEL

@@ -8,13 +8,13 @@
 #   scripts/docker-run.sh --local-llm -m ollama/qwen3.5:9b  # ...and use that local model
 #
 # Options: -m model  -k provider[=key] (repeatable)  -a approval(auto|confirm|readonly)
-#          -b monthly budget USD  -t web token  -p port (default 8000)  -n name  -i image
+#          -b monthly budget USD  -t web token  -p port (default 10024)  -n name  -i image
 #          -L | --local-llm  start an Ollama container (GPU if available); on a Mac with Ollama
 #                            installed natively, that one is used instead (Metal acceleration)
 set -euo pipefail
 ARGS=(); for a in "$@"; do [[ $a == --local-llm ]] && ARGS+=(-L) || ARGS+=("$a"); done; set -- ${ARGS[@]+"${ARGS[@]}"}
 LOCAL_LLM=0
-MODEL="" APPROVAL="" BUDGET="" TOKEN="" PORT=8000 NAME=sinobee IMAGE=sinobee:latest
+MODEL="" APPROVAL="" BUDGET="" TOKEN="" PORT=10024 NAME=sinobee IMAGE=sinobee:latest
 ENVS=()
 while getopts "m:k:a:b:t:p:n:i:Lh" opt; do
   case $opt in
@@ -68,7 +68,7 @@ fi
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker build -t "$IMAGE" "$(dirname "$0")/.."
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 docker run -d --name "$NAME" --restart unless-stopped --shm-size 1g ${NET[@]+"${NET[@]}"} \
-  -p "127.0.0.1:${PORT}:8000" -p 127.0.0.1:6080:6080 \
+  -p "127.0.0.1:${PORT}:10024" -p 127.0.0.1:6080:6080 \
   --add-host host.docker.internal:host-gateway \
   -v sinobee-home:/home/bee/.sinobee -v sinobee-workspace:/home/bee/workspace ${ENVS[@]+"${ENVS[@]}"} "$IMAGE" >/dev/null
 echo "SinoBee is starting → http://localhost:${PORT}${TOKEN:+/?token=$TOKEN}"
