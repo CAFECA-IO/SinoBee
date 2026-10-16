@@ -194,3 +194,51 @@ def unit_seconds(proj: dict, unit: dict) -> float:
 
 def unit_state(proj: dict, uid: str) -> dict:
     return proj.setdefault("renders", {}).setdefault(uid, {})
+
+
+# Commands agents often invent -> what to do instead (returned instead of a bare argparse error)
+INVENTED = {
+    "profiling": "the profiling matrix is data, not a command: fill subjects[] in project.json "
+                 "(project.py set <folder> subjects.S1.capability_ceiling \"…\" or project.py merge <folder> plan.json)",
+    "profile": "see 'profiling'",
+    "subjects": "fill subjects[] with project.py set / merge",
+    "script": "write the script text into script.body: project.py set <folder> script.body \"…\"",
+    "assets": "fill environments[] and style.palette with project.py set / merge, then comfy_h3.py sheet/master",
+    "render": "rendering is comfy_h3.py render <folder> --all --quality draft",
+    "generate": "rendering is comfy_h3.py render <folder> --all --quality draft",
+    "assemble": "assembly is assemble.py <folder>",
+    "qc": "quality check is qc.py project <folder>",
+    "tts": "narration audio is tts.py <folder>",
+    "next": "next.py <folder> tells you the next step",
+}
+
+
+def normalize_argv(commands: list[str], script: str) -> None:
+    """Make agent calls forgiving: drop a repeated script name, accept `<folder> <command>` order,
+    and turn an unknown command into a JSON hint instead of an argparse error."""
+    argv = sys.argv[1:]
+    while argv and (argv[0] in ("python", "python3") or argv[0].endswith(".py")):
+        argv = argv[1:]
+    if not argv or argv[0] in ("-h", "--help") or argv[0] == "--url":
+        sys.argv[1:] = argv
+        return
+    if argv[0] not in commands:
+        if len(argv) > 1 and argv[1] in commands:
+            argv[0], argv[1] = argv[1], argv[0]
+        else:
+            word = argv[0].lower()
+            hint = INVENTED.get(word, "")
+            if not hint and ((Path(argv[0]) / PROJECT_FILE).exists() or argv[0].endswith(".json")):
+                hint = "the first argument must be a command, then the project folder, e.g. " \
+                       f"`{script} validate {Path(argv[0]).parent if argv[0].endswith('.json') else argv[0]}`; " \
+                       "next.py <folder> prints the exact next call"
+            die(f"{script}: unknown command '{argv[0]}'. Commands: {', '.join(commands)}." + (f" {hint}" if hint else ""))
+    sys.argv[1:] = argv
+
+
+def strip_script_prefix() -> None:
+    """Drop a script name or interpreter an agent repeated inside the arguments."""
+    argv = sys.argv[1:]
+    while argv and (argv[0] in ("python", "python3") or argv[0].endswith(".py")):
+        argv = argv[1:]
+    sys.argv[1:] = argv

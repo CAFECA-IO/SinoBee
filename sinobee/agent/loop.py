@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 import re
 import uuid
 from typing import Any, Awaitable, Callable
@@ -18,7 +19,8 @@ from ..memory.store import MemoryStore
 from ..providers import build_auxiliary, build_chain, build_embedder
 from ..skills import manager_from_config
 from ..tools.registry import REGISTRY, ToolContext
-from ..types import ImagePart, Message, TextPart, ToolCall, Usage
+from . import artifacts
+from ..types import ImagePart, Message, TextPart, ToolCall, ToolResult, Usage
 from .context import OVERFLOW_RE, compact, context_budget, context_window, estimate_tokens, prune_images, with_summary
 from .prompt import build_context_block, build_system_prompt
 
@@ -206,6 +208,7 @@ class Agent:
         self.emit_fn = emit
         self.usage = Usage()
         self._cancel = False
+        self._inbox: list[str] = getattr(self, "_inbox", [])
         self.depth = depth
         self.learn = learn
         self.max_iterations = max_iterations
@@ -243,6 +246,18 @@ class Agent:
     def cancel(self) -> None:
         self._cancel = True
 
+    def steer(self, text: str) -> None:
+        """A message the user typed while this task is running: applied before the next model call."""
+        self._inbox.append(text)
+
+    def _drain_inbox(self) -> None:
+        while self._inbox:
+            text = self._inbox.pop(0)
+            self.history.append(Message("user", f"[使用者在執行中補充指示] {text}\n"
+                                                "（請把這個補充納入目前的任務：調整計畫後繼續；若它要求停止或改做別的事，照做。）"))
+            self._persist()
+            self._emit("steer_applied", {"text": text})
+
     def _core_changes(self) -> list[str]:
         now = {m.id: m.content for m in self.rt.memory.core()}
         changes = [f"+ [{k}] {v}" for k, v in now.items() if self._core_at_start.get(k) != v]
@@ -277,6 +292,15 @@ class Agent:
             if brief:
                 block = block.replace("\n</context>", "\n\n" + brief + "\n</context>")
         return block
+
+    def _active_skill_notes(self) -> str:
+        """How to invoke each skill in use, repeated every step so it survives compaction and long tool output."""
+        lines = []
+        for name in sorted(self.ctx.state.get("skills_used", set())):
+            s = self.rt.skills.skills.get(name)
+            if s is not None and s.quickstart:
+                lines.append(f"- {name}: {s.quickstart}")
+        return ("<active_skills>\n" + "\n".join(lines) + "\n</active_skills>") if lines else ""
 
     # ------------------------------------------------------------------ main loop
     async def run(self, user_input: str | list) -> str:
@@ -320,6 +344,8 @@ class Agent:
         nudge = False
         tool_specs = self._tool_specs()
         status, error_info, started, steps = "done", None, time.time(), 0
+        self._turn_started = started
+        stats["artifacts"] = []
 
         for iteration in range(max_iter):
             steps = iteration + 1
@@ -337,6 +363,7 @@ class Agent:
                 status, error_info = "blocked", {"summary": "已達花費上限", "hint": "到「用量」或「設定」調整預算。",
                                                  "detail": final_text}
                 break
+            self._drain_inbox()
             prune_images(self.history, keep_last=2)
             budget = self._context_budget(max_tokens)
             if estimate_tokens([self.system] + self.history, tool_specs, context_block) > budget * 0.8:
@@ -351,6 +378,10 @@ class Agent:
                 parts = um.content if isinstance(um.content, list) else [TextPart(um.content)]
                 request[idx] = Message("user", list(parts) + [TextPart(context_block)])
 
+            pinned = self._active_skill_notes()
+            if pinned and idx is not None:
+                um = request[idx]
+                request[idx] = Message("user", list(um.content) + [TextPart(pinned)])
             if nudge:  # transient: not stored in history
                 request.append(Message("user", EMPTY_NUDGE))
                 nudge = False
@@ -412,11 +443,28 @@ class Agent:
                 self._emit("assistant", {"text": msg.text(), "final": not msg.tool_calls})
             if not msg.tool_calls:
                 final_text = msg.text()
+                if stats.get("consecutive_errors"):
+                    # the model stopped right after failures: do not report the task as done
+                    status = "incomplete"
+                    error_info = {"summary": "最後的操作失敗，任務可能沒有完成",
+                                  "hint": "請看最後一個 ✕ 的錯誤訊息，或回覆「繼續」讓我換個方法再試。",
+                                  "detail": stats.get("last_error", "")}
                 break
             for call in msg.tool_calls:
                 result_msg = await self._execute(call, stats)
                 self.history.append(result_msg)
             self._persist()
+            limit = int(self.config.get("agent.max_consecutive_errors", 6))
+            if stats.get("consecutive_errors", 0) >= limit or stats.get("repeats", 0) >= 3:
+                status = "incomplete"
+                why = (f"連續 {stats['consecutive_errors']} 次工具呼叫失敗" if stats.get("consecutive_errors", 0) >= limit
+                       else "重複執行已失敗的相同操作")
+                error_info = {"summary": why + "，任務沒有完成",
+                              "hint": "請看最後的錯誤訊息；可以換用能力較強的模型，或回覆更明確的指示後再試。",
+                              "detail": stats.get("last_error", "")}
+                final_text = (f"⚠︎ 任務沒有完成：{why}。最後的錯誤：\n{stats.get('last_error', '')[:400]}")
+                self.history.append(Message("assistant", f"[上一次嘗試失敗：{why}。最後的錯誤：{stats.get('last_error', '')[:300]}]"))
+                break
         else:
             status = "incomplete"
             error_info = {"summary": f"已達單次任務的步驟上限（{max_iter} 步）",
@@ -446,7 +494,8 @@ class Agent:
                                 "turn_id": turn_id, "skills": turn_skills,
                                 "duration_s": round(time.time() - started, 1), "usage": turn_usage,
                                 "session_cost_usd": session_usage["cost_usd"],
-                                "session_tokens": session_usage["total_tokens"]})
+                                "session_tokens": session_usage["total_tokens"],
+                                "artifacts": stats.get("artifacts", [])[-30:]})
         bs = self.rt.budget_status()
         if bs["warn"]:
             self._emit("budget", bs)
@@ -621,19 +670,49 @@ class Agent:
     async def _execute(self, call: ToolCall, stats: dict) -> Message:
         self._emit("tool_call", {"id": call.id, "name": call.name, "arguments": call.arguments})
         t0 = time.time()
-        result = await REGISTRY.dispatch(call, self.ctx, self.tool_names)
+        sig = call.name + json.dumps(call.arguments or {}, sort_keys=True, ensure_ascii=False, default=str)
+        failed = stats.setdefault("failed_calls", {})
+        if sig in failed:
+            # weak models retry the identical failing call over and over; refuse and say so instead
+            stats["repeats"] = stats.get("repeats", 0) + 1
+            result = ToolResult.error(
+                "REPEATED CALL - you already made exactly this call in this task and it failed with:\n"
+                f"{failed[sig]}\nRunning it again will fail the same way. Read that error, then change the "
+                "arguments (for skill_run: `script` must be a file inside the skill, put folders/files in `args`) "
+                "or take a different approach. If you cannot, tell the user plainly what failed.")
+        else:
+            result = await REGISTRY.dispatch(call, self.ctx, self.tool_names)
         elapsed = round(time.time() - t0, 1)
         stats["tool_calls"] += 1
-        if result.is_error:
+        denied = result.is_error and "user did not approve" in str(result.content)[:300]
+        if result.is_error and not denied:   # a refused approval is the user's decision, not a failure
             stats["errors"] += 1
-        elif stats["errors"]:
-            stats["recovered"] = True
+            stats["consecutive_errors"] = stats.get("consecutive_errors", 0) + 1
+            stats["last_error"] = (result.content if isinstance(result.content, str) else "")[:600]
+            if sig not in failed:
+                failed[sig] = stats["last_error"]
+        elif not denied:
+            stats["consecutive_errors"] = 0
+            stats["last_error"] = ""
+            if stats["errors"]:
+                stats["recovered"] = True
         preview = result.content if isinstance(result.content, str) else \
             "\n".join(p.text for p in result.content if isinstance(p, TextPart))
         has_image = isinstance(result.content, list) and any(isinstance(p, ImagePart) for p in result.content)
         image_b64 = next((p.data for p in result.content if isinstance(p, ImagePart)), None) if has_image else None
         self._emit("tool_result", {"id": call.id, "name": call.name, "error": result.is_error, "duration_s": elapsed,
                                    "preview": preview[:3000], "image": image_b64})
+        if not result.is_error:
+            try:
+                arts = artifacts.collect(self.config, call.name, call.arguments or {}, preview,
+                                         self.ctx.state.setdefault("artifact_seen", set()),
+                                         since=getattr(self, "_turn_started", None))
+            except Exception:  # noqa: BLE001 - showing links must never break a task
+                log.exception("artifact scan failed")
+                arts = []
+            if arts:
+                stats.setdefault("artifacts", []).extend(arts)
+                self._emit("artifact", {"id": call.id, "tool": call.name, "files": arts})
         return Message("tool", result.content, tool_call_id=call.id, name=call.name)
 
     def _persist(self) -> None:

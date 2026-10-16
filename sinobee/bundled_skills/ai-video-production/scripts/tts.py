@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from vpcommon import die, duration, emit, load_project, need, save_project
+from vpcommon import strip_script_prefix, die, duration, emit, load_project, need, save_project
 
 VOICES = {  # language prefix -> (edge narrator, edge alt, macOS say, espeak)
     "zh-tw": ("zh-TW-HsiaoChenNeural", "zh-TW-YunJheNeural", "Meijia", "cmn"),
@@ -92,6 +92,7 @@ def main() -> None:
     p.add_argument("--rate", default="+0%", help="edge-tts speaking rate, e.g. -10%")
     p.add_argument("--only", help="comma-separated shot ids")
     p.add_argument("--force", action="store_true", help="re-create existing files")
+    strip_script_prefix()
     a = p.parse_args()
     if a.folder == "check":
         emit({"ok": True, "engines": engines()})

@@ -2,23 +2,27 @@
 """Video project: create, lock timing to audio, build prompts, check against the pipeline checklist.
 
   project.py init <folder> --genre documentary --title "…" [--aspect 16:9] [--language zh-TW] [--intent "…"]
+  project.py set <folder> subjects.S1.name 凌風 subjects.S1.appearance "…" shots.SH02.duration 3.5
+  project.py merge <folder> plan.json                      # bulk-fill: a JSON file shaped like project.json
+  project.py remove <folder> subjects.S1                   # drop a placeholder subject/environment/shot
   project.py timing <folder> [--pad 0.2] [--step 0.5]     # audio-first: shot length from its audio file
   project.py prompts <folder>                              # build one H3 prompt per unit -> prompts/<unit>.txt
   project.py validate <folder>                             # checklist; exit 1 when a shot may not be rendered
   project.py plan <folder>                                 # units, timing, frames, render status
 
-All output is JSON. Edit project.json directly (it is the single source of truth) and re-run these commands.
+All content lives in project.json (never in side files). All output is JSON. next.py <folder> says what to do next.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import sys
 from pathlib import Path
 
 from prompting import unit_prompt
 from vpcommon import (ANGLES, CAMERA_MOVES, GENRE_DEFAULTS, GENRES, H3_MAX_FRAMES, H3_FPS, PROFILE_DIMS, SHOT_SIZES,
-                      canvas, die, duration, emit, frames_for_seconds, load_project, resolve, save_project,
+                      canvas, die, duration, emit, frames_for_seconds, load_project, normalize_argv, resolve, save_project,
                       shots_by_id, unit_seconds, unit_state, units)
 
 FOLDERS = ("audio", "keyframes", "refs", "clips", "prompts", "out", "qc")
@@ -42,11 +46,12 @@ def cmd_init(a) -> None:
         "fps": g["fps"],
         "delivery": "1080p",
         "quality": "draft",
+        "target_quality": "final",
         "style": {"look": g["look"], "palette": [], "lut": None, "camera": g["camera"],
                   "motion_strength": g["motion_strength"], "ambience": "", "music": "", "negative": "",
                   "bgm_file": None, "voice": ""},
         "script": {"format": g["script_format"], "body": ""},
-        "subjects": [{"id": "S1", "name": "", "kind": "person", "appearance": "", "wardrobe": "",
+        "subjects": [{"id": "S1", "name": "", "alias": "", "kind": "person", "appearance": "", "wardrobe": "",
                       "capability_ceiling": "", "negative_boundary": "", "linguistic_blueprint": "",
                       "kinematic_signature": "", "voice": "", "sheet": []}],
         "environments": [{"id": "E1", "name": "", "description": "", "light": "", "palette": "", "materials": "",
@@ -108,6 +113,152 @@ def cmd_prompts(a) -> None:
     emit({"ok": True, "prompts": done})
 
 
+TEMPLATES = {
+    "subjects": {"name": "", "alias": "", "kind": "person", "appearance": "", "wardrobe": "", "capability_ceiling": "",
+                 "negative_boundary": "", "linguistic_blueprint": "", "kinematic_signature": "", "voice": "",
+                 "sheet": []},
+    "environments": {"name": "", "description": "", "light": "", "palette": "", "materials": "", "master": None},
+    "shots": {"group": None, "scene": "", "env": None, "subjects": [], "duration": 3.0, "narration": "",
+              "dialogue": [], "audio_file": None, "shot_size": "medium", "angle": "eye level", "lens": "50mm",
+              "focus": "", "composition": "", "action": "", "performance": "", "camera_move": "static", "sfx": "",
+              "music": "", "first_frame": None, "last_frame": None, "motion_strength": None},
+}
+ID_PREFIX = {"subjects": "S", "environments": "E", "shots": "SH"}
+ALIASES = {"characters": "subjects", "character": "subjects", "cast": "subjects", "roles": "subjects",
+           "locations": "environments", "location": "environments", "setting": "environments",
+           "settings": "environments", "scenes": "shots", "shot_list": "shots", "storyboard": "shots",
+           "palette": "style.palette", "look": "style.look", "script_body": "script.body"}
+
+
+def new_item(kind: str, iid: str) -> dict:
+    return {"id": iid, **json.loads(json.dumps(TEMPLATES[kind]))}
+
+
+def parse_value(v: str):
+    try:
+        return json.loads(v)
+    except (json.JSONDecodeError, TypeError):
+        return v
+
+
+def set_path(proj: dict, dotted: str, value) -> str:
+    """subjects.S2.appearance / shots.SH03.duration / style.palette / script.body; list items by id (or index),
+    created from a template when the id is new."""
+    dotted = ALIASES.get(dotted.split(".")[0], dotted.split(".")[0]) + dotted[len(dotted.split(".")[0]):]
+    keys = dotted.split(".")
+    cur = proj
+    for n, k in enumerate(keys[:-1]):
+        nxt = keys[n + 1]
+        if isinstance(cur, list):
+            item = next((x for x in cur if isinstance(x, dict) and x.get("id") == k), None)
+            if item is None and k.isdigit() and int(k) < len(cur):
+                item = cur[int(k)]
+            if item is None:
+                kind = keys[n - 1] if n else ""
+                if kind not in TEMPLATES:
+                    die(f"no item {k} in {'.'.join(keys[:n])}")
+                item = new_item(kind, k)
+                cur.append(item)
+            cur = item
+        else:
+            if k not in cur or cur[k] is None:
+                cur[k] = [] if k in TEMPLATES else {}
+            cur = cur[k]
+        if isinstance(cur, (str, int, float)) and nxt:
+            die(f"{'.'.join(keys[:n + 1])} is a value, not an object")
+    last = keys[-1]
+    if isinstance(cur, list):
+        die(f"{dotted}: address a list item by id, e.g. subjects.S1.name")
+    cur[last] = value
+    return dotted
+
+
+def merge_items(dst: list, src: list, kind: str, notes: list) -> None:
+    for i, item in enumerate(src):
+        if not isinstance(item, dict):
+            notes.append(f"{kind}[{i}] is not an object - skipped")
+            continue
+        n = len(dst) + 1
+        iid = str(item.get("id") or (f"SH{n:02d}" if kind == "shots" else f"{ID_PREFIX[kind]}{n}"))
+        cur = next((x for x in dst if x.get("id") == iid), None)
+        if cur is None:
+            cur = new_item(kind, iid)
+            dst.append(cur)
+        unknown = [k for k in item if k not in TEMPLATES[kind] and k != "id"]
+        if unknown:
+            notes.append(f"{kind}.{iid}: kept unknown fields {', '.join(unknown)} (the pipeline ignores them)")
+        cur.update({k: v for k, v in item.items() if k != "id"})
+
+
+def cmd_set(a) -> None:
+    proj, path = load_project(a.folder)
+    if len(a.pairs) % 2:
+        die("set needs pairs: <field.path> <value> [<field.path> <value> …]")
+    done = []
+    for k, v in zip(a.pairs[::2], a.pairs[1::2]):
+        if v.startswith("@"):
+            v = Path(v[1:]).read_text(encoding="utf-8")
+        done.append(set_path(proj, k, parse_value(v)))
+    save_project(proj, path)
+    emit({"ok": True, "set": done, "next": "next.py " + a.folder})
+
+
+def cmd_merge(a) -> None:
+    proj, path = load_project(a.folder)
+    src = a.source
+    if src.strip().startswith("{"):
+        data = json.loads(src)
+    else:
+        f = Path(src) if Path(src).exists() else path.parent / src
+        if not f.exists():
+            die(f"{src} not found")
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            die(f"{f} is not JSON ({e}); write it in the shape of project.json (see assets/example-*.json)")
+    notes = []
+    for k, v in data.items():
+        target = ALIASES.get(k, k)
+        if "." in target:
+            set_path(proj, target, v)
+            notes.append(f"{k} -> {target}")
+            continue
+        if target != k:
+            notes.append(f"{k} -> {target}")
+        if target in TEMPLATES:
+            if isinstance(v, dict):
+                v = [{"id": kk, **vv} if isinstance(vv, dict) else vv for kk, vv in v.items()]
+            merge_items(proj.setdefault(target, []), v, target, notes)
+        elif target in ("style", "script", "models", "renders") and isinstance(v, dict):
+            proj.setdefault(target, {}).update(v)
+        elif target == "script" and isinstance(v, str):
+            proj.setdefault("script", {})["body"] = v
+        elif target in proj or target in ("language_name", "comfyui_url"):
+            proj[target] = v
+        else:
+            notes.append(f"unknown top-level field {k} ignored")
+    save_project(proj, path)
+    emit({"ok": True, "notes": notes, "counts": {k: len(proj.get(k, [])) for k in TEMPLATES},
+          "next": "next.py " + a.folder})
+
+
+def cmd_remove(a) -> None:
+    proj, path = load_project(a.folder)
+    kind, _, iid = a.path.partition(".")
+    kind = ALIASES.get(kind, kind)
+    if kind not in TEMPLATES or not iid:
+        die("remove <folder> subjects.<id> | environments.<id> | shots.<id>")
+    before = len(proj.get(kind, []))
+    proj[kind] = [x for x in proj.get(kind, []) if x.get("id") != iid]
+    if len(proj[kind]) == before:
+        die(f"no {a.path}")
+    if kind == "subjects":
+        for sh in proj.get("shots", []):
+            sh["subjects"] = [x for x in sh.get("subjects", []) if x != iid]
+    save_project(proj, path)
+    emit({"ok": True, "removed": a.path})
+
+
 def check(proj: dict, root: Path) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warns: list[str] = []
@@ -118,11 +269,11 @@ def check(proj: dict, root: Path) -> tuple[list[str], list[str]]:
 
     # Phase 1 - script & audio-first timing
     if not proj.get("shots"):
-        errors.append("[腳本] no shots")
+        errors.append("[腳本] shots is empty - add shots (project.py set <folder> shots.SH01.action \"…\" or merge)")
     for s in proj.get("shots", []):
         sid = s["id"]
         if not s.get("duration") or float(s["duration"]) <= 0:
-            errors.append(f"[腳本] {sid}: no duration")
+            errors.append(f"[腳本] shots.{sid}.duration is missing (seconds)")
         spoken = bool(s.get("narration") or s.get("dialogue"))
         if spoken and not s.get("audio_file"):
             warns.append(f"[腳本] {sid}: has narration/dialogue but no audio_file - duration is a guess "
@@ -139,15 +290,17 @@ def check(proj: dict, root: Path) -> tuple[list[str], list[str]]:
         if secs > H3_MAX_FRAMES / H3_FPS + 0.01:
             errors.append(f"[腳本] unit {u['id']}: {secs:.1f}s exceeds H3's ~15s per generation - split the group")
     if not (proj.get("script") or {}).get("body"):
-        warns.append("[腳本] script.body is empty - write the script in the genre's format for the user to review")
+        errors.append("[腳本] script.body (a text field inside project.json) is empty - put the script text there "
+                      "with project.py set <folder> script.body \"…\" or merge; separate script files are ignored")
 
     # Phase 2 - profiling matrix
     for sid, s in subj.items():
         if not s.get("appearance"):
-            errors.append(f"[側寫] subject {sid}: appearance is empty")
+            errors.append(f"[側寫] subjects.{sid}.appearance is empty")
         missing = [d for d in PROFILE_DIMS if not str(s.get(d) or "").strip()]
         if missing:
-            errors.append(f"[側寫] subject {sid}: profiling matrix incomplete ({', '.join(missing)})")
+            errors.append(f"[側寫] subjects.{sid}: profiling matrix incomplete - fill " +
+                          ", ".join(f"subjects.{sid}.{m}" for m in missing))
 
     # Phase 3 - asset anchors
     appear: dict[str, set] = {}
@@ -162,7 +315,8 @@ def check(proj: dict, root: Path) -> tuple[list[str], list[str]]:
             warns.append(f"[資產] {s['id']}: no environment - lighting may jump between shots")
     for eid, e in envs.items():
         if not e.get("description") or not e.get("light"):
-            errors.append(f"[資產] environment {eid}: needs description and light (key light direction, time of day)")
+            errors.append(f"[資產] environments.{eid}: fill environments.{eid}.description and "
+                          f"environments.{eid}.light (key light direction, time of day)")
         if e.get("master") and not resolve(root, e["master"]).exists():
             errors.append(f"[資產] environment {eid}: master {e['master']} missing")
     for sid, groups in appear.items():
@@ -180,20 +334,32 @@ def check(proj: dict, root: Path) -> tuple[list[str], list[str]]:
     for s in proj.get("shots", []):
         sid = s["id"]
         if not s.get("shot_size"):
-            errors.append(f"[構圖] {sid}: shot_size missing")
+            errors.append(f"[構圖] shots.{sid}.shot_size is missing")
         elif s["shot_size"].lower() not in SHOT_SIZES:
             warns.append(f"[構圖] {sid}: shot_size '{s['shot_size']}' is not standard ({', '.join(SHOT_SIZES)})")
         if not s.get("angle"):
-            errors.append(f"[構圖] {sid}: angle missing")
+            errors.append(f"[構圖] shots.{sid}.angle is missing")
         elif s["angle"].lower() not in ANGLES:
             warns.append(f"[構圖] {sid}: angle '{s['angle']}' is not standard ({', '.join(ANGLES)})")
         if not s.get("lens"):
             warns.append(f"[構圖] {sid}: lens missing (e.g. 24mm wide, 50mm, 85mm portrait)")
         if not s.get("action"):
-            errors.append(f"[構圖] {sid}: action missing")
+            errors.append(f"[構圖] shots.{sid}.action is missing (what happens, in English)")
         for k in ("first_frame", "last_frame"):
             if s.get(k) and not resolve(root, s[k]).exists():
                 errors.append(f"[構圖] {sid}: {k} {s[k]} missing")
+
+    # common slip: content written to side files instead of project.json
+    stray = sorted(p.name for p in root.iterdir() if p.is_file() and p.suffix.lower() in (".txt", ".md", ".body")
+                   or p.is_file() and p.suffix == ".json" and p.name not in ("project.json", "plan.json"))
+    if stray:
+        warns.append(f"[專案] {', '.join(stray)} are not read by the pipeline - move their content into project.json "
+                     "(project.py merge <folder> <file.json>, or project.py set)")
+    used = {i for s in proj.get("shots", []) for i in s.get("subjects", [])}
+    for sid, s in subj.items():
+        if sid not in used and not s.get("appearance"):
+            errors.append(f"[側寫] subjects.{sid} is an unused empty placeholder - remove it "
+                          f"(project.py remove <folder> subjects.{sid})")
 
     # Phase 5 - dynamics
     band = {"documentary": 0.4, "vlog": 0.4, "explainer": 0.4}.get(genre)
@@ -253,8 +419,18 @@ def main() -> None:
     pr.add_argument("--unit")
     for n in ("validate", "plan"):
         sub.add_parser(n).add_argument("folder")
+    st = sub.add_parser("set", help="set fields: set <folder> subjects.S1.name 凌風 shots.SH02.duration 3.5")
+    st.add_argument("folder")
+    st.add_argument("pairs", nargs="+")
+    mg = sub.add_parser("merge", help="merge a JSON file (or inline JSON) shaped like project.json")
+    mg.add_argument("folder")
+    mg.add_argument("source")
+    rm = sub.add_parser("remove", help="remove subjects.<id> / environments.<id> / shots.<id>")
+    rm.add_argument("folder")
+    rm.add_argument("path")
+    normalize_argv(["init", "set", "merge", "remove", "timing", "prompts", "validate", "plan"], "project.py")
     a = p.parse_args()
-    {"init": cmd_init, "timing": cmd_timing, "prompts": cmd_prompts, "validate": cmd_validate,
+    {"set": cmd_set, "merge": cmd_merge, "remove": cmd_remove, "init": cmd_init, "timing": cmd_timing, "prompts": cmd_prompts, "validate": cmd_validate,
      "plan": cmd_plan}[a.cmd](a)
 
 

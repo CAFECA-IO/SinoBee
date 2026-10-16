@@ -1,9 +1,11 @@
 """Skill tools: discover, activate, author (spec-compliant), fork, run, rate, roll back."""
 from __future__ import annotations
 
+import re
 import shlex
 
 from .approval import shell_danger
+from ..types import ToolResult
 from .registry import ToolContext, tool
 from .shell import shell
 
@@ -29,7 +31,10 @@ def skill_view(ctx: ToolContext, name: str, path: str | None = None, reload: boo
         return ctx.skills.view(name, path)
     active = ctx.state.setdefault("skills_used", set())
     if name in active and not reload:
-        return f"skill '{name}' is already active in this session (its instructions are above)."
+        s = ctx.skills.get(name)
+        qs = f"\nQuick start: {s.quickstart}" if s.quickstart else ""
+        return (f"skill '{name}' is already active in this session.{qs}\n"
+                "If its instructions are no longer in view, call skill_view again with reload=true.")
     content = ctx.skills.view(name)
     active.add(name)
     pre = ctx.skills.preapprovals(name)
@@ -94,30 +99,52 @@ def _run_danger(args: dict) -> str | None:
     return shell_danger(str(args.get("args", "")))
 
 
-@tool("skill_run", "skills", "Execute a script bundled in a skill (e.g. scripts/extract.py). "
-      "Python runs with python3, .sh with bash, .js with node.",
-      {"properties": {"name": {"type": "string"}, "script": {"type": "string", "description": "e.g. scripts/fetch.py"},
-                      "args": {"type": "string", "description": "command-line arguments"},
-                      "timeout": {"type": "integer"}}, "required": ["name", "script"]},
+@tool("skill_run", "skills",
+      "Run a skill's script. `script` is a file INSIDE the skill (e.g. scripts/run.py) - never a project file or "
+      "folder; put commands, folders and files in `args`. Skills marked [run: …] have an entry script: call "
+      "skill_run(name, args=\"<input>\") without `script`. Python runs with python3, .sh with bash, .js with node. "
+      "A non-zero exit is reported as an error.",
+      {"properties": {"name": {"type": "string"},
+                      "script": {"type": "string", "description": "a file of the skill, e.g. scripts/run.py; "
+                                                                  "omit to run the skill's entry script"},
+                      "args": {"type": "string", "description": "command-line arguments: command, folders, files"},
+                      "timeout": {"type": "integer"}}, "required": ["name"]},
       writes=True, dangerous=_run_danger)
-async def skill_run(ctx: ToolContext, name: str, script: str, args: str = "", timeout: int = 300):
+async def skill_run(ctx: ToolContext, name: str, script: str = "", args: str = "", timeout: int = 300):
     s = ctx.skills.get(name)
     pol = s.policy
     if pol.scripts == "deny" or s.disabled:
-        return f"ERROR: scripts of '{name}' cannot run (trust: {s.trust}; {s.reason})"
-    target = (s.path / script).resolve()
-    if not str(target).startswith(str(s.path.resolve()) + "/") or not target.is_file():
-        return f"ERROR: script {script} not found in skill {name}"
+        return ToolResult.error(f"scripts of '{name}' cannot run (trust: {s.trust}; {s.reason})")
+    root = s.path.resolve()
+    target = (s.path / script).resolve() if script else None
+    if target is None or not str(target).startswith(str(root) + "/") or not target.is_file():
+        if s.entry:   # the natural call "run the skill on my input" works: input goes to the entry script
+            if script:
+                args = f"{shlex.quote(script)} {args}".strip()
+            target = (s.path / s.entry).resolve()
+            script = s.entry
+        else:
+            scripts = sorted(f for f in s.files() if f.startswith("scripts/") and
+                             f.rsplit(".", 1)[-1] in ("py", "sh", "js"))
+            return ToolResult.error(
+                f"script {script!r} not found in skill {name}. `script` must be one of the skill's own scripts "
+                f"({', '.join(scripts) or 'none'}); put the command and file paths in `args`, e.g. "
+                f"skill_run(name=\"{name}\", script=\"{scripts[0] if scripts else 'scripts/<file>.py'}\", "
+                f"args=\"<command> <folder>\")")
     if pol.scripts == "confirm" and ctx.config.get("permissions.approval") != "auto":
         ok = bool(ctx.approve) and await ctx.approve(
             "skill_run", {"skill": name, "trust": s.trust, "script": script, "args": args},
             f"runs a script from a {s.trust} skill that has not been reviewed")
         if not ok:
-            return "ERROR: user did not approve running this unreviewed skill script"
+            return ToolResult.error("user did not approve running this unreviewed skill script")
     runner = {"py": "python3", "sh": "bash", "js": "node"}.get(target.suffix.lstrip("."), "")
     cmd = f"{runner} {shlex.quote(str(target))} {args}".strip()
     ctx.state.setdefault("skills_used", set()).add(name)
-    return await shell(ctx, cmd, timeout=timeout, cwd=None)
+    out = await shell(ctx, cmd, timeout=timeout, cwd=None)
+    m = re.match(r"\[exit (-?\d+)", out)
+    if m and m.group(1) != "0":
+        return ToolResult(f"ERROR: {script} exited with code {m.group(1)}\n{out}", True)
+    return out
 
 
 @tool("skill_feedback", "skills",

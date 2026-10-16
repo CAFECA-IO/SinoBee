@@ -29,7 +29,7 @@ import uuid
 from pathlib import Path
 
 from prompting import (ANGLES_SHEET, environment_master_prompt, keyframe_prompt, subject_sheet_prompt, unit_prompt)
-from vpcommon import (canvas, die, emit, frames_for_seconds, load_project, resolve, save_project, shots_by_id,
+from vpcommon import (normalize_argv, canvas, die, emit, frames_for_seconds, load_project, resolve, save_project, shots_by_id,
                       unit_seconds, unit_state, units)
 
 WIDE = {"wide", "extreme wide", "medium wide", "bird's-eye", "overhead"}
@@ -406,7 +406,8 @@ def cmd_render(a) -> None:
             results.append({"unit": u["id"], "status": "done", "clip": st.get("clip"), "skipped": True})
             continue
         seed = a.seed + i if a.seed is not None else None
-        r = render_unit(c, m, proj, root, u, quality=a.quality or proj.get("quality", "draft"), seed=seed,
+        q = a.quality or st.get("quality") or proj.get("quality", "draft")   # a retake keeps the unit's quality
+        r = render_unit(c, m, proj, root, u, quality=q, seed=seed,
                         wait=not a.no_wait, timeout=a.timeout)
         save_project(proj, path)
         results.append(r)
@@ -491,6 +492,7 @@ def main() -> None:
     ge.add_argument("--seed", type=int)
     ge.add_argument("--out", required=True)
     ge.add_argument("--timeout", type=float, default=TIMEOUT)
+    normalize_argv(["check", "sheet", "master", "keyframe", "render", "collect", "generate"], "comfy_h3.py")
     a = p.parse_args()
     {"check": cmd_check, "sheet": cmd_sheet, "master": cmd_master, "keyframe": cmd_keyframe, "render": cmd_render,
      "collect": cmd_collect, "generate": cmd_generate}[a.cmd](a)

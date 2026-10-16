@@ -321,6 +321,15 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .wkapv{border:1px solid var(--warn);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:color-mix(in srgb,var(--warn) 8%,var(--panel2))}
 .wkapv .row{margin-top:8px;justify-content:flex-end}
 .wkempty{color:var(--muted);font-size:12px;padding:8px 2px}
+.arts{margin:4px 0 8px 18px;padding:8px 10px;border:1px dashed var(--line);border-radius:10px;background:var(--panel2)}
+.arts-h{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:6px}.arts-h svg.i{width:14px;height:14px}
+.arts-b{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
+.art.img{display:flex;flex-direction:column;width:150px;font-size:11px;color:var(--muted);text-decoration:none}
+.art.img img{width:150px;height:90px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+.art.img span,.art.av span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.art.av{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted);max-width:320px}.art.av video{width:320px;max-width:100%;border-radius:6px}
+.msg.user.steer{border-left:3px solid var(--warn)}.steer-tag{display:inline-block;font-size:11px;color:var(--warn);border:1px solid var(--warn);border-radius:999px;padding:0 7px;margin-bottom:4px}
+#interruptBtn{color:var(--err)}
 .wkgraph{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px;align-items:stretch}
 .wkgraph .lvl{display:flex;flex-direction:column;gap:8px;justify-content:center;min-width:150px}
 .wkgraph .arrow{align-self:center;color:var(--muted)}
@@ -403,7 +412,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   <div id="runbar" role="status" aria-live="polite"><div class="spin"></div><div class="rb-txt" id="rbText"></div><span class="rb-time" id="rbTime"></span><button class="btn icon sm tip-up tip-left" data-icon="stop" aria-label="停止任務" id="rbStop" type="button"></button></div>
   <div id="attachRow"></div>
   <form id="form"><button class="btn icon lg tip-up" data-icon="clip" aria-label="附加檔案（可拖曳或貼上）" type="button" id="attachBtn"></button><input type="file" id="fileInput" multiple hidden>
-    <textarea id="input" placeholder="描述任務，例如：幫我查明天台北的天氣並存成 weather.md（可拖曳或貼上圖片、檔案）" rows="1"></textarea><button class="btn icon lg primary tip-up tip-left" data-icon="send" aria-label="送出（Enter）" id="sendBtn"></button></form>
+    <textarea id="input" placeholder="描述任務，例如：幫我查明天台北的天氣並存成 weather.md（可拖曳或貼上圖片、檔案）" rows="1"></textarea><button class="btn icon lg tip-up tip-left" data-icon="stop" aria-label="停止目前任務並改做這個" id="interruptBtn" type="button" hidden></button><button class="btn icon lg primary tip-up tip-left" data-icon="send" aria-label="送出（Enter）" id="sendBtn"></button></form>
 </main>
 <div id="sideScrim" hidden></div>
 <section id="desk"><div class="bar"><span>Agent 桌面（可直接接手操作）</span><a href="#" id="deskPop" target="_blank" style="color:inherit">新視窗開啟</a></div><iframe id="vnc" title="desktop"></iframe></section>
@@ -712,6 +721,22 @@ function attachCard(href, label){
   return `<span class="att"><span class="att-ic">${esc(ext)}</span><a class="att-n" href="${esc(fileUrl(href))}" target="_blank" rel="noopener" title="${esc(href)}">${esc(name)}</a>` +
     `<span class="att-m"${isLocal(href) ? ` data-info="${esc(href)}"` : ''}></span><a class="att-dl" href="${esc(fileUrl(href, true))}" download>下載</a></span>`;
 }
+// intermediate products of a running task: thumbnails / players / file cards right under the tool that made them
+function artItem(f){
+  const url = fileUrl(f.path), name = esc(f.name), title = esc(f.path) + (f.size != null ? ' · ' + fmtSize(f.size) : '');
+  if (f.kind === 'image') return `<a class="art img" href="${esc(url)}" target="_blank" rel="noopener" title="${title}"><img src="${esc(url)}" alt="${name}" loading="lazy"><span>${name}</span></a>`;
+  if (f.kind === 'video') return `<div class="art av" title="${title}"><video controls preload="metadata" src="${esc(url)}"></video><span>${name} <a href="${esc(fileUrl(f.path, true))}" download>下載</a></span></div>`;
+  if (f.kind === 'audio') return `<div class="art av" title="${title}"><audio controls preload="none" src="${esc(url)}"></audio><span>${name}</span></div>`;
+  return `<span class="art doc">${attachCard(f.path, f.name)}</span>`;
+}
+function artStrip(files, label){ return `<div class="arts"><div class="arts-h">${ic('file')} ${esc(label)}（${files.length}）</div><div class="arts-b">${files.map(artItem).join('')}</div></div>`; }
+function showArtifacts(callId, files){
+  if (!files?.length) return;
+  const anchor = toolEls[callId]; const html = artStrip(files, '產出檔案');
+  if (anchor) { anchor.insertAdjacentHTML('afterend', html); const el = anchor.nextElementSibling; el.querySelectorAll('[data-info]').forEach(fillInfo); }
+  else add(html, 'note');
+  $('#chat').scrollTop = 1e9;
+}
 const mdRenderer = {
   image({href, title, text}) {
     const url = fileUrl(href), cap = text || title || '';
@@ -751,12 +776,13 @@ function loadMermaid(){
     sc.onerror = fail; document.head.appendChild(sc); });
   return MERMAID;
 }
+async function fillInfo(m){ try { const r = await fetch(`/api/files/info?path=${encodeURIComponent(m.dataset.info)}&token=${encodeURIComponent(token)}`);
+    if (!r.ok) { m.textContent = r.status === 404 ? '找不到檔案' : '無法存取'; return; } const j = await r.json(); m.textContent = fmtSize(j.size); } catch {} }
 async function enhance(el){
   el.querySelectorAll('.md table').forEach(t => { if (!t.parentElement.classList.contains('tblwrap')) { const w = document.createElement('div'); w.className = 'tblwrap'; t.replaceWith(w); w.appendChild(t); } });
   el.querySelectorAll('.codebox .copy').forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.nextElementSibling.innerText); b.innerHTML = ic('check'); setTimeout(() => b.innerHTML = ic('copy'), 1200); });
   el.querySelectorAll('.md img').forEach(img => img.onerror = () => { const sp = document.createElement('span'); sp.className = 'broken'; sp.textContent = '圖片無法載入：' + (img.dataset.src || img.alt || img.src); img.closest('a')?.replaceWith(sp) || img.replaceWith(sp); });
-  el.querySelectorAll('.att-m[data-info]').forEach(async m => { try { const r = await fetch(`/api/files/info?path=${encodeURIComponent(m.dataset.info)}&token=${encodeURIComponent(token)}`);
-      if (!r.ok) { m.textContent = r.status === 404 ? '找不到檔案' : '無法存取'; return; } const j = await r.json(); m.textContent = fmtSize(j.size); } catch {} });
+  el.querySelectorAll('.att-m[data-info]').forEach(fillInfo);
   const boxes = el.querySelectorAll('.mmd[data-src]');
   if (!boxes.length) return;
   try { const mm = await loadMermaid();
@@ -769,6 +795,7 @@ function fmtSize(n){ return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >
 function clearEmpty(){const e = $('#chat .empty'); if (e) e.remove();}
 function add(html, cls){clearEmpty(); const d = document.createElement('div'); d.className = cls; d.innerHTML = html; $('#chat').appendChild(d); if (d.querySelector('.md')) enhance(d); $('#chat').scrollTop = 1e9; return d;}
 const CLIENT_REF = Math.random().toString(36).slice(2);
+const INPUT_PH = document.querySelector('#input').placeholder;
 let RUNNING = {};   // session_id -> {started, step, activity, tool}
 function setBusy(){ busy = !!RUNNING[sessionId]; $('#stopBtn').hidden = true; renderRun(); }
 const TOOL_LABEL = {shell: '終端機', browser: '瀏覽器', web_fetch: '讀取網頁', web_search: '網頁搜尋', read_file: '讀檔', write_file: '寫檔',
@@ -777,8 +804,10 @@ const TOOL_LABEL = {shell: '終端機', browser: '瀏覽器', web_fetch: '讀取
 function renderRun(){
   const r = RUNNING[sessionId], bar = $('#runbar');
   document.title = Object.keys(RUNNING).length ? '⏳ SinoBee' : 'SinoBee';
-  sendState(r ? 'busy' : 'idle');
-  $('#sendBtn').disabled = !!r;
+  sendState('idle');
+  $('#sendBtn').setAttribute('aria-label', r ? '補充指示（Enter，不中斷任務）' : '送出（Enter）');
+  $('#interruptBtn').hidden = !r;
+  $('#input').placeholder = r ? '任務執行中：輸入補充或修改需求，Enter 送出會在下一步納入；按 ■ 則停止並改做' : INPUT_PH;
   if (!r) { bar.classList.remove('on', 'wait'); return; }
   bar.classList.add('on'); bar.classList.toggle('wait', r.activity === '等待你核准');
   const what = r.tool ? `${r.activity}：${TOOL_LABEL[r.tool] || r.tool}` : r.activity;
@@ -872,6 +901,10 @@ function handle(ev, replay = false){
   switch (ev.type) {
     case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
     case 'notice': add('ⓘ ' + esc(ev.error || ev.message), 'note'); break;
+    case 'steer': if (ev.client_ref !== CLIENT_REF) add(`<span class="steer-tag">執行中補充</span>` + md(ev.text), 'msg user steer');
+      add('ⓘ 已收到，會在目前這一步結束後納入。', 'note'); break;
+    case 'steer_applied': add('✓ 已把你的補充納入任務', 'note'); break;
+    case 'artifact': showArtifacts(ev.id, ev.files); break;
     case 'assistant': add(md(ev.text), 'msg assistant'); break;
     case 'tool_call': {
       const d = document.createElement('details'); d.className = 'tool pending';
@@ -904,7 +937,8 @@ function handle(ev, replay = false){
     case 'turn_end': {
       // mark any tool card still spinning (e.g. force-stopped) as interrupted
       document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
-      resultCard(ev); loadSide(); refreshStatus(false); break; }
+      { const c = resultCard(ev); if (ev.artifacts?.length && c) c.insertAdjacentHTML('beforeend', artStrip(ev.artifacts, '本次產出')); }
+      loadSide(); refreshStatus(false); break; }
     case 'feedback_learned': {
       const parts = [];
       if (ev.skills_rated?.length) parts.push(`更新技能成效：${ev.skills_rated.join('、')}`);
@@ -952,8 +986,18 @@ async function uploadPending(){
     const p = f.path.includes(' ') ? `<${f.path}>` : f.path;
     return (/^(image|video|audio)\//.test(f.mime) ? `![${f.name}](${p})` : `[${f.name}](${p})`); }).join('\n');
 }
+async function submitText(mode){
+  let text = $('#input').value.trim(); if (!text && !PENDING.length) return;
+  try { text = (text || '請查看附件') + await uploadPending(); }
+  catch (err) { add('ⓘ ' + esc(err.message), 'note'); sendState('idle'); return; }
+  add(`<span class="steer-tag">${mode === 'interrupt' ? '停止並改做' : '執行中補充'}</span>` + md(text), 'msg user steer'); $('#input').value = '';
+  ws.send(JSON.stringify({type: 'message', session_id: sessionId, text, client_ref: CLIENT_REF, mode}));
+  if (mode === 'interrupt') $('#rbText').textContent = '正在停止，接著改做新的要求…';
+}
+$('#interruptBtn').onclick = () => { if (RUNNING[sessionId]) submitText('interrupt'); };
 $('#form').onsubmit = async e => {
-  e.preventDefault(); let text = $('#input').value.trim(); if ((!text && !PENDING.length) || RUNNING[sessionId]) return;
+  e.preventDefault(); if (RUNNING[sessionId]) return submitText('steer');
+  let text = $('#input').value.trim(); if (!text && !PENDING.length) return;
   if (NEEDS_SETUP) { openSettings(true); return; }
   if (await interceptDsn(text)) return;
   try { text = (text || '請查看附件') + await uploadPending(); }
@@ -970,12 +1014,14 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
 
 async function openSession(s){
   sessionId = s.id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {};
-  const [msgs, turns] = await Promise.all([api('/api/sessions/' + s.id), api('/api/sessions/' + s.id + '/turns')]);
+  const [msgs, turns, arts] = await Promise.all([api('/api/sessions/' + s.id), api('/api/sessions/' + s.id + '/turns'),
+    api('/api/sessions/' + s.id + '/artifacts').catch(() => [])]);
   const chat = $('#chat');
   for (const [idx, m] of msgs.entries()) {
     const before = chat.childElementCount;
     const text = typeof m.content === 'string' ? m.content : (m.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n');
-    if (m.role === 'user') add(md((text.startsWith('<skill_content') ? text.split('\n').pop() : text).replace(/\n?\[image omitted\]/g, '')), 'msg user');
+    if (m.role === 'user' && text.startsWith('[使用者在執行中補充指示]')) add(`<span class="steer-tag">執行中補充</span>` + md(text.replace('[使用者在執行中補充指示] ', '').split('\n（請把這個補充')[0]), 'msg user steer');
+    else if (m.role === 'user') add(md((text.startsWith('<skill_content') ? text.split('\n').pop() : text).replace(/\n?\[image omitted\]/g, '')), 'msg user');
     else if (m.role === 'assistant') {
       const fail = text.match(/^\[上一次嘗試失敗：(.*)\]$/);
       if (fail) add(`<b>✕ 這一輪未完成：${esc(fail[1])}</b>`, 'result error');
@@ -985,6 +1031,7 @@ async function openSession(s){
     else if (m.role === 'tool') handle({type:'tool_result', id: m.tool_call_id, preview: text.slice(0, 3000), error: text.startsWith('ERROR')}, true);
     for (let k = before; k < chat.childElementCount; k++) chat.children[k].dataset.idx = idx;
   }
+  for (const a of Array.isArray(arts) ? arts : []) showArtifacts(a.id, a.files);
   for (const t of Array.isArray(turns) ? turns : []) {
     const els = [...chat.querySelectorAll('[data-idx]')].filter(e => +e.dataset.idx <= t.end_idx);
     const anchor = els[els.length - 1]; if (!anchor) continue;

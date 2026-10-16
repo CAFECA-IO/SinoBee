@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from vpcommon import (die, emit, load_project, media_info, need, output_size, resolve, run, shot_seconds,
+from vpcommon import (strip_script_prefix, die, emit, load_project, media_info, need, output_size, resolve, run, shot_seconds,
                       shots_by_id, unit_seconds, units)
 
 GRADES = {
@@ -102,6 +102,7 @@ def main() -> None:
     p.add_argument("--loudness", type=float, default=-14.0)
     p.add_argument("--allow-missing", action="store_true", help="grey slates for units not rendered yet (animatic)")
     p.add_argument("--out", default="out/final.mp4")
+    strip_script_prefix()
     a = p.parse_args()
     need("ffmpeg")
     proj, path = load_project(a.folder)

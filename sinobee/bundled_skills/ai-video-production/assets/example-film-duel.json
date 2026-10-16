@@ -1,0 +1,282 @@
+{
+  "title": "繡春刀・黃昏對決",
+  "intent": "建立一段古裝武打片，雙方使用繡春刀",
+  "genre": "film",
+  "language": "zh-TW",
+  "language_name": "Mandarin Chinese",
+  "aspect": "16:9",
+  "fps": 24,
+  "delivery": "1080p",
+  "quality": "draft",
+  "target_quality": "final",
+  "style": {
+    "look": "Cinematic Chinese wuxia film, Ming dynasty setting, anamorphic lens, shallow depth of field, fine film grain, practical dust and embers, restrained teal-and-amber grade",
+    "palette": [
+      "#1d2430",
+      "#7a2e1f",
+      "#c98b3a",
+      "#d8c7a3"
+    ],
+    "lut": null,
+    "camera": "controlled dolly, crane and handheld moves typical of a wuxia duel",
+    "motion_strength": 0.7,
+    "ambience": "wind over ruins, dry leaves scraping stone, distant crows",
+    "music": "low taiko drums and a sparse erhu line that swells at the clash",
+    "negative": "No on-screen text, subtitles, logos or watermarks. Exactly two fighters, no extra people. Each fighter holds exactly one xiuchun dao (a slim, slightly curved single-edged Ming saber). No guns, no modern objects, no deformed hands, no blades bending or melting.",
+    "bgm_file": null,
+    "voice": ""
+  },
+  "script": {
+    "format": "screenplay",
+    "body": "EXT. 廢棄驛站庭院 - 黃昏\n\n殘陽穿過斷柱。凌風（飛魚服、繡春刀）與血煞（黑色斗篷、繡春刀）相隔十步對峙，風捲起落葉。\n\n            血煞\n      （冷笑）\n   錦衣衛的刀，也不過如此。\n\n凌風不答，拇指推開刀鍔。兩人同時衝出，刀鋒相交，火星四濺。凌風側身卸力，反手一刀逼退血煞。血煞怒吼，雙手握刀劈下——凌風最後一刻閃身，刀鋒擦過他的臉頰。\n\n兩人錯身而過，背對背停住。落葉落地。"
+  },
+  "subjects": [
+    {
+      "id": "S1",
+      "name": "凌風",
+      "alias": "Ling Feng",
+      "kind": "person",
+      "appearance": "Chinese man around 30, lean athletic build, sharp calm eyes, short beard stubble, black hair tied in a topknot under a black gauze cap",
+      "wardrobe": "dark indigo Ming-dynasty feiyu robe with gold embroidered flying-fish pattern, black leather belt, leather bracers, one xiuchun dao in a black scabbard on the left hip",
+      "capability_ceiling": "elite imperial guard swordsman: fast, precise, economical cuts and parries; human strength and speed only - no flying, no wire-fu leaps, no superhuman feats",
+      "negative_boundary": "never taunts or shouts, never attacks a fallen enemy, never fights with wild swings; stays silent and controlled",
+      "linguistic_blueprint": "almost wordless; at most a few short calm words",
+      "kinematic_signature": "low centered stance, weight on the back foot, blade held close to the body, minimal footwork, sudden explosive bursts then stillness",
+      "voice": "",
+      "sheet": []
+    },
+    {
+      "id": "S2",
+      "name": "血煞",
+      "alias": "Xue Sha",
+      "kind": "person",
+      "appearance": "Chinese man in his 40s, broad heavy build, scarred left cheek, long unkempt black hair, intense glaring eyes",
+      "wardrobe": "torn black hooded cloak over dark red leather armor, wrapped forearms, one xiuchun dao with a red-wrapped handle",
+      "capability_ceiling": "brutal veteran fighter: powerful heavy two-handed strikes, slower recovery than Ling Feng; human strength only",
+      "negative_boundary": "never retreats willingly, never uses tricks like throwing sand, never begs",
+      "linguistic_blueprint": "low gravelly voice, short contemptuous sentences, sneering",
+      "kinematic_signature": "wide aggressive stance, shoulders rolled forward, big committed swings from the shoulder, heavy footsteps",
+      "voice": "",
+      "sheet": []
+    }
+  ],
+  "environments": [
+    {
+      "id": "E1",
+      "name": "廢棄驛站庭院",
+      "description": "abandoned Ming-dynasty post-station courtyard: cracked stone floor with moss, broken wooden pillars, collapsed tiled roof, scattered dry leaves, tattered banners",
+      "light": "low golden sunset from camera left, long hard shadows to the right, dust in the light shafts",
+      "palette": "dark slate blue shadows, warm amber highlights, deep red accents",
+      "materials": "weathered grey stone, splintered dark wood, aged clay roof tiles",
+      "master": null
+    }
+  ],
+  "shots": [
+    {
+      "id": "SH01",
+      "group": "SC01",
+      "scene": "The two fighters face off in the ruined courtyard at sunset",
+      "env": "E1",
+      "subjects": [
+        "S1",
+        "S2"
+      ],
+      "duration": 3.5,
+      "narration": "",
+      "dialogue": [],
+      "shot_size": "wide",
+      "angle": "low angle",
+      "lens": "24mm",
+      "focus": "both fighters, deep focus",
+      "composition": "Ling Feng frame left, Xue Sha frame right, ten paces apart, setting sun between them",
+      "action": "The two men stand still facing each other, leaves blowing between them",
+      "performance": "tense stillness",
+      "camera_move": "slow push in",
+      "sfx": "wind gust",
+      "music": "",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": 0.3
+    },
+    {
+      "id": "SH02",
+      "group": "SC01",
+      "env": "E1",
+      "subjects": [
+        "S2"
+      ],
+      "duration": 2.5,
+      "narration": "",
+      "dialogue": [
+        {
+          "subject": "S2",
+          "line": "錦衣衛的刀，也不過如此。"
+        }
+      ],
+      "shot_size": "medium close-up",
+      "angle": "eye level",
+      "lens": "85mm",
+      "focus": "Xue Sha's eyes, shallow depth of field",
+      "composition": "Xue Sha on the right third, looking camera left",
+      "action": "Xue Sha sneers and speaks his line",
+      "performance": "contemptuous",
+      "camera_move": "static",
+      "sfx": "",
+      "music": "",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": 0.3
+    },
+    {
+      "id": "SH03",
+      "group": "SC01",
+      "env": "E1",
+      "subjects": [
+        "S1"
+      ],
+      "duration": 2.0,
+      "narration": "",
+      "dialogue": [],
+      "shot_size": "insert",
+      "angle": "eye level",
+      "lens": "100mm macro",
+      "focus": "the sword guard and thumb",
+      "composition": "hand and scabbard filling the frame",
+      "action": "Ling Feng's thumb pushes the sword guard, a few centimeters of steel slide out of the scabbard",
+      "performance": "calm",
+      "camera_move": "static",
+      "sfx": "a sharp metallic click",
+      "music": "drums start",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": 0.3
+    },
+    {
+      "id": "SH04",
+      "group": "SC02",
+      "scene": "The clash: both charge, blades meet, Ling Feng deflects and counters",
+      "env": "E1",
+      "subjects": [
+        "S1",
+        "S2"
+      ],
+      "duration": 3.0,
+      "narration": "",
+      "dialogue": [],
+      "shot_size": "medium wide",
+      "angle": "eye level",
+      "lens": "35mm",
+      "focus": "the point where the blades meet",
+      "composition": "fighters meeting in the center of frame",
+      "action": "Both charge; their sabers clash in the middle with a burst of sparks",
+      "performance": "explosive",
+      "camera_move": "handheld tracking",
+      "sfx": "steel on steel, sparks",
+      "music": "",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": 0.8
+    },
+    {
+      "id": "SH05",
+      "group": "SC02",
+      "env": "E1",
+      "subjects": [
+        "S1",
+        "S2"
+      ],
+      "duration": 3.0,
+      "narration": "",
+      "dialogue": [],
+      "shot_size": "medium",
+      "angle": "low angle",
+      "lens": "35mm",
+      "focus": "Ling Feng",
+      "composition": "Ling Feng foreground left, Xue Sha stumbling back right",
+      "action": "Ling Feng turns his body to deflect the blow and answers with one backhand cut that drives Xue Sha back two steps",
+      "performance": "precise, no wasted motion",
+      "camera_move": "orbit left",
+      "sfx": "",
+      "music": "",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": 0.7
+    },
+    {
+      "id": "SH06",
+      "group": "SC03",
+      "scene": "Xue Sha's final heavy strike; Ling Feng slips past it at the last moment; they end back to back",
+      "env": "E1",
+      "subjects": [
+        "S2"
+      ],
+      "duration": 2.5,
+      "narration": "",
+      "dialogue": [],
+      "shot_size": "close-up",
+      "angle": "low angle",
+      "lens": "50mm",
+      "focus": "Xue Sha's face",
+      "composition": "centered, blade raised above his head",
+      "action": "Xue Sha roars and raises his saber with both hands for an overhead strike",
+      "performance": "furious",
+      "camera_move": "push in",
+      "sfx": "a roar",
+      "music": "drums peak",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": 0.7
+    },
+    {
+      "id": "SH07",
+      "group": "SC03",
+      "env": "E1",
+      "subjects": [
+        "S1",
+        "S2"
+      ],
+      "duration": 3.0,
+      "narration": "",
+      "dialogue": [],
+      "shot_size": "medium",
+      "angle": "eye level",
+      "lens": "50mm",
+      "focus": "Ling Feng's face as the blade passes",
+      "composition": "Xue Sha's blade crossing frame right to left past Ling Feng's cheek",
+      "action": "The blade comes down; Ling Feng slips sideways at the last instant, the edge passing a finger's width from his cheek",
+      "performance": "calm eyes, no fear",
+      "camera_move": "slow motion push in",
+      "sfx": "whoosh of the blade",
+      "music": "",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": 0.7
+    },
+    {
+      "id": "SH08",
+      "group": "SC03",
+      "env": "E1",
+      "subjects": [
+        "S1",
+        "S2"
+      ],
+      "duration": 3.0,
+      "narration": "",
+      "dialogue": [],
+      "shot_size": "wide",
+      "angle": "high angle",
+      "lens": "24mm",
+      "focus": "deep focus",
+      "composition": "the two men back to back in the center, long shadows, leaves settling",
+      "action": "The two fighters stand back to back after passing each other, completely still, leaves settling on the stones",
+      "performance": "stillness",
+      "camera_move": "crane up",
+      "sfx": "silence, then the wind returns",
+      "music": "a single erhu note fading out",
+      "first_frame": null,
+      "last_frame": null,
+      "motion_strength": 0.3
+    }
+  ],
+  "renders": {}
+}

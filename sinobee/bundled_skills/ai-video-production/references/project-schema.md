@@ -1,7 +1,7 @@
 # project.json fields
 
-`project.py init` creates the file. Edit it with `edit_file` or `write_file`; the scripts keep `renders`
-up to date. Paths are relative to the project folder.
+`project.py init` creates the file. Fill it with `project.py merge <folder> plan.json` (a JSON file in this
+shape) or `project.py set <folder> <field.path> <value>`. The scripts keep `renders` up to date. Paths are relative to the project folder.
 
 ## Top level
 | Field | Meaning |
@@ -12,13 +12,15 @@ up to date. Paths are relative to the project folder.
 | `aspect` | 16:9, 9:16, 1:1, 4:3, 4:5, 21:9 |
 | `fps`, `delivery` | Final frame rate (24/30/60) and size (720p, 1080p, 1440p, 2160p) |
 | `quality` | Default render quality: draft, final or best |
+| `target_quality` | Quality to deliver (default final; set draft to deliver previews) |
+| `skip_tts`, `skip_sheets` | true = no TTS engine / skip reference sheets (next.py stops asking) |
 | `comfyui_url` | Optional; otherwise COMFYUI_URL or http://127.0.0.1:8188 |
 | `models` | Optional overrides: `fl2va`, `ref2va`, `clip`, `video_vae`, `audio_vae`, `lora_fl2va`, `lora_ref2va` (file names as ComfyUI lists them) |
 | `style` | `look`, `palette` (list of hex), `lut` (.cube), `camera`, `motion_strength`, `ambience`, `music`, `negative`, `bgm_file`, `voice` (narrator TTS voice) |
 | `script` | `format` (screenplay, two-column, timeline) and `body` (markdown the user reads) |
 
 ## subjects[]
-`id`, `name`, `kind` (person, animal, object, presenter, self), `appearance`, `wardrobe`, `capability_ceiling`,
+`id`, `name`, `alias` (the name used in English action text, e.g. Ling Feng), `kind` (person, animal, object, presenter, self), `appearance`, `wardrobe`, `capability_ceiling`,
 `negative_boundary`, `linguistic_blueprint`, `kinematic_signature`, `voice`, and `sheet` (reference images;
 `comfy_h3.py sheet` fills it).
 

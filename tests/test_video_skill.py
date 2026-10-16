@@ -79,10 +79,10 @@ def test_validate_and_prompts(tmp_path):
     p = (root / "prompts" / "SC01.txt").read_text()
     assert "[0.0s-4.0s] Shot 1" in p and "[4.0s-6.5s] Shot 2" in p
     assert "slightly stooped" in p and "boundaries: never rushes" in p
-    assert '阿明 says in Mandarin Chinese (Taiwan accent), lips in sync: "今年的茶很香。"' in p
+    assert '阿明 (Ming) says in Mandarin Chinese (Taiwan accent), lips in sync: "今年的茶很香。"' in p
     assert "Nobody speaks on camera in this shot" in p
     assert "subtle, natural" in p                           # documentary motion strength 0.3
-    assert "only 阿明 (1 person), no other people" in p
+    assert "only 阿明 (Ming) (1 person), no other people" in p
     code, plan = run("project.py", "plan", root)
     assert [u["unit"] for u in plan["units"]] == ["SC01", "SC02"] and plan["units"][0]["frames"] == 158
 
@@ -150,3 +150,71 @@ def test_timing_assemble_qc(tmp_path):
     assert "清晨五點" in srt and "00:00:06,100" in srt
     code, q = run("qc.py", "project", root)
     assert q["final"]["has_audio"] and (root / q["final"]["sheet"]).exists()
+
+
+def test_forgiving_cli_and_editing(tmp_path):
+    root = tmp_path / "duel"
+    run("project.py", "init", root, "--genre", "film")
+    # folder before command, repeated script name, invented command, project.json as command
+    code, out = run("project.py", root, "plan")
+    assert out["ok"]
+    code, out = run("project.py", "scripts/project.py", "plan", root)
+    assert out["ok"]
+    code, out = run("project.py", "profiling", root, ok=False)
+    assert code != 0 and "not a command" in out["error"] and "subjects" in out["error"]
+    code, out = run("project.py", root / "project.json", ok=False)
+    assert "first argument must be a command" in out["error"]
+    # set creates items by id, merge maps common aliases, remove drops placeholders
+    run("project.py", "set", root, "subjects.S2.name", "血煞", "shots.SH02.duration", "2.5", "style.palette",
+        '["#111", "#222"]')
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"characters": [{"id": "S2", "appearance": "scarred man"}],
+                                "setting": {"E1": {"description": "ruins", "light": "sunset left"}},
+                                "script_body": "EXT. RUINS - DUSK"}, ensure_ascii=False))
+    code, out = run("project.py", "merge", root, plan)
+    assert "characters -> subjects" in out["notes"]
+    run("project.py", "remove", root, "subjects.S1")
+    data = json.loads((root / "project.json").read_text())
+    assert [s["id"] for s in data["subjects"]] == ["S2"] and data["subjects"][0]["appearance"] == "scarred man"
+    assert data["subjects"][0]["kinematic_signature"] == ""            # created from the template
+    assert next(s for s in data["shots"] if s["id"] == "SH02")["duration"] == 2.5
+    assert data["style"]["palette"] == ["#111", "#222"] and data["script"]["body"] == "EXT. RUINS - DUSK"
+    assert data["environments"][0]["light"] == "sunset left"
+    (root / "characters.txt").write_text("x")
+    code, out = run("project.py", "validate", root, ok=False)
+    assert any("characters.txt" in w for w in out["warnings"])
+    assert any("subjects.S2: profiling matrix incomplete" in e for e in out["errors"])
+
+
+def test_next_walks_the_pipeline(tmp_path, monkeypatch):
+    monkeypatch.setenv("COMFYUI_URL", "http://127.0.0.1:9")
+    root = tmp_path / "duel"
+    code, out = run("next.py", root)
+    assert out["phase"] == "0 brief" and out["call"]["args"].startswith(f"init {root}")
+    run("project.py", "init", root, "--genre", "film")
+    code, out = run("next.py", root)
+    assert out["phase"].startswith("1-4") and out["call"]["args"] == f"merge {root} plan.json"
+    assert any("script.body" in m for m in out["missing"])
+    run("project.py", "merge", root, SKILL / "assets" / "example-film-duel.json")
+    code, out = run("next.py", root)
+    assert out["phase"] == "1 audio-first" and out["call"]["script"] == "scripts/tts.py"
+    run("project.py", "set", root, "skip_tts", "true")
+    code, out = run("next.py", root)
+    assert out["phase"] == "5 prompts"
+    run("project.py", "prompts", root)
+    code, out = run("next.py", root)          # nothing listens on the test URL
+    assert out["phase"].startswith("blocked") and out["call"] is None
+    p = (root / "prompts" / "SC03.txt").read_text()
+    assert "凌風 (Ling Feng): low centered stance" in p and "only 凌風 (Ling Feng) and 血煞 (Xue Sha) (2 people)" in p
+
+
+def test_skill_run_names_the_scripts():
+    import asyncio
+    from types import SimpleNamespace
+    from sinobee.tools import skill_tools
+    skill = SimpleNamespace(policy=SimpleNamespace(scripts="allow"), disabled=False, path=SKILL, trust="builtin",
+                            reason="", entry=None, files=lambda: ["SKILL.md", "scripts/next.py", "scripts/project.py"])
+    ctx = SimpleNamespace(skills=SimpleNamespace(get=lambda n: skill))
+    fn = getattr(skill_tools.skill_run, "fn", None) or getattr(skill_tools.skill_run, "func", None) or skill_tools.skill_run
+    res = asyncio.run(fn(ctx, "ai-video-production", "videos/x/project.json"))
+    assert res.is_error and "scripts/next.py" in res.content and "args" in res.content

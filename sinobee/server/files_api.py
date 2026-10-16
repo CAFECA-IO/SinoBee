@@ -9,40 +9,22 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from ..fileaccess import PRIVATE_NAMES, FileAccessError, allowed_roots  # noqa: F401
+from ..fileaccess import resolve_file as _resolve
+
 MAX_UPLOAD = 200 * 1024 * 1024
 STATIC = Path(__file__).resolve().parent / "static"
-PRIVATE_NAMES = {"secrets.json", "settings.json", "config.yaml", "sinobee.db", "sinobee.db-wal", "sinobee.db-shm",
-                 "trusted_projects.json", ".vncpass"}
 mimetypes.add_type("video/mp4", ".mp4")
 mimetypes.add_type("video/webm", ".webm")
 mimetypes.add_type("text/markdown", ".md")
 
 
-def allowed_roots(config) -> list[Path]:
-    roots = [config.workspace, config.project_dir] + [Path(p) for p in (config.get("permissions.allowed_paths") or [])]
-    out = []
-    for r in roots:
-        try:
-            out.append(Path(r).expanduser().resolve())
-        except OSError:
-            pass
-    return out
-
-
 def resolve_file(config, path: str) -> Path:
     """Only files inside the workspace / project / allowed paths, never SinoBee's own private files."""
-    p = Path(path).expanduser()
-    if not p.is_absolute():
-        p = config.workspace / p
-    p = p.resolve()
-    home = config.home.resolve()
-    if p.name in PRIVATE_NAMES or (home in p.parents and config.workspace.resolve() not in [p, *p.parents]):
-        raise HTTPException(403, "this file is private to SinoBee")
-    if not any(p == r or r in p.parents for r in allowed_roots(config)):
-        raise HTTPException(403, "file is outside the workspace / allowed paths")
-    if not p.is_file():
-        raise HTTPException(404, "file not found")
-    return p
+    try:
+        return _resolve(config, path)
+    except FileAccessError as e:
+        raise HTTPException(e.status, str(e)) from None
 
 
 def safe_name(name: str) -> str:

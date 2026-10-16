@@ -31,8 +31,14 @@ def motion_phrase(strength: float) -> str:
     return "dynamic, energetic motion; bold fast camera moves with motion blur"
 
 
-def subject_block(s: dict, full: bool = True) -> str:
+def label(s: dict) -> str:
+    """Display name, with the alias used in English action text: 凌風 (Ling Feng)."""
     name = s.get("name") or s["id"]
+    return f"{name} ({s['alias']})" if s.get("alias") and s["alias"] != name else name
+
+
+def subject_block(s: dict, full: bool = True) -> str:
+    name = label(s)
     parts = [f"{name}: {s.get('appearance', '').strip()}".rstrip(": ")]
     if s.get("wardrobe"):
         parts.append(f"wearing {s['wardrobe']}")
@@ -75,21 +81,22 @@ def shot_line(proj: dict, s: dict, start: float, end: float, n: int) -> str:
     if spec:
         bits.append(spec)
     if s.get("focus"):
-        bits.append(f"focus on {s['focus']}")
+        bits.append(s["focus"] if "focus" in s["focus"].lower() else f"focus on {s['focus']}")
     if s.get("composition"):
         bits.append(s["composition"])
     head = f"[{start:.1f}s-{end:.1f}s] Shot {n}: " + (", ".join(bits) + ". " if bits else "")
     action = s.get("action", "").strip()
     perf = s.get("performance", "").strip()
     # profile-driven action: append each subject's kinematic signature so a "turn" becomes "a hunched turn"
-    kin = [subj[i].get("kinematic_signature") for i in s.get("subjects", []) if i in subj and
-           subj[i].get("kinematic_signature")]
+    kin = [f"{label(subj[i])}: {subj[i]['kinematic_signature']}" if len(s.get("subjects", [])) > 1
+           else subj[i]["kinematic_signature"]
+           for i in s.get("subjects", []) if i in subj and subj[i].get("kinematic_signature")]
     body = action
     if perf:
         body += f" ({perf})"
     if kin and action:
         body += f", consistent with their habitual body language ({'; '.join(kin)})"
-    names = [subj[i].get("name") or i for i in s.get("subjects", []) if i in subj]
+    names = [label(subj[i]) for i in s.get("subjects", []) if i in subj]
     if names:   # stops ref2va from duplicating a referenced person and stray extras from appearing
         body += f". On screen: only {' and '.join(names)} ({len(names)} {'person' if len(names) == 1 else 'people'})" \
                 f", no other people, no duplicates"
@@ -97,7 +104,7 @@ def shot_line(proj: dict, s: dict, start: float, end: float, n: int) -> str:
     if cam:
         body += f". Camera: {cam}"
     for d in s.get("dialogue") or []:
-        who = subj.get(d.get("subject"), {}).get("name") or d.get("subject", "")
+        who = label(subj[d["subject"]]) if d.get("subject") in subj else d.get("subject", "")
         lang = language_name(proj, d.get("language"))
         body += f'. {who} says{" in " + lang if lang else ""}, lips in sync: "{d.get("line", "")}"'
     if s.get("narration") and not s.get("dialogue"):

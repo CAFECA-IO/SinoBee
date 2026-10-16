@@ -141,6 +141,10 @@ def _normalise(value: Any, limit: int) -> ToolResult:
         res = ToolResult(value)
     else:
         res = ToolResult.ok(value if value is not None else "ok")
+        # many tools report failure as a plain "ERROR: …" string; flag it so the loop, the UI and the
+        # repeat guard all see it as a failure instead of a ✓
+        if isinstance(res.content, str) and res.content.lstrip().startswith("ERROR"):
+            res.is_error = True
     if isinstance(res.content, str):
         res.content = _truncate(res.content, limit)
     else:

@@ -88,6 +88,21 @@ class Skill:
         return [p.lower() for p in spec.meta_list(self.frontmatter, "sinobee-platforms")]
 
     @property
+    def entry(self) -> str | None:
+        """Optional entry script (metadata sinobee-entry): skill_run(name, args) runs it when no script is given."""
+        e = str(self.metadata.get("sinobee-entry") or "").strip()
+        return e if e and (self.path / e).is_file() else None
+
+    @property
+    def quickstart(self) -> str:
+        """A few lines an agent must not lose: how to invoke the skill (pinned in context while it is active)."""
+        q = str(self.metadata.get("sinobee-quickstart") or "").strip()
+        if self.entry:
+            q = (f'Run it with skill_run(name="{self.name}", args="<input>") - this runs {self.entry}. '
+                 f"Pass `script` only to run another file of the skill. " + q).strip()
+        return q
+
+    @property
     def allowed_tools(self) -> list[str]:
         return str(self.frontmatter.get("allowed-tools") or "").split()
 
@@ -479,7 +494,8 @@ class SkillManager:
             extra.append(f"success {int(st['success_rate'] * 100)}%")
         if st.get("needs_revision"):
             extra.append("NEEDS REVISION")
-        return f"- {s.name}: {s.description} ({', '.join(extra)})"
+        run = f" [run: skill_run(name=\"{s.name}\", args=…)]" if s.entry else ""
+        return f"- {s.name}: {s.description} ({', '.join(extra)}){run}"
 
     def index_block(self, query: str, available_tools: set[str] | None, mode: str = "auto",
                     all_threshold: int = 20, n: int = 6) -> str:
@@ -525,6 +541,8 @@ class SkillManager:
                          "the user's request.]")
         if s.frontmatter.get("compatibility"):
             parts.append(f"Compatibility: {s.frontmatter['compatibility']}")
+        if s.quickstart:
+            parts.append(f"<quick_start>\n{s.quickstart}\n</quick_start>")
         parts.append(s.body)
         parts.append(f"\nSkill directory: {s.path}\nRelative paths in this skill are relative to the skill directory "
                      "(read them with skill_view(name, path); run scripts with skill_run).")

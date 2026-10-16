@@ -14,7 +14,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from vpcommon import die, emit, load_project, media_info, need, resolve, unit_seconds, units
+from vpcommon import normalize_argv, die, emit, load_project, media_info, need, resolve, unit_seconds, units
 
 
 def sheet(video: Path, out: Path, n: int = 9) -> Path:
@@ -81,6 +81,7 @@ def main() -> None:
     c.add_argument("--frames", type=int, default=9)
     pj = sub.add_parser("project")
     pj.add_argument("folder")
+    normalize_argv(["clip", "project"], "qc.py")
     a = p.parse_args()
     if a.cmd == "clip":
         v = Path(a.video)

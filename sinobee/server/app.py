@@ -104,6 +104,25 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     async def session(sid: str):
         return [m.to_dict() for m in rt().memory.load_messages(sid)]
 
+    @app.get("/api/sessions/{sid}/artifacts")
+    async def session_artifacts(sid: str):
+        """Files produced during a conversation, per tool call, for re-drawing the links when it is reopened."""
+        from ..agent import artifacts
+        cfg = rt().config
+        calls, seen, out = {}, set(), []
+        for m in rt().memory.load_messages(sid):
+            for c in m.tool_calls:
+                calls[c.id] = (c.name, c.arguments or {})
+            if m.role == "tool" and m.tool_call_id in calls:
+                text = m.text()
+                if text.lstrip().startswith("ERROR"):
+                    continue
+                name, args = calls[m.tool_call_id]
+                files = artifacts.collect(cfg, name, args, text, seen)
+                if files:
+                    out.append({"id": m.tool_call_id, "tool": name, "files": files})
+        return out
+
     @app.get("/api/memories")
     async def memories(tier: str | None = None, q: str | None = None):
         r = rt()
@@ -205,11 +224,24 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         agent.ctx.approve = approve
         return agent
 
-    async def start_turn(sid_hint: str | None, text: str, client_ref: str | None = None) -> dict:
+    async def start_turn(sid_hint: str | None, text: str, client_ref: str | None = None,
+                         mode: str = "steer") -> dict:
         agent = get_agent(sid_hint)
         sid = agent.session_id
         if sid in state["running"]:
-            return {"error": "這個對話的任務還在執行中，請等它完成或按「停止」。", "session_id": sid}
+            if mode == "interrupt":            # stop what is running, then do this instead
+                task = state["running"][sid].get("task")
+                await cancel_turn(sid)
+                if task:
+                    try:
+                        await asyncio.wait_for(asyncio.shield(task), 15)
+                    except (asyncio.TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
+                        pass
+                agent._inbox.clear()
+            else:                              # keep going, but take the new information into account
+                agent.steer(text)
+                broadcast("steer", {"session_id": sid, "text": text, "client_ref": client_ref})
+                return {"session_id": sid, "steered": True}
         broadcast("session", {"session_id": sid, "client_ref": client_ref})
         state["running"][sid] = {"started": time.time(), "step": 0, "activity": "準備中", "tool": None}
 
@@ -228,6 +260,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             finally:
                 state["running"].pop(sid, None)
                 broadcast("run_state", {"running": run_snapshot()})
+                if agent._inbox:               # typed while the last step was finishing: run it as the next turn
+                    pending = "\n".join(agent._inbox)
+                    agent._inbox.clear()
+                    asyncio.create_task(start_turn(sid, pending))
         state["running"][sid]["task"] = asyncio.create_task(go())
         broadcast("run_state", {"running": run_snapshot()})
         return {"session_id": sid}
@@ -281,7 +317,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 msg = await websocket.receive_json()
                 kind = msg.get("type")
                 if kind == "message":
-                    res = await start_turn(msg.get("session_id"), msg.get("text", ""), msg.get("client_ref"))
+                    res = await start_turn(msg.get("session_id"), msg.get("text", ""), msg.get("client_ref"),
+                                           msg.get("mode") or "steer")
                     if res.get("error"):
                         outbox.put_nowait({"type": "notice", **res})
                 elif kind == "approve":
