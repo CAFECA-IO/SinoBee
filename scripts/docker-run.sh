@@ -6,17 +6,20 @@
 #   scripts/docker-run.sh -m openai/gpt-5.4 -k openai=sk-... -k gemini=AIza...
 #   scripts/docker-run.sh --local-llm                       # also run a local model runtime (Ollama), no key needed
 #   scripts/docker-run.sh --local-llm -m ollama/qwen3.5:9b  # ...and use that local model
+#   scripts/docker-run.sh --public                          # reachable from other devices (token generated)
 #
 # Options: -m model  -k provider[=key] (repeatable)  -a approval(auto|confirm|readonly)
 #          -b monthly budget USD  -t web token  -p port (default 10024)  -n name  -i image
+#          -P | --public     listen on all interfaces; an access token is generated unless -t is given
 #          -L | --local-llm  start an Ollama container (GPU if available); on a Mac with Ollama
 #                            installed natively, that one is used instead (Metal acceleration)
 set -euo pipefail
-ARGS=(); for a in "$@"; do [[ $a == --local-llm ]] && ARGS+=(-L) || ARGS+=("$a"); done; set -- ${ARGS[@]+"${ARGS[@]}"}
-LOCAL_LLM=0
+ARGS=(); for a in "$@"; do case $a in --local-llm) ARGS+=(-L) ;; --public) ARGS+=(-P) ;; *) ARGS+=("$a") ;; esac; done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+LOCAL_LLM=0 PUBLIC=0
 MODEL="" APPROVAL="" BUDGET="" TOKEN="" PORT=10024 NAME=sinobee IMAGE=sinobee:latest
 ENVS=()
-while getopts "m:k:a:b:t:p:n:i:Lh" opt; do
+while getopts "m:k:a:b:t:p:n:i:LPh" opt; do
   case $opt in
     m) MODEL=$OPTARG ;;
     k) prov=${OPTARG%%=*}; key=""
@@ -33,6 +36,7 @@ while getopts "m:k:a:b:t:p:n:i:Lh" opt; do
     b) BUDGET=$OPTARG ;;
     t) TOKEN=$OPTARG ;;
     p) PORT=$OPTARG ;;
+    P) PUBLIC=1 ;;
     n) NAME=$OPTARG ;;
     i) IMAGE=$OPTARG ;;
     L) LOCAL_LLM=1 ;;
@@ -42,6 +46,10 @@ done
 [[ -n $MODEL ]] && { export SINOBEE_MODEL=$MODEL; ENVS+=(-e SINOBEE_MODEL); }
 [[ -n $APPROVAL ]] && { export SINOBEE_APPROVAL=$APPROVAL; ENVS+=(-e SINOBEE_APPROVAL); }
 [[ -n $BUDGET ]] && { export SINOBEE_MONTHLY_BUDGET=$BUDGET; ENVS+=(-e SINOBEE_MONTHLY_BUDGET); }
+if [[ $PUBLIC == 1 && -z $TOKEN ]]; then   # never expose SinoBee without an access token
+  TOKEN=$(openssl rand -hex 24 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(24))')
+fi
+BIND=127.0.0.1; [[ $PUBLIC == 1 ]] && BIND=0.0.0.0
 [[ -n $TOKEN ]] && { export SINOBEE_SERVER_TOKEN=$TOKEN; ENVS+=(-e SINOBEE_SERVER_TOKEN); }
 
 # host hardware -> model recommendations in the UI (the container can't see the host GPU / Apple memory)
@@ -68,7 +76,12 @@ fi
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker build -t "$IMAGE" "$(dirname "$0")/.."
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 docker run -d --name "$NAME" --restart unless-stopped --shm-size 1g ${NET[@]+"${NET[@]}"} \
-  -p "127.0.0.1:${PORT}:10024" -p 127.0.0.1:6080:6080 \
+  -p "${BIND}:${PORT}:10024" -p 127.0.0.1:6080:6080 \
   --add-host host.docker.internal:host-gateway \
   -v sinobee-home:/home/bee/.sinobee -v sinobee-workspace:/home/bee/workspace ${ENVS[@]+"${ENVS[@]}"} "$IMAGE" >/dev/null
 echo "SinoBee is starting → http://localhost:${PORT}${TOKEN:+/?token=$TOKEN}"
+if [[ $PUBLIC == 1 ]]; then
+  ip=$( (ipconfig getifaddr en0 || ipconfig getifaddr en1 || hostname -I | awk '{print $1}') 2>/dev/null | head -1)
+  echo "Other devices        → http://${ip:-<this-computer-ip>}:${PORT}/?token=${TOKEN}"
+  echo "Keep the token private; use an HTTPS tunnel (Tailscale, Cloudflare Tunnel) across the internet."
+fi

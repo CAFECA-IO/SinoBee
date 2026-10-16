@@ -671,7 +671,25 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 <script src="/vendor/purify.min.js"></script>
 <script>
 const $ = s => document.querySelector(s);
-const token = new URLSearchParams(location.search).get('token') || '';
+// access token (needed when SinoBee is opened from another device): taken from ?token=, remembered on this browser,
+// and removed from the address bar so it does not end up in screenshots, history or shared links
+const token = (() => {
+  const u = new URL(location.href), t = u.searchParams.get('token');
+  if (t !== null) { try { localStorage.setItem('sb-token', t); } catch {}
+    u.searchParams.delete('token'); history.replaceState(null, '', u.pathname + u.search + u.hash); return t; }
+  try { return localStorage.getItem('sb-token') || ''; } catch { return ''; }
+})();
+fetch('/api/status?token=' + encodeURIComponent(token)).then(r => { if (r.status === 401) askToken(!!token); }).catch(() => {});
+function askToken(wrong){
+  const d = document.createElement('div'); d.className = 'modal open'; d.style.zIndex = 200;
+  d.innerHTML = `<div class="card" role="dialog" aria-labelledby="tkT" style="max-width:420px"><h3 id="tkT">需要存取權杖</h3>
+    <p class="sd" style="margin:6px 0 12px">這個 SinoBee 只允許持有權杖的人使用。${wrong ? '<b style="color:var(--err)">目前的權杖不正確。</b>' : ''}
+    請開啟啟動時印出的網址（含 <code>?token=</code>），或在下面貼上權杖。</p>
+    <form style="display:flex;gap:8px"><input class="inp" type="password" autocomplete="off" placeholder="存取權杖" style="flex:1" required>
+    <button class="btn primary">進入</button></form></div>`;
+  d.querySelector('form').onsubmit = e => { e.preventDefault(); try { localStorage.setItem('sb-token', d.querySelector('input').value.trim()); } catch {} location.reload(); };
+  document.body.appendChild(d); d.querySelector('input').focus();
+}
 const api = (p, o={}) => fetch(p + (p.includes('?')?'&':'?') + 'token=' + encodeURIComponent(token), o).then(r => r.json());
 let ws, sessionId = null, busy = false, tab = 'sessions', pendingApproval = null, toolEls = {};
 

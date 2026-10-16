@@ -139,13 +139,69 @@ async def _run(args) -> None:
     await browser.shutdown()
 
 
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+def _lan_addresses() -> list[str]:
+    """This machine's addresses other devices can reach (best effort, no network traffic)."""
+    import socket
+    found = []
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))          # picks the outgoing interface; sends nothing
+            found.append(s.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            found.append(info[4][0])
+    except OSError:
+        pass
+    return [a for a in dict.fromkeys(found) if not a.startswith("127.")]
+
+
+def serve_token(cfg, host: str, *, explicit: str | None = None, renew: bool = False) -> tuple[str | None, str]:
+    """(token, source). A server reachable from other machines always needs a token: one is generated and kept in
+    secrets.json the first time. Inside Docker the published port decides reachability, so nothing is generated."""
+    import secrets as _secrets
+    if explicit:
+        cfg.data.setdefault("server", {})["token"] = explicit
+        return explicit, "flag"
+    if cfg.get("server.token"):
+        return cfg.get("server.token"), "env" if "server.token" in cfg.locked else "config"
+    in_docker = os.path.exists("/.dockerenv") or os.environ.get("SINOBEE_IN_DOCKER") == "1"
+    if host in LOOPBACK or in_docker:
+        tok = cfg.secrets.get_secret("server_token")
+        return (tok, "saved") if tok else (None, "none")
+    tok = None if renew else cfg.secrets.get_secret("server_token")
+    if not tok:
+        tok = _secrets.token_urlsafe(24)
+        cfg.secrets.set_secret("server_token", tok)
+        return tok, "generated"
+    return tok, "saved"
+
+
 def _serve(args) -> None:
     import uvicorn
     from .server import create_app
     rt = _runtime(args)
-    host = args.host or rt.config.get("server.host", "127.0.0.1")
+    host = "0.0.0.0" if args.public else (args.host or rt.config.get("server.host", "127.0.0.1"))
     port = args.port or int(rt.config.get("server.port", 10024))
-    print(f"SinoBee UI → http://{'localhost' if host == '0.0.0.0' else host}:{port}")
+    token, source = serve_token(rt.config, host, explicit=args.token, renew=args.new_token)
+    q = f"/?token={token}" if token else ""
+    print(f"SinoBee UI → http://localhost:{port}{q}")
+    if host not in LOOPBACK:
+        hosts = _lan_addresses() if host in ("0.0.0.0", "::") else [host]
+        for h in hosts:
+            print(f"            http://{h}:{port}{q}")
+        note = {"generated": "已產生新的存取權杖並存在 secrets.json（--new-token 可更換）",
+                "saved": "使用 secrets.json 裡的存取權杖（--new-token 可更換）", "flag": "使用 --token 指定的權杖",
+                "env": "使用 SINOBEE_SERVER_TOKEN", "config": "使用設定檔的 server.token"}.get(source, "")
+        print(f"對外開放中：其他裝置用上面含 token 的網址開啟。{note}")
+        if not token:
+            print("⚠︎ 沒有存取權杖：任何連得到這個連接埠的人都能操作這台電腦。請設定 SINOBEE_SERVER_TOKEN。")
+        print("提醒：只在信任的網路開放；跨網際網路請改用 HTTPS 通道（例如 Tailscale、Cloudflare Tunnel），"
+              f"並保持核准模式為 confirm（目前：{rt.config.get('permissions.approval', 'confirm')}）。")
     uvicorn.run(create_app(rt), host=host, port=port, log_level="info")
 
 
@@ -685,8 +741,13 @@ def main(argv: list[str] | None = None) -> None:
             sp.add_argument("task", nargs="+")
             sp.add_argument("-q", "--quiet", action="store_true")
         if name == "serve":
-            sp.add_argument("--host")
+            sp.add_argument("--host", help="address to listen on (default 127.0.0.1 = this computer only)")
             sp.add_argument("--port", type=int)
+            sp.add_argument("--public", action="store_true",
+                            help="listen on all interfaces so other devices can connect (requires an access token; "
+                                 "one is generated and saved if none is set)")
+            sp.add_argument("--token", help="access token for this run (default: SINOBEE_SERVER_TOKEN or the saved one)")
+            sp.add_argument("--new-token", action="store_true", help="replace the saved access token")
     m = sub.add_parser("memory")
     m.add_argument("action", choices=["list", "search", "forget", "pin", "unpin", "restore", "consolidate", "maintain",
                                       "stats", "compress"])

@@ -241,6 +241,11 @@ class Config:
         from .secrets import SecretStore
         return SecretStore(self.home / "secrets.json")
 
+    def server_token(self) -> str | None:
+        """Web UI / API access token: SINOBEE_SERVER_TOKEN or server.token, else the one `sinobee serve --public`
+        generated and kept in secrets.json."""
+        return self.get("server.token") or self.secrets.get_secret("server_token")
+
     def get(self, dotted: str, default: Any = None) -> Any:
         cur: Any = self.data
         for part in dotted.split("."):

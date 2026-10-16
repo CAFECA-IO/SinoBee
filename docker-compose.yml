@@ -4,6 +4,10 @@
 #   2) 啟動時用指令帶入（只傳入有設定的變數；帶入者在 GUI 中顯示為唯讀）：
 #        SINOBEE_MODEL=anthropic/claude-sonnet-4-5 ANTHROPIC_API_KEY=sk-ant-... docker compose up -d --build
 #
+# 開放其他裝置連線（務必帶存取權杖）：
+#        SINOBEE_BIND=0.0.0.0 SINOBEE_SERVER_TOKEN="$(openssl rand -hex 24)" docker compose up -d --build
+#      再開 http://<這台電腦的 IP>:10024/?token=<權杖>
+#
 # 本機架設模型（免金鑰）：
 #   a) 主機已安裝 Ollama（Mac 建議，可用 Metal GPU）：照常啟動即可，SinoBee 會自動連到 host.docker.internal:11434。
 #      加上主機硬體資訊讓推薦更準：SINOBEE_HOST_HARDWARE="$(scripts/host-hardware.sh)" docker compose up -d --build
@@ -19,8 +23,8 @@ services:
     restart: unless-stopped
     shm_size: "1gb"                 # Chromium needs more than the 64MB default
     ports:
-      - "127.0.0.1:10024:10024"       # Web UI + API
-      - "127.0.0.1:6080:6080"       # noVNC live desktop
+      - "${SINOBEE_BIND:-127.0.0.1}:${SINOBEE_PORT:-10024}:10024"   # Web UI + API (SINOBEE_BIND=0.0.0.0 to open it to other devices)
+      - "127.0.0.1:6080:6080"       # noVNC live desktop (kept local)
     environment:                    # pass-through: taken from the shell running `docker compose`, skipped if unset
       - SINOBEE_MODEL
       - SINOBEE_FALLBACKS

@@ -50,7 +50,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         return state["rt"]
 
     def check_token(token: str | None):
-        expected = rt().config.get("server.token")
+        expected = rt().config.server_token()
         if expected and not secrets.compare_digest(str(token or ""), str(expected)):
             raise HTTPException(401, "invalid token")
 
@@ -341,8 +341,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
         token = websocket.query_params.get("token")
-        expected = rt().config.get("server.token")
-        if expected and token != expected:
+        expected = rt().config.server_token()
+        if expected and not secrets.compare_digest(str(token or ""), str(expected)):
             await websocket.close(code=4401)
             return
         await websocket.accept()

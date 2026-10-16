@@ -328,9 +328,42 @@ macOS 需在「系統設定 → 隱私權與安全性」授予終端機「輔助
 </details>
 
 <details>
+<summary><b>開放其他裝置連線（手機、平板、其他電腦）</b></summary>
+
+預設只有這台電腦能開（127.0.0.1）。要讓同一個網路的其他裝置使用：
+
+```bash
+sinobee serve --public                 # 監聽所有網路介面，第一次會產生存取權杖並存在 secrets.json
+sinobee serve --public --new-token     # 換一組新的權杖（舊網址立即失效）
+sinobee serve --public --token <自訂>   # 這次改用指定的權杖
+SINOBEE_SERVER_TOKEN=<權杖> sinobee serve --host 0.0.0.0   # 用環境變數指定
+```
+
+啟動時會印出 `http://<這台電腦的 IP>:10024/?token=…`，在其他裝置開啟即可。
+
+- 瀏覽器會記住權杖，並把它從網址列移除。
+- 沒有權杖或權杖錯誤時，畫面會請你輸入。
+- 對外開放時一定要有權杖：沒有設定時會自動產生，不會以無密碼的狀態開放。
+
+Docker：
+
+```bash
+SINOBEE_BIND=0.0.0.0 SINOBEE_SERVER_TOKEN="$(openssl rand -hex 24)" docker compose up -d --build
+scripts/docker-run.sh --public         # 自動產生權杖並印出其他裝置可用的網址
+```
+
+安全提醒：
+
+- 能連上的人就能操作這台電腦，請只在信任的網路開放，並保持核准模式為 `confirm`。
+- 跨網際網路使用時，不要直接開放連接埠，改用 HTTPS 通道，例如 `tailscale serve 10024` 或 `cloudflared tunnel --url http://localhost:10024`。
+- 防火牆需允許 TCP 10024：macOS 第一次會詢問是否允許 Python 接受連線；Linux 用 `sudo ufw allow 10024/tcp`。
+</details>
+
+<details>
 <summary><b>命令列</b></summary>
 
 ```bash
+sinobee serve [--public]                           # Web UI（--public：開放其他裝置，需權杖）
 sinobee chat -m anthropic/claude-sonnet-4-5        # 終端機對話
 sinobee run "幫我整理 ~/Downloads 裡的 PDF 並列出清單"
 sinobee doctor                                      # 檢查模型、瀏覽器、桌面控制
