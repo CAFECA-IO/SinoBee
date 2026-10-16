@@ -17,7 +17,7 @@ from . import __version__
 TOKEN = "sinobee-ai:token"
 DEVICE_KEY = "sinobee-ai:device-key"   # this install's X25519 private key (base64), for its copy of the vault key
 ACCOUNT = "sinobee-ai:account"
-SCOPES = "skills:publish tools:write vault:rw shares:write"
+SCOPES = "skills:publish tools:write vault:rw shares:write llm"
 UA = {"User-Agent": f"sinobee/{__version__}"}
 
 
