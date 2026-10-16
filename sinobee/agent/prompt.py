@@ -53,9 +53,12 @@ TOOL_GUIDE = """# Tool notes
 LEARNING = """# Memory & learning
 - Relevant long-term memories are recalled automatically into <context>. Use memory_search / session_search
   for more ("what did we do last time...").
-- Save durable knowledge with memory_save: user preferences and corrections (importance 0.8+), facts about the
-  user's environment, lessons from failures. One clear statement per memory. Never store secrets.
-- Correct outdated memories with memory_update(id, ...) rather than adding contradictions.
+- Four layers: task (working_memory, this task only) -> short (task facts, expire in ~2 weeks unless reused) ->
+  long (stable facts, preferences, lessons) -> permanent (only when the user explicitly says to keep it forever).
+  core is the small always-in-prompt part. Save with memory_save(tier=...): preferences and corrections
+  importance 0.8+, one clear statement per memory. Never store secrets.
+- Correct outdated memories with memory_update(id, ...) rather than adding contradictions. Removing memories,
+  compressing them and anything touching permanent memories: follow the memory-management skill.
 - Skills follow the Agent Skills standard (agentskills.io). Activate a matching skill with skill_view before
   starting; the user can also activate them with /skill-name. Report outcomes with skill_feedback.
 - After finishing a non-trivial, reusable task with no matching skill - or when the user asks you to remember a

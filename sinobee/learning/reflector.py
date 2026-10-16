@@ -26,13 +26,22 @@ from ..types import Message
 
 log = logging.getLogger("sinobee.learning")
 
+def _reflect_tier(mem: dict) -> str:
+    """Reflection may write short, long or core memories, never permanent ones. Task facts default to short."""
+    tier = mem.get("tier")
+    if tier in ("short", "long", "core"):
+        return tier
+    stable = mem.get("kind") in ("preference", "profile", "lesson") and float(mem.get("importance", 0.5)) >= 0.8
+    return "long" if stable else "short"
+
+
 REFLECT_PROMPT = """You are the learning module of an autonomous computer-use agent. Review the task transcript and
 decide what is worth keeping. Be selective: most turns need few or no memories and no new skill.
 
 Return ONLY a JSON object (omit keys or leave them empty when nothing applies):
 {
   "memories": [ {"content": "...", "kind": "preference|profile|fact|environment|lesson",
-                 "tier": "core|long", "importance": 0.0-1.0, "tags": ["..."]} ],
+                 "tier": "short|long|core", "importance": 0.0-1.0, "tags": ["..."]} ],
   "memory_updates": [ {"id": "mxxxx", "content": "corrected statement"} ],
   "skill": {"action": "none|create|patch|fork_patch", "name": "lowercase-hyphen-name", "scope": "global|project",
             "reason": "why (gap / repetition / failure / user request)",
@@ -44,7 +53,12 @@ Return ONLY a JSON object (omit keys or leave them empty when nothing applies):
 
 Memory rules: durable facts about the user, preferences and corrections (importance >= 0.8; tier core only if it
 applies to nearly every future task), environment facts (paths, accounts, versions), lessons from failures. One
-self-contained statement each. Never store secrets, passwords, tokens or one-off details. Contradicted memories go
+self-contained statement each. Choose the tier by how long it stays true:
+- short: facts about THIS task or project that may matter in the next days (file locations, decisions, status);
+  they expire automatically unless they are used again.
+- long: stable facts, preferences, profile and lessons that stay true for months.
+- core: only standing rules that apply to nearly every task (keep it tiny).
+Never create permanent memories yourself; only the user decides that. Never store secrets, passwords, tokens or one-off details. Contradicted memories go
 in memory_updates.
 
 Skill rules (Agent Skills specification, agentskills.io):
@@ -148,7 +162,7 @@ async def _reflect(rt, session_id: str, turn: list[Message], stats: dict, unrate
     try:
         user_text = " ".join(m.text() for m in turn if m.role == "user")[-2000:]
         core = rt.memory.render_core() or "(empty)"
-        related = await rt.memory.asearch(user_text, k=8, tiers=("long",), touch=False)
+        related = await rt.memory.asearch(user_text, k=8, tiers=("short", "long"), touch=False)
         related_txt = "\n".join(f"[{m.id}] {m.content}" for m in related if m.kind != "episode") or "(none)"
         # repetition detection: similar past episodes (other sessions)
         episodes = [m for m in rt.memory.search(user_text, k=8, tiers=("long",), kinds=["episode"], touch=False,
@@ -203,7 +217,7 @@ async def _reflect(rt, session_id: str, turn: list[Message], stats: dict, unrate
             if rt.config.get("memory.write_approval"):
                 rt.memory.stage("memory_save", mem)
                 continue
-            res = await rt.memory.asave(mem["content"], kind=mem.get("kind", "fact"), tier=mem.get("tier", "long"),
+            res = await rt.memory.asave(mem["content"], kind=mem.get("kind", "fact"), tier=_reflect_tier(mem),
                                         tags=mem.get("tags"), importance=float(mem.get("importance", 0.5)),
                                         source=session_id)
             report["memories"].append(res)
@@ -211,6 +225,10 @@ async def _reflect(rt, session_id: str, turn: list[Message], stats: dict, unrate
             report["errors"].append(f"memory: {e}")
     for upd in (data.get("memory_updates") or [])[:4]:
         try:
+            cur = rt.memory.get(upd["id"])
+            if cur and cur.pinned:      # permanent memories change only on the user's instruction
+                report["errors"].append(f"memory: {upd['id']} is permanent, not changed by reflection")
+                continue
             report["updates"].append(await rt.memory.aupdate(upd["id"], upd.get("content")))
         except Exception as e:
             report["errors"].append(f"update: {e}")
@@ -232,7 +250,8 @@ async def _reflect(rt, session_id: str, turn: list[Message], stats: dict, unrate
                                   tags=["episode"])
         except Exception:
             pass
-    report["consolidation"] = rt.memory.consolidate()
+    report["consolidation"] = rt.memory.consolidate(
+        archive_after_days=float(rt.config.get("memory.archive_after_days", 90)))
     log.info("reflection: %s", {k: len(v) if isinstance(v, list) else v for k, v in report.items()})
     return report
 

@@ -20,6 +20,7 @@ log = logging.getLogger("sinobee.work")
 
 # never available to a sub-agent: no recursion, no scheduling, no changes to long-term memory or skills
 CHILD_DENY = {"delegate", "job_create", "job_cancel", "run_workflow", "memory_save", "memory_update", "memory_forget",
+              "memory_compress",
               "skill_create", "skill_patch", "skill_fork", "skill_write_file", "skill_rollback", "skill_feedback"}
 BOARD_TOOLS = {"board_read", "board_write"}
 

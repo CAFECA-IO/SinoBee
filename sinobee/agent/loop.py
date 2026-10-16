@@ -88,6 +88,7 @@ class Runtime:
         self.memory = MemoryStore(self.config.db_path,
                                   core_char_limit=int(self.config.get("memory.core_char_limit", 1500)),
                                   half_life_days=float(self.config.get("memory.half_life_days", 30)),
+                                  short_ttl_days=float(self.config.get("memory.short_ttl_days", 14)),
                                   embedder=emb)
         self.skills = manager_from_config(self.config, self.memory)
         self.background: set[asyncio.Task] = set()
@@ -292,7 +293,7 @@ class Agent:
         if "memory_search" in self.tool_names or "memory_save" in self.tool_names:
             try:
                 recalled = await self.rt.memory.asearch(
-                    query, k=int(self.config.get("memory.recall_k", 6)), tiers=("long",),
+                    query, k=int(self.config.get("memory.recall_k", 6)), tiers=("short", "long"),
                     min_score=float(self.config.get("memory.recall_min_score", 0.15)))
             except Exception:
                 log.exception("recall failed")

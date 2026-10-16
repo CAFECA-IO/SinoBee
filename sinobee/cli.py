@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import sys
+import time
 
 from .config import Config, sinobee_home
 
@@ -151,17 +152,34 @@ def _serve(args) -> None:
 def _memory(args) -> None:
     from .memory import MemoryStore
     cfg = Config.load()
-    store = MemoryStore(cfg.db_path)
+    store = MemoryStore(cfg.db_path, core_char_limit=int(cfg.get("memory.core_char_limit", 1500)),
+                        short_ttl_days=float(cfg.get("memory.short_ttl_days", 14)))
     if args.action == "list":
-        for m in store.list(args.tier):
-            print(f"[{m.id}] {m.tier:<7} {m.kind:<11} {m.importance:.2f}  {m.content}")
+        tier = None if args.tier == "permanent" else args.tier
+        for m in store.list(tier):
+            if args.tier == "permanent" and not m.pinned:
+                continue
+            exp = f" (expires {time.strftime('%Y-%m-%d', time.localtime(m.expires_at))})" if m.expires_at else ""
+            print(f"[{m.id}] {m.label:<9} {m.kind:<11} {m.importance:.2f}  {m.content}{exp}")
     elif args.action == "search":
-        for m in store.search(" ".join(args.query), k=20, tiers=("core", "long", "archive"), touch=False):
-            print(f"[{m.id}] {m.score:.3f} {m.tier:<7} {m.content}")
+        for m in store.search(" ".join(args.query), k=20, tiers=("core", "short", "long", "archive"), touch=False):
+            print(f"[{m.id}] {m.score:.3f} {m.label:<9} {m.content}")
     elif args.action == "forget":
-        print(store.forget(args.query[0], hard=args.hard))
+        print(store.forget(args.query[0], hard=args.hard, force=args.force))
+    elif args.action == "pin":
+        print(store.update(args.query[0], pinned=True))
+    elif args.action == "unpin":
+        print(store.update(args.query[0], pinned=False))
     elif args.action == "consolidate":
-        print(store.consolidate())
+        print(store.consolidate(archive_after_days=float(cfg.get("memory.archive_after_days", 90))))
+    elif args.action == "stats":
+        print(json.dumps(store.stats(), ensure_ascii=False, indent=1))
+    elif args.action == "compress":
+        from .memory.compress import compress, render
+        rep = asyncio.run(compress(store, None, query=" ".join(args.query) or None,
+                                   tier=None if args.tier == "permanent" else args.tier,
+                                   include_pinned=args.tier == "permanent", dry_run=not args.apply))
+        print(render(rep))
 
 
 def _skills(args) -> None:
@@ -663,10 +681,12 @@ def main(argv: list[str] | None = None) -> None:
             sp.add_argument("--host")
             sp.add_argument("--port", type=int)
     m = sub.add_parser("memory")
-    m.add_argument("action", choices=["list", "search", "forget", "consolidate"])
+    m.add_argument("action", choices=["list", "search", "forget", "pin", "unpin", "consolidate", "stats", "compress"])
     m.add_argument("query", nargs="*")
-    m.add_argument("--tier")
+    m.add_argument("--tier", help="core | short | long | permanent | archive")
     m.add_argument("--hard", action="store_true")
+    m.add_argument("--force", action="store_true", help="forget: also remove a permanent memory")
+    m.add_argument("--apply", action="store_true", help="compress: apply (default is a preview, extractive merge)")
     s = sub.add_parser("skills", help="Agent Skills: list, validate, trust, install, publish ...")
     s.add_argument("action", choices=["list", "show", "validate", "doctor", "rollback", "approve", "trust", "untrust",
                                       "delete", "fork", "install", "search", "outdated", "update", "export", "publish",

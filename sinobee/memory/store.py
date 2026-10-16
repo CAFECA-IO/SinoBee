@@ -1,9 +1,13 @@
 """Layered memory + conversation storage on SQLite (FTS5 + optional embeddings).
 
-Tiers
+Tiers (retention)
   core     L0 - small, high-importance; rendered into the system prompt at session start
-  long     L2 - unbounded semantic memory; auto-recalled per turn by hybrid retrieval
+  short    L2a - recent task-derived facts with an expiry (memory.short_ttl_days); at expiry consolidate() keeps
+           the ones that proved useful (moved to long) and archives the rest
+  long     L2 - unbounded semantic memory; auto-recalled per turn by hybrid retrieval; decays when unused
   archive  decayed memories; searchable on demand only
+Permanent memories are a flag, not a tier: pinned=1 on a core or long memory means it is never demoted, expired,
+archived or merged away, and is only removed by an explicit forget(..., force=True).
 Episodes (L3) are session transcripts + summaries, also indexed with FTS5.
 L1 working memory lives in the agent session (see agent/loop.py).
 """
@@ -91,10 +95,19 @@ class Memory:
     superseded_by: str | None = None
     source: str | None = None
     score: float = 0.0
+    pinned: bool = False
+    expires_at: float | None = None
+
+    @property
+    def label(self) -> str:
+        """User-facing retention class: permanent / core / short / long / archive."""
+        return "permanent" if self.pinned else self.tier
 
     def brief(self) -> dict:
         return {"id": self.id, "tier": self.tier, "kind": self.kind, "content": self.content,
                 "tags": self.tags, "importance": round(self.importance, 2),
+                **({"pinned": True} if self.pinned else {}),
+                **({"expires_at": round(self.expires_at)} if self.expires_at else {}),
                 **({"score": round(self.score, 3)} if self.score else {})}
 
 
@@ -140,25 +153,36 @@ class MemoryError_(Exception):
     pass
 
 
+TIERS = ("core", "short", "long", "archive")
+RANK = {"archive": 0, "short": 1, "long": 2, "core": 3}
+MIGRATIONS = {"pinned": "INTEGER DEFAULT 0", "expires_at": "REAL"}
+
+
 class MemoryStore:
     def __init__(self, path: str | Path, *, core_char_limit: int = 1500, half_life_days: float = 30.0,
-                 embedder=None):
+                 embedder=None, short_ttl_days: float = 14.0):
         self.path = str(path)
         self.core_char_limit = core_char_limit
         self.half_life_days = half_life_days
+        self.short_ttl_days = short_ttl_days
         self.embedder = embedder  # Provider with async embed()
         self._lock = threading.RLock()
         self.db = sqlite3.connect(self.path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        cols = {r["name"] for r in self.db.execute("PRAGMA table_info(memories)").fetchall()}
+        for col, decl in MIGRATIONS.items():
+            if col not in cols:
+                self.db.execute(f"ALTER TABLE memories ADD COLUMN {col} {decl}")
         self.db.commit()
 
     # ------------------------------------------------------------------ helpers
     def _row(self, r: sqlite3.Row, score: float = 0.0) -> Memory:
         return Memory(r["id"], r["tier"], r["kind"], r["content"], json.loads(r["tags"] or "[]"), r["importance"],
                       r["confidence"], r["created_at"], r["updated_at"], r["last_access"] or r["created_at"],
-                      r["access_count"], r["superseded_by"], r["source"], score)
+                      r["access_count"], r["superseded_by"], r["source"], score,
+                      bool(r["pinned"]), r["expires_at"])
 
     def _new_id(self) -> str:
         while True:
@@ -198,7 +222,7 @@ class MemoryStore:
         if not mems:
             return ""
         used = sum(len(m.content) for m in mems)
-        lines = [f"[{m.id}] ({m.kind}) {m.content}" for m in mems]
+        lines = [f"[{m.id}] ({m.kind}{', permanent' if m.pinned else ''}) {m.content}" for m in mems]
         return (f"CORE MEMORY ({used}/{self.core_char_limit} chars; edit with memory_update / memory_forget by id)\n"
                 + "\n".join(lines))
 
@@ -220,9 +244,16 @@ class MemoryStore:
                 return self._row(r)
         return None
 
+    def _expiry(self, tier: str, ttl_days: float | None = None, now: float | None = None) -> float | None:
+        if tier != "short":
+            return None
+        return (now or time.time()) + 86400 * float(ttl_days if ttl_days else self.short_ttl_days)
+
     def save(self, content: str, *, kind: str = "fact", tier: str = "long", tags: list[str] | None = None,
              importance: float = 0.5, confidence: float = 0.8, source: str | None = None,
-             embedding: list[float] | None = None, check: bool = True) -> dict:
+             embedding: list[float] | None = None, check: bool = True, pinned: bool = False,
+             ttl_days: float | None = None, dedupe: bool = True) -> dict:
+        """tier: core | short | long | archive; "permanent" is accepted as long + pinned."""
         content = (content or "").strip()
         if not content:
             raise MemoryError_("empty memory")
@@ -231,32 +262,41 @@ class MemoryStore:
             if issues:
                 raise MemoryError_("refused to store memory: " + "; ".join(issues))
         kind = kind if kind in KINDS else "fact"
-        tier = tier if tier in {"core", "long", "archive"} else "long"
+        if tier == "permanent":
+            tier, pinned = "long", True
+        tier = tier if tier in TIERS else "long"
+        if pinned and tier in ("short", "archive"):
+            tier = "long"
         tags = [t.strip().lower() for t in (tags or []) if t and t.strip()]
         importance = max(0.0, min(1.0, float(importance)))
         now = time.time()
         with self._lock:
-            dup = self._near_duplicate(content, kind)
+            dup = self._near_duplicate(content, kind) if dedupe else None
             if dup:
                 new_imp = max(dup.importance, importance)
-                new_tier = "core" if tier == "core" or dup.tier == "core" else dup.tier
-                self.db.execute("UPDATE memories SET importance=?, tier=?, updated_at=?, confidence=MIN(1, confidence+0.05) "
-                                "WHERE id=?", (new_imp, new_tier, now, dup.id))
+                new_tier = tier if RANK[tier] > RANK[dup.tier] else dup.tier
+                new_pin = 1 if (pinned or dup.pinned) else 0
+                # seeing a short-term fact again is evidence it matters: extend its life (or drop expiry if promoted)
+                exp = self._expiry(new_tier, ttl_days, now)
+                self.db.execute("UPDATE memories SET importance=?, tier=?, updated_at=?, pinned=?, expires_at=?, "
+                                "confidence=MIN(1, confidence+0.05) WHERE id=?",
+                                (new_imp, new_tier, now, new_pin, exp, dup.id))
                 self.db.commit()
-                note = {"id": dup.id, "status": "merged_with_existing", "content": dup.content}
+                note = {"id": dup.id, "status": "merged_with_existing", "content": dup.content, "tier": new_tier,
+                        **({"pinned": True} if new_pin else {})}
                 if new_tier == "core":
                     note["demoted"] = self._enforce_core_limit(protect=dup.id)
                 return note
             mid = self._new_id()
             self.db.execute(
                 "INSERT INTO memories(id,tier,kind,content,tags,importance,confidence,created_at,updated_at,last_access,"
-                "access_count,source,embedding) VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?)",
+                "access_count,source,embedding,pinned,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)",
                 (mid, tier, kind, content, json.dumps(tags, ensure_ascii=False), importance, confidence, now, now, now,
-                 source, _pack(embedding)))
+                 source, _pack(embedding), 1 if pinned else 0, self._expiry(tier, ttl_days, now)))
             self._index(mid, content, tags)
             demoted = self._enforce_core_limit(protect=mid) if tier == "core" else []
             self.db.commit()
-        out = {"id": mid, "status": "saved", "tier": tier}
+        out = {"id": mid, "status": "saved", "tier": tier, **({"pinned": True} if pinned else {})}
         if demoted:
             out["demoted_to_long_term"] = demoted
         return out
@@ -266,15 +306,16 @@ class MemoryStore:
         return self.save(content, **kw)
 
     def _enforce_core_limit(self, protect: str | None = None) -> list[str]:
-        """Instead of failing (Hermes), demote least-important core entries to long-term."""
+        """Instead of failing (Hermes), demote least-important core entries to long-term. Pinned (permanent)
+        entries are never demoted, so pinned core memories may exceed the limit (stats() warns about that)."""
         demoted = []
         while True:
-            rows = self.db.execute("SELECT id, content, importance FROM memories WHERE tier='core' AND "
+            rows = self.db.execute("SELECT id, content, importance, pinned FROM memories WHERE tier='core' AND "
                                    "superseded_by IS NULL ORDER BY importance ASC, last_access ASC").fetchall()
             total = sum(len(r["content"]) for r in rows)
             if total <= self.core_char_limit or len(rows) <= 1:
                 break
-            victim = next((r for r in rows if r["id"] != protect), None)
+            victim = next((r for r in rows if r["id"] != protect and not r["pinned"]), None)
             if not victim:
                 break
             self.db.execute("UPDATE memories SET tier='long' WHERE id=?", (victim["id"],))
@@ -283,16 +324,26 @@ class MemoryStore:
 
     def update(self, mid: str, content: str | None = None, *, importance: float | None = None,
                tier: str | None = None, tags: list[str] | None = None, kind: str | None = None,
-               embedding: list[float] | None = None) -> dict:
-        """Content changes create a new version (supersede chain); metadata changes are in place."""
+               embedding: list[float] | None = None, pinned: bool | None = None,
+               ttl_days: float | None = None) -> dict:
+        """Content changes create a new version (supersede chain); metadata changes are in place.
+        tier="permanent" means pinned=True (keeping core if it is core, otherwise long)."""
         with self._lock:
             old = self.get(mid)
             if not old or old.superseded_by:
                 raise MemoryError_(f"memory {mid} not found or already superseded")
+            if tier == "permanent":
+                tier, pinned = ("core" if old.tier == "core" else "long"), True
+            if tier and tier not in TIERS:
+                raise MemoryError_(f"unknown tier {tier}")
+            pin = old.pinned if pinned is None else bool(pinned)
+            if pin and (tier or old.tier) in ("short", "archive"):
+                tier = "long"
             if content and content.strip() != old.content:
                 res = self.save(content, kind=kind or old.kind, tier=tier or old.tier, tags=tags or old.tags,
                                 importance=old.importance if importance is None else importance,
-                                confidence=old.confidence, source=old.source, embedding=embedding)
+                                confidence=old.confidence, source=old.source, embedding=embedding, pinned=pin,
+                                ttl_days=ttl_days)
                 if res["id"] != mid:
                     self.db.execute("UPDATE memories SET superseded_by=?, updated_at=? WHERE id=?",
                                     (res["id"], time.time(), mid))
@@ -304,6 +355,11 @@ class MemoryStore:
                 sets.append("importance=?"); vals.append(max(0.0, min(1.0, importance)))
             if tier:
                 sets.append("tier=?"); vals.append(tier)
+                sets.append("expires_at=?"); vals.append(self._expiry(tier, ttl_days))
+            elif ttl_days and old.tier == "short":
+                sets.append("expires_at=?"); vals.append(self._expiry("short", ttl_days))
+            if pinned is not None:
+                sets.append("pinned=?"); vals.append(1 if pinned else 0)
             if kind:
                 sets.append("kind=?"); vals.append(kind)
             if tags is not None:
@@ -322,24 +378,98 @@ class MemoryStore:
             kw.setdefault("embedding", await self._embed(content))
         return self.update(mid, content, **kw)
 
-    def forget(self, mid: str, hard: bool = False) -> dict:
+    def forget(self, mid: str, hard: bool = False, force: bool = False) -> dict:
+        """Archive (default) or delete. A permanent (pinned) memory needs force=True: the user must have asked."""
         with self._lock:
-            if not self.get(mid):
+            m = self.get(mid)
+            if not m:
                 raise MemoryError_(f"memory {mid} not found")
+            if m.pinned and not force:
+                raise MemoryError_(f"memory {mid} is permanent; removing it needs the user's explicit confirmation "
+                                   "(confirm_permanent=true)")
             if hard:
                 self.db.execute("DELETE FROM memories WHERE id=?", (mid,))
                 self.db.execute("DELETE FROM memories_fts WHERE id=?", (mid,))
             else:  # archived memories stay searchable via tiers=("archive",)
-                self.db.execute("UPDATE memories SET tier='archive', updated_at=? WHERE id=?", (time.time(), mid))
+                self.db.execute("UPDATE memories SET tier='archive', pinned=0, expires_at=NULL, updated_at=? "
+                                "WHERE id=?", (time.time(), mid))
             self.db.commit()
-        return {"id": mid, "status": "deleted" if hard else "archived"}
+        return {"id": mid, "status": "deleted" if hard else "archived", "content": m.content}
+
+    def select(self, *, query: str | None = None, ids: list[str] | None = None, tier: str | None = None,
+               kind: str | None = None, tag: str | None = None, pinned: bool | None = None,
+               limit: int = 50) -> list[Memory]:
+        """Current memories matching ALL given filters (used for bulk forget previews and compression).
+        tier may be "permanent" (= pinned). With a query, results are relevance-ordered."""
+        if tier == "permanent":
+            tier, pinned = None, True
+        if ids:
+            mems = [m for m in (self.get(i) for i in ids) if m and not m.superseded_by]
+        elif query:
+            tiers = (tier,) if tier else ("core", "short", "long")
+            mems = self.search(query, k=max(limit, 1), tiers=tiers, touch=False, min_score=0.0)
+            if mems:      # keep clear matches only: a shared generic word should not pull in unrelated memories
+                top = mems[0].score
+                mems = [m for m in mems if m.score >= 0.6 * top]
+        else:
+            mems = [m for m in self.list(tier, limit=10000) if m.tier != "archive" or tier == "archive"]
+        out = []
+        for m in mems:
+            if tier and m.tier != tier or kind and m.kind != kind or tag and tag.lower() not in m.tags:
+                continue
+            if pinned is not None and m.pinned != pinned:
+                continue
+            out.append(m)
+        return out[:limit]
+
+    def replace_many(self, source_ids: list[str], content: str, *, kind: str = "fact", tier: str = "long",
+                     tags: list[str] | None = None, importance: float = 0.5, pinned: bool = False,
+                     embedding: list[float] | None = None) -> dict:
+        """Compression step: store one merged memory and mark the sources superseded by it (history is kept)."""
+        with self._lock:
+            res = self.save(content, kind=kind, tier=tier, tags=tags, importance=importance, pinned=pinned,
+                            embedding=embedding, source="compress", dedupe=False)
+            now = time.time()
+            for sid in source_ids:
+                if sid == res["id"]:
+                    continue
+                self.db.execute("UPDATE memories SET superseded_by=?, updated_at=? WHERE id=? AND superseded_by IS NULL",
+                                (res["id"], now, sid))
+                self.db.execute("DELETE FROM memories_fts WHERE id=?", (sid,))
+            self.db.commit()
+        return {**res, "replaced": [s for s in source_ids if s != res["id"]]}
+
+    def stats(self) -> dict:
+        """Capacity overview per retention class, for memory_stats / the UI / the CLI."""
+        now = time.time()
+        with self._lock:
+            rows = self.db.execute("SELECT tier, pinned, expires_at, length(content) AS n FROM memories "
+                                   "WHERE superseded_by IS NULL").fetchall()
+        out = {c: {"count": 0, "chars": 0} for c in ("permanent", "core", "short", "long", "archive")}
+        expiring = expired = 0
+        for r in rows:
+            c = "permanent" if r["pinned"] else r["tier"]
+            out.setdefault(c, {"count": 0, "chars": 0})
+            out[c]["count"] += 1
+            out[c]["chars"] += r["n"] or 0
+            if r["tier"] == "short" and r["expires_at"]:
+                if r["expires_at"] <= now:
+                    expired += 1
+                elif r["expires_at"] <= now + 3 * 86400:
+                    expiring += 1
+        used = self.core_chars()
+        out["core_usage"] = {"chars": used, "limit": self.core_char_limit,
+                             "over_limit": used > self.core_char_limit}
+        out["short_expiring_3d"] = expiring
+        out["short_expired"] = expired
+        return out
 
     # ------------------------------------------------------------------ read
     def _recency(self, ts: float) -> float:
         age_days = max(0.0, (time.time() - (ts or time.time())) / 86400)
         return 0.5 ** (age_days / max(1e-6, self.half_life_days))
 
-    def search(self, query: str, *, k: int = 8, tiers: tuple[str, ...] = ("core", "long"),
+    def search(self, query: str, *, k: int = 8, tiers: tuple[str, ...] = ("core", "short", "long"),
                query_embedding: list[float] | None = None, kinds: list[str] | None = None,
                touch: bool = True, min_score: float = 0.0) -> list[Memory]:
         """Hybrid retrieval: BM25 + cosine + importance + recency + frequency."""
@@ -374,7 +504,7 @@ class MemoryStore:
                 else:
                     rel = lex_n
                 score = (0.75 * rel + 0.12 * r["importance"] + 0.08 * self._recency(r["last_access"])
-                         + 0.05 * min(1.0, math.log1p(r["access_count"]) / 3))
+                         + 0.05 * min(1.0, math.log1p(r["access_count"]) / 3) + (0.03 if r["pinned"] else 0.0))
                 if rel <= 0:
                     continue
                 if score >= min_score:
@@ -399,7 +529,7 @@ class MemoryStore:
                                        "ORDER BY updated_at DESC LIMIT ?", (tier, limit)).fetchall()
             else:
                 rows = self.db.execute("SELECT * FROM memories WHERE superseded_by IS NULL "
-                                       "ORDER BY tier, importance DESC LIMIT ?", (limit,)).fetchall()
+                                       "ORDER BY pinned DESC, tier, importance DESC LIMIT ?", (limit,)).fetchall()
         return [self._row(r) for r in rows]
 
     def history(self, mid: str) -> list[Memory]:
@@ -412,11 +542,21 @@ class MemoryStore:
 
     # ------------------------------------------------------------------ consolidation
     def consolidate(self, *, archive_after_days: float = 90) -> dict:
-        """Decay stale low-value memories, promote frequently used ones, merge exact duplicates."""
+        """Expire short-term memories (keep the useful ones as long-term), decay stale low-value long-term ones,
+        promote frequently used ones to core, merge exact duplicates. Pinned (permanent) memories are untouched."""
         now = time.time()
-        report = {"archived": [], "promoted": [], "merged": []}
+        report = {"archived": [], "promoted": [], "merged": [], "kept_short": [], "expired_short": []}
         with self._lock:
-            rows = self.db.execute("SELECT * FROM memories WHERE tier='long' AND superseded_by IS NULL").fetchall()
+            for r in self.db.execute("SELECT * FROM memories WHERE tier='short' AND superseded_by IS NULL "
+                                     "AND expires_at IS NOT NULL AND expires_at <= ?", (now,)).fetchall():
+                if r["access_count"] >= 2 or r["importance"] >= 0.7:
+                    self.db.execute("UPDATE memories SET tier='long', expires_at=NULL WHERE id=?", (r["id"],))
+                    report["kept_short"].append(r["id"])
+                else:
+                    self.db.execute("UPDATE memories SET tier='archive', expires_at=NULL WHERE id=?", (r["id"],))
+                    report["expired_short"].append(r["id"])
+            rows = self.db.execute("SELECT * FROM memories WHERE tier='long' AND superseded_by IS NULL "
+                                   "AND pinned=0").fetchall()
             for r in rows:
                 age = (now - (r["last_access"] or r["created_at"])) / 86400
                 if r["importance"] < 0.3 and r["access_count"] < 2 and age > archive_after_days:
@@ -427,10 +567,11 @@ class MemoryStore:
                         self.db.execute("UPDATE memories SET tier='core' WHERE id=?", (r["id"],))
                         report["promoted"].append(r["id"])
             seen: dict[str, str] = {}
-            for r in self.db.execute("SELECT id, content FROM memories WHERE superseded_by IS NULL "
-                                     "AND tier!='archive' ORDER BY importance DESC").fetchall():
+            for r in self.db.execute("SELECT id, content, pinned FROM memories WHERE superseded_by IS NULL "
+                                     "AND tier!='archive' ORDER BY pinned DESC, RANK_SQL DESC, importance DESC".replace(
+                                         "RANK_SQL", "CASE tier WHEN 'core' THEN 3 WHEN 'long' THEN 2 ELSE 1 END")).fetchall():
                 key = re.sub(r"\s+", " ", r["content"].strip().lower())
-                if key in seen:
+                if key in seen and not r["pinned"]:
                     self.db.execute("UPDATE memories SET superseded_by=? WHERE id=?", (seen[key], r["id"]))
                     self.db.execute("DELETE FROM memories_fts WHERE id=?", (r["id"],))
                     report["merged"].append(r["id"])

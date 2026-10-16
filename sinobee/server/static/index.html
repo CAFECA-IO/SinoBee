@@ -139,6 +139,9 @@ input:disabled,select:disabled{opacity:.6;cursor:not-allowed}
 .badge:empty{display:none}
 .tb{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid currentColor;margin-left:4px;white-space:nowrap}
 .t-builtin,.t-verified{color:var(--ok)}.t-local,.t-project{color:var(--accent)}.t-agent,.t-community{color:var(--warn)}.t-untrusted,.t-blocked{color:var(--err)}
+.memfilter{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 8px}.memfilter button{font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:inherit;cursor:pointer}
+.memfilter button.on{background:var(--accent);color:#fff;border-color:var(--accent)}.memfilter small{flex-basis:100%;color:var(--muted);font-size:11px}
+.memact{display:none;gap:6px;margin-top:4px}.item:hover .memact{display:flex}@media (hover:none){.memact{display:flex}}.memact button{font-size:11px;padding:1px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:inherit;cursor:pointer}
 .item.dim{opacity:.55}.item.pend{background:var(--user)}
 .skhead{padding:8px 10px 10px;border-bottom:1px solid var(--line);margin-bottom:6px;font-size:12px;color:var(--muted)}
 .btn.sm{padding:3px 8px;font-size:12px}
@@ -1006,7 +1009,10 @@ function handle(ev, replay = false){
       $('#apArgs').textContent = JSON.stringify(ev.arguments, null, 2); $('#approval').classList.add('open'); break;
     case 'approval_resolved': if (ev.request_id === pendingApproval) $('#approval').classList.remove('open'); break;
     case 'recall': add('🧠 想起：' + ev.memories.map(m => esc(m.content)).join('；'), 'note'); break;
-    case 'memory': add('🧠 已記住：' + esc(ev.content || ev.id), 'note learn'); break;
+    case 'memory': {
+      const verb = {update: '已更新記憶', forget: '已移除記憶', compress: '已壓縮記憶'}[ev.action] || '已記住';
+      const what = ev.action === 'compress' ? `省下 ${ev.saved_chars} 字` : ev.action === 'forget' ? (ev.ids || []).join('、') : (ev.content || ev.id);
+      add(`🧠 ${verb}：` + esc(what), 'note learn'); break; }
     case 'skill': add(`🛠 技能 ${esc(ev.name)} ${esc(ev.status)}${ev.trust ? '（' + esc(ev.trust) + '）' : ''}`, 'note learn'); loadSide(); break;
     case 'learned': {
       const parts = [];
@@ -1140,6 +1146,34 @@ async function loadSide(){
   const real = $('#side'); const side = document.createElement('div');
   try { await fillSide(side); } finally { if (gen === SIDE_GEN) real.replaceChildren(...side.childNodes); }
 }
+const MEM_TIER = {permanent: '永久', core: '核心', short: '短期', long: '長期', archive: '封存'};
+let MEM_FILTER = '';
+async function fillMemory(side){
+  const st = await api('/api/memories/stats');
+  const bar = document.createElement('div'); bar.className = 'memfilter';
+  const cu = st.core_usage;
+  bar.innerHTML = [['', '全部'], ...Object.entries(MEM_TIER)].map(([k, n]) =>
+    `<button data-t="${k}" class="${MEM_FILTER === k ? 'on' : ''}">${n}${k ? ' ' + (st[k]?.count ?? 0) : ''}</button>`).join('')
+    + `<small>核心 ${cu.chars}/${cu.limit} 字${cu.over_limit ? '（超出）' : ''}${st.short_expiring_3d ? ` · ${st.short_expiring_3d} 則短期記憶 3 天內到期` : ''}</small>`;
+  bar.querySelectorAll('button').forEach(b => b.onclick = () => { MEM_FILTER = b.dataset.t; loadSide(); });
+  side.appendChild(bar);
+  for (const m of await api('/api/memories' + (MEM_FILTER ? '?tier=' + MEM_FILTER : ''))) {
+    if (!MEM_FILTER && m.tier === 'archive') continue;
+    const d = document.createElement('div'); d.className = 'item' + (m.tier === 'archive' ? ' dim' : '');
+    const cls = m.pinned ? 'permanent' : m.tier;
+    const exp = m.expires_at ? ` · ${new Date(m.expires_at * 1000).toLocaleDateString()} 到期` : '';
+    d.innerHTML = `${m.pinned ? '📌 ' : ''}${esc(m.content)}<small>${m.id} · ${MEM_TIER[cls] || cls} · ${m.kind} · 重要度 ${m.importance}${exp}</small>`
+      + (m.tier === 'archive' ? '' : `<span class="memact"><button data-a="pin">${m.pinned ? '取消永久' : '設為永久'}</button><button data-a="del">封存</button></span>`);
+    d.querySelectorAll('.memact button').forEach(b => b.onclick = async e => {
+      e.stopPropagation();
+      if (b.dataset.a === 'pin') await post('/api/memories/' + m.id, {pinned: !m.pinned}, 'PATCH');
+      else if (confirm((m.pinned ? '這是永久記憶，確定封存？\n' : '封存這則記憶？\n') + m.content))
+        await api('/api/memories/' + m.id + (m.pinned ? '?force=true' : ''), {method: 'DELETE'});
+      loadSide();
+    });
+    side.appendChild(d);
+  }
+}
 async function fillSide(side){
   if (tab === 'sessions') {
     for (const s of await api('/api/sessions')) {
@@ -1148,12 +1182,7 @@ async function fillSide(side){
       d.onclick = () => openSession(s); side.appendChild(d);
     }
   } else if (tab === 'memory') {
-    for (const m of await api('/api/memories')) {
-      const d = document.createElement('div'); d.className = 'item';
-      d.innerHTML = `${esc(m.content)}<small>${m.id} · ${m.tier} · ${m.kind} · 重要度 ${m.importance}</small>`;
-      d.onclick = async () => { if (confirm('封存這則記憶？\n' + m.content)) { await api('/api/memories/' + m.id, {method:'DELETE'}); loadSide(); } };
-      side.appendChild(d);
-    }
+    await fillMemory(side);
   } else if (tab === 'data') {
     await fillData(side);
   } else if (tab === 'work') {

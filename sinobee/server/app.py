@@ -127,22 +127,50 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     async def memories(tier: str | None = None, q: str | None = None):
         r = rt()
         if q:
-            return [m.brief() for m in await r.memory.asearch(q, k=30, tiers=("core", "long", "archive"), touch=False)]
+            hits = await r.memory.asearch(q, k=30, tiers=("core", "short", "long", "archive"), touch=False)
+            return [m.brief() for m in hits]
+        if tier == "permanent":
+            return [m.brief() for m in r.memory.list(None, 2000) if m.pinned][:500]
         return [m.brief() for m in r.memory.list(tier, 500)]
+
+    @app.get("/api/memories/stats")
+    async def memory_stats():
+        return rt().memory.stats()
 
     @app.post("/api/memories")
     async def add_memory(body: dict):
         try:
             return await rt().memory.asave(body["content"], kind=body.get("kind", "fact"),
                                            tier=body.get("tier", "long"), importance=float(body.get("importance", 0.7)),
-                                           tags=body.get("tags"))
+                                           tags=body.get("tags"), pinned=bool(body.get("pinned")),
+                                           ttl_days=body.get("ttl_days"))
         except Exception as e:
             raise HTTPException(400, str(e))
 
-    @app.delete("/api/memories/{mid}")
-    async def forget(mid: str, hard: bool = False):
+    @app.patch("/api/memories/{mid}")
+    async def edit_memory(mid: str, body: dict):
+        """The user's own edits: pin / unpin (permanent), change tier, importance or content."""
         try:
-            return rt().memory.forget(mid, hard)
+            return await rt().memory.aupdate(mid, body.get("content"), importance=body.get("importance"),
+                                             tier=body.get("tier"), pinned=body.get("pinned"),
+                                             ttl_days=body.get("ttl_days"))
+        except Exception as e:
+            raise HTTPException(400, str(e))
+
+    @app.post("/api/memories/compress")
+    async def compress_memories(body: dict):
+        from ..memory.compress import compress
+        r = rt()
+        rep = await compress(r.memory, r.aux, query=body.get("query"), tier=body.get("tier"), tag=body.get("tag"),
+                             ids=body.get("ids"), target_chars=body.get("target_chars"),
+                             include_pinned=bool(body.get("include_pinned")), dry_run=body.get("dry_run", True))
+        return rep
+
+    @app.delete("/api/memories/{mid}")
+    async def forget(mid: str, hard: bool = False, force: bool = False):
+        try:
+            # the user clicked it in the UI, so that is the explicit confirmation a permanent memory needs
+            return rt().memory.forget(mid, hard, force=force)
         except Exception as e:
             raise HTTPException(404, str(e))
 
@@ -161,7 +189,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         p = item["payload"]
         if item["kind"] == "memory_save":
             return r.memory.save(p["content"], kind=p.get("kind", "fact"), tier=p.get("tier", "long"),
-                                 tags=p.get("tags"), importance=float(p.get("importance", 0.5)))
+                                 tags=p.get("tags"), importance=float(p.get("importance", 0.5)),
+                                 ttl_days=p.get("ttl_days"))
         res = r.skills.apply_pending(item)
         if item["kind"] == "skill_create" and res.get("name") in r.skills.skills:
             r.skills.approve(res["name"])      # the user adopted the suggestion -> trusted as local

@@ -54,6 +54,8 @@ DEFAULTS: dict[str, Any] = {
         "recall_min_score": 0.15,
         "write_approval": False,
         "half_life_days": 30,
+        "short_ttl_days": 14,       # short-term memories expire after this; useful ones are kept as long-term
+        "archive_after_days": 90,   # unused low-importance long-term memories are archived after this
     },
     "skills": {
         "index_mode": "auto",       # auto | all | retrieve
