@@ -23,6 +23,7 @@ DEFAULTS: dict[str, Any] = {
         "fallbacks": [],
         "auxiliary": None,       # cheaper model for reflection / compression (None = default)
         "escalate": None,        # stronger model to switch to when a task keeps failing or is too complex
+        "escalate_mode": "auto", # auto | consult (the stronger model advises) | switch (it takes over the turn)
         "embedding": None,       # e.g. openai/text-embedding-3-small ; None = BM25 only
         "temperature": 0.3,
         "max_tokens": 8192,
@@ -39,6 +40,9 @@ DEFAULTS: dict[str, Any] = {
         "language": "auto",
         "verify": True,             # check the task is really finished before reporting "done"
         "verify_min_tool_calls": 3, # only verify turns that used at least this many tools
+        "quality": "auto",          # auto | fast | standard | strict (how hard the result is checked before delivery)
+        "reviewer": True,           # strict level: an independent read-only reviewer sub-agent re-checks the result
+        "reviewer_iterations": 15,
         "qa": True,                 # check the files a task made (pages, formulas, links …) before it may finish
         "quality_rounds": 2,
         "checklist_after_tool_calls": 4,  # remind the agent to write an acceptance checklist after this many tools        # times an open checklist / failed file check is sent back to be fixed

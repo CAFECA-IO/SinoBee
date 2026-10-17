@@ -86,7 +86,8 @@ CHILD_RULES = """# Sub-agent rules
   in this conversation) - if something is missing, state the assumption you made or report what is missing.
 - The blackboard is shared with the coordinator and the other sub-agents: read it first (board_read) to avoid
   duplicate work, and write your results to it.
-- Finish with a short report: what you found or did, the evidence, and anything left open."""
+- Finish with a short report (at most about 300 words): what you found or did, the evidence, and anything left
+  open. Put details, tables and long excerpts on the blackboard instead of in the report."""
 
 
 def role_names() -> list[str]:

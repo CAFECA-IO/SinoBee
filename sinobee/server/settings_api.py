@@ -49,9 +49,11 @@ def settings_payload(rt) -> dict:
         prov = split_model(default)[0]
         needs_setup = not usable_now(prov, cfg)
     return {
-        "model": {k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "escalate", "embedding",
-                                                      "vision", "context_window")},
-        "agent": {"verify": cfg.get("agent.verify", True)},
+        "model": {**{k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "escalate", "embedding",
+                                                         "vision", "context_window")},
+                  "escalate_mode": cfg.get("model.escalate_mode", "auto")},
+        "agent": {"verify": cfg.get("agent.verify", True), "quality": cfg.get("agent.quality", "auto"),
+                  "reviewer": cfg.get("agent.reviewer", True)},
         "context": _context_info(cfg),
         "permissions": {"approval": cfg.get("permissions.approval"),
                         "toolsets": sorted(set(cfg.get("permissions.toolsets") or [])
@@ -149,8 +151,16 @@ def register(app: FastAPI, rt_getter) -> None:
             if "allowed_paths" in p:
                 perm["allowed_paths"] = [x for x in p["allowed_paths"] if x]
             updates["permissions"] = perm
-        if isinstance(body.get("agent"), dict) and "verify" in body["agent"]:
-            updates.setdefault("agent", {})["verify"] = bool(body["agent"]["verify"])
+        if isinstance(body.get("agent"), dict):
+            a = body["agent"]
+            if "verify" in a:
+                updates.setdefault("agent", {})["verify"] = bool(a["verify"])
+            if a.get("quality") in ("auto", "fast", "standard", "strict"):
+                updates.setdefault("agent", {})["quality"] = a["quality"]
+            if "reviewer" in a:
+                updates.setdefault("agent", {})["reviewer"] = bool(a["reviewer"])
+        if isinstance(body.get("model"), dict) and body["model"].get("escalate_mode") in ("auto", "consult", "switch"):
+            updates.setdefault("model", {})["escalate_mode"] = body["model"]["escalate_mode"]
         if "usage" in body:
             u = {}
             for k in ("daily_budget_usd", "monthly_budget_usd", "currency_rate"):

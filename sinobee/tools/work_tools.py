@@ -68,19 +68,28 @@ def _role_help() -> str:
 @tool("delegate", "work",
       "Hand independent subtasks to sub-agents that run in parallel, each with its own context and a role: "
       "researcher (web research with sources), analyst (databases/files/shell numbers), reviewer (read-only check "
-      "of the work), writer (turns findings into a document), general. Use it when a task splits into parts that do "
-      "not depend on each other (e.g. research 4 competitors, analyse 3 tables) or to get an independent review. "
-      "Sub-agents share your blackboard: give each a precise, self-contained task. Returns each sub-agent's report.",
+      "of the work), writer (turns findings into a document), general. Scale the effort to the task: a simple fact "
+      "or a single lookup needs no sub-agent (do it yourself); comparing 2-4 things takes 2-4 sub-agents; only broad "
+      "research with clearly separate parts justifies more. Only one agent should write a given file: sub-agents "
+      "research, analyse and review in parallel; the writing stays with one. Give every task an objective, the "
+      "expected output and its boundaries (what NOT to cover), so sub-agents do not duplicate each other. They share "
+      "your blackboard and each returns a short report (details go on the blackboard).",
       {"properties": {"tasks": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {
           "role": {"type": "string", "enum": ["researcher", "analyst", "reviewer", "writer", "general"]},
-          "task": {"type": "string", "description": "self-contained instructions incl. the expected output"},
-          "context": {"type": "string", "description": "facts the sub-agent needs (it cannot see this chat)"}},
+          "task": {"type": "string", "description": "the objective, self-contained (the sub-agent cannot see this chat)"},
+          "output": {"type": "string", "description": "the expected output: format, length, what to include"},
+          "boundaries": {"type": "string", "description": "what is out of scope (e.g. other sub-agents cover X)"},
+          "context": {"type": "string", "description": "facts the sub-agent needs"}},
           "required": ["role", "task"]}}}, "required": ["tasks"]})
 async def delegate(ctx: ToolContext, tasks: list):
     from ..work.agents import run_many
     if ctx.state.get("depth"):
         return "sub-agents cannot delegate further"
     tasks = [t for t in (tasks or []) if isinstance(t, dict) and str(t.get("task") or "").strip()][:8]
+    for t in tasks:          # objective + expected output + boundaries, in one self-contained brief
+        extra = "".join(f"\n\n{label}:\n{str(t[k]).strip()}" for k, label in (("output", "Expected output"),
+                        ("boundaries", "Out of scope")) if str(t.get(k) or "").strip())
+        t["task"] = str(t["task"]).strip() + extra
     if not tasks:
         return "no tasks given"
     hub = _hub(ctx)
@@ -91,8 +100,17 @@ async def delegate(ctx: ToolContext, tasks: list):
                              approve=ctx.approve, emit=ctx.emit, hub=hub,
                              limit=int(ctx.config.get("work.max_parallel_subagents", 3)),
                              owner=ctx.state.get("run_id") or ctx.session_id)
-    return [{"role": r["role"], "task": r["task"][:200], "status": r["status"], "report": r["result"][:6000],
-             "session": r["session_id"]} for r in results]
+    out = []
+    for r in results:            # the coordinator gets a condensed report; the full one stays on the blackboard
+        report = r["result"] or ""
+        if len(report) > 3000:
+            row = hub.store.board_write(scope, "finding", report, key=f"report:{r['session_id']}",
+                                        author=f"{r['role']}:{r['session_id']}")
+            ref = f"#{row['id']}" if isinstance(row, dict) and row.get("id") else f"report:{r['session_id']}"
+            report = report[:3000] + f"\n…（完整報告 {len(report)} 字元在黑板 {ref}，可用 board_read 讀取）"
+        out.append({"role": r["role"], "task": r["task"][:200], "status": r["status"], "report": report,
+                    "session": r["session_id"]})
+    return out
 
 
 # ------------------------------------------------------------------ workflows

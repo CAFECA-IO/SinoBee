@@ -145,7 +145,7 @@ PAGE_PROBE = """() => {
 }"""
 
 
-async def _browser_checks(pages: list[Path], docs: list[tuple[Path, list, list]]) -> list[dict]:
+async def _browser_checks(pages: list[Path], docs: list[tuple[Path, list, list]], shots: dict | None = None) -> list[dict]:
     try:
         from playwright.async_api import async_playwright
     except ImportError:
@@ -189,6 +189,8 @@ async def _browser_checks(pages: list[Path], docs: list[tuple[Path, list, list]]
                         await pg.goto(HOST + page_path.name, wait_until="load", timeout=20000)
                         await pg.wait_for_timeout(1500)
                         found = await pg.evaluate(PAGE_PROBE)
+                        if shots is not None:          # what the page looks like, for the acceptance review
+                            shots[str(page_path)] = await pg.screenshot(type="jpeg", quality=70)
                     except Exception as e:  # noqa: BLE001
                         found = [["頁面無法開啟", str(e)[:200]]]
                     await ctx.close()
@@ -219,8 +221,9 @@ async def _browser_checks(pages: list[Path], docs: list[tuple[Path, list, list]]
     return issues
 
 
-async def check(paths: list[Path]) -> list[dict]:
-    """All problems found in the given files (deduplicated, at most 20 files)."""
+async def check(paths: list[Path], shots: dict | None = None) -> list[dict]:
+    """All problems found in the given files (deduplicated, at most 20 files). `shots` (optional) receives a
+    screenshot of each HTML page (path -> JPEG bytes)."""
     files = [p for p in dict.fromkeys(Path(x) for x in paths)][:MAX_FILES]
     issues: list[dict] = []
     pages, docs = [], []
@@ -237,7 +240,7 @@ async def check(paths: list[Path]) -> list[dict]:
             if formulas or diagrams:
                 docs.append((p, formulas, diagrams))
     if pages or docs:
-        issues += await _browser_checks(pages, docs)
+        issues += await _browser_checks(pages, docs, shots)
     return issues
 
 

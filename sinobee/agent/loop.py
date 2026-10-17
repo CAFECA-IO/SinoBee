@@ -382,15 +382,60 @@ class Agent:
         return any(str(getattr(self.rt.skills.skills.get(n), "metadata", {}).get("sinobee-complexity", "")).lower()
                    == "high" for n in names if self.rt.skills.skills.get(n))
 
-    def _escalate(self, why: str, stats: dict) -> bool:
+    def _prov_is_local(self) -> bool:
+        label = str(getattr(self._prov, "label", "") or "")
+        return label.startswith(("ollama/", "local/", "lmstudio/", "vllm/")) or \
+            bool(re.search(r"//(localhost|127\.0\.0\.1|host\.docker\.internal)", str(getattr(self._prov, "base_url", ""))))
+
+    def _escalate(self, why: str, stats: dict, at_start: bool = False) -> bool:
+        """Bring in the stronger model (model.escalate). Two ways (model.escalate_mode):
+          switch   the rest of the turn runs on the stronger model (once per turn)
+          consult  the stronger model reads a fork of the whole context and advises; the current model carries on
+                   with that advice (up to twice per turn, at least 5 steps apart)
+          auto     switch at the start of complex tasks and when the current model runs locally (a weak model
+                   rarely uses advice well); consult otherwise
+        """
         strong = self.rt.strong()
         if strong is None or strong is self._prov or stats.get("escalated"):
             return False
+        mode = str(self.config.get("model.escalate_mode", "auto") or "auto")
+        if mode not in ("switch", "consult"):
+            mode = "switch" if (at_start or self._prov_is_local()) else "consult"
+        if mode == "consult":
+            step = stats.get("step", 0)
+            if stats.get("consults", 0) >= 2 or stats.get("consult_pending") or \
+                    step - stats.get("consult_at", -99) < 5:
+                return False
+            stats["consult_pending"] = why
+            return True
         stats["escalated"] = True
         old = self._prov.label
         self._prov = strong
         self._event(f"改用較強的模型 {strong.label}（{why}；原本 {old}）")
         return True
+
+    async def _consult(self, why: str, context_block: str, stats: dict) -> None:
+        """Ask the stronger model for advice on a fork of the full context; the advice joins the history."""
+        strong = self.rt.strong()
+        if strong is None:
+            return
+        self._event(f"向較強的模型 {strong.label} 請教（{why}）")
+        ask = ("[SinoBee] You are a senior advisor looking over the shoulder of the agent above. It is stuck: "
+               f"{why}. Read the whole conversation and tool results, then give concise, concrete guidance in the "
+               "user's language: (1) what is actually going wrong, (2) the next 2-4 steps to take, with the exact "
+               "tools/commands if you can, (3) anything it should stop doing. Do not call tools; reply with text only.")
+        request = [self.system] + self.history + [Message("user", [TextPart(context_block + "\n\n" + ask, volatile=True)])]
+        try:
+            resp = await strong.chat(request, None, temperature=0.2, max_tokens=1200)
+            advice = resp.message.text().strip()
+        except Exception as e:  # noqa: BLE001 - advice is optional
+            log.info("consult failed: %s", e)
+            return
+        if advice:
+            stats["consults"] = stats.get("consults", 0) + 1
+            stats["consult_at"] = stats.get("step", 0)
+            self.history.append(Message("user", f"[較強模型的建議]（{why}）\n{advice[:4000]}"))
+            self._persist()
 
     def _should_verify(self, stats: dict) -> bool:
         return bool(self.config.get("agent.verify", True)) and \
@@ -492,6 +537,119 @@ class Agent:
         return "qa", ("[自動成果檢查] 交付前檢查本次產出的檔案，發現以下問題：\n" + qa.report(issues)
                       + "\n請修正這些問題（修好後我會再檢查一次），或在回答裡說明為什麼不需要修。")
 
+    async def _acceptance(self, query: str, final_text: str, stats: dict, turn_start: int):
+        """The model-based check for the quality level of this turn. Returns "retry" (a fix list went back to the
+        agent), an error_info dict (still not acceptable after the allowed rounds), or None (accepted / skipped)."""
+        from . import review
+        if "quality" not in stats:
+            level, why = review.quality_level(self.config, self.history[turn_start:], stats,
+                                              self._complex_task(stats.get("explicit_skills")))
+            if self.depth > 0:                # sub-agents: their coordinator (and its reviewer) judges the result
+                level, why = "fast", "子代理"
+            stats["quality"] = (level, why)
+            if level != "fast":
+                self._event(f"品質等級：{ {'standard': '標準', 'strict': '嚴謹'}[level] }（{why}）")
+        level, _ = stats["quality"]
+        if level == "fast":
+            return None
+        rounds = {"standard": 1, "strict": 2}[level]
+        data = await self._review(query, final_text, stats, level)
+        if data is None:                      # the reviewer could not run: fall back to the light completion check
+            verdict = await self._verify(query, final_text, stats) if self._should_verify(stats) else None
+            if verdict and not verdict.get("complete"):
+                missing = str(verdict.get("missing") or "任務尚未完成")[:400]
+                if stats["verify_rounds"] < 1:
+                    stats["verify_rounds"] += 1
+                    self._event(f"完成檢查未通過：{missing}；繼續執行")
+                    self.history.append(Message("user", f"[自動完成檢查] 任務還沒有完成：{missing}\n"
+                                                        "請接著把它完成；如果確實無法完成，請明確說明原因與目前的進度。"))
+                    self._persist()
+                    return "retry"
+                return {"summary": f"完成檢查未通過：{missing}", "hint": "可以回覆「繼續」讓我接著做，或補充更明確的要求。",
+                        "detail": ""}
+            if verdict:
+                self._event("完成檢查通過")
+            return None
+        stats["review"] = data
+        self._emit("review", {"level": level, "verdict": data["verdict"], "summary": data.get("summary", ""),
+                              "problems": data.get("problems", [])[:10], "notes": (data.get("notes") or [])[:5]})
+        if data["verdict"] == "pass":
+            self._event("驗收審查通過" + (f"：{data['summary']}" if data.get("summary") else ""))
+            return None
+        fixes = review.fix_list(data, checklist_tools.get(self.ctx))
+        if stats["verify_rounds"] < rounds:
+            stats["verify_rounds"] += 1
+            self._event(f"驗收審查未通過（第 {stats['verify_rounds']} 輪）：{data.get('summary') or '有問題需要修正'}")
+            self.history.append(Message("user", "[自動驗收審查] 交付前的審查發現以下問題，請修正後再回報：\n" + fixes
+                                        + "\n只處理這些會影響正確性或需求的問題，不要額外擴大範圍。"))
+            self._persist()
+            return "retry"
+        return {"summary": "驗收審查未通過：" + (data.get("summary") or "還有問題沒有解決"), "detail": fixes,
+                "hint": "可以回覆「繼續」讓我接著修，或告訴我哪些可以接受。"}
+
+    async def _review(self, query: str, final_text: str, stats: dict, level: str) -> dict | None:
+        """Fresh-context review by the stronger model (or the main one): verdict, checklist items, fix list."""
+        from . import review
+        paths = []
+        for a in stats.get("artifacts", [])[:20]:
+            try:
+                paths.append(resolve_file(self.config, a["path"]))
+            except Exception:  # noqa: BLE001
+                continue
+        shots: dict = {}
+        if paths and any(p.suffix.lower() in (".html", ".htm") for p in paths) and self.config.get("model.vision", True):
+            from . import qa
+            try:
+                await qa.check([p for p in paths if p.suffix.lower() in (".html", ".htm")][:3], shots)
+            except Exception:  # noqa: BLE001
+                shots = {}
+        items = checklist_tools.get(self.ctx)
+        reviewer = ""
+        if level == "strict" and self.depth == 0 and self.config.get("agent.reviewer", True) and "reviewed" not in stats:
+            stats["reviewed"] = True
+            reviewer = await self._independent_review(query, final_text, items, paths)
+            stats["reviewer"] = reviewer
+        elif stats.get("reviewer"):
+            reviewer = stats["reviewer"] + "\n(The agent has since tried to fix these; check the current files.)"
+        steers = [m.text() for m in self.history if m.role == "user" and isinstance(m.content, str)
+                  and m.content.startswith("[使用者在執行中補充指示]")]
+        prompt = review.review_prompt(query=query, steers=steers, checklist=checklist_tools.render(items),
+                                      qa_text="", files=review.excerpts(paths), answer=final_text,
+                                      reviewer=reviewer, level=level)
+        parts: list = [TextPart(prompt)]
+        for path, img in list(shots.items())[:3]:
+            parts += [TextPart(f"Screenshot of {Path(path).name} as the user sees it:"),
+                      ImagePart.from_bytes(img, "image/jpeg")]
+        model = self.rt.strong() or self.rt.provider
+        self._event(f"驗收審查：由 {model.label} 以全新上下文檢查結果")
+        try:
+            resp = await model.chat([Message("user", parts)], None, temperature=0, max_tokens=1500)
+        except Exception as e:  # noqa: BLE001 - a failed review never blocks the answer
+            log.info("acceptance review skipped: %s", e)
+            return None
+        return review.parse(resp.message.text())
+
+    async def _independent_review(self, query: str, final_text: str, items: list, paths: list) -> str:
+        """Strict level: a read-only reviewer sub-agent re-checks sources and files before the acceptance review."""
+        from . import review
+        from ..work.agents import run_subagent
+        try:
+            from ..work.hub import get_hub
+            hub = get_hub(self.rt)
+        except Exception:  # noqa: BLE001
+            hub = None
+        self._event("獨立審查：派出審查員重新核對來源與檔案")
+        try:
+            res = await run_subagent(self.rt, role="reviewer", board_scope=self.ctx.state["board_scope"],
+                                     task=review.reviewer_task(query=query, checklist=checklist_tools.render(items),
+                                                               files=[str(p) for p in paths], answer=final_text),
+                                     parent_session=self.session_id, emit=self._emit, hub=hub,
+                                     max_iterations=int(self.config.get("agent.reviewer_iterations", 15)))
+        except Exception as e:  # noqa: BLE001
+            log.info("independent review failed: %s", e)
+            return ""
+        return str(res.get("result") or "")[:6000]
+
     def _active_skill_notes(self) -> str:
         """How to invoke each skill in use, repeated every step so it survives compaction and long tool output."""
         lines = []
@@ -548,7 +706,7 @@ class Agent:
         stats["gate_rounds"] = {}
         self._checklist_turn_start()
         if self._complex_task(explicit):
-            self._escalate("任務屬於複雜類型", stats)
+            self._escalate("任務屬於複雜類型", stats, at_start=True)
         self._turn_started = started
         stats["artifacts"] = []
         from ..work.chatrun import ChatRun
@@ -581,6 +739,9 @@ class Agent:
                     context_block = self._render_context()
                 if estimate_tokens([self.system] + self.history, tool_specs, context_block) > budget * 0.8:
                     turn_start = await self._compact(budget, tool_specs, context_block, turn_start)
+            stats["step"] = steps
+            if stats.get("consult_pending"):
+                await self._consult(stats.pop("consult_pending"), context_block, stats)
             # The history is append-only so the provider's prompt cache keeps hitting; everything that changes
             # between requests (context, checklist, active skill notes, nudges) goes in one tail message that is
             # rebuilt every time and never stored - at the end, where the model attends most during long tasks.
@@ -667,23 +828,13 @@ class Agent:
                     status = "incomplete"
                     error_info = {"summary": text.split("\n")[0].strip("[] "), "detail": text,
                                   "hint": "可以回覆「繼續」讓我接著修，或告訴我哪些可以不用管。"}
-                elif not stats.get("consecutive_errors") and self._should_verify(stats):
-                    verdict = await self._verify(query, final_text, stats)
-                    if verdict and not verdict.get("complete"):
-                        missing = str(verdict.get("missing") or "任務尚未完成")[:400]
-                        if stats["verify_rounds"] < 1:
-                            stats["verify_rounds"] += 1
-                            self._event(f"完成檢查未通過：{missing}；繼續執行")
-                            self._escalate("完成檢查未通過", stats)
-                            self.history.append(Message("user", f"[自動完成檢查] 任務還沒有完成：{missing}\n"
-                                                                "請接著把它完成；如果確實無法完成，請明確說明原因與目前的進度。"))
-                            self._persist()
-                            continue
-                        status = "incomplete"
-                        error_info = {"summary": f"完成檢查未通過：{missing}",
-                                      "hint": "可以回覆「繼續」讓我接著做，或補充更明確的要求。", "detail": ""}
-                    elif verdict:
-                        self._event("完成檢查通過")
+                elif not stats.get("consecutive_errors"):
+                    stats["final_text"] = final_text
+                    outcome = await self._acceptance(query, final_text, stats, turn_start)
+                    if outcome == "retry":
+                        continue
+                    if isinstance(outcome, dict):
+                        status, error_info = "incomplete", outcome
                 if stats.get("consecutive_errors"):
                     # the model stopped right after failures: do not report the task as done
                     status = "incomplete"
@@ -930,7 +1081,7 @@ class Agent:
             rec.tool_started(call.name)
         sk = (call.arguments or {}).get("name") if call.name in ("skill_view", "skill_run") else None
         if sk and self._complex_task([sk]) and not stats.get("escalated"):
-            self._escalate(f"技能 {sk} 是多階段的複雜任務", stats)
+            self._escalate(f"技能 {sk} 是多階段的複雜任務", stats, at_start=True)
         sig = call.name + json.dumps(call.arguments or {}, sort_keys=True, ensure_ascii=False, default=str)
         failed = stats.setdefault("failed_calls", {})
         if sig in failed:
