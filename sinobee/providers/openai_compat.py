@@ -85,6 +85,14 @@ def parse_arguments(raw) -> dict:
         val = json.loads(raw)
         return val if isinstance(val, dict) else {"value": val}
     except json.JSONDecodeError:
+        # LaTeX written without doubling its backslashes ("\\gamma", "\\sqrt"): keep the backslash as text
+        fixed = re.sub(r'(?<!\\)((?:\\\\)*)\\(?!["\\/bfnrtu])', r"\1\\\\", raw)
+        if fixed != raw:
+            try:
+                val = json.loads(fixed)
+                return val if isinstance(val, dict) else {"value": val}
+            except json.JSONDecodeError:
+                pass
         # tolerate trailing garbage from weaker models
         m = re.search(r"\{.*\}", raw, re.S)
         if m:

@@ -219,3 +219,32 @@ def test_skill_picker_in_the_composer_and_titles_without_slash_prefixes():
     assert _title("/youtube-analysis /anatomy https://youtu.be/x 幫我分析") == "https://youtu.be/x 幫我分析"
     assert _title("/youtube-analysis") == "使用技能：youtube-analysis"
     assert _title("/learn https://a") == "/learn https://a"
+
+
+def test_pages_with_formulas_get_katex_and_lost_backslashes_are_restored(home, provider):
+    """HTML reports that write $…$ or formula boxes without a math library get KaTeX in the viewer; LaTeX that lost
+    its backslashes in JSON tool arguments is repaired when the file is written."""
+    from sinobee.providers.openai_compat import parse_arguments
+    from sinobee.tools.files import repair_tex
+    rt = Runtime(Config.load(), provider=provider)
+    c = TestClient(create_app(rt))
+    d = rt.config.workspace / "rep"
+    d.mkdir()
+    (d / "math.html").write_text("<html><head></head><body><p>速度 $v_e$</p><div class='formula'>F = dot{m} cdot v_e</div></body></html>")
+    (d / "plain.html").write_text("<html><head></head><body><p>價格 $5 and $10</p></body></html>")
+    (d / "own.html").write_text("<html><head><script src='katex.js'></script></head><body>$x$</body></html>")
+    for name, injected in (("math.html", True), ("plain.html", False), ("own.html", False)):
+        url = c.post("/api/view", json={"path": f"rep/{name}"}).json()["url"]
+        r = c.get(url)
+        assert ("sb-math.js" in r.text) is injected, name
+        assert r.headers["access-control-allow-origin"] == "*" and r.headers["cross-origin-resource-policy"] == "cross-origin"
+    cap = url.split("/")[2]
+    assert c.get(f"/view/{cap}/__sinobee_math/katex.min.js").status_code == 200
+    assert c.get(f"/view/{cap}/__sinobee_math/fonts/KaTeX_Main-Regular.woff2").status_code == 200
+    assert c.get(f"/view/{cap}/__sinobee_math/purify.min.js").status_code == 404
+    assert c.get(f"/view/{cap}/__sinobee_math/../../app.py").status_code == 404
+    # JSON damage: \f → form feed, \b → backspace, \t → tab; and invalid escapes like \g are kept as text
+    text, n = repair_tex("r.html", "\x0crac{a}{b} + \x08eta \times 2")
+    assert text == "\\frac{a}{b} + \\beta \\times 2" and n == 3
+    assert repair_tex("r.py", "\x0c")[1] == 0
+    assert parse_arguments('{"content": "$\\gamma$ \\sqrt{2} \\"q\\""}') == {"content": '$\\gamma$ \\sqrt{2} "q"'}

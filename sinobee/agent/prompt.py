@@ -46,7 +46,8 @@ TOOL_GUIDE = """# Tool notes
   sequence/architecture diagrams, timelines and Gantt charts. In mermaid, put any label with spaces, parentheses,
   slashes or non-ASCII text in double quotes (`A["引擎 (V6)"]`, `x-axis "低" --> "高"`, `quadrant-1 "緊湊"`).
 - Math renders with KaTeX: `$120^\\circ$` inline, `$$E = mc^2$$` on its own lines. Write money as `NT$500`
-  or `500 元`, not `$500`, so it is not read as math.
+  or `500 元`, not `$500`, so it is not read as math. HTML pages you write get KaTeX automatically for $…$, \\(…\\)
+  and $$…$$. Inside tool arguments (JSON) every LaTeX backslash is doubled: `\\\\frac`, `\\\\gamma`.
 - Show files you create by linking their path: images `![說明](/abs/path/chart.png)`, videos
   `![影片](/abs/path/clip.mp4)`, other files as attachments `[report.pdf](/abs/path/report.pdf)`. Save generated
   files inside the workspace so they can be displayed. Web URLs work the same way.

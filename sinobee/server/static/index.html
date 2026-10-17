@@ -785,6 +785,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
 <script src="/vendor/katex.min.js"></script>
+<script src="/vendor/sb-math.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 // access token (needed when SinoBee is opened from another device): taken from ?token=, remembered on this browser,
@@ -1051,9 +1052,20 @@ const mdRenderer = {
 // styles, which DOMPurify strips), via numbered placeholders. "$5 and $10" stays text: no space inside the
 // delimiters and no digit right after the closing $.
 let MATH = [];
+/** plain text (notes, memories) with its formulas typeset: everything else is escaped */
+function mathText(s){
+  s = String(s ?? ''); let out = '', last = 0, m;
+  const re = /\$\$([\s\S]+?)\$\$|\\\(([\s\S]+?)\\\)|(?<![\w$])\$(?![\s$])((?:\\.|[^$\\\n])+?)(?<!\s)\$(?!\d)/g;
+  while ((m = re.exec(s))) {
+    let h = null; try { h = window.katex ? katex.renderToString(sbMath.fix(m[1] || m[2] || m[3]), {throwOnError: false, strict: 'ignore'}) : null; } catch {}
+    if (!h) continue;
+    out += esc(s.slice(last, m.index)) + h; last = re.lastIndex;
+  }
+  return out + esc(s.slice(last));
+}
 function mathPh(tex, display){
   let out;
-  try { out = window.katex ? katex.renderToString(tex, {displayMode: display, throwOnError: false, output: 'htmlAndMathml', trust: false, strict: 'ignore'}) : null; } catch { out = null; }
+  try { out = window.katex ? katex.renderToString(window.sbMath ? sbMath.fix(tex) : tex, {displayMode: display, throwOnError: false, output: 'htmlAndMathml', trust: false, strict: 'ignore'}) : null; } catch { out = null; }
   if (!out) out = `<code class="math-src">${esc(display ? `$$${tex}$$` : `$${tex}$`)}</code>`;
   if (display) out = `<div class="math-d">${out}</div>`;
   MATH.push(out);
@@ -1276,12 +1288,12 @@ function handle(ev, replay = false){
     case 'approval_request': pendingApproval = ev.request_id; $('#apReason').innerHTML = `<b>${esc(ev.tool)}</b>：${esc(DANGER_ZH[ev.reason] || ev.reason)}`;
       $('#apArgs').textContent = JSON.stringify(ev.arguments, null, 2); $('#approval').classList.add('open'); break;
     case 'approval_resolved': if (ev.request_id === pendingApproval) $('#approval').classList.remove('open'); break;
-    case 'recall': add('🧠 想起：' + ev.memories.map(m => esc(m.content)).join('；'), 'note'); break;
+    case 'recall': add('🧠 想起：' + ev.memories.map(m => mathText(m.content)).join('；'), 'note'); break;
     case 'memory': {
       const verb = {update: '已更新記憶', forget: '已移除記憶', compress: '已壓縮記憶', maintain: '已自動整理記憶'}[ev.action] || '已記住';
       const what = ev.action === 'compress' ? `省下 ${ev.saved_chars} 字` : ev.action === 'maintain' ? `封存 ${ev.archived} 則、省下 ${ev.saved_chars} 字`
         : ev.action === 'forget' ? (ev.ids || []).join('、') : (ev.content || ev.id);
-      add(`🧠 ${verb}：` + esc(what), 'note learn'); break; }
+      add(`🧠 ${verb}：` + mathText(what), 'note learn'); break; }
     case 'skill': add(`🛠 技能 ${esc(ev.name)} ${esc(ev.status)}${ev.trust ? '（' + esc(ev.trust) + '）' : ''}`, 'note learn'); loadSide(); break;
     case 'learned': {
       const parts = [];
@@ -1535,7 +1547,7 @@ async function fillMemory(side){
     const d = document.createElement('div'); d.className = 'item' + (m.tier === 'archive' ? ' dim' : '');
     const cls = m.pinned ? 'permanent' : m.tier;
     const exp = m.expires_at ? ` · ${new Date(m.expires_at * 1000).toLocaleDateString()} 到期` : '';
-    d.innerHTML = `${m.pinned ? '📌 ' : ''}${esc(m.content)}<small>${m.id} · ${MEM_TIER[cls] || cls} · ${m.kind} · 重要度 ${m.importance}${exp}</small>`
+    d.innerHTML = `${m.pinned ? '📌 ' : ''}${mathText(m.content)}<small>${m.id} · ${MEM_TIER[cls] || cls} · ${m.kind} · 重要度 ${m.importance}${exp}</small>`
       + (m.tier === 'archive' ? '' : `<span class="memact"><button data-a="pin">${m.pinned ? '取消永久' : '設為永久'}</button><button data-a="del">封存</button></span>`);
     d.querySelectorAll('.memact button').forEach(b => b.onclick = async e => {
       e.stopPropagation();

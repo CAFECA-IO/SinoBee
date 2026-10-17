@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from ..fileaccess import PRIVATE_NAMES, FileAccessError, allowed_roots  # noqa: F401
 from ..fileaccess import resolve_file as _resolve
@@ -36,6 +36,27 @@ def view_csp(base: str) -> str:
             f"style-src 'unsafe-inline' {base} https:; img-src {base} data: blob: https:; font-src {base} data: https:; "
             f"media-src {base} data: blob: https:; connect-src {base}; worker-src {base} blob:; frame-src 'none'; "
             "base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
+
+
+MATH_DIR = "__sinobee_math"
+MATH_FILES = {"katex.min.js", "katex.min.css", "sb-math.js"}
+_MATH_TEXT = re.compile(r"\$\$[\s\S]+?\$\$|\\\(|\\\[|(?<![\w$])\$(?![\s$\d])[^$\n<]{1,200}?(?<!\s)\$(?!\d)"
+                        r"|class=[\"'][^\"']*\b(?:math|formula|equation|latex)\b", re.I)
+_HAS_MATH_LIB = re.compile(r"katex|mathjax|mathml|temml|asciimath", re.I)
+
+
+def wants_math(page: str) -> bool:
+    """An HTML page that writes formulas ($…$, \\(…\\), formula boxes) but brings no math renderer of its own."""
+    body = re.sub(r"<(script|style)\b[\s\S]*?</\1>", " ", page, flags=re.I)
+    return bool(_MATH_TEXT.search(body)) and not _HAS_MATH_LIB.search(page)
+
+
+def with_math(page: str, base: str) -> str:
+    tags = (f'<link rel="stylesheet" href="{base}katex.min.css"><script src="{base}katex.min.js"></script>'
+            f'<script src="{base}sb-math.js"></script>'
+            "<script>addEventListener('DOMContentLoaded',function(){sbMath.render(document.body)})</script>")
+    i = page.lower().rfind("</head>")
+    return page[:i] + tags + page[i:] if i >= 0 else tags + page
 
 
 def resolve_file(config, path: str) -> Path:
@@ -79,12 +100,29 @@ def register(app: FastAPI, rt_getter) -> None:
         target = (root / rel).resolve()
         if root.resolve() not in target.parents:
             raise HTTPException(404)
-        f = resolve_file(rt_getter().config, str(target))      # still never SinoBee's private files
         base = f"{request.url.scheme}://{request.url.netloc}/view/{cap}/"
+        headers = {"Content-Security-Policy": view_csp(base), "X-Content-Type-Options": "nosniff",
+                   "Referrer-Policy": "no-referrer", "Cache-Control": "no-store",
+                   # the page runs with an opaque origin (sandbox): its own images and scripts are cross-origin loads
+                   "Cross-Origin-Resource-Policy": "cross-origin",
+                   # …and fonts and fetch() of its data files are CORS requests from origin "null"; the link itself
+                   # is the capability, so anyone holding it may read these files anyway
+                   "Access-Control-Allow-Origin": "*"}
+        if rel.startswith(MATH_DIR + "/"):                     # KaTeX for pages that write formulas without it
+            name = rel[len(MATH_DIR) + 1:]
+            vf = (STATIC / "vendor" / name).resolve()
+            if name not in MATH_FILES and not (name.startswith("fonts/") and vf.suffix == ".woff2" and vf.parent.name == "fonts"):
+                raise HTTPException(404)
+            if not vf.is_file() or (STATIC / "vendor").resolve() not in vf.parents:
+                raise HTTPException(404)
+            return FileResponse(vf, media_type=mimetypes.guess_type(vf.name)[0] or "font/woff2", headers=headers)
+        f = resolve_file(rt_getter().config, str(target))      # still never SinoBee's private files
         mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
-        return FileResponse(f, media_type=mime, headers={
-            "Content-Security-Policy": view_csp(base), "X-Content-Type-Options": "nosniff",
-            "Referrer-Policy": "no-referrer", "Cache-Control": "no-store", "Cross-Origin-Resource-Policy": "same-origin"})
+        if mime == "text/html" and f.stat().st_size < 8 * 1024 * 1024:
+            page = f.read_text(encoding="utf-8", errors="replace")
+            if wants_math(page):
+                return Response(with_math(page, f"/view/{cap}/{MATH_DIR}/"), media_type="text/html; charset=utf-8", headers=headers)
+        return FileResponse(f, media_type=mime, headers=headers)
 
     @app.get("/vendor/{name}")
     async def vendor(name: str):

@@ -42,14 +42,39 @@ def read_file(ctx: ToolContext, path: str, offset: int = 1, limit: int = 400):
     return f"{p} ({len(lines)} lines)\n{body}" + (f"\n... {more} more lines" if more > 0 else "")
 
 
+DOC_EXT = {".html", ".htm", ".xhtml", ".svg", ".md", ".markdown", ".tex", ".mdx"}
+# LaTeX written inside JSON tool arguments loses its backslashes: "\frac" arrives as a form feed + "rac",
+# "\beta" as a backspace + "eta", "\times" as a tab + "imes". Those control characters never belong in a page.
+_TEX_CTRL = [("\x0c", "\\f"), ("\x08", "\\b"), ("\x0b", "\\v"), ("\x07", "\\a")]
+_TEX_TAB = re.compile(r"\t(?=(?:imes|heta|ext|extbf|extit|au|ilde|riangle|op|o)(?![a-z]))")
+_TEX_CR = re.compile(r"\r(?=(?:ho|ightarrow|ight|angle|ceil|floor)(?![a-z]))")
+
+
+def repair_tex(path, text: str) -> tuple[str, int]:
+    """Undo JSON-escape damage to LaTeX in documents (pages and reports); returns (text, repairs)."""
+    if Path(str(path)).suffix.lower() not in DOC_EXT or not isinstance(text, str):
+        return text, 0
+    n = 0
+    for bad, good in _TEX_CTRL:
+        if bad in text:
+            n += text.count(bad)
+            text = text.replace(bad, good)
+    text, k = _TEX_TAB.subn(r"\\t", text)
+    text, j = _TEX_CR.subn(r"\\r", text)
+    return text, n + k + j
+
+
 @tool("write_file", "files", "Create or overwrite a file with the given content (creates parent folders).",
       {"properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]},
       writes=True)
 def write_file(ctx: ToolContext, path: str, content: str):
     p = resolve(ctx, path)
     p.parent.mkdir(parents=True, exist_ok=True)
+    content, fixed = repair_tex(p, content)
     p.write_text(content, encoding="utf-8")
-    return f"wrote {len(content)} chars to {p}"
+    note = (f" (restored {fixed} LaTeX backslash(es) lost in the JSON arguments: write \\\\frac in JSON for \\frac)"
+            if fixed else "")
+    return f"wrote {len(content)} chars to {p}{note}"
 
 
 @tool("edit_file", "files",
@@ -66,6 +91,7 @@ def edit_file(ctx: ToolContext, path: str, old_string: str, new_string: str, rep
         return "ERROR: old_string not found (read the file first and copy text exactly)"
     if n > 1 and not replace_all:
         return f"ERROR: old_string occurs {n} times; add context or set replace_all"
+    new_string, _ = repair_tex(p, new_string)
     p.write_text(text.replace(old_string, new_string) if replace_all else text.replace(old_string, new_string, 1),
                  encoding="utf-8")
     return f"edited {p} ({n if replace_all else 1} replacement(s))"
