@@ -365,8 +365,12 @@ def build_doc(config, path: str, *, title: str | None = None, mask_hosts: bool =
     bundle = share_doc.collect(entry)
     files = [_doc_file(f, "", clean) for f in bundle]
     auto_title, desc = share_doc.describe(entry)
-    return {"kind": "doc", "entry": bundle[0]["name"], "title": clean(title or auto_title)[:160], "description": clean(desc),
-            "messages": [], "files": files, "redactions": red.summary(), "skills": [],
+    title = clean(title or auto_title)[:160]
+    # one message that links the document: hubs that predate document shares show it as a conversation with the
+    # file attached (instead of refusing the share); newer hubs render the document itself and ignore it
+    note = {"role": "assistant", "text": f"**{title}**\n\n{clean(desc)}\n\n[開啟文件](files/1)".replace("\n\n\n\n", "\n\n")}
+    return {"kind": "doc", "entry": bundle[0]["name"], "title": title, "description": clean(desc),
+            "messages": [note], "files": files, "redactions": red.summary(), "skills": [],
             "model": None, "_entry_path": str(entry), "_bundle": bundle}
 
 
@@ -540,7 +544,7 @@ def import_share(config, memory, url: str) -> dict:
         entry = next((names[f["id"]] for f in doc.get("files") or [] if f["name"] == doc.get("entry") and f["id"] in names), None)
         msgs.append(Message(role="assistant", content=f"**{doc.get('title') or '分享的文件'}**\n\n{doc.get('description') or ''}\n\n"
                             + (f"[開啟文件]({entry})" if entry else "（文件無法下載）")))
-    for m in doc.get("messages") or []:
+    for m in [] if doc.get("kind") == "doc" else doc.get("messages") or []:
         text = fix(m.get("text") or "")
         if m.get("role") == "assistant" and m.get("tools"):
             text += "\n\n<details><summary>使用的工具：" + "、".join(t["name"] for t in m["tools"]) + "</summary>\n\n" + \

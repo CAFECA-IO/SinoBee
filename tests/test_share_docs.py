@@ -59,7 +59,9 @@ def test_a_page_travels_with_its_styles_images_and_data(config):
 def test_build_doc_redacts_the_text_files(config):
     entry = report(Path(config.workspace))
     b = share.build_doc(config, str(entry))
-    assert b["kind"] == "doc" and b["entry"] == "report.md" and b["messages"] == []
+    assert b["kind"] == "doc" and b["entry"] == "report.md"
+    # older hubs require a message: the document travels as a linked attachment there
+    assert [m["role"] for m in b["messages"]] == ["assistant"] and "[開啟文件](files/1)" in b["messages"][0]["text"]
     md = base64.b64decode(next(f["data"] for f in b["files"] if f["name"] == "report.md")).decode()
     assert "sk-ant-" not in md and str(Path.home()) not in md and "••••" in md
     assert "path" in next(f for f in b["files"] if f["name"] == "cover.png")   # binaries are read at upload time
