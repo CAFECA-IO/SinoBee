@@ -110,6 +110,31 @@ svg.i{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-l
 .mmd svg{max-width:100%;height:auto}.md .math-d{overflow-x:auto;overflow-y:hidden;margin:.5em 0;padding:2px 0}.md .katex{font-size:1.08em}.md .math-src{white-space:pre-wrap}.mmd .mmd-err{color:var(--err);font-size:12px;text-align:left}
 #attachRow{display:none;flex-wrap:wrap;gap:6px;margin:0 max(16px,calc((100% - 820px)/2));padding:8px 0 0}
 #attachRow.on{display:flex}
+#skillRow{display:none;flex-wrap:wrap;gap:6px;margin:0 max(16px,calc((100% - 820px)/2));padding:8px 0 0}#skillRow.on{display:flex}
+.skchip{display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 9px;border-radius:999px;border:1px solid var(--accent);background:var(--glow);color:var(--ink);font-size:13px;font-weight:600}
+.skchip svg.i{width:15px;height:15px;color:var(--accent)}.skchip button{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:2px;border-radius:50%;display:grid;place-items:center}
+.skchip button:hover{color:var(--ink);background:var(--panel2)}.skchip button svg.i{width:13px;height:13px;color:inherit}
+.msg .skchip{margin:0 6px 6px 0;font-size:12px;padding:3px 9px}
+main{position:relative}
+.skpick{position:absolute;left:max(16px,calc((100% - 820px)/2));right:max(16px,calc((100% - 820px)/2));bottom:84px;z-index:30;max-height:min(460px,60vh);display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.35);overflow:hidden}
+.skpick[hidden]{display:none}
+.skp-h{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.skp-h svg.i{width:18px;height:18px;color:var(--muted);flex:none}
+.skp-h input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:inherit;font-size:15px;outline:none}
+.skp-h kbd,.skp-f b{font:11px ui-monospace,Menlo,monospace;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+.skp-l{overflow:auto;padding:6px}
+.skp-g{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--muted);padding:8px 10px 4px}
+.skp-i{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;cursor:pointer}
+.skp-i[aria-selected="true"]{background:var(--panel2);box-shadow:inset 0 0 0 1px var(--accent)}
+.skp-ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--glow);color:var(--accent)}.skp-ic svg.i{width:19px;height:19px}
+.skp-t{min-width:0}.skp-t b{font-size:14px;display:block}.skp-t span{font-size:12px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.skp-m{font-size:11px;color:var(--muted);text-align:right;white-space:nowrap}
+.skp-i.on .skp-m::after{content:'已選';color:var(--accent);font-weight:700}
+.skp-e{padding:26px 10px;text-align:center;color:var(--muted);font-size:13px}
+.skp-f{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.linkbtn{border:0;background:transparent;color:var(--accent);cursor:pointer;font:inherit;padding:0}
+#skillBtn.on{color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}#skillBtn.on::after,#skillBtn.on::before{display:none}
+@media (max-width:640px){.skpick{left:8px;right:8px;bottom:76px}.skp-f span{display:none}}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px 4px 8px;border:1px solid var(--line);border-radius:999px;background:var(--panel)}
 .chip img{width:22px;height:22px;object-fit:cover;border-radius:4px}.chip button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 2px}
 #attachBtn{flex:none}
@@ -515,7 +540,12 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   <div id="chat"><div class="empty"><div class="hero"><canvas data-ht="hero"></canvas></div><h2>今天要我做什麼？</h2><div>我可以操作瀏覽器、滑鼠鍵盤、終端機與檔案，並記住你的偏好與做事方法。</div></div></div>
   <div id="runbar" role="status" aria-live="polite"><div class="spin"></div><div class="rb-txt" id="rbText"></div><span class="rb-time" id="rbTime"></span><button class="btn icon sm tip-up tip-left" data-icon="stop" aria-label="停止任務" id="rbStop" type="button"></button></div>
   <div id="attachRow"></div>
-  <form id="form"><button class="btn icon lg tip-up" data-icon="clip" aria-label="附加檔案（可拖曳或貼上）" type="button" id="attachBtn"></button><input type="file" id="fileInput" multiple hidden>
+  <div id="skillRow" aria-live="polite"></div>
+  <div id="skillPick" class="skpick" role="dialog" aria-label="選擇技能" hidden>
+    <div class="skp-h"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="skillQ" placeholder="搜尋技能，例如：影片、研究、資料庫" autocomplete="off" aria-controls="skillList"><kbd>Esc</kbd></div>
+    <div class="skp-l" id="skillList" role="listbox"></div>
+    <div class="skp-f"><span>↑↓ 選擇　Enter 使用　也可以在輸入框打 <b>/</b></span><button type="button" class="linkbtn" id="skillManage">管理技能</button></div></div>
+  <form id="form"><button class="btn icon lg tip-up" data-icon="clip" aria-label="附加檔案（可拖曳或貼上）" type="button" id="attachBtn"></button><input type="file" id="fileInput" multiple hidden><button class="btn icon lg tip-up" data-icon="puzzle" aria-label="使用技能（或輸入 /）" aria-haspopup="dialog" aria-expanded="false" type="button" id="skillBtn"></button>
     <textarea id="input" placeholder="描述任務，例如：幫我查明天台北的天氣並存成 weather.md（可拖曳或貼上圖片、檔案）" rows="1"></textarea><button class="btn icon lg tip-up tip-left" data-icon="stop" aria-label="停止目前任務並改做這個" id="interruptBtn" type="button" hidden></button><button class="btn icon lg primary tip-up tip-left" data-icon="send" aria-label="送出（Enter）" id="sendBtn"></button></form>
 </main>
 <div id="sideScrim" hidden></div>
@@ -811,6 +841,10 @@ const ICONS = {
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/>',
   brain: '<path d="M9.5 3A3 3 0 0 0 7 6.2 3 3 0 0 0 4.5 10a3 3 0 0 0 .8 4.6A3.2 3.2 0 0 0 9 19.8a2.5 2.5 0 0 0 3-.8V4.6A2.5 2.5 0 0 0 9.5 3z"/><path d="M14.5 3A3 3 0 0 1 17 6.2a3 3 0 0 1 2.5 3.8 3 3 0 0 1-.8 4.6 3.2 3.2 0 0 1-3.7 5.2 2.5 2.5 0 0 1-3-.8"/><path d="M7 6.2c.6.9 1.6 1.4 2.6 1.4M17 6.2c-.6.9-1.6 1.4-2.6 1.4M5.3 14.6c.9-.6 2-.7 3-.3M18.7 14.6c-.9-.6-2-.7-3-.3"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  code: '<path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>',
+  cube: '<path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m3 7 9 5 9-5M12 12v10"/>',
+  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
   puzzle: '<path d="M4 8h4.5V7a2.25 2.25 0 1 1 4.5 0v1h4v4.5h1a2.25 2.25 0 1 1 0 4.5h-1V21H4z"/>',
   database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
   table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/>',
@@ -1094,6 +1128,8 @@ function clearEmpty(){const e = $('#chat .empty'); if (e) e.remove();}
 function add(html, cls){clearEmpty(); const d = document.createElement('div'); d.className = cls; d.innerHTML = html; $('#chat').appendChild(d); if (d.querySelector('.md')) enhance(d); $('#chat').scrollTop = 1e9; return d;}
 const CLIENT_REF = Math.random().toString(36).slice(2);
 const INPUT_PH = document.querySelector('#input').placeholder;
+let SKILLS = null, SKSEL = [], SKIDX = 0, SKVIEW = [], SKSLASH = false;   // skill picker state
+const skPlaceholder = () => SKSEL.length ? `要用 ${SKSEL.join('、')} 做什麼？描述任務或貼上連結、檔案（也可以直接送出）` : INPUT_PH;
 let RUNNING = {};   // session_id -> {started, step, activity, tool}
 function setBusy(){ busy = !!RUNNING[sessionId]; $('#stopBtn').hidden = true; renderRun(); }
 const TOOL_LABEL = {shell: '終端機', browser: '瀏覽器', web_fetch: '讀取網頁', web_search: '網頁搜尋', read_file: '讀檔', write_file: '寫檔',
@@ -1105,7 +1141,7 @@ function renderRun(){
   sendState('idle');
   $('#sendBtn').setAttribute('aria-label', r ? '補充指示（Enter，不中斷任務）' : '送出（Enter）');
   $('#interruptBtn').hidden = !r;
-  $('#input').placeholder = r ? '任務執行中：輸入補充或修改需求，Enter 送出會在下一步納入；按 ■ 則停止並改做' : INPUT_PH;
+  $('#input').placeholder = r ? '任務執行中：輸入補充或修改需求，Enter 送出會在下一步納入；按 ■ 則停止並改做' : skPlaceholder();
   if (!r) { bar.classList.remove('on', 'wait'); return; }
   bar.classList.add('on'); bar.classList.toggle('wait', r.activity === '等待你核准');
   const what = r.tool ? `${r.activity}：${TOOL_LABEL[r.tool] || r.tool}` : r.activity;
@@ -1313,16 +1349,114 @@ async function submitText(mode){
 $('#interruptBtn').onclick = () => { if (RUNNING[sessionId]) submitText('interrupt'); };
 $('#form').onsubmit = async e => {
   e.preventDefault(); if (RUNNING[sessionId]) return submitText('steer');
-  let text = $('#input').value.trim(); if (!text && !PENDING.length) return;
+  let text = $('#input').value.trim(); if (!text && !PENDING.length && !SKSEL.length) return;
   if (NEEDS_SETUP) { openSettings(true); return; }
   if (await interceptDsn(text)) return;
-  try { text = (text || '請查看附件') + await uploadPending(); }
+  try { text = (text || (PENDING.length ? '請查看附件' : '')) + await uploadPending(); }
   catch (err) { add('ⓘ ' + esc(err.message), 'note'); sendState('idle'); return; }
-  procClose(); add(md(text), 'msg user'); $('#input').value = '';
-  if (!sessionId) $('#title').textContent = text.slice(0, 60);
+  // chosen skills travel as /name prefixes, which the agent loads before it starts
+  if (SKSEL.length) { skRemember(SKSEL); text = SKSEL.map(n => '/' + n).join(' ') + (text ? ' ' + text : ''); skClear(); }
+  procClose(); add(userHtml(text), 'msg user'); $('#input').value = '';
+  if (!sessionId) $('#title').textContent = (text.replace(/^(\/[\w.-]+\s*)+/, '').trim() || text).slice(0, 60);
   ws.send(JSON.stringify({type:'message', session_id: sessionId, text, client_ref: CLIENT_REF}));
 };
-$('#input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#form').requestSubmit(); } });
+$('#input').addEventListener('keydown', e => {
+  if (skKey(e)) return;
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#form').requestSubmit(); } });
+// ---------------- skill picker: find a skill by what it does, pick it, then describe the task ----------------
+const SK_ICON = [[/video|film|youtube|vlog/i, 'film'], [/research|web-|search/i, 'search'], [/database|sql|db-/i, 'database'], [/browser|form/i, 'globe'],
+  [/desktop|mouse|keyboard/i, 'monitor'], [/memory/i, 'brain'], [/code|repo/i, 'code'], [/anatomy|3d|figure|diagram/i, 'cube'], [/chart|data/i, 'chart']];
+const skIcon = sk => (SK_ICON.find(([re]) => re.test(sk.name + ' ' + (sk.tags || []).join(' '))) || [0, 'puzzle'])[1];
+// descriptions are English with the Chinese ways people ask for it in brackets at the end: show those first
+const skBlurb = d => { const t = String(d || '').replace(/\s+/g, ' ').trim();
+  const zh = [...t.matchAll(/[（(]([^()（）]*[\u3400-\u9fff][^()（）]*)[)）]/g)].pop();
+  const m = t.replace(zh ? zh[0] : '', '').match(/^(.{20,200}?[.。])(\s|$)/), en = m ? m[1] : t.slice(0, 160);
+  return zh ? `${zh[1].replace(/,\s*/g, '、')} — ${en}` : en; };
+const skRecent = () => { try { return JSON.parse(localStorage.getItem('sb.skills.recent') || '[]'); } catch { return []; } };
+function skRemember(names){ try { localStorage.setItem('sb.skills.recent', JSON.stringify([...new Set([...names, ...skRecent()])].slice(0, 6))); } catch {} }
+async function skLoad(){
+  try { const r = await api('/api/skills');
+    SKILLS = (r.skills || []).filter(x => x.effective && !x.disabled && x.policy?.visible !== false); } catch { SKILLS = SKILLS || []; }
+  return SKILLS;
+}
+function skMatch(sk, q){
+  if (!q) return 1;
+  const hay = [sk.name, (sk.tags || []).join(' '), sk.description || ''].join(' ').toLowerCase();
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.every(w => hay.includes(w))) return 0;
+  return sk.name.toLowerCase().startsWith(words[0]) ? 3 : sk.name.toLowerCase().includes(words[0]) ? 2 : 1;
+}
+function skRender(){
+  const q = SKSLASH ? ($('#input').value.match(/^\/(\S*)/) || [, ''])[1] : $('#skillQ').value.trim();
+  const list = SKILLS || [], recent = skRecent();
+  const ranked = list.map(sk => ({sk, m: skMatch(sk, q)})).filter(x => x.m)
+    .sort((a, b) => b.m - a.m || (recent.indexOf(a.sk.name) + 1 || 99) - (recent.indexOf(b.sk.name) + 1 || 99) || (b.sk.stats?.uses || 0) - (a.sk.stats?.uses || 0) || a.sk.name.localeCompare(b.sk.name));
+  SKVIEW = ranked.map(x => x.sk); SKIDX = Math.min(SKIDX, Math.max(0, SKVIEW.length - 1));
+  const recentN = q ? 0 : SKVIEW.filter(sk => recent.includes(sk.name)).length;
+  const row = (sk, i) => `<div class="skp-i${SKSEL.includes(sk.name) ? ' on' : ''}" role="option" id="skopt${i}" data-i="${i}" aria-selected="${i === SKIDX}">
+      <span class="skp-ic">${ic(skIcon(sk))}</span><span class="skp-t"><b>${esc(sk.name)}</b><span>${esc(skBlurb(sk.description))}</span></span>
+      <span class="skp-m">${SKSEL.includes(sk.name) ? '' : sk.trust_label && sk.trust !== 'builtin' ? esc(sk.trust_label) : sk.stats?.uses ? `用過 ${sk.stats.uses} 次` : ''}</span></div>`;
+  $('#skillList').innerHTML = !SKILLS ? '<div class="skp-e"><span class="spin"></span></div>'
+    : !SKVIEW.length ? `<div class="skp-e">找不到符合「${esc(q)}」的技能。<br>可以直接描述任務，SinoBee 會自己挑合適的技能。</div>`
+    : (recentN ? '<div class="skp-g">最近使用</div>' : '') + SKVIEW.map((sk, i) => (recentN && i === recentN ? '<div class="skp-g">所有技能</div>' : '') + row(sk, i)).join('');
+  $('#skillList').querySelectorAll('.skp-i').forEach(el => { el.onmousedown = e => e.preventDefault(); el.onclick = () => skPick(SKVIEW[+el.dataset.i]);
+    el.onmousemove = () => { if (SKIDX !== +el.dataset.i) { SKIDX = +el.dataset.i; skHighlight(); } }; });
+  skHighlight(false);
+}
+function skHighlight(scroll = true){
+  $('#skillList').querySelectorAll('.skp-i').forEach(el => el.setAttribute('aria-selected', +el.dataset.i === SKIDX));
+  const cur = $('#skopt' + SKIDX); (SKSLASH ? $('#input') : $('#skillQ')).setAttribute('aria-activedescendant', cur ? cur.id : '');
+  if (scroll && cur) cur.scrollIntoView({block: 'nearest'});
+}
+async function skOpen(slash = false){
+  SKSLASH = slash; SKIDX = 0; $('#skillPick').hidden = false; $('#skillBtn').setAttribute('aria-expanded', 'true'); $('#skillBtn').classList.add('on');
+  $('#skillQ').closest('.skp-h').hidden = slash;
+  if (!slash) { $('#skillQ').value = ''; $('#skillQ').focus(); }
+  skRender(); await skLoad(); skRender();
+}
+function skClose(){ $('#skillPick').hidden = true; SKSLASH = false; $('#skillBtn').setAttribute('aria-expanded', 'false'); $('#skillBtn').classList.remove('on'); }
+function skPick(sk){
+  if (!sk) return;
+  if (SKSLASH) $('#input').value = $('#input').value.replace(/^\/\S*\s?/, '');
+  if (SKSEL.includes(sk.name)) SKSEL = SKSEL.filter(n => n !== sk.name);
+  else if (SKSEL.length < 5) SKSEL.push(sk.name);
+  skClose(); skChips(); $('#input').focus();
+}
+function skChips(){
+  const row = $('#skillRow'); row.classList.toggle('on', SKSEL.length > 0);
+  row.innerHTML = SKSEL.map(n => { const sk = (SKILLS || []).find(x => x.name === n) || {name: n};
+    return `<span class="skchip" title="${esc(skBlurb(sk.description))}">${ic(skIcon(sk))}${esc(n)}<button type="button" data-n="${esc(n)}" aria-label="移除技能 ${esc(n)}">${ic('x')}</button></span>`; }).join('');
+  row.querySelectorAll('button').forEach(b => b.onclick = () => { SKSEL = SKSEL.filter(n => n !== b.dataset.n); skChips(); $('#input').focus(); });
+  $('#input').placeholder = skPlaceholder();
+}
+function skClear(){ SKSEL = []; skChips(); }
+/** keys while the picker is open (from the input box or the search box); true when handled */
+function skKey(e){
+  if ($('#skillPick').hidden || e.isComposing) return false;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const n = SKVIEW.length; if (n) { SKIDX = (SKIDX + (e.key === 'ArrowDown' ? 1 : n - 1)) % n; skHighlight(); } return true; }
+  if (e.key === 'Enter' || e.key === 'Tab') { if (!SKVIEW.length) { if (e.key === 'Enter' && SKSLASH) { skClose(); return false; } return false; } e.preventDefault(); skPick(SKVIEW[SKIDX]); return true; }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); skClose(); (SKSLASH ? $('#input') : $('#skillBtn')).focus(); return true; }
+  return false;
+}
+$('#skillBtn').onclick = () => $('#skillPick').hidden ? skOpen(false) : skClose();
+$('#skillQ').addEventListener('input', () => { SKIDX = 0; skRender(); });
+$('#skillQ').addEventListener('keydown', skKey);
+$('#skillManage').onclick = () => { skClose(); document.querySelector('.tabs button[data-tab="skills"]')?.click();
+  if (document.body.classList.contains('narrow') || innerWidth < 900) $('#menuBtn')?.click(); };
+// "/" at the start of the input box opens the picker filtered by what follows
+$('#input').addEventListener('input', () => {
+  const v = $('#input').value, m = v.match(/^\/(\S*)$/);
+  if (m && !/^learn$/i.test(m[1])) { if ($('#skillPick').hidden) skOpen(true); else { SKIDX = 0; skRender(); } }
+  else if (SKSLASH && !$('#skillPick').hidden) skClose();
+});
+document.addEventListener('mousedown', e => { if (!$('#skillPick').hidden && !e.target.closest('#skillPick, #skillBtn')) skClose(); });
+/** a user message: skills it activated (/name …) as chips, then the text */
+function userHtml(text){
+  const names = [];
+  let rest = String(text || '');
+  for (let m; (m = rest.match(/^\/([\w.-]+)(?:\s+|$)/)) && names.length < 5 && !/^learn$/i.test(m[1]);) { names.push(m[1]); rest = rest.slice(m[0].length); }
+  return names.map(n => `<span class="skchip">${ic(skIcon({name: n}))}${esc(n)}</span>`).join('') + (rest ? md(rest) : '');
+}
 $('#newBtn').onclick = () => { PROC = null; sessionId = null; setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
 $('#stopBtn').onclick = () => ws.send(JSON.stringify({type:'cancel', session_id: sessionId}));
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
@@ -1338,7 +1472,11 @@ async function openSession(s){
     const text = typeof m.content === 'string' ? m.content : (m.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n');
     if (m.role === 'user') procClose();
     if (m.role === 'user' && text.startsWith('[使用者在執行中補充指示]')) add(`<span class="steer-tag">執行中補充</span>` + md(text.replace('[使用者在執行中補充指示] ', '').split('\n（請把這個補充')[0]), 'msg user steer');
-    else if (m.role === 'user') add(md((text.startsWith('<skill_content') ? text.split('\n').pop() : text).replace(/\n?\[image omitted\]/g, '')), 'msg user');
+    else if (m.role === 'user') {
+      const act = text.match(/\[User explicitly activated: ([^\]]+)\]\n?([\s\S]*)$/);
+      const shown = act ? act[1].split(/,\s*/).map(n => '/' + n).join(' ') + ' ' + (/^Use the .* skill\(s\)\.$/.test(act[2].trim()) ? '' : act[2]) : text.startsWith('<skill_content') ? text.split('\n').pop() : text;
+      add(userHtml(shown.replace(/\n?\[image omitted\]/g, '')), 'msg user');
+    }
     else if (m.role === 'assistant') {
       const fail = text.match(/^\[上一次嘗試失敗：(.*)\]$/);
       if (fail) add(`<b>✕ 這一輪未完成：${esc(fail[1])}</b>`, 'result error');

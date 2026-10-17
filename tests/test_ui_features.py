@@ -208,3 +208,14 @@ def test_pages_printed_by_a_build_script_become_viewable_artifacts(config):
     (fig / "rig.html").write_text("<p>rig</p>")
     found = artifacts.collect(config, "shell", {"command": "node figures/rig/build.mjs --light"}, "wrote rig.html 120 KB", set())
     assert [f["path"] for f in found] == ["figures/rig/rig.html"] and found[0]["kind"] == "doc"
+
+
+def test_skill_picker_in_the_composer_and_titles_without_slash_prefixes():
+    """The composer's skill button (and / in the input) picks skills; the message goes out as /name prefixes."""
+    from pathlib import Path
+    from sinobee.agent.loop import _title
+    page = (Path(__file__).parents[1] / "sinobee/server/static/index.html").read_text(encoding="utf-8")
+    assert 'id="skillBtn"' in page and 'id="skillPick"' in page and "SKSEL.map(n => '/' + n)" in page
+    assert _title("/youtube-analysis /anatomy https://youtu.be/x 幫我分析") == "https://youtu.be/x 幫我分析"
+    assert _title("/youtube-analysis") == "使用技能：youtube-analysis"
+    assert _title("/learn https://a") == "/learn https://a"

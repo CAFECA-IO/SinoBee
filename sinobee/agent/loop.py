@@ -213,6 +213,11 @@ def _title(text: str) -> str:
     t = _re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"[\1]", text)
     t = _re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", t)
     t = " ".join(t.split())
+    # "/youtube-analysis <link> 幫我分析": the request is the title, the skills picked for it are not
+    skills = _re.match(r"^((?:/[\w.-]+\s*)+)", t)
+    if skills and not t.lower().startswith("/learn"):
+        rest = t[skills.end():].strip()
+        t = rest or "使用技能：" + "、".join(x.lstrip("/") for x in skills.group(1).split())
     return t[:80] or "(附件)"
 
 
