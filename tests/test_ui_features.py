@@ -34,6 +34,36 @@ def test_files_api_and_upload(home, provider):
     assert c.get("/api/files", params={"path": up[1]["path"]}).status_code == 200
     assert c.get("/vendor/marked.min.js").status_code == 200 and c.get("/vendor/mermaid.min.js").status_code == 200
     assert c.get("/vendor/..%2Fapp.py").status_code == 404
+    assert c.get("/vendor/katex.min.js").status_code == 200 and c.get("/vendor/katex.min.css").status_code == 200
+    font = c.get("/vendor/fonts/KaTeX_Main-Regular.woff2")
+    assert font.status_code == 200 and font.headers["content-type"] == "font/woff2"
+    assert c.get("/vendor/fonts/..%2Fkatex.min.js").status_code == 404
+    assert c.get("/vendor/fonts/..%2F..%2Findex.html").status_code == 404
+
+
+def test_mermaid_labels_the_lexer_rejects_are_quoted_on_retry():
+    """quadrantChart axes with （）/ and CJK, and flowchart nodes with parentheses, render after the automatic fix."""
+    import shutil, subprocess
+    from pathlib import Path
+
+    import pytest
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    page = (Path(__file__).parents[1] / "sinobee/server/static/index.html").read_text(encoding="utf-8")
+    js = page[page.index("const MMD_SHAPES"):page.index("let MERMAID")]
+    src = ("quadrantChart\n  title 引擎配置 (示意)\n  x-axis 低封裝緊湊度 (長度大) --> 高 (易橫置/小機艙)\n  quadrant-1 緊湊且平順\n"
+           '  直列六缸 (B58): [0.15, 0.95]\n  "V6 120°": [0.7, 0.8]\n')
+    out = subprocess.run([node, "-e", js + "process.stdout.write(mmdFix(require('fs').readFileSync(0, 'utf8')))"],
+                         input=src, capture_output=True, text=True, check=True).stdout
+    assert 'x-axis "低封裝緊湊度 (長度大)" --> "高 (易橫置/小機艙)"' in out
+    assert 'quadrant-1 "緊湊且平順"' in out and '"直列六缸 (B58)": [0.15, 0.95]' in out and '"V6 120°": [0.7, 0.8]' in out
+    assert "title 引擎配置 (示意)" in out   # titles take the rest of the line as is
+    flow = "flowchart LR\n  A[引擎 (V6)] --> B(夾角 (低重心))\n  B -->|好處 (平衡)| C{選 V6/V8?}\n  C --> D[\"ok (x)\"]"
+    out = subprocess.run([node, "-e", js + "process.stdout.write(mmdFix(require('fs').readFileSync(0, 'utf8')))"],
+                         input=flow, capture_output=True, text=True, check=True).stdout
+    assert out.splitlines()[1:] == ['  A["引擎 (V6)"] --> B("夾角 (低重心)")', '  B -->|"好處 (平衡)"| C{"選 V6/V8?"}', '  C --> D["ok (x)"]']
+    assert "katex.min.js" in page and "mathInline" in page
 
 
 def test_view_links_run_skill_pages_sandboxed_and_scoped(home, provider):

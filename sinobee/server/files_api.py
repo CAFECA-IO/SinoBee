@@ -93,6 +93,14 @@ def register(app: FastAPI, rt_getter) -> None:
             raise HTTPException(404)
         return FileResponse(f, headers={"Cache-Control": "public, max-age=604800"})
 
+    @app.get("/vendor/fonts/{name}")
+    async def vendor_font(name: str):   # KaTeX math fonts, referenced as fonts/... by katex.min.css
+        fonts = (STATIC / "vendor" / "fonts").resolve()
+        f = (fonts / name).resolve()
+        if f.parent != fonts or f.suffix != ".woff2" or not f.is_file():
+            raise HTTPException(404)
+        return FileResponse(f, media_type="font/woff2", headers={"Cache-Control": "public, max-age=604800"})
+
     icons = (STATIC / "icons").resolve()
     icon_types = {".svg": "image/svg+xml", ".ico": "image/x-icon", ".png": "image/png",
                   ".webmanifest": "application/manifest+json"}

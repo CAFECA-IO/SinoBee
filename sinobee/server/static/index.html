@@ -8,6 +8,7 @@
 <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/icons/manifest.webmanifest">
+<link rel="stylesheet" href="/vendor/katex.min.css">
 <meta name="theme-color" content="#060d1b">
 <script>try{document.documentElement.dataset.theme=localStorage.getItem('sb-theme')||'dark'}catch(e){document.documentElement.dataset.theme='dark'}</script>
 <style>
@@ -106,7 +107,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-l
 .codebox{position:relative;margin:0 0 .8em}.codebox pre{margin:0}
 .codebox .copy{position:absolute;top:6px;right:6px;width:28px;height:26px;display:grid;place-items:center;padding:0;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer;opacity:.8}
 .mmd{margin:0 0 .8em;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow-x:auto;text-align:center}
-.mmd svg{max-width:100%;height:auto}.mmd .mmd-err{color:var(--err);font-size:12px;text-align:left}
+.mmd svg{max-width:100%;height:auto}.md .math-d{overflow-x:auto;overflow-y:hidden;margin:.5em 0;padding:2px 0}.md .katex{font-size:1.08em}.md .math-src{white-space:pre-wrap}.mmd .mmd-err{color:var(--err);font-size:12px;text-align:left}
 #attachRow{display:none;flex-wrap:wrap;gap:6px;margin:0 max(16px,calc((100% - 820px)/2));padding:8px 0 0}
 #attachRow.on{display:flex}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px 4px 8px;border:1px solid var(--line);border-radius:999px;background:var(--panel)}
@@ -724,6 +725,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 </div></div>
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
+<script src="/vendor/katex.min.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 // access token (needed when SinoBee is opened from another device): taken from ?token=, remembered on this browser,
@@ -972,13 +974,62 @@ const mdRenderer = {
   },
   html({text}) { return esc(text); },   // raw HTML from the model is shown as text, never executed
 };
-if (window.marked) marked.use({gfm: true, breaks: true, renderer: mdRenderer});
+// Math: $…$, \(…\) inline; $$…$$, \[…\] display. Rendered by KaTeX after sanitising (its output needs inline
+// styles, which DOMPurify strips), via numbered placeholders. "$5 and $10" stays text: no space inside the
+// delimiters and no digit right after the closing $.
+let MATH = [];
+function mathPh(tex, display){
+  let out;
+  try { out = window.katex ? katex.renderToString(tex, {displayMode: display, throwOnError: false, output: 'htmlAndMathml', trust: false, strict: 'ignore'}) : null; } catch { out = null; }
+  if (!out) out = `<code class="math-src">${esc(display ? `$$${tex}$$` : `$${tex}$`)}</code>`;
+  if (display) out = `<div class="math-d">${out}</div>`;
+  MATH.push(out);
+  return `<span class="mathph" data-k="${MATH.length - 1}"></span>`;
+}
+const mathExt = {extensions: [
+  {name: 'mathBlock', level: 'block', start: s => s.match(/^ {0,3}(\$\$|\\\[)/m)?.index,
+   tokenizer(src){ const m = /^ {0,3}(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\])[ \t]*(?:\n+|$)/.exec(src);
+     if (m) return {type: 'mathBlock', raw: m[0], text: (m[1] ?? m[2]).trim()}; },
+   renderer: t => mathPh(t.text, true)},
+  {name: 'mathInline', level: 'inline', start: s => { const re = /\$|\\\(/g; let m;   // NT$500, US$5: a $ glued to a word is text
+     while ((m = re.exec(s))) if (m[0] !== '$' || !m.index || !/[A-Za-z0-9$]/.test(s[m.index - 1])) return m.index; },
+   tokenizer(src){
+     let m = /^\$\$(?!\s)([^$]+?)\$\$/.exec(src); if (m) return {type: 'mathInline', raw: m[0], text: m[1], display: true};
+     m = /^\$(?![\s$])((?:\\.|[^\\$\n`])+?)(?<!\s)\$(?!\d)/.exec(src); if (m) return {type: 'mathInline', raw: m[0], text: m[1]};
+     m = /^\\\(([\s\S]+?)\\\)/.exec(src); if (m) return {type: 'mathInline', raw: m[0], text: m[1]}; },
+   renderer: t => mathPh(t.text, !!t.display)}]};
+if (window.marked) marked.use({gfm: true, breaks: true, renderer: mdRenderer}, mathExt);
 if (window.DOMPurify) DOMPurify.addHook('afterSanitizeAttributes', n => { if (n.tagName === 'A' && n.getAttribute('target') === '_blank') n.setAttribute('rel', 'noopener noreferrer'); });
 function md(s){
   if (!window.marked || !window.DOMPurify) return esc(s).replace(/\n/g, '<br>');
+  MATH = [];
   const html = marked.parse(String(s ?? ''));
+  const math = MATH; MATH = [];
   return '<div class="md">' + DOMPurify.sanitize(html, {ADD_TAGS: ['video', 'audio', 'source'], ADD_ATTR: ['controls', 'preload', 'target', 'download', 'loading'],
-    FORBID_TAGS: ['style', 'iframe', 'form', 'input', 'object', 'embed'], FORBID_ATTR: ['style']}) + '</div>';
+    FORBID_TAGS: ['style', 'iframe', 'form', 'input', 'object', 'embed'], FORBID_ATTR: ['style']})
+    .replace(/<span class="mathph" data-k="(\d+)"><\/span>/g, (_, i) => math[+i] ?? '') + '</div>';
+}
+// Models often write mermaid labels with parentheses, slashes or CJK text unquoted, which the mermaid lexers reject
+// (quadrantChart axes and quadrants, flowchart node text). When a chart fails, quote those labels and retry once.
+const MMD_SHAPES = [['\\[\\[', '\\]\\]'], ['\\(\\(', '\\)\\)'], ['\\(\\[', '\\]\\)'], ['\\[\\(', '\\)\\]'], ['\\{\\{', '\\}\\}'], ['\\[', '\\]'], ['\\(', '\\)'], ['\\{', '\\}']];
+function mmdFix(src){
+  const q = t => { t = t.trim(); return /^".*"$/.test(t) ? t : '"' + t.replace(/"/g, "'") + '"'; };
+  const lines = src.replace(/\r/g, '').split('\n'), kind = (lines.find(l => l.trim() && !l.trim().startsWith('%%')) || '').trim().split(/\s/)[0];
+  return lines.map(l => {
+    let m;
+    if (kind === 'quadrantChart') {
+      if ((m = /^(\s*)(x-axis|y-axis)\s+(.+)$/.exec(l))) return m[1] + m[2] + ' ' + m[3].split('-->').map(q).join(' --> ');
+      if ((m = /^(\s*)(quadrant-[1-4])\s+(.+)$/.exec(l))) return m[1] + m[2] + ' ' + q(m[3]);
+      if ((m = /^(\s*)([^"\s][^:]*?)\s*:\s*(\[[^\]]*\].*)$/.exec(l))) return m[1] + q(m[2]) + ': ' + m[3];
+      return l;
+    }
+    if (/^(flowchart|graph)$/.test(kind)) {
+      for (const [o, c] of MMD_SHAPES) l = l.replace(new RegExp(`(^|[\\s;&>|])([\\w\\u00c0-\\uffff][\\w\\u00c0-\\uffff-]*)${o}([^"\\n]*?)${c}(?=\\s*(?:$|;|&|-->|---|-\\.|==|~~~|--|:::))`, 'g'),
+        (all, pre, id, t) => /^\s*$/.test(t) ? all : pre + id + o.replace(/\\/g, '') + q(t) + c.replace(/\\/g, ''));
+      l = l.replace(/\|([^|"\n]+)\|/g, (all, t) => '|' + q(t) + '|');
+    }
+    return l;
+  }).join('\n');
 }
 let MERMAID = null, MMD_N = 0;
 function loadMermaid(){
@@ -999,9 +1050,13 @@ async function enhance(el){
   const boxes = el.querySelectorAll('.mmd[data-src]');
   if (!boxes.length) return;
   try { const mm = await loadMermaid();
+    const draw = async code => { const id = 'mmd' + (++MMD_N);
+      try { return (await mm.render(id, code)).svg; } finally { document.getElementById('d' + id)?.remove(); } };
     for (const box of boxes) { let src = box.dataset.src; try { src = decodeURIComponent(src); } catch {} box.removeAttribute('data-src');
-      try { const {svg} = await mm.render('mmd' + (++MMD_N), src); box.innerHTML = svg; }
-      catch (e) { box.innerHTML = `<pre>${esc(src)}</pre><div class="mmd-err">Mermaid 圖表語法錯誤：${esc(e.message || e)}</div>`; document.getElementById('dmmd' + MMD_N)?.remove(); } }
+      try { box.innerHTML = await draw(src); continue; } catch (e) {
+        const fixed = mmdFix(src);
+        try { if (fixed === src) throw e; box.innerHTML = await draw(fixed); }
+        catch { box.innerHTML = `<pre>${esc(src)}</pre><div class="mmd-err">Mermaid 圖表語法錯誤：${esc(e.message || e)}</div>`; } } }
   } catch { boxes.forEach(b => b.insertAdjacentHTML('beforeend', '<div class="mmd-err">無法載入 Mermaid</div>')); }
 }
 function fmtSize(n){ return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? Math.round(n / 1024) + ' KB' : n + ' B'; }
