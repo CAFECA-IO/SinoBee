@@ -225,7 +225,7 @@ class Agent:
     def __init__(self, runtime: Runtime, session_id: str | None = None, *, platform: str = "cli",
                  emit: EmitFn | None = None, approve: ApproveFn | None = None, tool_filter=None,
                  system_extra: str = "", max_iterations: int | None = None, board_scope: str | None = None,
-                 title: str | None = None, learn: bool = True, depth: int = 0):
+                 title: str | None = None, learn: bool = True, depth: int = 0, ask=None):
         """tool_filter(tool) -> bool narrows the tools (sub-agents / workflow roles); board_scope is the shared
         blackboard this agent reads and writes (default: its own session); depth > 0 marks a sub-agent."""
         self.rt = runtime
@@ -246,7 +246,7 @@ class Agent:
         self.tools = tools
         self.tool_names = {t.name for t in self.tools}
         self.ctx = ToolContext(config=self.config, session_id=self.session_id, memory=runtime.memory,
-                               skills=runtime.skills, emit=self._emit, approve=approve)
+                               skills=runtime.skills, emit=self._emit, approve=approve, ask=ask)
         self.ctx.state["runtime"] = runtime
         self.ctx.state["board_scope"] = board_scope or f"session:{self.session_id}"
         self.ctx.state["depth"] = depth

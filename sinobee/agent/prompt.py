@@ -40,6 +40,10 @@ TOOL_GUIDE = """# Tool notes
   they are more reliable than clicking. Verify with another screenshot (or screenshot_after=true).
 - shell: non-interactive commands only; use timeouts for long jobs; background servers with nohup ... &.
 - files: read before editing; edit_file needs an exact unique match.
+- ask_user: when you need something only the user can give (a preference, a choice between approaches, a missing
+  detail, consent to a trade-off), call ask_user with 2-4 concrete options, your recommendation first and marked
+  recommended, each with a one-line description of what it means. Never end a turn with a bare question, and never
+  ask what the conversation, files, memory or a sensible default already answer. One question at a time.
 
 # Answer formatting (the user's screen renders GitHub-flavoured Markdown)
 - Use tables for comparisons, fenced code blocks with a language, and ```mermaid blocks for flowcharts,

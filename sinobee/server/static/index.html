@@ -510,6 +510,25 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 #quotaBar[hidden]{display:none}#quotaBar .qb-h{display:flex;align-items:center;gap:6px}#quotaBar .qb-h b{font-size:12px}
 #quotaBar .qb-h .badge{margin-left:auto}#quotaBar .qwarn{color:var(--warn)}#quotaBar .qerr{color:var(--err)}
 .qrel{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--muted);margin-top:6px}.qrel span b{color:var(--ink);font-weight:600}
+.askcard{margin:6px max(16px,calc((100% - 820px)/2)) 10px;border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:14px 16px;box-shadow:0 1px 0 rgba(0,0,0,.02)}
+.askcard.live{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.ask-h{display:flex;align-items:center;gap:8px;font-size:13px}.ask-ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--glow);color:var(--accent-solid)}
+.ask-ic svg.i{width:16px;height:16px}.ask-st{margin-left:auto;font-size:11px;color:var(--muted)}.askcard.live .ask-st{color:var(--accent-solid);font-weight:700}
+.ask-q{font-size:15px;font-weight:600;margin:10px 0 10px;line-height:1.55}
+.ask-o{display:grid;gap:8px}
+.ask-o button{all:unset;box-sizing:border-box;display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.ask-o button:hover:not(:disabled),.ask-o button:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.ask-o button.rec{border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
+.ask-o button.on{border-color:var(--accent-solid);background:var(--glow)}
+.ask-o button:disabled{cursor:default;opacity:.55}.ask-o button.on:disabled{opacity:1}
+.ask-k{width:24px;height:24px;border-radius:7px;border:1px solid var(--line);display:grid;place-items:center;font:600 12px ui-monospace,Menlo,monospace;color:var(--muted);background:var(--panel)}
+.ask-o button[role=checkbox] .ask-k::after{content:''}.ask-o button[role=checkbox].on .ask-k::after{content:'✓';color:var(--on-accent)}
+.ask-o button.on .ask-k{background:var(--accent-solid);border-color:var(--accent-solid);color:var(--on-accent)}
+.ask-t{display:flex;flex-direction:column;gap:2px;min-width:0}.ask-t b{font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}.ask-t>span{font-size:12.5px;color:var(--muted);line-height:1.5}
+.ask-t .tag{font-size:10px;padding:1px 7px;border-radius:999px;background:var(--accent-solid);color:var(--on-accent);font-weight:700}
+.ask-x{display:flex;gap:8px;margin-top:10px}.ask-x .inp{flex:1;min-width:0}
+.ask-a{display:flex;gap:6px;align-items:center;margin-top:10px;font-size:13px;color:var(--muted)}.ask-a svg.i{width:15px;height:15px;color:var(--ok);flex:none}.ask-a b{color:var(--ink)}
+.askcard.sending{opacity:.7;pointer-events:none}
 .choose3{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:8px}
 .choose3 button{all:unset;cursor:pointer;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
 .choose3 button b{color:var(--ink);font-size:14px}.choose3 button:hover,.choose3 button:focus-visible{border-color:var(--accent);outline:none}
@@ -1162,9 +1181,9 @@ function renderRun(){
   sendState('idle');
   $('#sendBtn').setAttribute('aria-label', r ? '補充指示（Enter，不中斷任務）' : '送出（Enter）');
   $('#interruptBtn').hidden = !r;
-  $('#input').placeholder = r ? '任務執行中：輸入補充或修改需求，Enter 送出會在下一步納入；按 ■ 則停止並改做' : skPlaceholder();
+  $('#input').placeholder = r ? (r.activity === '等待你回覆' ? 'SinoBee 在等你回覆上面的問題：點一個選項，或直接在這裡輸入你的想法' : '任務執行中：輸入補充或修改需求，Enter 送出會在下一步納入；按 ■ 則停止並改做') : skPlaceholder();
   if (!r) { bar.classList.remove('on', 'wait'); return; }
-  bar.classList.add('on'); bar.classList.toggle('wait', r.activity === '等待你核准');
+  bar.classList.add('on'); bar.classList.toggle('wait', r.activity === '等待你核准' || r.activity === '等待你回覆');
   const what = r.tool ? `${r.activity}：${TOOL_LABEL[r.tool] || r.tool}` : r.activity;
   $('#rbText').textContent = `執行中 · 第 ${r.step || 1} 步 · ${what}`;
   const sec = Math.max(0, Math.round(Date.now() / 1000 - r.started));
@@ -1233,6 +1252,60 @@ async function sendFeedback(turnId, rating, tags, comment){
   try { await post('/api/feedback', {turn_id: turnId, rating, tags, comment}); add('ⓘ 已記錄回饋，SinoBee 會在背景從中學習。', 'note'); }
   catch {}
 }
+// ---------------- ask_user: SinoBee asks for a decision, with suggested options as buttons ----------------
+function askCard(a, replay){
+  const opts = (a.options || []).filter(o => o && o.label), multi = !!a.multi;
+  const d = document.createElement('div'); d.className = 'askcard' + (replay ? ' old' : ' waiting'); d.dataset.q = a.question || '';
+  d.innerHTML = `<div class="ask-h"><span class="ask-ic">${ic('help')}</span><b>SinoBee 需要你決定</b><span class="ask-st"></span></div>
+    <div class="ask-q">${mathText(a.question || '')}</div>
+    <div class="ask-o" role="${multi ? 'group' : 'radiogroup'}">${opts.map((o, i) => `<button type="button" data-l="${esc(o.label)}" role="${multi ? 'checkbox' : 'radio'}" aria-checked="false"${o.recommended ? ' class="rec"' : ''}>
+      <span class="ask-k">${multi ? '' : i + 1}</span><span class="ask-t"><b>${esc(o.label)}${o.recommended ? '<span class="tag">建議</span>' : ''}</b>${o.description ? `<span>${mathText(o.description)}</span>` : ''}</span></button>`).join('')}</div>
+    ${a.allow_text !== false ? `<div class="ask-x"><input class="inp" placeholder="${multi ? '補充說明（可選）' : '或寫下你自己的想法…'}" aria-label="自己的回答"><button class="btn${multi ? ' primary' : ''}" type="button">${multi ? '確定' : '送出'}</button></div>`
+      : multi ? '<div class="ask-x"><span></span><button class="btn primary" type="button">確定</button></div>' : ''}
+    <div class="ask-a" hidden></div>`;
+  const send = (choices) => {
+    if (!d.dataset.rid || d.classList.contains('done')) return;
+    const text = d.querySelector('.ask-x input')?.value.trim() || '';
+    if (!choices.length && !text) { d.querySelector('.ask-x input')?.focus(); return; }
+    d.classList.add('sending'); ws.send(JSON.stringify({type: 'answer', request_id: d.dataset.rid, choices, text}));
+  };
+  d.querySelectorAll('.ask-o button').forEach(b => b.onclick = () => {
+    if (multi) { const on = b.getAttribute('aria-checked') !== 'true'; b.setAttribute('aria-checked', on); b.classList.toggle('on', on); }
+    else send([b.dataset.l]);
+  });
+  const go = d.querySelector('.ask-x button'), inp = d.querySelector('.ask-x input');
+  if (go) go.onclick = () => send(multi ? [...d.querySelectorAll('.ask-o button.on')].map(b => b.dataset.l) : []);
+  if (inp) inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go.click(); } };
+  d.addEventListener('keydown', e => { if (!multi && /^[1-4]$/.test(e.key) && e.target.tagName !== 'INPUT') d.querySelectorAll('.ask-o button')[+e.key - 1]?.click(); });
+  add('', 'askwrap').replaceWith(d); $('#chat').scrollTop = 1e9;
+  return d;
+}
+/** the live question: attach its request id to the card the tool call drew (or draw one after a reload) */
+function askBind(ev){
+  let d = [...document.querySelectorAll('.askcard.waiting:not([data-rid])')].reverse().find(x => x.dataset.q === ev.question);
+  if (!d) d = askCard(ev, false);
+  d.dataset.rid = ev.request_id; d.classList.add('live');
+  d.querySelector('.ask-st').textContent = '等你回覆';
+  if (document.activeElement === $('#input') || document.activeElement === document.body) d.querySelector('.ask-o button')?.focus({preventScroll: true});
+}
+function askParse(t){
+  if (/did not answer|unattended/i.test(t)) return {timeout: true};
+  const m = t.match(/The user chose: (.*?)(?:\. Their note: ([\s\S]*))?$/s);
+  if (m) return {choices: m[1].split('; '), text: m[2] || ''};
+  const a = t.match(/The user answered: ([\s\S]*)$/);
+  return a ? {choices: [], text: a[1]} : {choices: [], text: ''};
+}
+function askDone(d, ev){
+  if (!d) return;
+  d.classList.remove('waiting', 'live', 'sending'); d.classList.add('done');
+  const picked = ev.choices || [];
+  d.querySelectorAll('.ask-o button').forEach(b => { const on = picked.includes(b.dataset.l); b.classList.toggle('on', on); b.setAttribute('aria-checked', on); b.disabled = true; });
+  d.querySelectorAll('.ask-x').forEach(x => x.remove());
+  d.querySelector('.ask-st').textContent = ev.timeout ? '未回覆' : '已回覆';
+  const a = d.querySelector('.ask-a'); a.hidden = false;
+  a.innerHTML = ev.timeout ? '沒有收到回覆，SinoBee 以建議做法繼續，之後可以再改。'
+    : `${ic('check')}<span>${picked.length ? '你選了 <b>' + picked.map(esc).join('、') + '</b>' : '你的回答'}${ev.text ? (picked.length ? '：' : '：') + esc(ev.text) : ''}</span>`;
+}
 function handle(ev, replay = false){
   if (ev.type === 'local_progress' || ev.type === 'local_changed') { onLocalEvent(ev); return; }
   if (ev.type === 'work') { onWorkEvent(ev); return; }
@@ -1244,7 +1317,8 @@ function handle(ev, replay = false){
     return;
   }
   if (ev.type === 'hello') { setRunning(ev.running);
-    const ap = (ev.approvals || []).find(a => a.session_id === sessionId); if (ap) handle({...ap, type: 'approval_request'}); return; }
+    const ap = (ev.approvals || []).find(a => a.session_id === sessionId); if (ap) handle({...ap, type: 'approval_request'});
+    for (const q of ev.questions || []) if (q.session_id === sessionId) handle({...q, type: 'ask'}); return; }
   if (ev.type === 'run_state') { setRunning(ev.running); return; }
   if (!replay && ev.session_id && RUNNING[ev.session_id]) {
     const r = RUNNING[ev.session_id];
@@ -1252,6 +1326,8 @@ function handle(ev, replay = false){
     if (ev.type === 'tool_call') Object.assign(r, {activity: '執行工具', tool: ev.name});
     if (ev.type === 'tool_result') Object.assign(r, {activity: '思考中', tool: null});
     if (ev.type === 'approval_request') Object.assign(r, {activity: '等待你核准', tool: ev.tool});
+    if (ev.type === 'ask') { Object.assign(r, {activity: '等待你回覆', tool: null}); renderRun(); }
+    if (ev.type === 'ask_resolved') { Object.assign(r, {activity: '思考中', tool: null}); renderRun(); }
   }
   if (ev.type === 'turn_end' && ev.session_id) { delete RUNNING[ev.session_id]; setBusy(); }
   if (ev.session_id && ev.type !== 'session' && ev.session_id !== sessionId) return;
@@ -1267,7 +1343,10 @@ function handle(ev, replay = false){
       if (ev.final === false) { const g = procGroup(); const d = document.createElement('div'); d.className = 'msg assistant interim'; d.innerHTML = md(ev.text);
         g.body.appendChild(d); enhance(d); break; }
       procClose(); add(md(ev.text), 'msg assistant'); break;
+    case 'ask': askBind(ev); break;
+    case 'ask_resolved': askDone(document.querySelector(`.askcard[data-rid="${ev.request_id}"]`), ev); break;
     case 'tool_call': {
+      if (ev.name === 'ask_user') { procClose(); toolEls[ev.id] = askCard(ev.arguments || {}, replay); break; }
       const d = document.createElement('details'); d.className = 'tool pending';
       d.innerHTML = `<summary><span class="st"></span> <b>${esc(ev.name)}</b> ${esc(summarize(ev.name, ev.arguments))}<span class="dur"></span></summary><div class="body">${esc(JSON.stringify(ev.arguments, null, 2))}</div>`;
       const g = procGroup(); g.body.appendChild(d); toolEls[ev.id] = d;
@@ -1275,6 +1354,7 @@ function handle(ev, replay = false){
       $('#chat').scrollTop = 1e9; break; }
     case 'tool_result': {
       const d = toolEls[ev.id]; if (!d) break;
+      if (d.classList.contains('askcard')) { if (!d.classList.contains('done')) askDone(d, askParse(ev.preview || '')); break; }
       d.classList.remove('pending');
       d.querySelector('.st').textContent = ev.error ? '✕' : '✓';
       d.querySelector('.st').style.color = ev.error ? 'var(--err)' : 'var(--ok)';

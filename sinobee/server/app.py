@@ -215,6 +215,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     state.setdefault("clients", set())
     state.setdefault("running", {})      # sid -> {started, step, activity, task}
     state.setdefault("approvals", {})    # rid -> (future, payload)
+    state.setdefault("questions", {})    # rid -> (future, payload): ask_user waiting for the user's choice
 
     def broadcast(kind: str, data: dict) -> None:
         item = {"type": kind, **data}
@@ -233,6 +234,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             run.update(activity="思考中", tool=None)
         elif kind == "approval_request":
             run.update(activity="等待你核准", tool=data.get("tool"))
+        elif kind == "ask":
+            run.update(activity="等待你回覆", tool=None)
 
     def run_snapshot() -> list[dict]:
         return [{"session_id": sid, "started": r["started"], "step": r["step"], "activity": r["activity"],
@@ -266,7 +269,36 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 if sid_ in state["running"]:
                     state["running"][sid_].update(activity="思考中", tool=None)
         agent.ctx.approve = approve
+
+        async def ask(question: str, options: list, multi: bool, allow_text: bool) -> dict | None:
+            rid = secrets.token_hex(4)
+            fut = asyncio.get_running_loop().create_future()
+            payload = {"request_id": rid, "question": question, "options": options, "multi": multi,
+                       "allow_text": allow_text, "session_id": sid_}
+            state["questions"][rid] = (fut, payload)
+            emit("ask", payload)
+            try:
+                return await asyncio.wait_for(fut, timeout=1800)
+            except asyncio.TimeoutError:
+                broadcast("ask_resolved", {"request_id": rid, "session_id": sid_, "timeout": True})
+                return None
+            finally:
+                state["questions"].pop(rid, None)
+                if sid_ in state["running"]:
+                    state["running"][sid_].update(activity="思考中", tool=None)
+        agent.ctx.ask = ask
         return agent
+
+    def answer_question(rid: str | None, choices, text: str) -> bool:
+        entry = state["questions"].get(rid or "")
+        if not entry or entry[0].done():
+            return False
+        labels = {o["label"] for o in entry[1]["options"]}
+        picked = [c for c in (choices or []) if c in labels][: (len(labels) if entry[1]["multi"] else 1)]
+        ans = {"choices": picked, "text": str(text or "").strip()[:2000]}
+        entry[0].set_result(ans)
+        broadcast("ask_resolved", {"request_id": rid, "session_id": entry[1]["session_id"], **ans})
+        return True
 
     async def start_turn(sid_hint: str | None, text: str, client_ref: str | None = None,
                          mode: str = "steer") -> dict:
@@ -283,6 +315,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                         pass
                 agent._inbox.clear()
             else:                              # keep going, but take the new information into account
+                waiting = next((rid for rid, (f, p) in state["questions"].items() if p["session_id"] == sid and not f.done()), None)
+                if waiting and answer_question(waiting, [], text):   # a question is open: what they typed answers it
+                    return {"session_id": sid, "answered": True}
                 agent.steer(text)
                 broadcast("steer", {"session_id": sid, "text": text, "client_ref": client_ref})
                 return {"session_id": sid, "steered": True}
@@ -360,7 +395,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         sender_task = asyncio.create_task(sender())
         # a reloaded page immediately learns what is still running and what is waiting for approval
         outbox.put_nowait({"type": "hello", "running": run_snapshot(),
-                           "approvals": [p for _, p in state["approvals"].values()]})
+                           "approvals": [p for _, p in state["approvals"].values()],
+                           "questions": [p for _, p in state["questions"].values()]})
         try:
             while True:
                 msg = await websocket.receive_json()
@@ -376,6 +412,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                         entry[0].set_result(bool(msg.get("ok")))
                         broadcast("approval_resolved", {"request_id": msg.get("request_id"), "ok": bool(msg.get("ok")),
                                                         "session_id": entry[1]["session_id"]})
+                elif kind == "answer":
+                    answer_question(msg.get("request_id"), msg.get("choices"), msg.get("text") or "")
                 elif kind == "cancel":
                     asyncio.create_task(cancel_turn(msg.get("session_id")))
                 elif kind == "ping":

@@ -75,6 +75,18 @@ async def _cli_approve(name: str, args: dict, reason: str) -> bool:
     return ans.strip().lower() in ("y", "yes")
 
 
+async def _cli_ask(question: str, options: list, multi: bool, allow_text: bool) -> dict | None:
+    print(f"\n{YEL}? {question}{RST}")
+    for i, o in enumerate(options, 1):
+        print(f"  {i}. {o['label']}{'（建議）' if o.get('recommended') else ''}" + (f" — {o['description']}" if o.get("description") else ""))
+    hint = "number" + ("s, comma separated" if multi else "") + (", or type your own answer" if allow_text else "")
+    ans = (await asyncio.to_thread(input, f"Choose ({hint}): ")).strip()
+    nums = [x.strip() for x in ans.replace("，", ",").split(",")]
+    if ans and all(x.isdigit() and 1 <= int(x) <= len(options) for x in nums):
+        return {"choices": [options[int(x) - 1]["label"] for x in nums][: len(options) if multi else 1], "text": ""}
+    return {"choices": [], "text": ans} if ans else None
+
+
 def _runtime(args):
     from .agent import Runtime
     cfg = Config.load(getattr(args, "config", None))
@@ -89,7 +101,7 @@ async def _chat(args) -> None:
     from .agent import Agent
     from .tools import browser
     rt = _runtime(args)
-    agent = Agent(rt, args.session, emit=_print_event, approve=_cli_approve)
+    agent = Agent(rt, args.session, emit=_print_event, approve=_cli_approve, ask=_cli_ask)
     print(f"{BOLD}SinoBee{RST} · {rt.provider.label} · session {agent.session_id} · "
           f"approval={rt.config.get('permissions.approval')}  (/exit, /new, /memory, /skills)")
     try:
@@ -104,7 +116,7 @@ async def _chat(args) -> None:
             if text in ("/exit", "/quit"):
                 break
             if text == "/new":
-                agent = Agent(rt, emit=_print_event, approve=_cli_approve)
+                agent = Agent(rt, emit=_print_event, approve=_cli_approve, ask=_cli_ask)
                 print(f"{DIM}new session {agent.session_id}{RST}")
                 continue
             if text == "/memory":
@@ -132,7 +144,8 @@ async def _run(args) -> None:
     from .tools import browser
     rt = _runtime(args)
     agent = Agent(rt, args.session, emit=_print_event if not args.quiet else None,
-                  approve=_cli_approve if sys.stdin.isatty() else None)
+                  approve=_cli_approve if sys.stdin.isatty() else None,
+                  ask=_cli_ask if sys.stdin.isatty() else None)
     out = await agent.run(" ".join(args.task))
     print(out)
     await rt.drain(120)

@@ -41,6 +41,8 @@ class ToolContext:
     emit: Callable[[str, dict], Any] | None = None
     state: dict = field(default_factory=dict)    # per-session scratch for tools (browser handle, etc.)
     approve: Callable[[str, dict, str], Awaitable[bool]] | None = None
+    # ask(question, options, multi, allow_text) -> {"choices": [...], "text": str} | None; None = nobody to ask
+    ask: Callable[[str, list, bool, bool], Awaitable[dict | None]] | None = None
 
 
 class Registry:
@@ -67,7 +69,7 @@ class Registry:
             enabled |= NEW_IN_V2          # toolsets added later are on for settings saved before they existed
         out = []
         for t in self.tools.values():
-            if t.toolset not in enabled:
+            if t.toolset != "core" and t.toolset not in enabled:     # core tools (ask_user) are always there
                 continue
             if t.check is not None:
                 try:
