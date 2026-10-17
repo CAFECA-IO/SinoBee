@@ -112,7 +112,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-l
 #attachRow.on{display:flex}
 #skillRow{display:none;flex-wrap:wrap;gap:6px;margin:0 max(16px,calc((100% - 820px)/2));padding:8px 0 0}#skillRow.on{display:flex}
 .skchip{display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 9px;border-radius:999px;border:1px solid var(--accent);background:var(--glow);color:var(--ink);font-size:13px;font-weight:600}
-.skchip svg.i{width:15px;height:15px;color:var(--accent)}.skchip button{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:2px;border-radius:50%;display:grid;place-items:center}
+.skchip svg.skl{width:16px;height:16px;flex:none}.skchip button{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:2px;border-radius:50%;display:grid;place-items:center}
 .skchip button:hover{color:var(--ink);background:var(--panel2)}.skchip button svg.i{width:13px;height:13px;color:inherit}
 .msg .skchip{margin:0 6px 6px 0;font-size:12px;padding:3px 9px}
 main{position:relative}
@@ -126,7 +126,8 @@ main{position:relative}
 .skp-g{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--muted);padding:8px 10px 4px}
 .skp-i{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;cursor:pointer}
 .skp-i[aria-selected="true"]{background:var(--panel2);box-shadow:inset 0 0 0 1px var(--accent)}
-.skp-ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--glow);color:var(--accent)}.skp-ic svg.i{width:19px;height:19px}
+.skli svg.skl{width:18px;height:18px;display:inline-block;vertical-align:-4px;margin-right:6px}
+.skp-ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:#dff3ea}.skp-ic svg.skl{width:24px;height:24px}
 .skp-t{min-width:0}.skp-t b{font-size:14px;display:block}.skp-t span{font-size:12px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .skp-m{font-size:11px;color:var(--muted);text-align:right;white-space:nowrap}
 .skp-i.on .skp-m::after{content:'已選';color:var(--accent);font-weight:700}
@@ -522,7 +523,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 <body>
 <aside>
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2fb3a0"/><stop offset="1" stop-color="#7fe8b6"/></linearGradient></defs><ellipse cx="12" cy="14" rx="5" ry="6" fill="url(#bg1)" stroke="none"/><path d="M7.5 12h9M7.5 15.5h9" stroke="var(--bg)"/><path d="M9 8c-3-4-7-2-6 1s5 2 6 1M15 8c3-4 7-2 6 1s-5 2-6 1" stroke="var(--accent)"/></svg><b>SinoBee</b></div>
-  <div class="tabs" role="tablist"><button data-tab="sessions" class="on" role="tab" data-icon="chat" aria-label="對話"></button><button data-tab="memory" role="tab" data-icon="brain" aria-label="記憶"></button><button data-tab="skills" role="tab" data-icon="puzzle" aria-label="技能"></button><button data-tab="data" role="tab" data-icon="database" aria-label="資料庫"></button><button data-tab="work" role="tab" data-icon="clock" aria-label="工作：過去、現在、接下來"></button></div>
+  <div class="tabs" role="tablist"><button data-tab="sessions" class="on" role="tab" data-icon="chat" aria-label="對話"></button><button data-tab="memory" role="tab" data-icon="brain" aria-label="記憶"></button><button data-tab="skills" role="tab" data-icon="skill" aria-label="技能"></button><button data-tab="data" role="tab" data-icon="database" aria-label="資料庫"></button><button data-tab="work" role="tab" data-icon="clock" aria-label="工作：過去、現在、接下來"></button></div>
   <div class="list" id="side"></div>
   <div id="quotaBar" hidden role="button" tabindex="0" aria-label="SinoBee.ai 訂閱額度"></div>
   <div class="status" id="status">連線中…</div>
@@ -545,7 +546,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
     <div class="skp-h"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="skillQ" placeholder="搜尋技能，例如：影片、研究、資料庫" autocomplete="off" aria-controls="skillList"><kbd>Esc</kbd></div>
     <div class="skp-l" id="skillList" role="listbox"></div>
     <div class="skp-f"><span>↑↓ 選擇　Enter 使用　也可以在輸入框打 <b>/</b></span><button type="button" class="linkbtn" id="skillManage">管理技能</button></div></div>
-  <form id="form"><button class="btn icon lg tip-up" data-icon="clip" aria-label="附加檔案（可拖曳或貼上）" type="button" id="attachBtn"></button><input type="file" id="fileInput" multiple hidden><button class="btn icon lg tip-up" data-icon="puzzle" aria-label="使用技能（或輸入 /）" aria-haspopup="dialog" aria-expanded="false" type="button" id="skillBtn"></button>
+  <form id="form"><button class="btn icon lg tip-up" data-icon="clip" aria-label="附加檔案（可拖曳或貼上）" type="button" id="attachBtn"></button><input type="file" id="fileInput" multiple hidden><button class="btn icon lg tip-up" data-icon="skill" aria-label="使用技能（或輸入 /）" aria-haspopup="dialog" aria-expanded="false" type="button" id="skillBtn"></button>
     <textarea id="input" placeholder="描述任務，例如：幫我查明天台北的天氣並存成 weather.md（可拖曳或貼上圖片、檔案）" rows="1"></textarea><button class="btn icon lg tip-up tip-left" data-icon="stop" aria-label="停止目前任務並改做這個" id="interruptBtn" type="button" hidden></button><button class="btn icon lg primary tip-up tip-left" data-icon="send" aria-label="送出（Enter）" id="sendBtn"></button></form>
 </main>
 <div id="sideScrim" hidden></div>
@@ -571,7 +572,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
     <nav class="setnav" id="setNav" aria-label="設定分類">
       <button type="button" data-pane="model" class="on"><span data-icon="sparkles"></span><b>模型</b><small>模型來源、金鑰</small></button>
       <button type="button" data-pane="perm"><span data-icon="shield"></span><b>權限與安全</b><small>核准方式、可用能力</small></button>
-      <button type="button" data-pane="skills"><span data-icon="puzzle"></span><b>技能</b><small>自動學習、專案技能</small></button>
+      <button type="button" data-pane="skills"><span data-icon="skill"></span><b>技能</b><small>自動學習、專案技能</small></button>
       <button type="button" data-pane="usage"><span data-icon="chart"></span><b>用量與預算</b><small>預算上限、幣別、費率</small></button>
       <button type="button" data-pane="account"><span data-icon="user"></span><b>SinoBee.ai 帳號</b><small>登入、保險箱、分享</small></button>
     </nav>
@@ -846,6 +847,7 @@ const ICONS = {
   cube: '<path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m3 7 9 5 9-5M12 12v10"/>',
   film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
   puzzle: '<path d="M4 8h4.5V7a2.25 2.25 0 1 1 4.5 0v1h4v4.5h1a2.25 2.25 0 1 1 0 4.5h-1V21H4z"/>',
+  skill: '<path d="M12 2.5v2M8 4.5h8a3 3 0 0 1 3 3v1.5a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V7.5a3 3 0 0 1 3-3zM9.8 8h.01M14.2 8h.01M3 13.5V21c3-.8 6-.4 9 1 3-1.4 6-1.8 9-1v-7.5M12 15v7"/>',
   database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
   table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
@@ -861,6 +863,13 @@ const ICONS = {
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
 };
 const ic = name => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+// the skill icon of SinoBee.ai (src/components/skill-icon.tsx): a robot head over an open book, in fixed greens
+const SKILL_SVG = '<svg class="skl" viewBox="0 0 24 24" aria-hidden="true"><path d="M1.8 10.4h20.4v10.4h-8.7l-1.5 1-1.5-1H1.8z" fill="#0e7c63"/>'
+  + '<path d="M3.3 9.2c3-.7 5.9-.2 8.7 1.4v9.7c-2.8-1.5-5.7-2-8.7-1.4z" fill="#e3f7ef"/><path d="M20.7 9.2c-3-.7-5.9-.2-8.7 1.4v9.7c2.8-1.5 5.7-2 8.7-1.4z" fill="#d2f0e5"/>'
+  + '<path d="M5 15.4c1.8-.3 3.5 0 5.2.7M5 17.6c1.8-.3 3.5 0 5.2.7M19 15.4c-1.8-.3-3.5 0-5.2.7M19 17.6c-1.8-.3-3.5 0-5.2.7" stroke="#9ad8c3" stroke-width="1" stroke-linecap="round" fill="none"/>'
+  + '<path d="M12 3.6V2" stroke="#16a37f" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="1.6" r="1.2" fill="#16a37f"/>'
+  + '<rect x="5.6" y="3.6" width="12.8" height="9" rx="4.3" fill="#16a37f"/><circle cx="9.4" cy="7.6" r="1.3" fill="#fff"/><circle cx="14.6" cy="7.6" r="1.3" fill="#fff"/>'
+  + '<path d="M9.9 10c1.4.9 2.8.9 4.2 0" stroke="#fff" stroke-width="1.1" stroke-linecap="round" fill="none"/></svg>';
 function paintIcons(root = document){ root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = ic(el.dataset.icon); }); }
 function sendState(st){ const b = $('#sendBtn'); b.disabled = st !== 'idle';
   b.innerHTML = st === 'idle' ? ic('send') : '<div class="spin"></div>';
@@ -1364,9 +1373,6 @@ $('#input').addEventListener('keydown', e => {
   if (skKey(e)) return;
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#form').requestSubmit(); } });
 // ---------------- skill picker: find a skill by what it does, pick it, then describe the task ----------------
-const SK_ICON = [[/video|film|youtube|vlog/i, 'film'], [/research|web-|search/i, 'search'], [/database|sql|db-/i, 'database'], [/browser|form/i, 'globe'],
-  [/desktop|mouse|keyboard/i, 'monitor'], [/memory/i, 'brain'], [/code|repo/i, 'code'], [/anatomy|3d|figure|diagram/i, 'cube'], [/chart|data/i, 'chart']];
-const skIcon = sk => (SK_ICON.find(([re]) => re.test(sk.name + ' ' + (sk.tags || []).join(' '))) || [0, 'puzzle'])[1];
 // descriptions are English with the Chinese ways people ask for it in brackets at the end: show those first
 const skBlurb = d => { const t = String(d || '').replace(/\s+/g, ' ').trim();
   const zh = [...t.matchAll(/[（(]([^()（）]*[\u3400-\u9fff][^()（）]*)[)）]/g)].pop();
@@ -1394,7 +1400,7 @@ function skRender(){
   SKVIEW = ranked.map(x => x.sk); SKIDX = Math.min(SKIDX, Math.max(0, SKVIEW.length - 1));
   const recentN = q ? 0 : SKVIEW.filter(sk => recent.includes(sk.name)).length;
   const row = (sk, i) => `<div class="skp-i${SKSEL.includes(sk.name) ? ' on' : ''}" role="option" id="skopt${i}" data-i="${i}" aria-selected="${i === SKIDX}">
-      <span class="skp-ic">${ic(skIcon(sk))}</span><span class="skp-t"><b>${esc(sk.name)}</b><span>${esc(skBlurb(sk.description))}</span></span>
+      <span class="skp-ic">${SKILL_SVG}</span><span class="skp-t"><b>${esc(sk.name)}</b><span>${esc(skBlurb(sk.description))}</span></span>
       <span class="skp-m">${SKSEL.includes(sk.name) ? '' : sk.trust_label && sk.trust !== 'builtin' ? esc(sk.trust_label) : sk.stats?.uses ? `用過 ${sk.stats.uses} 次` : ''}</span></div>`;
   $('#skillList').innerHTML = !SKILLS ? '<div class="skp-e"><span class="spin"></span></div>'
     : !SKVIEW.length ? `<div class="skp-e">找不到符合「${esc(q)}」的技能。<br>可以直接描述任務，SinoBee 會自己挑合適的技能。</div>`
@@ -1425,7 +1431,7 @@ function skPick(sk){
 function skChips(){
   const row = $('#skillRow'); row.classList.toggle('on', SKSEL.length > 0);
   row.innerHTML = SKSEL.map(n => { const sk = (SKILLS || []).find(x => x.name === n) || {name: n};
-    return `<span class="skchip" title="${esc(skBlurb(sk.description))}">${ic(skIcon(sk))}${esc(n)}<button type="button" data-n="${esc(n)}" aria-label="移除技能 ${esc(n)}">${ic('x')}</button></span>`; }).join('');
+    return `<span class="skchip" title="${esc(skBlurb(sk.description))}">${SKILL_SVG}${esc(n)}<button type="button" data-n="${esc(n)}" aria-label="移除技能 ${esc(n)}">${ic('x')}</button></span>`; }).join('');
   row.querySelectorAll('button').forEach(b => b.onclick = () => { SKSEL = SKSEL.filter(n => n !== b.dataset.n); skChips(); $('#input').focus(); });
   $('#input').placeholder = skPlaceholder();
 }
@@ -1455,7 +1461,7 @@ function userHtml(text){
   const names = [];
   let rest = String(text || '');
   for (let m; (m = rest.match(/^\/([\w.-]+)(?:\s+|$)/)) && names.length < 5 && !/^learn$/i.test(m[1]);) { names.push(m[1]); rest = rest.slice(m[0].length); }
-  return names.map(n => `<span class="skchip">${ic(skIcon({name: n}))}${esc(n)}</span>`).join('') + (rest ? md(rest) : '');
+  return names.map(n => `<span class="skchip">${SKILL_SVG}${esc(n)}</span>`).join('') + (rest ? md(rest) : '');
 }
 $('#newBtn').onclick = () => { PROC = null; sessionId = null; setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
 $('#stopBtn').onclick = () => ws.send(JSON.stringify({type:'cancel', session_id: sessionId}));
@@ -1578,7 +1584,7 @@ async function fillSide(side){
       const st = s.stats || {}; const rate = st.success_rate == null ? '' : ` · 成功率 ${Math.round(st.success_rate * 100)}%`;
       const pills = [st.status === 'candidate' ? 'experimental' : '', st.needs_revision ? '待修正' : '', s.disabled ? '已停用' : '', s.modified ? '已修改' : '', s.effective ? '' : '被遮蔽'].filter(Boolean);
       const d = document.createElement('div'); d.className = 'item' + ((!s.policy.visible || s.disabled || !s.effective) ? ' dim' : '');
-      d.innerHTML = `${esc(s.name)} <span class="tb t-${s.trust}">${esc(s.trust_label)}</span>${pills.map(x => `<span class="pill">${x}</span>`).join('')}
+      d.innerHTML = `<span class="skli">${SKILL_SVG}</span>${esc(s.name)} <span class="tb t-${s.trust}">${esc(s.trust_label)}</span>${pills.map(x => `<span class="pill">${x}</span>`).join('')}
         <small>${esc(s.description)}</small><small>${s.scope === 'project' ? '專案' : s.scope === 'global' ? '全域' : '額外'} · v${esc(s.version)} · 使用 ${st.uses || 0} 次${rate}</small>`;
       d.onclick = () => openSkill(s);
       side.appendChild(d);
@@ -1669,7 +1675,7 @@ const TOOLSET_INFO = {
   browser: {name: '操作瀏覽器', desc: '開網頁、登入、填表、下載（Chromium，保留登入狀態）', icon: 'globe'},
   web: {name: '網路搜尋', desc: '搜尋與讀取公開網頁', icon: 'external'},
   memory: {name: '長期記憶', desc: '記住你的偏好與做過的事，之後自動參考', icon: 'brain'},
-  skills: {name: '技能', desc: '查看、使用與改進技能', icon: 'puzzle'},
+  skills: {name: '技能', desc: '查看、使用與改進技能', icon: 'skill'},
   usage: {name: '用量查詢', desc: '讓 SinoBee 回答花了多少 token 與費用', icon: 'chart'},
   database: {name: '資料庫', desc: '查詢已儲存的資料庫連線；寫入每次都要核准', icon: 'database'},
   work: {name: '子代理與背景工作', desc: '分派子代理並行處理、執行固定流程、建立排程工作（建立排程需要你確認）', icon: 'clock'},
