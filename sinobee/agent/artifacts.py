@@ -65,6 +65,8 @@ def collect(config, tool: str, args: dict, text: str, seen: set[str], since: flo
             d = d if d.is_absolute() else config.workspace / d
             if d.name in ("project.json", "plan.json"):
                 d = d.parent
+            if d.is_file() and d.suffix in (".mjs", ".js", ".py", ".sh", ".ts"):
+                d = d.parent          # `node figures/rig/build.mjs` prints "wrote rig.html" next to the script
             if d.is_dir() and d.resolve() != config.workspace.resolve():
                 bases.append(str(d))
     raws = []

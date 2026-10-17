@@ -4,7 +4,7 @@ description: Watches a YouTube video (metadata, full transcript with timestamps,
 license: MIT
 compatibility: Needs network access to youtube.com and i.ytimg.com, Python 3.10+, yt-dlp (installed on first use), Pillow for stills, and Playwright Chromium or cairosvg for the PNG cover (all in the SinoBee Docker image except yt-dlp).
 metadata:
-  version: 1.0.0
+  version: 1.0.1
   author: sinobee
   sinobee-tags: youtube, video, summary, report, fact-check, analysis
   sinobee-triggers: YouTube, youtube, 影片分析, 影片摘要, 看影片, 這部影片, 這支影片, 查核, 懶人包, video summary, analyse video, fact-check video
@@ -48,8 +48,14 @@ right, or a report about it. One video per run; for a playlist, ask which videos
 7. **Write** `<folder>/report.md` from `references/report-template.md`.
 8. **Check.** `skill_run(name="youtube-analysis", args="check <folder>")`. Fix every listed problem and check again
    until `status: ok`.
-9. **Deliver** `report.md` with its folder (cover.png and frames/ are referenced by relative paths) and give the
-   user the one-sentence summary and the overall verdict in chat.
+9. **Deliver** in chat: the cover as an image, a link to the report, the one-sentence summary and the overall
+   verdict, e.g.
+   ```
+   ![封面](reports/youtube/<id>/cover.png)
+   **[開啟完整報告](reports/youtube/<id>/report.md)**　一句話摘要… 整體判定：大致正確
+   ```
+   SinoBee opens the linked report in its document viewer (cover, tables and stills rendered). The folder
+   travels as a whole: cover.png and frames/ are referenced by relative paths.
 
 # Rules
 - Watch before writing: every statement in the report comes from the transcript, the stills, the description or

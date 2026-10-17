@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import mimetypes
 import re
+import secrets
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from ..fileaccess import PRIVATE_NAMES, FileAccessError, allowed_roots  # noqa: F401
@@ -17,6 +18,24 @@ STATIC = Path(__file__).resolve().parent / "static"
 mimetypes.add_type("video/mp4", ".mp4")
 mimetypes.add_type("video/webm", ".webm")
 mimetypes.add_type("text/markdown", ".md")
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("font/woff2", ".woff2")
+
+# Interactive pages a skill made (anatomy figures, reports with scripts) open in the app through a read-only
+# "view" capability: /view/<id>/<file> serves only the folder of the page that was opened, for a limited time, with
+# a CSP sandbox. The page runs scripts in an opaque origin: it cannot read the app's token, cookies or storage, cannot
+# call /api (connect-src is its own folder), and cannot frame or navigate the app.
+VIEW_TTL = 12 * 3600
+VIEW_MAX = 300
+VIEWABLE = {".html", ".htm", ".svg", ".xhtml"}
+
+
+def view_csp(base: str) -> str:
+    return ("sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads; "
+            f"default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' {base} https: blob:; "
+            f"style-src 'unsafe-inline' {base} https:; img-src {base} data: blob: https:; font-src {base} data: https:; "
+            f"media-src {base} data: blob: https:; connect-src {base}; worker-src {base} blob:; frame-src 'none'; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
 
 
 def resolve_file(config, path: str) -> Path:
@@ -34,6 +53,39 @@ def safe_name(name: str) -> str:
 
 
 def register(app: FastAPI, rt_getter) -> None:
+    views: dict[str, dict] = {}
+
+    @app.post("/api/view")
+    async def open_view(body: dict):
+        """A short-lived, read-only link to an HTML page (and the files beside it) for the in-app viewer."""
+        f = resolve_file(rt_getter().config, str(body.get("path") or ""))
+        if f.suffix.lower() not in VIEWABLE:
+            raise HTTPException(400, "only HTML and SVG pages open in the page viewer")
+        now = time.time()
+        for k in [k for k, v in views.items() if v["expires"] < now]:
+            views.pop(k, None)
+        while len(views) >= VIEW_MAX:
+            views.pop(min(views, key=lambda k: views[k]["expires"]))
+        cap = secrets.token_urlsafe(18)
+        views[cap] = {"root": f.parent, "expires": now + VIEW_TTL}
+        return {"url": f"/view/{cap}/{f.name}", "name": f.name, "path": str(f), "expires_in": VIEW_TTL}
+
+    @app.get("/view/{cap}/{rel:path}")
+    async def view_file(cap: str, rel: str, request: Request):
+        v = views.get(cap)
+        if not v or v["expires"] < time.time():
+            raise HTTPException(404, "this view link has expired: open the page again from SinoBee")
+        root = v["root"]
+        target = (root / rel).resolve()
+        if root.resolve() not in target.parents:
+            raise HTTPException(404)
+        f = resolve_file(rt_getter().config, str(target))      # still never SinoBee's private files
+        base = f"{request.url.scheme}://{request.url.netloc}/view/{cap}/"
+        mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+        return FileResponse(f, media_type=mime, headers={
+            "Content-Security-Policy": view_csp(base), "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer", "Cache-Control": "no-store", "Cross-Origin-Resource-Policy": "same-origin"})
+
     @app.get("/vendor/{name}")
     async def vendor(name: str):
         f = (STATIC / "vendor" / name).resolve()

@@ -36,6 +36,31 @@ def test_files_api_and_upload(home, provider):
     assert c.get("/vendor/..%2Fapp.py").status_code == 404
 
 
+def test_view_links_run_skill_pages_sandboxed_and_scoped(home, provider):
+    """Pages made by skills (anatomy figures, interactive reports) open in the app through a scoped, sandboxed link."""
+    rt = Runtime(Config.load(), provider=provider)
+    c = TestClient(create_app(rt))
+    fig = rt.config.workspace / "figures" / "rig"
+    fig.mkdir(parents=True)
+    (fig / "rig.html").write_text("<script>document.title = 'ok'</script>")
+    (fig / "data.json").write_text("{}")
+    (rt.config.workspace / "other.txt").write_text("not in the page's folder")
+    v = c.post("/api/view", json={"path": "figures/rig/rig.html"}).json()
+    assert v["url"].startswith("/view/") and v["url"].endswith("/rig.html")
+    r = c.get(v["url"])
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    csp = r.headers["content-security-policy"]
+    assert csp.startswith("sandbox allow-scripts") and "allow-same-origin" not in csp
+    cap = v["url"].split("/")[2]
+    assert f"connect-src http://testserver/view/{cap}/;" in csp and "frame-ancestors 'self'" in csp
+    assert c.get(f"/view/{cap}/data.json").status_code == 200            # files beside the page load
+    assert c.get(f"/view/{cap}/../other.txt").status_code == 404          # nothing outside its folder
+    assert c.get(f"/view/{cap}/%2e%2e/other.txt").status_code == 404
+    assert c.get("/view/nope/rig.html").status_code == 404
+    assert c.post("/api/view", json={"path": "other.txt"}).status_code == 400   # only pages open this way
+    assert c.post("/api/view", json={"path": str(rt.config.home / "secrets.json")}).status_code in (403, 404)
+
+
 async def test_attached_images_are_sent_to_the_model(config, provider):
     (config.workspace / "uploads").mkdir(parents=True, exist_ok=True)
     img = config.workspace / "uploads" / "shot.png"
@@ -142,3 +167,14 @@ def test_public_serve_always_has_a_token(home, provider, monkeypatch):
     assert c.get("/api/status").status_code == 401                      # the saved token protects the API
     assert c.get(f"/api/status?token={new}").status_code == 200
     assert c.get("/favicon.ico").status_code == 200                      # static files stay public
+
+
+def test_pages_printed_by_a_build_script_become_viewable_artifacts(config):
+    """`node figures/rig/build.mjs` prints "wrote rig.html": the page beside the script is offered in the viewer."""
+    from sinobee.agent import artifacts
+    fig = config.workspace / "figures" / "rig"
+    fig.mkdir(parents=True)
+    (fig / "build.mjs").write_text("// build")
+    (fig / "rig.html").write_text("<p>rig</p>")
+    found = artifacts.collect(config, "shell", {"command": "node figures/rig/build.mjs --light"}, "wrote rig.html 120 KB", set())
+    assert [f["path"] for f in found] == ["figures/rig/rig.html"] and found[0]["kind"] == "doc"
