@@ -235,11 +235,33 @@ details.tool .dur{color:var(--muted);font-size:12px;margin-left:6px}
 /* ---------- local models ---------- */
 .lcard svg.i{width:20px;height:20px;flex:none;vertical-align:-4px}
 .mk{background:var(--glow);color:inherit;border-radius:3px;padding:0 1px}
-.shog{display:grid;grid-template-columns:minmax(0,300px) 1fr;gap:14px;align-items:start;margin-top:10px}
-.shog-img{aspect-ratio:1200/630;border-radius:10px;border:1px solid var(--line);background:var(--panel2);display:grid;place-items:center;overflow:hidden;text-align:center;padding:0}
-.shog-img img{width:100%;height:100%;object-fit:cover;display:block}.shog-img.off{opacity:.35;filter:grayscale(1)}.shog-img .note{padding:10px;font-size:12px}
-.shog-t textarea{resize:vertical}.shprev[hidden]{display:none}
-@media (max-width:640px){.shog{grid-template-columns:1fr}}
+.shcard{display:grid;grid-template-columns:minmax(0,240px) 1fr;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel2)}
+.shcard.nothumb{grid-template-columns:1fr}.shcard.nothumb .shcard-img{display:none}
+.shcard-img{aspect-ratio:1200/630;display:grid;place-items:center;background:var(--bg);border-right:1px solid var(--line);overflow:hidden;align-self:start}
+.shcard-img img{width:100%;height:100%;object-fit:cover;display:block}.shcard-img.busy img{opacity:.45;transition:opacity .2s}.shcard-img .note{padding:10px;font-size:12px;text-align:center}
+.shcard-t{display:flex;flex-direction:column;gap:2px;padding:10px 12px;min-width:0}
+.shcard-t input,.shcard-t textarea{font:inherit;color:var(--ink);background:transparent;border:1px solid transparent;border-radius:8px;padding:4px 6px;resize:none;width:100%}
+.shcard-t input{font-weight:700;font-size:15px}.shcard-t textarea{font-size:13px;color:var(--muted);line-height:1.5}
+.shcard-t input:hover,.shcard-t textarea:hover{border-color:var(--line)}.shcard-t input:focus,.shcard-t textarea:focus{outline:none;border-color:var(--accent);background:var(--bg)}
+.shcard-host{font-size:11px;color:var(--muted);padding:0 6px;font-family:ui-monospace,Menlo,monospace;margin-top:auto}
+.shcard-cap{display:flex;gap:6px;align-items:center;margin:6px 0 16px}.shcard-cap svg.i{width:14px;height:14px}
+.shrow{display:grid;grid-template-columns:72px 1fr;gap:10px;align-items:center}.shlab{font-size:13px;font-weight:600;color:var(--muted)}
+.shpick{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.shpick button{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px 10px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);color:var(--muted);cursor:pointer;font:inherit;transition:border-color .15s,color .15s,box-shadow .15s}
+.shpick button svg.i{width:26px;height:26px;stroke-width:1.7}.shpick button b{font-size:13px;color:var(--ink);font-weight:600}
+.shpick button:hover{border-color:var(--accent);color:var(--ink)}
+.shpick button.on{border-color:var(--accent);color:var(--accent);box-shadow:0 0 0 3px var(--glow);background:var(--bg)}
+.shpick button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.shhint{font-size:12px;color:var(--muted);margin:6px 0 14px 82px;min-height:16px}
+.shsafe{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--muted);padding:9px 12px;border-radius:10px;background:var(--panel2);margin-bottom:10px}
+.shsafe svg.i{width:16px;height:16px;color:var(--ok);flex:none}.shsafe.hit{color:var(--ink)}
+.shadv summary{cursor:pointer;font-size:13px;color:var(--muted);padding:4px 0;user-select:none}.shadv summary:hover{color:var(--ink)}
+.shadv-b{display:flex;flex-direction:column;gap:8px;padding-top:6px}.shadv .chips{display:flex;gap:14px;flex-wrap:wrap;margin:0}
+.shdone{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding:18px 4px 6px}
+.shdone>svg.i{width:44px;height:44px;color:var(--ok)}.shdone>b{font-size:17px}
+.shurl{display:flex;gap:8px;width:100%}.shurl .inp{flex:1;min-width:0;font-family:ui-monospace,Menlo,monospace;font-size:13px}.shurl .btn svg.i{width:16px;height:16px;display:inline-block;vertical-align:-3px}
+.shprev[hidden]{display:none}
+@media (max-width:640px){.shcard{grid-template-columns:1fr}.shcard-img{border-right:0;border-bottom:1px solid var(--line)}.shrow{grid-template-columns:1fr}.shhint{margin-left:0}}
 #shareBtn.shared{color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .shprev{max-height:42vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--panel2)}.shprev .msg{margin:6px 0}
 .srcseg{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
@@ -690,9 +712,9 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   <div id="jfBody" class="migbody"></div>
   <div class="row"><span style="flex:1"></span><button class="btn" id="jfCancel" type="button">取消</button><button class="btn primary" id="jfSave" type="button">儲存</button></div>
 </div></div>
-<div class="modal" id="shareModal"><div class="card wide" style="max-width:860px">
+<div class="modal" id="shareModal"><div class="card wide" style="max-width:720px">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 style="margin:0" id="shHead">分享對話</h3><span class="badge" id="shState"></span></div>
-  <p style="font-size:13px;color:var(--muted);margin:6px 0 12px">下面就是會上傳到 sinobee.ai 的內容。金鑰、密碼、權杖與本機路徑已自動遮蔽；內容雜湊會在 Boltchain 存證，可隨時撤回。</p>
+  <p style="font-size:13px;color:var(--muted);margin:4px 0 14px">選好誰可以看、保留多久，就能取得連結。隨時可以撤回。</p>
   <div id="shBody"></div>
   <div class="row"><button class="btn" id="shClose" type="button">關閉</button><button class="btn primary" id="shGo" type="button">建立分享連結</button></div>
 </div></div>
@@ -2528,8 +2550,18 @@ $('#pubGo').onclick = async () => {
   const rr = await api('/api/db/connections'); DB.conns = rr.connections || []; DB.cur = DB.conns.find(x => x.id === c.id) || c;
 };
 // ---------------- share a conversation on sinobee.ai ----------------
-const SH = {vis: 'LINK', preview: null, doc: null, thumbOn: true};
+const SH = {vis: 'LINK', exp: '30', preview: null, doc: null, thumbOn: true, adv: false};
 const RK = {secret: '已儲存的金鑰／密碼', dsn: '連線字串密碼', apikey: 'API 金鑰', token: '權杖', privatekey: '私鑰', password: '密碼欄位', path: '本機路徑', host: '主機名稱／內網 IP', custom: '自訂字詞'};
+// who can see it, and for how long: three choices each, drawn as icon buttons
+const SH_VIS = [['LINK', '知道連結的人', '有連結就能看，不會被列出或搜尋', '<path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>'],
+  ['LOGIN', '需登入', '以 CAFECA 登入才能看，可指定帳號', '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><circle cx="12" cy="16" r="1.2"/>'],
+  ['PUBLIC', '公開', '任何人都能看，列在 sinobee.ai/shares', '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>']];
+const CAL = n => `<rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/><text x="12" y="18.6" text-anchor="middle" font-size="${n.length > 1 ? 7 : 8}" font-weight="700" fill="currentColor" stroke="none" font-family="system-ui,sans-serif">${n}</text>`;
+const SH_EXP = [['7', '7 天', '一週後自動失效', CAL('7')], ['30', '30 天', '一個月後自動失效', CAL('30')],
+  ['', '不過期', '直到你撤回', '<path d="M12 12c-2-2.7-3.6-4-5.5-4a4 4 0 0 0 0 8c1.9 0 3.5-1.3 5.5-4zm0 0c2 2.7 3.6 4 5.5 4a4 4 0 0 0 0-8c-1.9 0-3.5 1.3-5.5 4z"/>']];
+const shPick = (id, items, cur) => `<div class="shpick" id="${id}" role="radiogroup">${items.map(([v, label, hint, svg]) =>
+  `<button type="button" role="radio" aria-checked="${cur === v}" data-v="${v}" title="${esc(hint)}"${cur === v ? ' class="on"' : ''}><svg class="i" viewBox="0 0 24 24" aria-hidden="true">${svg}</svg><b>${label}</b></button>`).join('')}</div>`;
+const shHint = (items, cur) => (items.find(x => x[0] === cur) || [])[2] || '';
 async function openShare(doc){
   SH.doc = typeof doc === 'string' ? doc : null;
   if (!SH.doc && !sessionId) return;
@@ -2539,81 +2571,99 @@ async function openShare(doc){
   await renderShare(true);
 }
 function shOpts(first){
-  if (first) return SH.opts = {include_tools: true, title: '', description: null, until_turn: 0, query_rows: 20, mask_hosts: false, extra_mask: '', expires: '30'};
-  return SH.opts = {include_tools: SH.doc ? false : $('#shTools').checked, title: $('#shTitle').value, description: $('#shDesc').value,
-    until_turn: SH.doc ? 0 : +$('#shTurn').value || 0, query_rows: SH.doc ? 0 : +$('#shRows').value, mask_hosts: $('#shHosts').checked,
-    extra_mask: $('#shMask').value, expires: $('#shExp').value};
+  if (first) return SH.opts = {include_tools: true, title: '', description: null, until_turn: 0, query_rows: 20, mask_hosts: false, extra_mask: ''};
+  const v = k => $(k) ? $(k).value : '';
+  return SH.opts = {include_tools: $('#shTools') ? $('#shTools').checked : !SH.doc && SH.opts.include_tools, title: v('#shTitle'), description: v('#shDesc'),
+    until_turn: +v('#shTurn') || 0, query_rows: $('#shRows') ? +v('#shRows') : SH.opts.query_rows, mask_hosts: !!$('#shHosts')?.checked, extra_mask: v('#shMask')};
 }
 async function renderShare(first){
-  const o = shOpts(first), tools = o.include_tools, title = o.title;
+  const o = shOpts(first), tools = o.include_tools;
   const r = await fetch('/api/share/preview?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({...shTarget(), include_tools: tools, title: title || undefined, until_turn: o.until_turn, query_rows: o.query_rows,
+    body: JSON.stringify({...shTarget(), include_tools: tools, title: o.title || undefined, until_turn: o.until_turn, query_rows: o.query_rows,
       mask_hosts: o.mask_hosts, extra_mask: o.extra_mask})});
   const p = await r.json().catch(() => ({}));
   if (!r.ok){ $('#shBody').innerHTML = `<div class="dbmsg err">${esc(p.detail || '無法產生預覽')}</div>`; return; }
   SH.preview = p;
   const red = (p.redactions || []).filter(x => x.count);
-  const vis = [['LINK', '知道連結的人', '不會被列出或搜尋'], ['LOGIN', '需登入', 'CAFECA 登入，可指定帳號'], ['PUBLIC', '公開', '列在 sinobee.ai/shares']];
-  $('#shBody').innerHTML = `${!p.signed_in ? `<div class="lcard" style="font-size:13px">需要先登入 SinoBee.ai 才能分享。<button class="btn primary" type="button" id="shLogin" style="margin-left:8px">登入</button></div>` : ''}
-    <div class="grid2"><label class="f">標題<input id="shTitle" maxlength="160" value="${esc(p.title)}"></label>
-      <label class="f">有效期限<select id="shExp">${[['1', '1 天'], ['7', '7 天'], ['30', '30 天'], ['90', '90 天'], ['365', '1 年'], ['', '不過期']].map(([v, l]) => `<option value="${v}"${o.expires === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-      ${SH.doc ? '' : `<label class="f">分享範圍<select id="shTurn"><option value="0">整段對話</option>${(p.turns || []).map((t, i) => `<option value="${i + 1}"${o.until_turn === i + 1 ? ' selected' : ''}>到第 ${i + 1} 輪：${esc(t.slice(0, 30))}</option>`).join('')}</select></label>
-      <label class="f">資料庫查詢結果<select id="shRows">${[[20, '只留前 20 列'], [100, '前 100 列'], [0, '不含查詢結果']].map(([v, l]) => `<option value="${v}"${o.query_rows === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`}</div>
-    <div class="shog"><div class="shog-img" id="shThumb"><span class="spin"></span></div>
-      <div class="shog-t"><label class="f">摘要說明（顯示在 LINE、Facebook、X、Slack 等平台的連結預覽）<textarea id="shDesc" rows="3" maxlength="300">${esc(o.description ?? p.description ?? '')}</textarea></label>
-        <label class="chips"><label><input type="checkbox" class="sw" role="switch" id="shThumbOn" ${SH.thumbOn ? 'checked' : ''}> 附上縮圖（1200×630）</label></label>
-        <div class="note">${SH.vis === 'LOGIN' ? '「需登入」的分享不會對外顯示標題、摘要與縮圖。' : '貼上連結時，社群平台會顯示這張縮圖、標題與摘要。'}</div></div></div>
-    <div class="srcseg" id="shVis" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">${vis.map(([v, a, b]) => `<button type="button" data-v="${v}"${SH.vis === v ? ' class="on"' : ''}><b>${a}</b><span>${b}</span></button>`).join('')}</div>
-    <label class="f" id="shAccRow" ${SH.vis === 'LOGIN' ? '' : 'hidden'}>只有這些 CAFECA 帳號能看（0x 地址或 @代稱，以空白或換行分隔；留空＝任何已登入者）<textarea id="shAcc" rows="2" style="font-family:ui-monospace,Menlo,monospace">${esc(SH.acc || '')}</textarea></label>
-    <label class="chips" style="margin:8px 0;display:flex;gap:14px;flex-wrap:wrap">${SH.doc ? '' : `<label><input type="checkbox" class="sw" role="switch" id="shTools" ${tools ? 'checked' : ''}> 附上工具呼叫與結果（每項最多 2000 字）</label>`}
-      <label><input type="checkbox" class="sw" role="switch" id="shHosts" ${o.mask_hosts ? 'checked' : ''}> 遮蔽主機名稱與內網 IP</label></label>
-    <label class="f">另外要遮蔽的字詞（每行一個，例如客戶名稱）<textarea id="shMask" rows="2">${esc(o.extra_mask)}</textarea></label>
-    <div class="note" style="margin:6px 0">${red.length ? '已遮蔽（預覽中以 <mark class="mk">••••</mark> 標示）：' + red.map(x => `${RK[x.kind] || x.kind} × ${x.count}`).join('、') : '沒有偵測到需要遮蔽的內容。'}${p.files.length && !SH.doc ? `　附件 ${p.files.length} 個（${p.files.map(f => esc(f.name) + ' ' + fmtSize(f.size)).join('、')}）` : ''}${p.skills?.length ? `　使用的技能：${p.skills.map(esc).join('、')}` : ''}</div>
-    ${SH.doc ? `<div class="note" style="margin:4px 0">${p.kind === 'doc' ? `文件與它用到的 ${p.files.length} 個檔案：` : ''}${p.files.map(f => `<code>${esc(f.name)}</code>`).join('　')}</div>` : ''}
-    <div class="shprev"${SH.doc ? ' hidden' : ''}>${p.messages.map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}"><div class="bubble">${m.role === 'user' ? esc(m.text).replace(/\n/g, '<br>') : md(m.text.replace(/!\[([^\]]*)\]\(files\/(\d+)\)/g, (_, a, n) => `*［圖片附件：${(p.files.find(f => f.id === n) || {}).name || a}］*`))}${m.tools?.length ? `<div class="note" style="margin-top:6px">工具：${m.tools.map(t => esc(t.name)).join('、')}</div>` : ''}</div></div>`).join('')}</div>`;
-  document.querySelectorAll('#shVis button').forEach(b => b.onclick = () => { SH.vis = b.dataset.v; document.querySelectorAll('#shVis button').forEach(x => x.classList.toggle('on', x === b)); $('#shAccRow').hidden = SH.vis !== 'LOGIN';
-    const nt = $('#shBody .shog-t .note'); if (nt) nt.textContent = SH.vis === 'LOGIN' ? '「需登入」的分享不會對外顯示標題、摘要與縮圖。' : '貼上連結時，社群平台會顯示這張縮圖、標題與摘要。'; });
-  const rerender = () => { SH.acc = $('#shAcc').value; renderShare(false); };
+  const files = SH.doc ? `${p.files.length} 個檔案：${p.files.map(f => `<code>${esc(f.name)}</code>`).join('　')}`
+    : p.files.length ? `附件 ${p.files.length} 個：${p.files.map(f => esc(f.name) + ' ' + fmtSize(f.size)).join('、')}` : '沒有附件';
+  $('#shBody').innerHTML = `${!p.signed_in ? `<div class="lcard" style="font-size:13px;margin-bottom:12px">需要先登入 SinoBee.ai 才能分享。<button class="btn primary" type="button" id="shLogin" style="margin-left:8px">登入</button></div>` : ''}
+    <div class="shcard${SH.thumbOn ? '' : ' nothumb'}">
+      <div class="shcard-img" id="shThumb"><span class="spin"></span></div>
+      <div class="shcard-t"><input id="shTitle" maxlength="160" value="${esc(o.title || p.title)}" aria-label="標題" placeholder="標題">
+        <textarea id="shDesc" rows="4" maxlength="300" aria-label="摘要說明" placeholder="一兩句話說明這是什麼">${esc(o.description ?? p.description ?? '')}</textarea>
+        <span class="shcard-host">sinobee.ai</span></div></div>
+    <div class="note shcard-cap">${ic('eye')} 貼到 LINE、Facebook、X、Slack 時會這樣顯示；標題與說明可以直接修改。</div>
+    <div class="shrow"><span class="shlab">誰可以看</span>${shPick('shVis', SH_VIS, SH.vis)}</div>
+    <div class="shhint" id="shVisHint">${shHint(SH_VIS, SH.vis)}</div>
+    <label class="f" id="shAccRow" ${SH.vis === 'LOGIN' ? '' : 'hidden'}>只有這些 CAFECA 帳號能看（0x 地址或 @代稱；留空＝任何已登入者）<textarea id="shAcc" rows="2" style="font-family:ui-monospace,Menlo,monospace">${esc(SH.acc || '')}</textarea></label>
+    <div class="shrow"><span class="shlab">保留多久</span>${shPick('shExp', SH_EXP, SH.exp)}</div>
+    <div class="shhint" id="shExpHint">${shHint(SH_EXP, SH.exp)}</div>
+    <div class="shsafe${red.length ? ' hit' : ''}">${ic('shield')}<span>${red.length ? '已自動遮蔽 ' + red.map(x => `${RK[x.kind] || x.kind} × ${x.count}`).join('、') : '已檢查金鑰、密碼、權杖與本機路徑，沒有需要遮蔽的內容'}</span></div>
+    <details class="shadv" id="shAdv"${SH.adv ? ' open' : ''}><summary>進階選項</summary>
+      <div class="shadv-b">
+        <label class="chips"><label><input type="checkbox" class="sw" role="switch" id="shThumbOn" ${SH.thumbOn ? 'checked' : ''}> 附上預覽縮圖</label>
+          ${SH.doc ? '' : `<label><input type="checkbox" class="sw" role="switch" id="shTools" ${tools ? 'checked' : ''}> 附上工具呼叫與結果</label>`}
+          <label><input type="checkbox" class="sw" role="switch" id="shHosts" ${o.mask_hosts ? 'checked' : ''}> 遮蔽主機名稱與內網 IP</label></label>
+        ${SH.doc ? '' : `<div class="grid2"><label class="f">分享範圍<select id="shTurn"><option value="0">整段對話</option>${(p.turns || []).map((t, i) => `<option value="${i + 1}"${o.until_turn === i + 1 ? ' selected' : ''}>到第 ${i + 1} 輪：${esc(t.slice(0, 30))}</option>`).join('')}</select></label>
+          <label class="f">資料庫查詢結果<select id="shRows">${[[20, '只留前 20 列'], [100, '前 100 列'], [0, '不含查詢結果']].map(([v, l]) => `<option value="${v}"${o.query_rows === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>`}
+        <label class="f">另外要遮蔽的字詞（每行一個，例如客戶名稱）<textarea id="shMask" rows="2">${esc(o.extra_mask)}</textarea></label>
+        <div class="note">${files}${p.skills?.length ? `　使用的技能：${p.skills.map(esc).join('、')}` : ''}</div>
+        ${SH.doc ? '' : `<div class="shprev">${p.messages.map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}"><div class="bubble">${m.role === 'user' ? esc(m.text).replace(/\n/g, '<br>') : md(m.text.replace(/!\[([^\]]*)\]\(files\/(\d+)\)/g, (_, a, n) => `*［圖片附件：${(p.files.find(f => f.id === n) || {}).name || a}］*`))}${m.tools?.length ? `<div class="note" style="margin-top:6px">工具：${m.tools.map(t => esc(t.name)).join('、')}</div>` : ''}</div></div>`).join('')}</div>`}
+      </div></details>`;
+  const pick = (id, key, items, hint, after) => document.querySelectorAll(`#${id} button`).forEach(b => b.onclick = () => {
+    SH[key] = b.dataset.v;
+    document.querySelectorAll(`#${id} button`).forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); });
+    $('#' + hint).textContent = shHint(items, SH[key]); after && after(); });
+  pick('shVis', 'vis', SH_VIS, 'shVisHint', () => { $('#shAccRow').hidden = SH.vis !== 'LOGIN';
+    $('#shVisHint').textContent += SH.vis === 'LOGIN' ? '（不會對外顯示標題、說明與縮圖）' : ''; });
+  pick('shExp', 'exp', SH_EXP, 'shExpHint');
+  if (SH.vis === 'LOGIN') $('#shVisHint').textContent += '（不會對外顯示標題、說明與縮圖）';
+  $('#shAdv').ontoggle = () => { SH.adv = $('#shAdv').open; };
+  $('#shAcc').oninput = () => { SH.acc = $('#shAcc').value; };
+  const rerender = () => renderShare(false);
   ['#shTools', '#shHosts', '#shTurn', '#shRows'].forEach(k => { if ($(k)) $(k).onchange = rerender; });
   $('#shMask').onchange = rerender;
-  $('#shTitle').onchange = $('#shDesc').onchange = () => loadThumb();
-  $('#shThumbOn').onchange = () => { SH.thumbOn = $('#shThumbOn').checked; $('#shThumb').classList.toggle('off', !SH.thumbOn); };
-  $('#shThumb').classList.toggle('off', !SH.thumbOn);
-  loadThumb();
-  $('#shBody .shprev').innerHTML = $('#shBody .shprev').innerHTML.replace(/••••/g, '<mark class="mk">••••</mark>');
+  let t; $('#shTitle').oninput = $('#shDesc').oninput = () => { clearTimeout(t); t = setTimeout(loadThumb, 700); };
+  $('#shThumbOn').onchange = () => { SH.thumbOn = $('#shThumbOn').checked; $('#shBody .shcard').classList.toggle('nothumb', !SH.thumbOn); };
+  const pv = $('#shBody .shprev'); if (pv) pv.innerHTML = pv.innerHTML.replace(/••••/g, '<mark class="mk">••••</mark>');
   if ($('#shLogin')) $('#shLogin').onclick = () => { $('#shareModal').classList.remove('open'); openSettings(false, 'account'); };
   $('#shGo').disabled = !p.signed_in;
+  loadThumb();
 }
 function shTarget(){ return SH.doc ? {doc_path: SH.doc} : {session_id: sessionId}; }
 let THUMB_N = 0;
 async function loadThumb(){
   const box = $('#shThumb'); if (!box) return; const n = ++THUMB_N;
-  box.innerHTML = '<span class="spin"></span>';
+  box.classList.add('busy');
   const o = shOpts(false);
   const r = await fetch('/api/share/thumbnail?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({...shTarget(), title: o.title, description: o.description, include_tools: o.include_tools, until_turn: o.until_turn,
       query_rows: o.query_rows, mask_hosts: o.mask_hosts, extra_mask: o.extra_mask})}).catch(() => null);
   const j = r && r.ok ? await r.json().catch(() => ({})) : {};
-  if (n !== THUMB_N) return;
-  box.innerHTML = j.image ? `<img src="${esc(j.image)}" alt="連結預覽縮圖">` : '<span class="note">無法產生縮圖（需要 Chromium 或 cairosvg）；平台會顯示 SinoBee.ai 預設圖。</span>';
+  if (n !== THUMB_N || !$('#shThumb')) return;
+  box.classList.remove('busy');
+  box.innerHTML = j.image ? `<img src="${esc(j.image)}" alt="連結預覽縮圖">` : '<span class="note">無法產生縮圖，平台會顯示 SinoBee.ai 預設圖</span>';
 }
 $('#shareBtn').onclick = () => openShare();
 $('#shClose').onclick = () => $('#shareModal').classList.remove('open');
 $('#shGo').onclick = async () => {
   $('#shGo').disabled = true; $('#shState').textContent = '上傳中…';
+  const o = shOpts(false);
   const r = await fetch('/api/share?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
-    ...shTarget(), include_tools: SH.doc ? false : $('#shTools').checked, title: $('#shTitle').value.trim(), visibility: SH.vis,
-    description: $('#shDesc').value.trim(), thumbnail: SH.thumbOn,
-    until_turn: SH.doc ? 0 : +$('#shTurn').value || 0, query_rows: SH.doc ? 0 : +$('#shRows').value, mask_hosts: $('#shHosts').checked, extra_mask: $('#shMask').value,
-    accounts: SH.vis === 'LOGIN' ? $('#shAcc').value.split(/[\s,]+/).filter(Boolean) : [], expires_days: +$('#shExp').value || null})});
+    ...shTarget(), include_tools: o.include_tools, title: o.title.trim(), visibility: SH.vis, description: o.description.trim(), thumbnail: SH.thumbOn,
+    until_turn: o.until_turn, query_rows: o.query_rows, mask_hosts: o.mask_hosts, extra_mask: o.extra_mask,
+    accounts: SH.vis === 'LOGIN' ? (SH.acc || '').split(/[\s,]+/).filter(Boolean) : [], expires_days: +SH.exp || null})});
   const j = await r.json().catch(() => ({}));
   if (!r.ok){ $('#shState').textContent = ''; $('#shGo').disabled = false; alert(j.detail || '分享失敗'); return; }
-  $('#shState').textContent = '已建立';
+  $('#shState').textContent = '';
   $('#shGo').hidden = true;
-  $('#shBody').innerHTML = `<div class="lcard" style="font-size:14px">${ic('checkCircle')} 分享連結已建立（${{LINK: '知道連結的人', LOGIN: j.restricted ? '指定帳號' : '需登入', PUBLIC: '公開'}[j.visibility]}）
-    <div style="display:flex;gap:8px;margin-top:10px"><input class="inp" id="shUrl" readonly value="${esc(j.url)}" style="flex:1"><button class="btn icon" type="button" id="shCopy" aria-label="複製連結">${ic('copy')}</button><a class="btn icon" href="${esc(j.url)}" target="_blank" rel="noopener" aria-label="開啟">${ic('external')}</a></div>
-    <div class="note" style="margin-top:8px">可在分享頁變更可見範圍或撤回。內容雜湊稍後會在 Boltchain 存證。</div></div>`;
-  $('#shCopy').onclick = () => { navigator.clipboard?.writeText(j.url); $('#shState').textContent = '已複製'; };
+  const vis = SH_VIS.find(x => x[0] === j.visibility) || SH_VIS[0], exp = SH_EXP.find(x => x[0] === SH.exp) || SH_EXP[1];
+  $('#shBody').innerHTML = `<div class="shdone">${ic('checkCircle')}<b>分享連結已建立</b>
+    <div class="shurl"><input class="inp" id="shUrl" readonly value="${esc(j.url)}"><button class="btn primary" type="button" id="shCopy">${ic('copy')} 複製連結</button><a class="btn icon" href="${esc(j.url)}" target="_blank" rel="noopener" aria-label="開啟">${ic('external')}</a></div>
+    <div class="note">${vis[1]}${j.restricted ? '（指定帳號）' : ''} · ${exp[1]}　可在設定的「我的分享」變更範圍或撤回。</div></div>`;
+  $('#shCopy').onclick = () => { navigator.clipboard?.writeText(j.url); $('#shCopy').innerHTML = ic('check') + ' 已複製'; };
+  $('#shUrl').onclick = () => $('#shUrl').select();
   markShared();
 };
 async function markShared(){
