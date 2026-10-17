@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt/sinobee
 COPY pyproject.toml README.md ./
 COPY sinobee ./sinobee
-RUN pip install ".[all]" \
+RUN pip install ".[all]" yt-dlp \
     && python -m playwright install --with-deps chromium \
     && chmod -R a+rx /opt/pw-browsers \
     && ln -sf "$(ls -d /opt/pw-browsers/chromium-*/chrome-linux/chrome | head -n 1)" /usr/bin/chromium
