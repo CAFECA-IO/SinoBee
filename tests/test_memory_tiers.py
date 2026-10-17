@@ -242,3 +242,14 @@ async def test_reflection_never_writes_permanent_and_defaults_task_facts_to_shor
     assert _reflect_tier({"kind": "fact"}) == "short"
     assert _reflect_tier({"kind": "preference", "importance": 0.9}) == "long"
     assert _reflect_tier({"tier": "core"}) == "core"
+
+
+def test_anatomy_is_bundled_with_its_credits(config):
+    """The Anatomy skill (MIT, by Ryan @wheresryan22) ships built in and keeps its source and author."""
+    rt = Runtime(config, provider=Aux([]))
+    sk = rt.skills.skills["anatomy"]
+    assert sk.trust == "builtin" and not [d for d in sk.diagnostics if "error" in str(d).lower()]
+    assert sk.metadata["author"].startswith("Ryan") and sk.metadata["sinobee-source"] == "https://github.com/wheresryan22/anatomy"
+    for f in ("LICENSE", "NOTICE.md", "kit/iso-kit.mjs", "scripts/capture.mjs", "references/craft.md"):
+        assert (sk.path / f).exists(), f
+    assert "Copyright (c) 2026 Ryan" in (sk.path / "LICENSE").read_text()

@@ -22,7 +22,10 @@ COPY pyproject.toml README.md ./
 COPY sinobee ./sinobee
 RUN pip install ".[all]" \
     && python -m playwright install --with-deps chromium \
-    && chmod -R a+rx /opt/pw-browsers
+    && chmod -R a+rx /opt/pw-browsers \
+    && ln -sf "$(ls -d /opt/pw-browsers/chromium-*/chrome-linux/chrome | head -n 1)" /usr/bin/chromium
+# Node.js for skills that build with node (the bundled `anatomy` skill: Node 20.10+, no packages; Chrome from above)
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 
 COPY docker/supervisord.conf /etc/supervisor/conf.d/sinobee.conf
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
