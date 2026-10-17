@@ -87,10 +87,11 @@ sinobee/bundled_skills/  內建技能（首次啟動安裝到 ~/.sinobee/skills�
 run(user_input):
   1. recall   = memory.recall(user_input)           # 長期記憶 + 情節檢索（top-k）
   2. skills   = skills.relevant(user_input)          # 相關技能索引（top-n）
-  3. messages = [system(穩定)] + history + user(輸入 + <context>recall/skills/工作記憶</context>)
+  3. messages = [system(穩定)] + history(只增不改) + tail(每次重建、不存檔：<context>回憶/技能/工作記憶/黑板</context>
+                                                       + 使用中技能 + 驗收清單)
   4. loop (≤ max_iterations):
        resp = provider.chat(messages, tools)
-       若無 tool_calls → 結束
+       若無 tool_calls → 品質關卡（驗收清單 → 成果檢查 → 完成檢查），沒過就退回修正，過了才結束
        for call in tool_calls:
            approval.check(call) → 執行 → 結果（文字或圖片）加入 messages
        若估計 token > 門檻 → context.compress()（摘要中段對話）
@@ -122,7 +123,7 @@ Hermes 以 `MEMORY.md`（2,200 字元）與 `USER.md`（1,375 字元）注入 sy
 | 層 | 內容 | 儲存 | 注入方式 |
 |---|---|---|---|
 | **L0 核心記憶** | 使用者輪廓、agent 身分與長期規則（少量、高重要度） | SQLite `memories`（tier=core）| 會話開始時放入 system prompt（穩定、可快取） |
-| **L1 工作記憶** | 當前任務目標、計畫、已知事實、待辦 | 會話內 scratchpad | 每輪附在最新 user 訊息尾端 → **會話內即時可見**，又不破壞 prefix cache |
+| **L1 工作記憶** | 當前任務目標、計畫、已知事實、待辦 | 會話內 scratchpad | 每次呼叫模型時放在請求最尾端的 tail 訊息（不存進歷史）→ **會話內即時可見**，又不破壞 prefix cache（見第 16 節） |
 | **L2 長期語意記憶** | 事實、偏好、教訓、環境知識；含重要度、信心、存取次數、時間 | SQLite + FTS5（BM25）＋ 可選向量 | 每輪依輸入**自動召回 top-k**，並提供 `memory_search` 主動查詢 |
 | **L3 情節記憶** | 完整對話紀錄 + 每個會話結束時的 LLM 摘要 | SQLite + FTS5 | `session_search` 查詢；摘要參與自動召回 |
 
@@ -576,7 +577,69 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
 
   每輪最多升級一次，事件會顯示在對話與 run 紀錄中。設定頁的「模型」區可以填寫升級模型、開關完成檢查。
 
-## 16. 後續路線
+## 16. 複雜任務的品質把關
+
+### 主流做法（2026-10 調查）
+
+| 來源 | 做法 | 值得學的細節 |
+|---|---|---|
+| [Anthropic 研究系統](https://www.anthropic.com/engineering/multi-agent-research-system) | 主代理規劃 + 子代理並行搜尋 | 計畫先存進記憶以免截斷；委派要給目標、輸出格式、工具指引與邊界；投入量依難度（簡單 1 代理 3–10 次工具、比較 2–4 子代理、複雜 10+）；多代理比單代理好 90.2%，但約 15 倍 token；獨立的引用代理核對出處 |
+| [Anthropic 長時任務](https://anthropic.com/engineering/effective-harnesses-for-long-running-agents) | 初始化代理 + 逐步代理 | 需求展開成 JSON 功能清單（測試步驟 + `passes`，只能改這個欄位）；一次一項、git 提交、進度檔；瀏覽器端對端測試大幅改善，只跑單元測試會誤判完成 |
+| [Claude Code 最佳實務](https://code.claude.com/docs/en/best-practices) | 給它能跑的檢查 | 測試 / 建置 / 截圖；Stop hook 確定性關卡；全新上下文的子代理反駁結果；要證據不要宣稱；提醒審查員只攔正確性與需求問題，避免過度設計 |
+| [Cognition / Devin](https://cognition.com/blog/multi-agents-working) | 多個代理一起「想」、單一代理「寫」 | 撰寫者 + 審查者循環（審查員每 PR 抓約 2 個 bug、58% 嚴重），審查員要乾淨上下文，審查意見先比對使用者指示；向強模型「請教」只在兩邊都是頂尖模型時有效；並行撰寫群仍不可靠 |
+| [Manus](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus) | 上下文工程 | 輸入:輸出 ≈ 100:1，快取命中率是最重要的指標（價差 10 倍）；前綴穩定、只增不改；檔案系統當記憶，壓縮保留路徑與網址；每步重寫 todo.md 讓目標留在尾端；保留錯誤紀錄 |
+| [Anthropic 上下文工程](https://agentic-ai.readthedocs.io/en/latest/ContextEngineering/anthropic/) | 小而精的上下文 | 用到才讀；子代理回 1–2k token 摘要；清掉舊工具結果（峰值 33.5 萬 → 17.3 萬 token）；壓縮常遺失數字與原文 |
+| [Anthropic 評估](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)、[OpenAI 護欄](https://openai.github.io/openai-agents-python/guardrails/) | 評估與護欄 | 20–50 個真實失敗起步；評結果狀態不評步驟；能力 / 回歸分開；pass^k 衡量穩定；讀執行紀錄；輸入 / 輸出 / 工具護欄可中止 |
+
+### 對照 SinoBee 的缺口
+1. **完成檢查只問「做了沒」**：輔助模型看截斷的工具紀錄，不打開產出；公式少反斜線、HTML 錯誤、壞連結、Mermaid 錯誤都會通過。
+2. **檢查者比執行者弱**，只補一輪。
+3. **驗收標準沒有在開頭定下**：計畫只是提示建議，長任務壓縮後中途補充的要求最容易遺失。
+4. **審查看路徑**：只有研究報告流程有審查員。
+5. **子代理產出沒有交叉驗證**，回傳長度沒有上限。
+6. **上下文擺放傷快取與注意力**：`<context>`（含分鐘級時間、黑板、工作記憶）每次呼叫重建後附在本輪使用者訊息上，一變就讓後面所有工具結果的快取失效；目標也停在本輪開頭，不在尾端。
+7. **沒有評估執行器**：換模型或改提示無法量化升降。
+
+### 路線
+
+| 階段 | 內容 | 狀態 |
+|---|---|---|
+| 1 | 易變上下文移到尾端、歷史只增不改；驗收清單每步附在尾端；確定性成果檢查；完成前的品質關卡 | **已實作**（見下） |
+| 2 | 全新上下文 + 強模型逐項驗收（輸入實際成果與截圖）；高風險任務自動加審查員並過濾審查意見；委派投入量規則；子代理摘要上限；向強模型「請教」取代單向切換；依風險分級的驗證深度（快速 / 標準 / 嚴謹） | 待做 |
+| 3 | `sinobee eval`（真實失敗評估集、pass^k）；**每個 bug 變成一條檢查規則**（倒讚或回報 → 反思產生確定性規則 + 回歸題）；技能宣告 `sinobee-checks`，結果回饋成 SinoBee.ai 技能品質分數；長時任務初始化流程與寫檔快照 | 待做 |
+
+### 第 1 階段（已實作）
+
+**請求版面：只增不改的歷史 + 易變尾巴**（`agent/loop.py`、`providers/anthropic.py`、`types.TextPart.volatile`）
+- 每次呼叫模型的請求 = `system` + 歷史（只增不改）+ 一則 `volatile` 的 tail 訊息：`<context>`、使用中技能的用法、驗收清單、空白回覆提醒。tail 每次重建、從不存進歷史。
+- Anthropic 的快取斷點放在 tail 之前最後一個穩定區塊，前一次請求寫入的快取在下一次一定命中；OpenAI 相容端點（OpenAI、Gemini、DeepSeek…）的自動前綴快取同樣受惠。
+- 驗收清單和進度在請求的最尾端，模型跑到第 50 步仍看得到目標（Manus 的 todo 重寫法）。
+
+**驗收清單**（工具 `task_checklist`，`tools/checklist_tools.py`，屬於永遠開啟的 `core` 工具組）
+- `set / add / update / view`；每項是「結果」不是「動作」，附驗證方式；`done` 必須附證據（指令輸出、檔案路徑、截圖、網址），`dropped` 必須說明原因。
+- 存在 session 狀態與黑板（`kind=plan, key=checklist`），伺服器重啟或「繼續」都接得上；全部完成的清單在下一輪清空。
+- 工具呼叫達 `agent.checklist_after_tool_calls`（預設 4）或使用高複雜度技能、卻還沒有清單時，tail 會提醒先寫清單。
+- 介面在步驟摘要下方顯示清單與進度（收合步驟時仍可見），完成項附證據。
+
+**成果檢查**（`agent/qa.py`，不使用模型）
+
+| 檔案 | 檢查 |
+|---|---|
+| 全部 | 存在、非空、文字檔沒有 JSON 跳脫留下的控制字元（`\f` `\b`…） |
+| HTML | 用無頭 Chromium 以文件檢視器的方式開啟（同樣自動加上 KaTeX）：JavaScript 錯誤、本機圖片 / 腳本 / 樣式 / 資料載入失敗、圖片無法解碼、`.katex-error`、Mermaid 語法錯誤圖、空白頁 |
+| Markdown | 相對路徑的圖片與連結是否存在；每個 `$…$` / `$$…$$` 用 KaTeX 解析；每個 mermaid 區塊用 `mermaid.parse`（先套用與聊天介面相同的自動修正） |
+| JSON / CSV / SVG | 可解析 / 欄數一致 / XML 正確 |
+
+外部網路請求在檢查時一律擋掉，結果不受網路影響；沒有 Chromium 時只跑檔案層檢查。
+
+**品質關卡**（`Agent._quality_gate`，在完成檢查之前）
+1. 驗收清單還有未完成項目 → 退回「[自動驗收] 還有 N 項未完成…」。
+2. 本次產出的檔案有問題 → 退回「[自動成果檢查] … 問題清單」。
+3. 兩者各最多退回 `agent.quality_rounds`（預設 2）輪；仍不通過就標成 incomplete，結果卡列出問題，不顯示「✓ 完成」。
+4. 通過後才進行原本的完成檢查（完成檢查的證據也加入驗收清單）。
+- 設定：`agent.qa`（成果檢查開關）、`agent.quality_rounds`、`agent.checklist_after_tool_calls`。
+
+## 17. 後續路線
 
 1. MCP client：接入外部 MCP 工具
 2. 訊息閘道：Slack / Telegram / LINE（背景工作完成與待核准通知）

@@ -18,6 +18,8 @@ from ..config import Config
 from ..memory.store import MemoryStore
 from ..providers import build_auxiliary, build_chain, build_embedder
 from ..skills import manager_from_config
+from ..fileaccess import resolve_file
+from ..tools import checklist_tools
 from ..tools.registry import REGISTRY, ToolContext
 from . import artifacts
 from ..types import ImagePart, Message, TextPart, ToolCall, ToolResult, Usage
@@ -247,6 +249,7 @@ class Agent:
         self.tool_names = {t.name for t in self.tools}
         self.ctx = ToolContext(config=self.config, session_id=self.session_id, memory=runtime.memory,
                                skills=runtime.skills, emit=self._emit, approve=approve, ask=ask)
+        self.ctx.state["_runtime"] = runtime
         self.ctx.state["runtime"] = runtime
         self.ctx.state["board_scope"] = board_scope or f"session:{self.session_id}"
         self.ctx.state["depth"] = depth
@@ -412,6 +415,8 @@ class Agent:
             + ("LATER INSTRUCTIONS:\n" + "\n".join(steers)[:1500] + "\n" if steers else "")
             + "TOOL STEPS (newest last):\n" + "\n".join(steps[-40:])[:6000]
             + (f"\nFILES PRODUCED: {', '.join(files)}" if files else "")
+            + (("\nACCEPTANCE CHECKLIST:\n" + checklist_tools.render(checklist_tools.get(self.ctx))[:2000])
+               if checklist_tools.get(self.ctx) else "")
             + f"\nFINAL ANSWER:\n{answer[:3000]}\n\n"
             "Complete means: what was asked was actually done and the answer reports it truthfully. Also complete: "
             "the assistant asks the user a needed question, or clearly explains an external blocker it cannot "
@@ -425,6 +430,67 @@ class Agent:
         except Exception as e:  # noqa: BLE001 - a failed check never blocks the answer
             log.info("completion check skipped: %s", e)
             return None
+
+    # ------------------------------------------------------------------ acceptance checklist & quality gate
+    def _checklist_turn_start(self) -> None:
+        """A finished list belongs to the last task; an open one (an interrupted task, or one restored after a
+        restart from the blackboard) carries on into this turn."""
+        items = checklist_tools.get(self.ctx)
+        if items and not checklist_tools.open_items(items):
+            items.clear()
+        if items or "board_read" not in self.tool_names:
+            return
+        try:
+            from ..work.hub import get_hub
+            rows = get_hub(self.rt).store.board_read(self.ctx.state["board_scope"], kinds=["plan"], key="checklist", limit=1)
+            saved = json.loads(rows[-1]["content"]) if rows else []
+            if isinstance(saved, list) and checklist_tools.open_items(saved):
+                items.extend(saved)
+        except Exception:  # noqa: BLE001
+            log.debug("no saved checklist", exc_info=True)
+
+    def _checklist_tail(self, stats: dict, steps: int) -> str:
+        items = checklist_tools.get(self.ctx)
+        if items:
+            return checklist_tools.render(items)
+        many = stats.get("tool_calls", 0) >= int(self.config.get("agent.checklist_after_tool_calls", 4))
+        if "task_checklist" in self.tool_names and (many or self._complex_task(stats.get("explicit_skills"))) \
+                and steps <= 15 \
+                and not stats.get("learn_command"):
+            return ("<task_checklist>This is a multi-step task: before going further, write its acceptance "
+                    "checklist with task_checklist(action='set') - the outcomes that must be true for the result "
+                    "to be right and how each is checked.</task_checklist>")
+        return ""
+
+    async def _quality_gate(self, stats: dict) -> tuple[str, str] | None:
+        """Deterministic checks before the task may end: open checklist items, then problems in the files it made."""
+        open_items = checklist_tools.open_items(checklist_tools.get(self.ctx))
+        if open_items:
+            lines = "\n".join(f"- #{i['id']} {i['text']}" for i in open_items[:10])
+            self._event(f"驗收清單還有 {len(open_items)} 項未完成")
+            return "checklist", (f"[自動驗收] 驗收清單還有 {len(open_items)} 項未完成：\n{lines}\n請完成它們並附上證據"
+                                 "（task_checklist update status=done），或改成 dropped 並說明原因，再回報結果。")
+        if not self.config.get("agent.qa", True):
+            return None
+        paths = []
+        for a in stats.get("artifacts", []):
+            try:
+                paths.append(resolve_file(self.config, a["path"]))
+            except Exception:  # noqa: BLE001
+                continue
+        if not paths:
+            return None
+        from . import qa
+        self._event("成果檢查：檢查本次產出的檔案")
+        issues = await qa.check(paths)
+        stats["qa_issues"] = issues
+        if not issues:
+            self._event("成果檢查通過")
+            return None
+        self._event(f"成果檢查發現 {len(issues)} 個問題")
+        self._emit("qa", {"issues": issues[:20]})
+        return "qa", ("[自動成果檢查] 交付前檢查本次產出的檔案，發現以下問題：\n" + qa.report(issues)
+                      + "\n請修正這些問題（修好後我會再檢查一次），或在回答裡說明為什麼不需要修。")
 
     def _active_skill_notes(self) -> str:
         """How to invoke each skill in use, repeated every step so it survives compaction and long tool output."""
@@ -479,6 +545,8 @@ class Agent:
         status, error_info, started, steps = "done", None, time.time(), 0
         self._prov = self.rt.provider
         stats["verify_rounds"] = 0
+        stats["gate_rounds"] = {}
+        self._checklist_turn_start()
         if self._complex_task(explicit):
             self._escalate("任務屬於複雜類型", stats)
         self._turn_started = started
@@ -513,23 +581,15 @@ class Agent:
                     context_block = self._render_context()
                 if estimate_tokens([self.system] + self.history, tool_specs, context_block) > budget * 0.8:
                     turn_start = await self._compact(budget, tool_specs, context_block, turn_start)
-            msgs = [self.system] + self.history
-            # attach volatile context to the newest *real* user message of this turn
-            request = list(msgs)
-            idx = next((i for i in range(len(request) - 1, 0, -1)
-                        if request[i].role == "user"), None)
-            if idx is not None:
-                um = request[idx]
-                parts = um.content if isinstance(um.content, list) else [TextPart(um.content)]
-                request[idx] = Message("user", list(parts) + [TextPart(context_block)])
-
-            pinned = self._active_skill_notes()
-            if pinned and idx is not None:
-                um = request[idx]
-                request[idx] = Message("user", list(um.content) + [TextPart(pinned)])
-            if nudge:  # transient: not stored in history
-                request.append(Message("user", EMPTY_NUDGE))
+            # The history is append-only so the provider's prompt cache keeps hitting; everything that changes
+            # between requests (context, checklist, active skill notes, nudges) goes in one tail message that is
+            # rebuilt every time and never stored - at the end, where the model attends most during long tasks.
+            request = [self.system] + self.history
+            tail = [context_block, self._active_skill_notes(), self._checklist_tail(stats, steps)]
+            if nudge:
+                tail.append(EMPTY_NUDGE)
                 nudge = False
+            request.append(Message("user", [TextPart("\n\n".join(t for t in tail if t), volatile=True)]))
             if steps > int(self.config.get("agent.escalate_after_steps", 25)) and not stats.get("escalated"):
                 self._escalate(f"已進行 {steps - 1} 步仍未完成", stats)
             self._emit("thinking", {"iteration": iteration, "step": steps, "model": self._prov.label})
@@ -596,7 +656,18 @@ class Agent:
                 self._emit("assistant", {"text": msg.text(), "final": not msg.tool_calls})
             if not msg.tool_calls:
                 final_text = msg.text()
-                if not stats.get("consecutive_errors") and self._should_verify(stats):
+                gate = None if stats.get("consecutive_errors") else await self._quality_gate(stats)
+                if gate:
+                    kind, text = gate
+                    if stats["gate_rounds"].get(kind, 0) < int(self.config.get("agent.quality_rounds", 2)):
+                        stats["gate_rounds"][kind] = stats["gate_rounds"].get(kind, 0) + 1
+                        self.history.append(Message("user", text))
+                        self._persist()
+                        continue
+                    status = "incomplete"
+                    error_info = {"summary": text.split("\n")[0].strip("[] "), "detail": text,
+                                  "hint": "可以回覆「繼續」讓我接著修，或告訴我哪些可以不用管。"}
+                elif not stats.get("consecutive_errors") and self._should_verify(stats):
                     verdict = await self._verify(query, final_text, stats)
                     if verdict and not verdict.get("complete"):
                         missing = str(verdict.get("missing") or "任務尚未完成")[:400]

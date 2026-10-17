@@ -11,6 +11,7 @@ from typing import Any, Union
 class TextPart:
     text: str
     type: str = "text"
+    volatile: bool = False      # rebuilt for every request (the context tail): never cached, never stored
 
 
 @dataclass

@@ -510,6 +510,16 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 #quotaBar[hidden]{display:none}#quotaBar .qb-h{display:flex;align-items:center;gap:6px}#quotaBar .qb-h b{font-size:12px}
 #quotaBar .qb-h .badge{margin-left:auto}#quotaBar .qwarn{color:var(--warn)}#quotaBar .qerr{color:var(--err)}
 .qrel{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--muted);margin-top:6px}.qrel span b{color:var(--ink);font-weight:600}
+.cklist{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:10px 12px;margin:6px 0 4px}
+.ckl-h{display:flex;align-items:center;gap:8px;font-size:12.5px}.ckl-h span{color:var(--muted);font-variant-numeric:tabular-nums}
+.ckl-h i{flex:1;height:4px;border-radius:2px;background:linear-gradient(90deg,var(--accent-solid) var(--p),var(--line) var(--p));max-width:180px;margin-left:auto}
+.cklist ol{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:5px}
+.cklist li{display:grid;grid-template-columns:18px 1fr;gap:8px;align-items:start;font-size:13px;line-height:1.45}
+.cklist li small{display:block;color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ckl-b{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);display:grid;place-items:center;margin-top:1px;font-size:11px;color:var(--muted)}
+.ckl-b svg.i{width:12px;height:12px}.ckl-b .spin{width:10px;height:10px;border-width:2px}
+.cklist li.done .ckl-b{background:var(--accent-solid);border-color:var(--accent-solid);color:var(--on-accent)}
+.cklist li.doing .ckl-b{border-color:var(--accent)}.cklist li.dropped{color:var(--muted)}.cklist li.dropped>span:last-child{text-decoration:line-through}
 .askcard{margin:6px max(16px,calc((100% - 820px)/2)) 10px;border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:14px 16px;box-shadow:0 1px 0 rgba(0,0,0,.02)}
 .askcard.live{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
 .ask-h{display:flex;align-items:center;gap:8px;font-size:13px}.ask-ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--glow);color:var(--accent-solid)}
@@ -1174,7 +1184,7 @@ let RUNNING = {};   // session_id -> {started, step, activity, tool}
 function setBusy(){ busy = !!RUNNING[sessionId]; $('#stopBtn').hidden = true; renderRun(); }
 const TOOL_LABEL = {shell: '終端機', browser: '瀏覽器', web_fetch: '讀取網頁', web_search: '網頁搜尋', read_file: '讀檔', write_file: '寫檔',
   edit_file: '修改檔案', list_dir: '列出資料夾', search_files: '搜尋檔案', screenshot: '截圖', mouse: '滑鼠', keyboard: '鍵盤',
-  skill_view: '載入技能', skill_create: '建立技能', skill_run: '執行技能腳本', memory_save: '寫入記憶', memory_search: '查詢記憶'};
+  skill_view: '載入技能', skill_create: '建立技能', skill_run: '執行技能腳本', memory_save: '寫入記憶', memory_search: '查詢記憶', task_checklist: '更新驗收清單', ask_user: '詢問你'};
 function renderRun(){
   const r = RUNNING[sessionId], bar = $('#runbar');
   document.title = Object.keys(RUNNING).length ? '⏳ SinoBee' : 'SinoBee';
@@ -1251,6 +1261,21 @@ function openFbPanel(card, turnId, rating, done){
 async function sendFeedback(turnId, rating, tags, comment){
   try { await post('/api/feedback', {turn_id: turnId, rating, tags, comment}); add('ⓘ 已記錄回饋，SinoBee 會在背景從中學習。', 'note'); }
   catch {}
+}
+// ---------------- acceptance checklist: what "done" means for this task, kept in view while it runs ----------------
+function cklParse(t){
+  return String(t).split('\n').map(l => l.match(/^(\d+)\. \[(.)\] (.*?)(?: — check: (.*?))?(?: — evidence: (.*))?$/)).filter(Boolean)
+    .map(m => ({id: +m[1], status: {x: 'done', '~': 'doing', '-': 'dropped', ' ': 'todo'}[m[2]] || 'todo', text: m[3], check: m[4] || '', evidence: m[5] || ''}));
+}
+function cklShow(items){
+  if (!items.length) return;
+  // one list per turn, shown under the step summary even while the steps are folded
+  let d = [...document.querySelectorAll('#chat .cklist[data-live]')].pop();
+  if (!d) { const g = procGroup(); d = document.createElement('div'); d.className = 'cklist'; d.dataset.live = '1'; g.el.insertBefore(d, g.body); }
+  const done = items.filter(i => i.status === 'done' || i.status === 'dropped').length;
+  const ico = {done: ic('check'), doing: '<span class="spin"></span>', dropped: '–', todo: ''};
+  d.innerHTML = `<div class="ckl-h"><b>驗收清單</b><span>${done}/${items.length}</span><i style="--p:${Math.round(done / items.length * 100)}%"></i></div>
+    <ol>${items.map(i => `<li class="${i.status}" title="${esc(i.evidence || i.check || '')}"><span class="ckl-b">${ico[i.status] || ''}</span><span>${esc(i.text)}${i.status === 'done' && i.evidence ? `<small>${esc(i.evidence.slice(0, 120))}</small>` : i.status === 'dropped' && i.evidence ? `<small>略過：${esc(i.evidence.slice(0, 120))}</small>` : ''}</span></li>`).join('')}</ol>`;
 }
 // ---------------- ask_user: SinoBee asks for a decision, with suggested options as buttons ----------------
 function askCard(a, replay){
@@ -1349,11 +1374,13 @@ function handle(ev, replay = false){
       if (ev.name === 'ask_user') { procClose(); toolEls[ev.id] = askCard(ev.arguments || {}, replay); break; }
       const d = document.createElement('details'); d.className = 'tool pending';
       d.innerHTML = `<summary><span class="st"></span> <b>${esc(ev.name)}</b> ${esc(summarize(ev.name, ev.arguments))}<span class="dur"></span></summary><div class="body">${esc(JSON.stringify(ev.arguments, null, 2))}</div>`;
+      d.dataset.tool = ev.name;
       const g = procGroup(); g.body.appendChild(d); toolEls[ev.id] = d;
       g.n += 1; g.counts[ev.name] = (g.counts[ev.name] || 0) + 1; g.current = ev.name; procPaint(g);
       $('#chat').scrollTop = 1e9; break; }
     case 'tool_result': {
       const d = toolEls[ev.id]; if (!d) break;
+      if (replay && d.dataset.tool === 'task_checklist' && /<task_checklist>/.test(ev.preview || '')) cklShow(cklParse(ev.preview));
       if (d.classList.contains('askcard')) { if (!d.classList.contains('done')) askDone(d, askParse(ev.preview || '')); break; }
       d.classList.remove('pending');
       d.querySelector('.st').textContent = ev.error ? '✕' : '✓';
@@ -1383,9 +1410,11 @@ function handle(ev, replay = false){
       if (ev.feedback?.length) parts.push(`技能評分 ${ev.feedback.length}`);
       if (parts.length) add('✨ 背景學習：' + parts.join('、'), 'note learn');
       loadSide(); refreshStatus(false); break; }
-    case 'status': if (/空白回覆|停止|activated|pre-approved|較強的模型|完成檢查|流程「/.test(ev.message || '')) add('ⓘ ' + esc(ev.message), 'note'); break;
+    case 'status': if (/空白回覆|停止|activated|pre-approved|較強的模型|完成檢查|成果檢查|驗收清單|流程「/.test(ev.message || '')) add('ⓘ ' + esc(ev.message), 'note'); break;
+    case 'checklist': cklShow(ev.items || []); break;
+    case 'qa': break;
     case 'turn_end': {
-      procClose();
+      procClose(); document.querySelectorAll('#chat .cklist[data-live]').forEach(x => x.removeAttribute('data-live'));
       // mark any tool card still spinning (e.g. force-stopped) as interrupted
       document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
       { const c = resultCard(ev); if (ev.artifacts?.length && c) c.insertAdjacentHTML('beforeend', artStrip(ev.artifacts, '本次產出')); }

@@ -14,7 +14,7 @@ def _blocks(content) -> list[dict]:
     for p in content:
         if isinstance(p, TextPart):
             if p.text:
-                out.append({"type": "text", "text": p.text})
+                out.append({"type": "text", "text": p.text, **({"_volatile": True} if p.volatile else {})})
         elif isinstance(p, ImagePart):
             out.append({"type": "image", "source": {"type": "base64", "media_type": p.media_type, "data": p.data}})
     return out
@@ -62,12 +62,16 @@ class AnthropicProvider(Provider):
 
     async def _chat(self, messages, tools, *, temperature, max_tokens) -> ChatResponse:
         system, msgs = to_anthropic(messages)
-        # prompt caching breakpoints: end of system, end of tools, last user turn
+        # prompt caching breakpoints: end of system, end of tools, and the last block before the volatile tail
+        # (context, checklist): that tail changes every request, so a breakpoint on it would never be hit again
         if system:
             system[-1] = {**system[-1], "cache_control": CACHE}
-        if msgs and msgs[-1]["role"] == "user" and msgs[-1]["content"]:
-            last = msgs[-1]["content"][-1]
-            msgs[-1]["content"][-1] = {**last, "cache_control": CACHE}
+        stable = [(mi, bi) for mi, m in enumerate(msgs) for bi, b in enumerate(m["content"]) if not b.get("_volatile")]
+        if stable:
+            mi, bi = stable[-1]
+            msgs[mi]["content"][bi] = {**msgs[mi]["content"][bi], "cache_control": CACHE}
+        for m in msgs:
+            m["content"] = [{k: v for k, v in b.items() if k != "_volatile"} for b in m["content"]]
         payload: dict = {"model": self.model, "max_tokens": max_tokens, "messages": msgs}
         if system:
             payload["system"] = system

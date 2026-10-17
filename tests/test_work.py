@@ -46,6 +46,12 @@ def tool_results(messages):
     return [m for m in messages if m.role == "tool"]
 
 
+def last_user(messages):
+    """The newest real user message (the volatile context tail that ends every request is skipped)."""
+    return next((m.text() for m in reversed(messages) if m.role == "user"
+                 and not any(getattr(p, "volatile", False) for p in (m.content if isinstance(m.content, list) else []))), "")
+
+
 @pytest.fixture
 def work_config(config):
     config.data["permissions"]["toolsets"] = ["files", "web", "memory", "skills", "work"]
@@ -99,7 +105,7 @@ async def test_delegate_runs_sub_agents_in_parallel_on_a_shared_board(work_confi
             done = tool_results(messages)
             if not done:
                 import re
-                topic = re.search(r"研究：(\S)", messages[-1].text()).group(1)
+                topic = re.search(r"研究：(\S)", last_user(messages)).group(1)
                 return call("board_write", kind="finding", content=f"發現：{topic}", key=topic)
             return "研究完成"
         if "REVIEWER sub-agent" in system:
@@ -155,7 +161,7 @@ async def test_board_is_shown_in_context_and_sub_agents_cannot_delegate(work_con
 
 # ------------------------------------------------------------------ workflows
 def research_handler(system, messages, tools):
-    last = messages[-1].text()
+    last = last_user(messages)
     if "拆成 3 到 5 個" in last:
         return '{"questions": ["市場規模", "主要品牌"]}'
     if "RESEARCHER sub-agent" in system:
@@ -216,7 +222,7 @@ async def test_scheduler_runs_due_jobs_once_and_keeps_job_memory(work_config):
     prompts = []
 
     def handler(system, messages, tools):
-        prompts.append(messages[-1].text())
+        prompts.append(last_user(messages))
         if not tool_results(messages):
             return call("board_write", kind="note", content=f"第 {len(prompts)} 次", key="progress")
         return "記下進度"
