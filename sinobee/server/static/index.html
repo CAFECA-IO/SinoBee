@@ -235,6 +235,11 @@ details.tool .dur{color:var(--muted);font-size:12px;margin-left:6px}
 /* ---------- local models ---------- */
 .lcard svg.i{width:20px;height:20px;flex:none;vertical-align:-4px}
 .mk{background:var(--glow);color:inherit;border-radius:3px;padding:0 1px}
+.shog{display:grid;grid-template-columns:minmax(0,300px) 1fr;gap:14px;align-items:start;margin-top:10px}
+.shog-img{aspect-ratio:1200/630;border-radius:10px;border:1px solid var(--line);background:var(--panel2);display:grid;place-items:center;overflow:hidden;text-align:center;padding:0}
+.shog-img img{width:100%;height:100%;object-fit:cover;display:block}.shog-img.off{opacity:.35;filter:grayscale(1)}.shog-img .note{padding:10px;font-size:12px}
+.shog-t textarea{resize:vertical}.shprev[hidden]{display:none}
+@media (max-width:640px){.shog{grid-template-columns:1fr}}
 #shareBtn.shared{color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .shprev{max-height:42vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--panel2)}.shprev .msg{margin:6px 0}
 .srcseg{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
@@ -499,6 +504,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 <div class="modal" id="docview" role="dialog" aria-modal="true" aria-labelledby="dvName"><div class="dv">
   <div class="dv-h"><span class="dv-kind" id="dvKind"></span><div class="dv-t"><b id="dvName"></b><small id="dvPath"></small></div>
     <button class="btn sm" type="button" id="dvRaw" hidden>原始檔</button>
+    <button class="btn icon sm tip-left" type="button" data-icon="share" id="dvShare" aria-label="分享到 SinoBee.ai" hidden></button>
     <a class="btn icon sm tip-left" data-icon="external" id="dvOpen" target="_blank" rel="noopener" aria-label="在新分頁開啟"></a>
     <a class="btn icon sm tip-left" data-icon="download" id="dvDl" aria-label="下載"></a>
     <button class="btn icon sm tip-left" type="button" data-icon="x" id="dvClose" aria-label="關閉（Esc）"></button></div>
@@ -685,7 +691,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   <div class="row"><span style="flex:1"></span><button class="btn" id="jfCancel" type="button">取消</button><button class="btn primary" id="jfSave" type="button">儲存</button></div>
 </div></div>
 <div class="modal" id="shareModal"><div class="card wide" style="max-width:860px">
-  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 style="margin:0">分享對話</h3><span class="badge" id="shState"></span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 style="margin:0" id="shHead">分享對話</h3><span class="badge" id="shState"></span></div>
   <p style="font-size:13px;color:var(--muted);margin:6px 0 12px">下面就是會上傳到 sinobee.ai 的內容。金鑰、密碼、權杖與本機路徑已自動遮蔽；內容雜湊會在 Boltchain 存證，可隨時撤回。</p>
   <div id="shBody"></div>
   <div class="row"><button class="btn" id="shClose" type="button">關閉</button><button class="btn primary" id="shGo" type="button">建立分享連結</button></div>
@@ -921,6 +927,7 @@ async function openDoc(path){
   $('#dvName').textContent = name; $('#dvPath').textContent = path; $('#dvKind').textContent = ext.toUpperCase();
   $('#dvDl').href = fileUrl(path, true); $('#dvDl').setAttribute('download', name);
   $('#dvRaw').hidden = true; $('#dvRaw').textContent = '原始檔';
+  $('#dvShare').hidden = !/^(md|markdown|html?|svg|xhtml)$/.test(ext);
   body.className = 'dv-b'; body.innerHTML = '<div class="dv-msg"><span class="spin"></span></div>';
   dv.classList.add('open'); setTimeout(() => $('#dvClose').focus(), 30);
   try {
@@ -945,6 +952,7 @@ async function openDoc(path){
 }
 function closeDoc(){ $('#docview').classList.remove('open'); $('#dvBody').innerHTML = ''; DV.path = null; }
 $('#dvClose').onclick = closeDoc;
+$('#dvShare').onclick = () => { if (DV.path) openShare(DV.path); };
 $('#docview').addEventListener('click', e => { if (e.target.id === 'docview') closeDoc(); });
 $('#docview').addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); closeDoc(); } });
 $('#dvRaw').onclick = async () => { const body = $('#dvBody'); DV.rawShown = !DV.rawShown; $('#dvRaw').textContent = DV.rawShown ? '排版檢視' : '原始檔';
@@ -2520,23 +2528,26 @@ $('#pubGo').onclick = async () => {
   const rr = await api('/api/db/connections'); DB.conns = rr.connections || []; DB.cur = DB.conns.find(x => x.id === c.id) || c;
 };
 // ---------------- share a conversation on sinobee.ai ----------------
-const SH = {vis: 'LINK', preview: null};
+const SH = {vis: 'LINK', preview: null, doc: null, thumbOn: true};
 const RK = {secret: '已儲存的金鑰／密碼', dsn: '連線字串密碼', apikey: 'API 金鑰', token: '權杖', privatekey: '私鑰', password: '密碼欄位', path: '本機路徑', host: '主機名稱／內網 IP', custom: '自訂字詞'};
-async function openShare(){
-  if (!sessionId) return;
+async function openShare(doc){
+  SH.doc = typeof doc === 'string' ? doc : null;
+  if (!SH.doc && !sessionId) return;
+  $('#shHead').textContent = SH.doc ? '分享文件' : '分享對話';
   $('#shState').textContent = ''; $('#shGo').hidden = false; $('#shGo').disabled = true;
   $('#shBody').innerHTML = '<div class="spin" style="margin:30px auto"></div>'; $('#shareModal').classList.add('open');
   await renderShare(true);
 }
 function shOpts(first){
-  if (first) return SH.opts = {include_tools: true, title: '', until_turn: 0, query_rows: 20, mask_hosts: false, extra_mask: '', expires: '30'};
-  return SH.opts = {include_tools: $('#shTools').checked, title: $('#shTitle').value, until_turn: +$('#shTurn').value || 0,
-    query_rows: +$('#shRows').value, mask_hosts: $('#shHosts').checked, extra_mask: $('#shMask').value, expires: $('#shExp').value};
+  if (first) return SH.opts = {include_tools: true, title: '', description: null, until_turn: 0, query_rows: 20, mask_hosts: false, extra_mask: '', expires: '30'};
+  return SH.opts = {include_tools: SH.doc ? false : $('#shTools').checked, title: $('#shTitle').value, description: $('#shDesc').value,
+    until_turn: SH.doc ? 0 : +$('#shTurn').value || 0, query_rows: SH.doc ? 0 : +$('#shRows').value, mask_hosts: $('#shHosts').checked,
+    extra_mask: $('#shMask').value, expires: $('#shExp').value};
 }
 async function renderShare(first){
   const o = shOpts(first), tools = o.include_tools, title = o.title;
   const r = await fetch('/api/share/preview?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({session_id: sessionId, include_tools: tools, title: title || undefined, until_turn: o.until_turn, query_rows: o.query_rows,
+    body: JSON.stringify({...shTarget(), include_tools: tools, title: title || undefined, until_turn: o.until_turn, query_rows: o.query_rows,
       mask_hosts: o.mask_hosts, extra_mask: o.extra_mask})});
   const p = await r.json().catch(() => ({}));
   if (!r.ok){ $('#shBody').innerHTML = `<div class="dbmsg err">${esc(p.detail || '無法產生預覽')}</div>`; return; }
@@ -2546,30 +2557,54 @@ async function renderShare(first){
   $('#shBody').innerHTML = `${!p.signed_in ? `<div class="lcard" style="font-size:13px">需要先登入 SinoBee.ai 才能分享。<button class="btn primary" type="button" id="shLogin" style="margin-left:8px">登入</button></div>` : ''}
     <div class="grid2"><label class="f">標題<input id="shTitle" maxlength="160" value="${esc(p.title)}"></label>
       <label class="f">有效期限<select id="shExp">${[['1', '1 天'], ['7', '7 天'], ['30', '30 天'], ['90', '90 天'], ['365', '1 年'], ['', '不過期']].map(([v, l]) => `<option value="${v}"${o.expires === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label class="f">分享範圍<select id="shTurn"><option value="0">整段對話</option>${(p.turns || []).map((t, i) => `<option value="${i + 1}"${o.until_turn === i + 1 ? ' selected' : ''}>到第 ${i + 1} 輪：${esc(t.slice(0, 30))}</option>`).join('')}</select></label>
-      <label class="f">資料庫查詢結果<select id="shRows">${[[20, '只留前 20 列'], [100, '前 100 列'], [0, '不含查詢結果']].map(([v, l]) => `<option value="${v}"${o.query_rows === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>
+      ${SH.doc ? '' : `<label class="f">分享範圍<select id="shTurn"><option value="0">整段對話</option>${(p.turns || []).map((t, i) => `<option value="${i + 1}"${o.until_turn === i + 1 ? ' selected' : ''}>到第 ${i + 1} 輪：${esc(t.slice(0, 30))}</option>`).join('')}</select></label>
+      <label class="f">資料庫查詢結果<select id="shRows">${[[20, '只留前 20 列'], [100, '前 100 列'], [0, '不含查詢結果']].map(([v, l]) => `<option value="${v}"${o.query_rows === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`}</div>
+    <div class="shog"><div class="shog-img" id="shThumb"><span class="spin"></span></div>
+      <div class="shog-t"><label class="f">摘要說明（顯示在 LINE、Facebook、X、Slack 等平台的連結預覽）<textarea id="shDesc" rows="3" maxlength="300">${esc(o.description ?? p.description ?? '')}</textarea></label>
+        <label class="chips"><label><input type="checkbox" class="sw" role="switch" id="shThumbOn" ${SH.thumbOn ? 'checked' : ''}> 附上縮圖（1200×630）</label></label>
+        <div class="note">${SH.vis === 'LOGIN' ? '「需登入」的分享不會對外顯示標題、摘要與縮圖。' : '貼上連結時，社群平台會顯示這張縮圖、標題與摘要。'}</div></div></div>
     <div class="srcseg" id="shVis" style="grid-template-columns:1fr 1fr 1fr;margin-top:10px">${vis.map(([v, a, b]) => `<button type="button" data-v="${v}"${SH.vis === v ? ' class="on"' : ''}><b>${a}</b><span>${b}</span></button>`).join('')}</div>
     <label class="f" id="shAccRow" ${SH.vis === 'LOGIN' ? '' : 'hidden'}>只有這些 CAFECA 帳號能看（0x 地址或 @代稱，以空白或換行分隔；留空＝任何已登入者）<textarea id="shAcc" rows="2" style="font-family:ui-monospace,Menlo,monospace">${esc(SH.acc || '')}</textarea></label>
-    <label class="chips" style="margin:8px 0;display:flex;gap:14px;flex-wrap:wrap"><label><input type="checkbox" class="sw" role="switch" id="shTools" ${tools ? 'checked' : ''}> 附上工具呼叫與結果（每項最多 2000 字）</label>
+    <label class="chips" style="margin:8px 0;display:flex;gap:14px;flex-wrap:wrap">${SH.doc ? '' : `<label><input type="checkbox" class="sw" role="switch" id="shTools" ${tools ? 'checked' : ''}> 附上工具呼叫與結果（每項最多 2000 字）</label>`}
       <label><input type="checkbox" class="sw" role="switch" id="shHosts" ${o.mask_hosts ? 'checked' : ''}> 遮蔽主機名稱與內網 IP</label></label>
     <label class="f">另外要遮蔽的字詞（每行一個，例如客戶名稱）<textarea id="shMask" rows="2">${esc(o.extra_mask)}</textarea></label>
-    <div class="note" style="margin:6px 0">${red.length ? '已遮蔽（預覽中以 <mark class="mk">••••</mark> 標示）：' + red.map(x => `${RK[x.kind] || x.kind} × ${x.count}`).join('、') : '沒有偵測到需要遮蔽的內容。'}${p.files.length ? `　附件 ${p.files.length} 個（${p.files.map(f => esc(f.name) + ' ' + fmtSize(f.size)).join('、')}）` : ''}${p.skills?.length ? `　使用的技能：${p.skills.map(esc).join('、')}` : ''}</div>
-    <div class="shprev">${p.messages.map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}"><div class="bubble">${m.role === 'user' ? esc(m.text).replace(/\n/g, '<br>') : md(m.text.replace(/!\[([^\]]*)\]\(files\/(\d+)\)/g, (_, a, n) => `*［圖片附件：${(p.files.find(f => f.id === n) || {}).name || a}］*`))}${m.tools?.length ? `<div class="note" style="margin-top:6px">工具：${m.tools.map(t => esc(t.name)).join('、')}</div>` : ''}</div></div>`).join('')}</div>`;
-  document.querySelectorAll('#shVis button').forEach(b => b.onclick = () => { SH.vis = b.dataset.v; document.querySelectorAll('#shVis button').forEach(x => x.classList.toggle('on', x === b)); $('#shAccRow').hidden = SH.vis !== 'LOGIN'; });
+    <div class="note" style="margin:6px 0">${red.length ? '已遮蔽（預覽中以 <mark class="mk">••••</mark> 標示）：' + red.map(x => `${RK[x.kind] || x.kind} × ${x.count}`).join('、') : '沒有偵測到需要遮蔽的內容。'}${p.files.length && !SH.doc ? `　附件 ${p.files.length} 個（${p.files.map(f => esc(f.name) + ' ' + fmtSize(f.size)).join('、')}）` : ''}${p.skills?.length ? `　使用的技能：${p.skills.map(esc).join('、')}` : ''}</div>
+    ${SH.doc ? `<div class="note" style="margin:4px 0">${p.kind === 'doc' ? `文件與它用到的 ${p.files.length} 個檔案：` : ''}${p.files.map(f => `<code>${esc(f.name)}</code>`).join('　')}</div>` : ''}
+    <div class="shprev"${SH.doc ? ' hidden' : ''}>${p.messages.map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}"><div class="bubble">${m.role === 'user' ? esc(m.text).replace(/\n/g, '<br>') : md(m.text.replace(/!\[([^\]]*)\]\(files\/(\d+)\)/g, (_, a, n) => `*［圖片附件：${(p.files.find(f => f.id === n) || {}).name || a}］*`))}${m.tools?.length ? `<div class="note" style="margin-top:6px">工具：${m.tools.map(t => esc(t.name)).join('、')}</div>` : ''}</div></div>`).join('')}</div>`;
+  document.querySelectorAll('#shVis button').forEach(b => b.onclick = () => { SH.vis = b.dataset.v; document.querySelectorAll('#shVis button').forEach(x => x.classList.toggle('on', x === b)); $('#shAccRow').hidden = SH.vis !== 'LOGIN';
+    const nt = $('#shBody .shog-t .note'); if (nt) nt.textContent = SH.vis === 'LOGIN' ? '「需登入」的分享不會對外顯示標題、摘要與縮圖。' : '貼上連結時，社群平台會顯示這張縮圖、標題與摘要。'; });
   const rerender = () => { SH.acc = $('#shAcc').value; renderShare(false); };
-  ['#shTools', '#shHosts', '#shTurn', '#shRows'].forEach(k => $(k).onchange = rerender);
+  ['#shTools', '#shHosts', '#shTurn', '#shRows'].forEach(k => { if ($(k)) $(k).onchange = rerender; });
   $('#shMask').onchange = rerender;
+  $('#shTitle').onchange = $('#shDesc').onchange = () => loadThumb();
+  $('#shThumbOn').onchange = () => { SH.thumbOn = $('#shThumbOn').checked; $('#shThumb').classList.toggle('off', !SH.thumbOn); };
+  $('#shThumb').classList.toggle('off', !SH.thumbOn);
+  loadThumb();
   $('#shBody .shprev').innerHTML = $('#shBody .shprev').innerHTML.replace(/••••/g, '<mark class="mk">••••</mark>');
   if ($('#shLogin')) $('#shLogin').onclick = () => { $('#shareModal').classList.remove('open'); openSettings(false, 'account'); };
   $('#shGo').disabled = !p.signed_in;
 }
-$('#shareBtn').onclick = openShare;
+function shTarget(){ return SH.doc ? {doc_path: SH.doc} : {session_id: sessionId}; }
+let THUMB_N = 0;
+async function loadThumb(){
+  const box = $('#shThumb'); if (!box) return; const n = ++THUMB_N;
+  box.innerHTML = '<span class="spin"></span>';
+  const o = shOpts(false);
+  const r = await fetch('/api/share/thumbnail?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({...shTarget(), title: o.title, description: o.description, include_tools: o.include_tools, until_turn: o.until_turn,
+      query_rows: o.query_rows, mask_hosts: o.mask_hosts, extra_mask: o.extra_mask})}).catch(() => null);
+  const j = r && r.ok ? await r.json().catch(() => ({})) : {};
+  if (n !== THUMB_N) return;
+  box.innerHTML = j.image ? `<img src="${esc(j.image)}" alt="連結預覽縮圖">` : '<span class="note">無法產生縮圖（需要 Chromium 或 cairosvg）；平台會顯示 SinoBee.ai 預設圖。</span>';
+}
+$('#shareBtn').onclick = () => openShare();
 $('#shClose').onclick = () => $('#shareModal').classList.remove('open');
 $('#shGo').onclick = async () => {
   $('#shGo').disabled = true; $('#shState').textContent = '上傳中…';
   const r = await fetch('/api/share?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
-    session_id: sessionId, include_tools: $('#shTools').checked, title: $('#shTitle').value.trim(), visibility: SH.vis,
-    until_turn: +$('#shTurn').value || 0, query_rows: +$('#shRows').value, mask_hosts: $('#shHosts').checked, extra_mask: $('#shMask').value,
+    ...shTarget(), include_tools: SH.doc ? false : $('#shTools').checked, title: $('#shTitle').value.trim(), visibility: SH.vis,
+    description: $('#shDesc').value.trim(), thumbnail: SH.thumbOn,
+    until_turn: SH.doc ? 0 : +$('#shTurn').value || 0, query_rows: SH.doc ? 0 : +$('#shRows').value, mask_hosts: $('#shHosts').checked, extra_mask: $('#shMask').value,
     accounts: SH.vis === 'LOGIN' ? $('#shAcc').value.split(/[\s,]+/).filter(Boolean) : [], expires_days: +$('#shExp').value || null})});
   const j = await r.json().catch(() => ({}));
   if (!r.ok){ $('#shState').textContent = ''; $('#shGo').disabled = false; alert(j.detail || '分享失敗'); return; }

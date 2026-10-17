@@ -225,10 +225,11 @@ def build(config, messages: list[dict], *, include_tools: bool = True, title: st
             t["output"] = clean(_clip(content))
     if not out:
         raise ShareError("這段對話沒有可分享的內容")
-    files = attach_files(config, out) if attach else []
+    files = attach_files(config, out, clean) if attach else []
     first = next((x["text"].strip() for x in out if x["role"] == "user" and x["text"].strip()), "")
+    from .share_doc import describe_chat
     body = {"title": (title or (first.splitlines()[0] if first else "") or "對話")[:160],
-            "messages": out, "files": files, "redactions": red.summary(), "skills": skills,
+            "description": describe_chat(out), "messages": out, "files": files, "redactions": red.summary(), "skills": skills,
             "model": config.get("model.default") or None}
     size = len(json.dumps(body, default=str))
     if size > MAX_BYTES:
@@ -241,9 +242,12 @@ MAX_FILE = 25 * 1024 * 1024
 MAX_TOTAL = 100 * 1024 * 1024
 
 
-def attach_files(config, messages: list[dict]) -> list[dict]:
+def attach_files(config, messages: list[dict], clean=None) -> list[dict]:
     """Workspace files the answers show or link (images, videos, any attachment) become share files
-    (25 MB each, 100 MB in total); refs are rewritten to files/<n>. Files are sent as multipart, not inline."""
+    (25 MB each, 100 MB in total); refs are rewritten to files/<n>. Files are sent as multipart, not inline.
+    A linked report or page (.md / .html) travels with the files it uses, under doc<k>/ with its relative paths,
+    so sinobee.ai can show it like SinoBee's viewer does; its text is redacted like the conversation."""
+    from . import share_doc
     ws = Path(config.workspace).resolve()
     files: list[dict] = []
     seen: dict[str, str] = {}
@@ -277,6 +281,26 @@ def attach_files(config, messages: list[dict]) -> list[dict]:
         seen[str(p)] = fid
         return fid
 
+    docs: dict[str, str] = {}
+
+    def add_doc(p: Path) -> str | None:
+        nonlocal total
+        if str(p) in docs:
+            return docs[str(p)]
+        bundle = share_doc.collect(p)
+        size = sum(f["size"] for f in bundle)
+        if len(files) + len(bundle) > 40 or total + size > MAX_TOTAL:
+            return add(p)
+        prefix = f"doc{len(docs) + 1}/"
+        entry = None
+        for f in bundle:
+            total += f["size"]
+            fid = str(len(files) + 1)
+            files.append(_doc_file(f, prefix, clean))
+            entry = entry or fid
+        docs[str(p)] = entry
+        return entry
+
     def img(m):
         alt, ref = m.group(1), m.group(2)
         if re.match(r"^(https?:|data:)", ref):
@@ -290,12 +314,75 @@ def attach_files(config, messages: list[dict]) -> list[dict]:
         p = resolve(ref)
         if not p:
             return m.group(0) if re.match(r"^(https?:|mailto:|#)", ref) else text
-        fid = add(p)
+        fid = add_doc(p) if p.suffix.lower() in (".md", ".markdown", ".html", ".htm") else add(p)
         return f"[{text}](files/{fid})" if fid else f"{text}（未附上）"
     for msg in messages:
         if msg["role"] == "assistant":
             msg["text"] = LINK_REF.sub(link, IMG_REF.sub(img, msg["text"]))
     return files
+
+
+def _doc_file(f: dict, prefix: str, clean) -> dict:
+    """A document bundle file; text files are redacted and sent inline (the redacted text, not the disk file)."""
+    from . import share_doc
+    out = {"name": prefix + f["name"], "mime": f["mime"], "size": f["size"]}
+    if clean and Path(f["name"]).suffix.lower() in share_doc.TEXT_EXT:
+        data = clean(Path(f["path"]).read_text(encoding="utf-8", errors="replace")).encode()
+        out.update(data=base64.b64encode(data).decode(), size=len(data))
+        if out["mime"].startswith("text/") or out["mime"] in ("application/javascript", "image/svg+xml"):
+            out["mime"] = out["mime"].split(";")[0]
+    else:
+        out["path"] = f["path"]
+    return out
+
+
+def build_doc(config, path: str, *, title: str | None = None, mask_hosts: bool = False,
+              extra_mask: list[str] | None = None, keep_paths: bool = False) -> dict:
+    """A report or page a skill made, shared on its own: the entry, the files it uses, a title and a description."""
+    from . import share_doc
+    from .fileaccess import FileAccessError, resolve_file
+    try:
+        entry = resolve_file(config, path)
+    except FileAccessError as e:
+        raise ShareError(str(e)) from None
+    if entry.suffix.lower() not in share_doc.DOC_EXT:
+        raise ShareError("只能分享 Markdown 報告或 HTML／SVG 頁面")
+    red = Redactor(config)
+    if keep_paths:
+        red.home = ""
+    extra = sorted({w.strip() for w in (extra_mask or []) if len(w.strip()) >= 2}, key=len, reverse=True)
+
+    def clean(t: str) -> str:
+        t = red(t)
+        for w in extra:
+            if w in t:
+                red._hit("custom", t.count(w))
+                t = t.replace(w, "••••")
+        if mask_hosts:
+            t, n = HOST_RX.subn("••••", t)
+            red._hit("host", n)
+        return t
+    bundle = share_doc.collect(entry)
+    files = [_doc_file(f, "", clean) for f in bundle]
+    auto_title, desc = share_doc.describe(entry)
+    return {"kind": "doc", "entry": bundle[0]["name"], "title": clean(title or auto_title)[:160], "description": clean(desc),
+            "messages": [], "files": files, "redactions": red.summary(), "skills": [],
+            "model": None, "_entry_path": str(entry), "_bundle": bundle}
+
+
+def make_thumbnail(body: dict, *, title: str, description: str) -> bytes | None:
+    """The 1200×630 picture social platforms show for the link."""
+    from . import share_doc
+    if body.get("kind") == "doc":
+        entry = Path(body["_entry_path"])
+        label = "報告" if entry.suffix.lower() in (".md", ".markdown") else "互動頁面"
+        return share_doc.thumbnail(title=title, description=description, label=label, entry=entry, files=body["_bundle"])
+    image = None
+    for f in body.get("files") or []:
+        if f["mime"] in ("image/png", "image/jpeg", "image/webp") and "path" in f and f["size"] <= 8 * 1024 * 1024:
+            image = (Path(f["path"]).read_bytes(), f["mime"])
+            break
+    return share_doc.thumbnail(title=title, description=description, label="對話", image=image)
 
 
 def _req(config, method: str, path: str, **kw) -> httpx.Response:
@@ -315,11 +402,16 @@ def _err(r: httpx.Response) -> str:
 
 
 def upload(config, body: dict, *, visibility: str = "LINK", accounts: list[str] | None = None,
-           expires_days: int | None = 30) -> dict:
-    """Multipart upload: `share` (JSON) + `files` (attachments read from disk). expires_days None = never."""
-    meta = {k: v for k, v in body.items() if k != "files"}
+           expires_days: int | None = 30, description: str | None = None, thumbnail: bytes | None = None) -> dict:
+    """Multipart upload: `share` (JSON) + `files` (attachments read from disk) + `thumb` (the link-preview picture).
+    expires_days None = never."""
+    meta = {k: v for k, v in body.items() if k != "files" and not k.startswith("_")}
     meta.update({"visibility": visibility.upper(), "accounts": accounts or [],
                  "expiresInDays": int(expires_days) if expires_days else None, "files": []})
+    if description is not None:
+        meta["description"] = description[:300]
+    # multipart file names lose their folders on some servers: the bundle paths travel in the JSON too
+    meta["fileNames"] = [f["name"] for f in body.get("files") or []]
     handles = []
     try:
         parts = []
@@ -330,6 +422,9 @@ def upload(config, body: dict, *, visibility: str = "LINK", accounts: list[str] 
                 parts.append(("files", (f["name"], fh, f["mime"])))
             elif "data" in f:
                 parts.append(("files", (f["name"], base64.b64decode(f["data"]), f["mime"])))
+        if thumbnail:
+            parts.append(("thumb", ("thumb.png" if thumbnail[:4] == b"\x89PNG" else "thumb.jpg", thumbnail,
+                                    "image/png" if thumbnail[:4] == b"\x89PNG" else "image/jpeg")))
         if parts:
             r = _req(config, "POST", "/api/v1/shares", data={"share": json.dumps(meta, ensure_ascii=False)}, files=parts)
         else:
@@ -340,7 +435,7 @@ def upload(config, body: dict, *, visibility: str = "LINK", accounts: list[str] 
     if r.status_code >= 400:
         raise ShareError(f"分享失敗：{_err(r)}")
     res = r.json()
-    remember(config, res, body.get("session_id"))
+    remember(config, res, body.get("session_id"), body.get("doc_path"))
     return res
 
 
@@ -356,9 +451,9 @@ def records(config) -> list[dict]:
         return []
 
 
-def remember(config, res: dict, session_id: str | None) -> None:
+def remember(config, res: dict, session_id: str | None, doc_path: str | None = None) -> None:
     items = [r for r in records(config) if r.get("id") != res.get("id")]
-    items.insert(0, {"id": res.get("id"), "url": res.get("url"), "title": res.get("title"), "session_id": session_id,
+    items.insert(0, {"id": res.get("id"), "url": res.get("url"), "title": res.get("title"), "session_id": session_id, "doc_path": doc_path,
                      "visibility": res.get("visibility"), "created_at": res.get("created_at")})
     _records_path(config).write_text(json.dumps(items[:500], ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -429,7 +524,10 @@ def import_share(config, memory, url: str) -> dict:
             r = account.send(config, "GET", fu, timeout=120) if mine else httpx.get(fu, headers=account.UA, timeout=120)
             if r.status_code == 200 and len(r.content) <= MAX_FILE:
                 folder.mkdir(parents=True, exist_ok=True)
-                safe = re.sub(r"[^\w.\-]+", "_", f["name"])[:120] or f"file-{f['id']}"
+                # bundle files keep their folders (doc1/frames/t0915.jpg), each part made safe, never ../
+                parts = [re.sub(r"[^\w.\-]+", "_", x)[:120].lstrip(".") for x in str(f["name"]).split("/") if x not in ("", ".", "..")]
+                safe = "/".join(x for x in parts if x) or f"file-{f['id']}"
+                (folder / safe).parent.mkdir(parents=True, exist_ok=True)
                 (folder / safe).write_bytes(r.content)
                 names[f["id"]] = f"imports/{sid}/{safe}"
         except httpx.HTTPError:
@@ -438,6 +536,10 @@ def import_share(config, memory, url: str) -> dict:
     def fix(t: str) -> str:
         return re.sub(r"\]\(files/(\d+)\)", lambda m: f"]({names.get(m.group(1), '#')})", t)
     msgs = []
+    if doc.get("kind") == "doc":
+        entry = next((names[f["id"]] for f in doc.get("files") or [] if f["name"] == doc.get("entry") and f["id"] in names), None)
+        msgs.append(Message(role="assistant", content=f"**{doc.get('title') or '分享的文件'}**\n\n{doc.get('description') or ''}\n\n"
+                            + (f"[開啟文件]({entry})" if entry else "（文件無法下載）")))
     for m in doc.get("messages") or []:
         text = fix(m.get("text") or "")
         if m.get("role") == "assistant" and m.get("tools"):

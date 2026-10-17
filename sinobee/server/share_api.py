@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 
 from fastapi import FastAPI, HTTPException
 
@@ -31,30 +33,65 @@ def register(app: FastAPI, rt) -> None:
         return msgs
 
     def build(body: dict) -> dict:
-        msgs = msgs_of(str(body.get("session_id") or ""))
         try:
+            if body.get("doc_path"):
+                o = _opts(body)
+                b = share.build_doc(rt().config, str(body["doc_path"]), title=o["title"], mask_hosts=o["mask_hosts"],
+                                    extra_mask=o["extra_mask"], keep_paths=o["keep_paths"])
+                b["doc_path"] = str(body["doc_path"])
+                return b
+            msgs = msgs_of(str(body.get("session_id") or ""))
             b = share.build(rt().config, msgs, **_opts(body))
         except share.ShareError as e:
             raise HTTPException(400, str(e)) from None
         b["session_id"] = body.get("session_id")
         return b
 
+    thumbs: dict[str, bytes] = {}   # previewed link pictures, uploaded exactly as shown
+
+    def thumb_for(body: dict, b: dict) -> tuple[str, bytes | None]:
+        title = str(body.get("title") or b["title"])[:160]
+        desc = str(body.get("description") if body.get("description") is not None else b.get("description") or "")[:300]
+        key = hashlib.sha256(repr((body.get("doc_path"), body.get("session_id"), body.get("until_turn"), title, desc,
+                                   [f["name"] for f in b["files"]])).encode()).hexdigest()[:24]
+        if key not in thumbs:
+            if len(thumbs) > 40:
+                thumbs.clear()
+            thumbs[key] = share.make_thumbnail(b, title=title, description=desc) or b""
+        return key, thumbs[key] or None
+
     @app.post("/api/share/preview")
     async def preview(body: dict):
         b = await asyncio.to_thread(build, body)
         files = [{"id": str(i + 1), "name": f["name"], "mime": f["mime"], "size": f["size"]} for i, f in enumerate(b["files"])]
-        turns = share.user_turns(msgs_of(str(body.get("session_id") or "")))
-        return {**b, "files": files, "turns": turns, "signed_in": bool(account.token(rt().config)),
+        turns = [] if b.get("kind") == "doc" else share.user_turns(msgs_of(str(body.get("session_id") or "")))
+        out = {k: v for k, v in b.items() if not k.startswith("_")}
+        return {**out, "files": files, "turns": turns, "signed_in": bool(account.token(rt().config)),
                 "hub_url": account.base_url(rt().config)}
+
+    @app.post("/api/share/thumbnail")
+    async def thumbnail(body: dict):
+        """The link-preview picture (1200×630) for the current title and description."""
+        b = await asyncio.to_thread(build, body)
+        key, png = await asyncio.to_thread(thumb_for, body, b)
+        if not png:
+            return {"key": None, "image": None}
+        mime = "image/png" if png[:4] == b"\x89PNG" else "image/jpeg"
+        return {"key": key, "image": f"data:{mime};base64," + base64.b64encode(png).decode()}
 
     @app.post("/api/share")
     async def create(body: dict):
         b = await asyncio.to_thread(build, body)
         accounts = [a for a in (body.get("accounts") or []) if str(a).strip()]
         exp = body.get("expires_days", 30)
+        desc = str(body["description"])[:300] if body.get("description") is not None else b.get("description")
+        png = None
+        if body.get("thumbnail") is not False:
+            _, png = await asyncio.to_thread(thumb_for, body, b)
         try:
             return await asyncio.to_thread(share.upload, rt().config, b, visibility=str(body.get("visibility") or "LINK"),
-                                           accounts=accounts, expires_days=int(exp) if exp else None)
+                                           accounts=accounts, expires_days=int(exp) if exp else None,
+                                           description=desc, thumbnail=png)
         except (share.ShareError, account.AccountError) as e:
             raise HTTPException(400, str(e)) from None
 
