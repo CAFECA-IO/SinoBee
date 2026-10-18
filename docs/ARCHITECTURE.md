@@ -741,6 +741,14 @@ sinobee eval show                   # 最近一次的結果
 | 記憶自評 | 反思提示要求情節摘要只寫事實；存入與召回時都去掉自評字眼；召回的情節標示「過去會話的線索，需重新驗證」 | `memory/neutral.py`、`learning/reflector.py`、`agent/prompt.py` |
 | 證據只是自述 | 驗收清單標 done 的證據必須可查：存在的檔案路徑、URL，或本輪工具真的回傳過的文字 | `tools/checklist_tools.py` |
 | 延遲 | `agent.inline_aux`（預設 auto）：主模型在雲端、輔助模型在本機時，任務當下要等的壓縮改用主模型；背景工作仍用輔助模型 | `agent/loop.py` |
+| 重跑時偽造稽核紀錄（`echo PASS`） | `run.py audit <folder>` 執行每張圖的 `build({ audit: true })`，紀錄帶圖檔雜湊與結束碼；check 只認這種紀錄 | `engineering-feasibility` |
+| 舊資料夾被沉默沿用 | scaffold 對已有前次檔案的資料夾發出警告 | 同上 |
+| 60 步不夠 | 用到 `sinobee-complexity: high` 技能的回合上限為 `agent.max_iterations_complex`（120） | `agent/loop.py` |
+| 升級模型一步卡 15 分鐘 | `agent.model_deadline`（240 s）：步驟與驗收審查超時就改用主模型；逾時請求只重試 1 次 | `agent/loop.py`、`providers/base.py` |
+| 審查員的 revise 被丟掉 | 驗收審查無法執行時，審查員的 revise 當修正清單送回一次 | `agent/loop.py` |
+| 召回不相關記憶 | 關鍵詞依查詢詞覆蓋率計分、embedding 0.45 以下不計、`memory.recall_min_rel`（0.3） | `memory/store.py` |
+| 挑容易的主張湊「可行」 | 極限清單每項要有主張檢驗或 `verdict_impact`；文章引文存 `sources/` 才能查證 | `engineering-feasibility` |
+| 圖形畫出畫框、範本文字留在頁面 | 成果檢查偵測 SVG 超出 viewBox；check 偵測範本可見文字 | `agent/qa.py`、`engineering-feasibility` |
 | 回歸 | `core` 評測新增 `source-numbers-win`：逐字稿說 250 kg，舊文章說 690 bar／313 kg，答案必須以講者為準 | `evals/suites/core.json` |
 
 ### 仍待處理
