@@ -768,3 +768,28 @@ sinobee eval show                   # 最近一次的結果
 7. 技能品質分數：把技能宣告檢查的通過率（匿名、可關閉）上傳 SinoBee.ai，顯示在技能頁
 
 （子代理、平行工作流與排程任務已在第 14 節實作；Roadster 案例的修正見第 17 節。）
+
+## 19. 內建技能盤點（對照 Claude 內建技能，2026-10-19）
+
+對照 Claude（Claude Code / Cowork）提供的技能，SinoBee 缺少的是**一般工作最常交付的檔案格式**與**看成果**的能力。補上的技能全部是 SinoBee 自己撰寫（Claude 的 docx/xlsx/pptx/pdf 技能為專有授權，不複製），每個都有 `scripts/run.py`、宣告的檢查與測試（`tests/test_builtin_skills.py`）。
+
+| Claude 技能 | SinoBee 對應 | 狀態 |
+|---|---|---|
+| docx | `word-documents`：大綱 JSON → .docx（樣式化標題、清單、表格、圖說、目錄、頁碼、東亞字型）；`replace --track` 產生真正的追蹤修訂；check（標題層級、殘留範本字、CJK 字型、空段落）；render | 新增 |
+| xlsx | `spreadsheets`：活公式、輸入/公式配色、數字格式、凍結窗格、原生圖表；check 以 LibreOffice 重算後找 #DIV/0!、#REF!、#NAME?、文字型數字、手打的合計 | 新增 |
+| pptx | `presentations`：16:9 主題版型（title/section/bullets/two-column/image/chart/table/quote/big-number/closing）、原生圖表、講者備註；check 以 CJK 字寬估算文字溢出、出界、空白版位、過小字級；render 逐頁 PNG | 新增 |
+| pdf / pdf-reading | `pdf-documents`：info（掃描頁、字型嵌入）、text、tables、render、merge/split/rotate/stamp、表單 fields/fill、HTML→PDF（Chromium，中文正確） | 新增 |
+| file-reading | 核心：`read_file` 讀 .docx/.xlsx/.pptx/.pdf 時回傳文字（`sinobee/docread.py`，Office 只用標準函式庫） | 核心改進 |
+| dataviz | `data-visualization`：圖表形式選擇、誠實刻度、`sbplot`（CJK 字型、缺字拒存）、經 protan/deutan/tritan 模擬驗證的 6 色調色盤（`run.py validate`） | 新增 |
+| frontend-design | `frontend-design`：方向、設計代號、行動優先、離線自足；check 以 390/1280 px 與深色模式開頁：橫向捲動、對比、alt、lang、viewport、網路資源、腳本錯誤 | 新增 |
+| /review、/security-review（Claude Code） | `code-review`：scope（範圍、提交、diff、測試指令）、secrets；流程要求每個發現都要以具體輸入證實 | 新增 |
+| skill-creator | `skill-authoring` | 已有 |
+| deep-research | `web-research` | 已有 |
+| computer-use / chrome-browser | `desktop-automation`、`browser-form-filling` | 已有 |
+| 生活類（訂餐、退貨、報帳…）、品牌/主題、Slack GIF | 不內建：屬個人或組織情境，可由使用者安裝 | 不納入 |
+
+核心配套：
+- 技能的 Python 腳本改用 SinoBee 自己的直譯器（`sys.executable`）執行，`pip install "sinobee[office]"` 裝的套件就用得到。
+- 新的中繼資料 `sinobee-requires-python`（`docx=python-docx, openpyxl`）：缺套件時 `skill_run` 直接回報缺哪些與安裝指令；技能檢查在缺套件時略過而不誤擋。
+- 視覺檢查（第 17 節）會把產出的 PDF / Word / PowerPoint / Excel 前 4 頁轉成圖片一起判讀（需要 LibreOffice 與 pdftoppm）。
+- `pyproject.toml` 新增 `office` extra。

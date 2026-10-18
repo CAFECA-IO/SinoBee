@@ -14,6 +14,9 @@ SinoBee extension keys (all inside `metadata`, values are strings):
   sinobee-requires-tools          comma-separated SinoBee tool names; skill is hidden when one is unavailable
   sinobee-platforms               comma-separated: linux, macos, windows
   sinobee-category                free text
+  sinobee-requires-python         comma-separated modules the skill's Python scripts import, as module or
+                                  module=pip-name ("docx=python-docx, openpyxl"); skill_run names the missing ones
+                                  and the install command instead of failing inside the script
 Trust, provenance and usage statistics are NEVER read from the skill itself (a skill could lie about them);
 they live in SinoBee's lock file / database.
 """

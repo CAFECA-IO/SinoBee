@@ -276,7 +276,19 @@ docker compose up -d --build
 
 ### 技能
 
-技能是 SinoBee 會做的「標準作業流程」。內建網頁研究、桌面操作、表單填寫、程式專案解說、技能撰寫，也會在完成任務後自己生成新技能。每個技能都標示信任級別（內建、官方驗證、本機、專案、自動生成、社群、未信任、已封鎖），來路不明的技能要執行腳本前會先問你。
+技能是 SinoBee 會做的「標準作業流程」。內建技能：
+
+| 類別 | 技能 |
+|---|---|
+| 辦公文件 | `word-documents`（Word，含追蹤修訂）、`spreadsheets`（Excel，公式重算檢查）、`presentations`（PowerPoint，逐頁截圖檢查）、`pdf-documents`（讀取、合併分割、填表、HTML 轉 PDF） |
+| 呈現 | `data-visualization`（色覺安全配色、中文字型）、`frontend-design`（網頁設計，手機與深色模式檢查）、`anatomy`（3D 機構圖） |
+| 研究與分析 | `web-research`、`youtube-analysis`、`engineering-feasibility`、`database-analysis` |
+| 程式 | `code-review`（找真正的缺陷與資安問題）、`code-repo-explainer` |
+| 操作 | `browser-form-filling`、`desktop-automation` |
+| 製作 | `ai-video-production` |
+| 自身 | `skill-authoring`、`memory-management` |
+
+辦公文件技能需要 `pip install "sinobee[office]"`；畫面截圖與頁面檢查需要 LibreOffice 與 Playwright 的 Chromium（沒有時會說明未檢查）。SinoBee 也會在完成任務後自己生成新技能。每個技能都標示信任級別（內建、官方驗證、本機、專案、自動生成、社群、未信任、已封鎖），來路不明的技能要執行腳本前會先問你。
 
 - 全域技能：`~/.sinobee/skills/`；專案技能：`<專案>/.sinobee/skills/`（信任該專案後才會載入）
 - 可以從 GitHub、網址或資料夾安裝，也可以匯出分享；未來可在 [sinobee.ai](https://sinobee.ai) 技能市集取得

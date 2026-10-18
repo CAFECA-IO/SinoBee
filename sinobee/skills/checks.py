@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import shlex
+import sys
 import time
 from pathlib import Path
 
@@ -103,6 +104,10 @@ async def run(ctx, skill_names, paths: list[Path]) -> list[dict]:
         if s.disabled or pol.scripts == "deny" or (pol.scripts == "confirm" and cfg.get("permissions.approval") != "auto"):
             continue
         cmd_tpl, globs = sp
+        from ..tools.skill_tools import missing_python
+        if missing_python(s.metadata.get("sinobee-requires-python")):
+            log.info("skill %s check skipped: its Python packages are not installed", name)
+            continue
         targets = [p for p in paths if p.is_file() and _matches(p, cfg.workspace, globs)]
         per_dir = "{dir}" in cmd_tpl and "{file}" not in cmd_tpl
         if per_dir:        # a folder check runs once per folder, however many of its files the task wrote
@@ -115,7 +120,7 @@ async def run(ctx, skill_names, paths: list[Path]) -> list[dict]:
                 break
             args = (parts[1] if len(parts) > 1 else "").replace("{file}", shlex.quote(str(target))) \
                 .replace("{dir}", shlex.quote(str(target.parent)))
-            runner = {"py": "python3", "sh": "bash", "js": "node"}.get(script.suffix.lstrip("."), "")
+            runner = {"py": shlex.quote(sys.executable), "sh": "bash", "js": "node"}.get(script.suffix.lstrip("."), "")
             out = await shell(ctx, f"{runner} {shlex.quote(str(script))} {args}".strip(), timeout=180)
             m = re.match(r"\[exit (-?\d+)", out)
             code = int(m.group(1)) if m else 0

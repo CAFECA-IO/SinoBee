@@ -6,7 +6,8 @@ caption claims. The thorium run of 2026-10-19 delivered a page whose only figure
 Roadster run animated a car whose thrust arrows pointed the wrong way; both passed every structural check.
 
 Here every produced page is screenshotted (the full page, then each drawing on its own, with the heading or caption
-that says what it shows), image files are added as they are, and a vision model judges each picture against the
+that says what it shows), image files are added as they are, the first pages of produced PDF / Word / PowerPoint / Excel files are
+rendered (LibreOffice + pdftoppm when installed), and a vision model judges each picture against the
 request. Only blocking problems go back to the agent; a judgment that cannot run (no vision model, timeout) is
 reported as skipped, never as passed.
 """
@@ -24,6 +25,7 @@ log = logging.getLogger("sinobee.visual")
 IMAGE_EXT = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
              ".gif": "image/gif"}
 MAX_SHOTS = 10
+DOC_EXT = {".pdf", ".docx", ".pptx", ".xlsx"}
 MAX_IMAGE = 4 * 1024 * 1024
 
 RUBRIC = """You are checking the pictures a task produced, as the user will see them, before the task may be called done.
@@ -72,6 +74,9 @@ async def collect(paths: list[Path]) -> list[dict]:
         await qa.check(pages, figures=figures)
     for svg in svgs:
         figures += await _render_svg(svg)
+    docs = [Path(p) for p in paths if Path(p).suffix.lower() in DOC_EXT][:3]
+    for doc in docs:
+        figures += await asyncio.to_thread(_render_doc, doc)
     figures += image_files(paths)
     seen, out = set(), []
     for f in figures:
@@ -104,6 +109,20 @@ async def _render_svg(path: Path) -> list[dict]:
     except Exception as e:  # noqa: BLE001
         log.info("svg render failed for %s: %s", path, e)
         return []
+
+
+def _render_doc(path: Path) -> list[dict]:
+    """The first pages of a produced PDF / Word / PowerPoint / Excel file, as the reader will see them."""
+    import tempfile
+    from ..docread import render_pages
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            pages = render_pages(path, Path(tmp), pages=4)
+        except Exception as e:  # noqa: BLE001 - no LibreOffice / poppler: those pages are not judged
+            log.info("page render failed for %s: %s", path, e)
+            return []
+        return [{"path": str(path), "label": f"{path.name} 第 {n} 頁", "caption": "", "image": p.read_bytes(),
+                 "mime": "image/png"} for n, p in enumerate(pages, 1)]
 
 
 def parse(text: str) -> list[dict]:
