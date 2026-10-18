@@ -282,7 +282,6 @@ async def test_a_reviewers_revise_stands_when_the_judge_cannot_run(home, monkeyp
 
 
 def _wrap_review(agent, then):
-    orig = agent._review
 
     async def review(query, final_text, stats, level):
         if "reviewed" not in stats:                      # run the real independent reviewer once
