@@ -168,6 +168,23 @@ class Runtime:
                 return None
         return self._strong
 
+    @staticmethod
+    def is_local(prov) -> bool:
+        label = str(getattr(prov, "label", "") or "")
+        return label.startswith(("ollama/", "local/", "lmstudio/", "vllm/")) or \
+            bool(re.search(r"//(localhost|127\.0\.0\.1|host\.docker\.internal)", str(getattr(prov, "base_url", ""))))
+
+    def inline_aux(self):
+        """The model for auxiliary work that a running task waits on (compaction, working-memory compression).
+        agent.inline_aux: auto (default) uses model.auxiliary unless it runs locally while the main model is in the
+        cloud - a small local model there turned every long step into minutes - then the main model is used;
+        "auxiliary" or "main" force one. Background work (reflection, memory upkeep) always uses model.auxiliary."""
+        mode = str(self.config.get("agent.inline_aux", "auto")).lower()
+        if mode == "main" or (mode == "auto" and self.aux is not self.provider
+                              and self.is_local(self.aux) and not self.is_local(self.provider)):
+            return self.provider
+        return self.aux
+
     def reviewer(self):
         """The model that judges results (model.reviewer): ideally another family than the main model, so the
         acceptance review does not share the main model's blind spots. None: use strong() or the main model."""
@@ -391,7 +408,7 @@ class Agent:
         wm = self.ctx.working
         if wm and sum(len(str(v)) for v in wm.values()) > limit // 2:
             from ..memory.working import compress_working
-            new = await compress_working(wm, self.rt.aux, limit // 2)
+            new = await compress_working(wm, self.rt.inline_aux(), limit // 2)
             if new != wm:
                 wm.clear()
                 wm.update(new)
@@ -1077,10 +1094,11 @@ class Agent:
         if usage_scope is not None:
             usage_scope.purpose = "compression"
         self._persist()   # the DB keeps the full transcript; only the model context is compacted
-        aux_spec = self.config.get("model.auxiliary") or self.config.get("model.default")
+        aux_spec = (self.config.get("model.auxiliary") if self.rt.inline_aux() is self.rt.aux else None) \
+            or self.config.get("model.default")
         aux_window, _ = context_window(self.config, aux_spec)
         try:
-            res = await compact([self.system] + self.history, self.rt.aux, budget=budget, tools=tool_specs,
+            res = await compact([self.system] + self.history, self.rt.inline_aux(), budget=budget, tools=tool_specs,
                                 extra=context_block, force=force, keep_ratio=keep_ratio,
                                 digest_tokens=max(2000, min(40000, int(aux_window * 0.6) - 2000)))
         finally:

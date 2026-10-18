@@ -3,6 +3,7 @@ worked example, an untouched template, or an analysis that ignores the numbers i
 
 Reproduces the Roadster Rocket run of 2026-10-18: the agent scaffolded `--example roadster`, flipped
 "example": true to false and delivered the example (690 bar, 313 kg) although the transcript says ~250 kg."""
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -11,8 +12,9 @@ from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent / "sinobee" / "bundled_skills" / "engineering-feasibility"
 FIX = Path(__file__).resolve().parent / "fixtures" / "roadster_incident"
-sys.path.insert(0, str(SKILL / "scripts"))
-import check  # noqa: E402
+_spec = importlib.util.spec_from_file_location("feasibility_check", SKILL / "scripts" / "check.py")
+check = importlib.util.module_from_spec(_spec)     # a unique name: youtube-analysis also has scripts/check.py
+_spec.loader.exec_module(check)
 
 VID = "qt5p-_tE8d0"
 REPORT = "\n".join(["# R", "## 判定", "有條件", "## 主張", "## 工程原理", "## 物理極限", "## 假設",

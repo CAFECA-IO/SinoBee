@@ -19,6 +19,7 @@ import re
 import shutil
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 from ..config import Config
@@ -215,7 +216,9 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
         tasks = [t for t in tasks if t["id"] in task_ids]
         if not tasks:
             raise EvalError(f"no task {', '.join(task_ids)} in {suite}")
-    rid = time.strftime("%Y%m%d-%H%M%S") + "-" + re.sub(r"[^\w-]+", "-", suite)[-30:].strip("-")
+    # unique even for two runs in the same second (the second used to overwrite the first and lose its baseline)
+    rid = (time.strftime("%Y%m%d-%H%M%S") + f"{int(time.time() * 1000) % 1000:03d}-" + uuid.uuid4().hex[:4] + "-"
+           + re.sub(r"[^\w-]+", "-", suite)[-30:].strip("-"))
     path = evals_dir(home) / "results" / f"{rid}.json"
     doc = {"id": rid, "suite": suite, "status": "running", "started": time.time(), "k": k,
            "model": getattr(rt.provider, "label", ""), "progress": {"done": 0, "total": len(tasks)}, "tasks": []}

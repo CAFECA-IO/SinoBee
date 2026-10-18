@@ -53,6 +53,7 @@ def project(tmp_path):
     root = tmp_path / "tea"
     run("project.py", "init", root, "--genre", "documentary", "--title", "茶")
     data = json.loads((SKILL / "assets" / "example-documentary.json").read_text())
+    data["example_ok"] = True                                # the fixture is the sample film on purpose
     (root / "project.json").write_text(json.dumps(data, ensure_ascii=False))
     return root
 
@@ -197,6 +198,9 @@ def test_next_walks_the_pipeline(tmp_path, monkeypatch):
     assert any("script.body" in m for m in out["missing"])
     run("project.py", "merge", root, SKILL / "assets" / "example-film-duel.json")
     code, out = run("next.py", root)
+    assert any("bundled example" in m for m in out["missing"]) or out["phase"].startswith("1-4")
+    run("project.py", "set", root, "example_ok", "true")      # the test plays the sample film on purpose
+    code, out = run("next.py", root)
     assert out["phase"] == "1 audio-first" and out["call"]["script"] == "scripts/tts.py"
     run("project.py", "set", root, "skip_tts", "true")
     code, out = run("next.py", root)
@@ -254,3 +258,11 @@ def test_autopilot_stops_before_the_final_render_with_a_draft_preview(tmp_path, 
     assert out["status"] == "ready_for_final", out
     assert out["units"] == 2 and (root / "out" / "draft.mp4").exists() and not (root / "out" / "final.mp4").exists()
     assert any("qc.py" in s for s in out["steps_done"]) and "draft preview out/draft.mp4" in out["steps_done"]
+
+
+def test_a_plan_that_is_the_example_film_is_refused(tmp_path):
+    root = tmp_path / "mine"
+    run("project.py", "init", root, "--genre", "film")
+    run("project.py", "merge", root, SKILL / "assets" / "example-film-duel.json")
+    code, out = run("project.py", "validate", root, ok=False)
+    assert code == 1 and any("bundled example example-film-duel.json" in e for e in out["errors"])

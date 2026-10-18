@@ -143,3 +143,23 @@ async def test_checklist_evidence_must_be_checkable(home, provider):
     texts = [m.text() for m in agent.history]
     assert any("the evidence must be checkable" in t for t in texts)
     assert agent.ctx.state["checklist"] == [] or agent.ctx.state["checklist"][0]["status"] == "done"
+
+
+# ---------- latency ----------
+
+def test_inline_compaction_avoids_a_local_aux_model_when_the_main_model_is_remote(home):
+    main, aux = ScriptedProvider([]), ScriptedProvider([])
+    aux.label = "ollama/gemma4:e4b"
+    rt = Runtime(Config.load(), provider=main, aux_provider=aux)
+    assert rt.inline_aux() is main                     # the task would wait on a small local model
+    rt.config.data["agent"]["inline_aux"] = "auxiliary"
+    assert rt.inline_aux() is aux
+    rt.config.data["agent"]["inline_aux"] = "auto"
+    aux.label = "openai/gpt-5-mini"
+    assert rt.inline_aux() is aux                      # a cloud auxiliary model is still used
+
+
+def test_core_eval_has_the_source_numbers_regression():
+    suite = json.loads((ROOT / "sinobee" / "evals" / "suites" / "core.json").read_text(encoding="utf-8"))
+    task = next(t for t in suite["tasks"] if t["id"] == "source-numbers-win")
+    assert "250 kilos of air" in task["setup"]["files"]["talk/transcript.md"]

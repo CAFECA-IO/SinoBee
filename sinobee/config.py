@@ -52,6 +52,7 @@ DEFAULTS: dict[str, Any] = {
         "snapshot_days": 14,
         "checklist_after_tool_calls": 4,  # remind the agent to write an acceptance checklist after this many tools        # times an open checklist / failed file check is sent back to be fixed
         "escalate_after_errors": 3, # consecutive tool errors before switching to model.escalate
+        "inline_aux": "auto",       # model for compaction a running task waits on: auto | auxiliary | main
         "escalate_after_steps": 25, # steps in one turn before switching to model.escalate
     },
     "permissions": {
