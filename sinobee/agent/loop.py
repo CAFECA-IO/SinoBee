@@ -339,7 +339,9 @@ class Agent:
                 query, self.tool_names, self.config.get("skills.index_mode", "auto"),
                 int(self.config.get("skills.index_all_threshold", 20)), int(self.config.get("skills.retrieve_n", 6)))
         if recalled:
-            self._emit("recall", {"memories": [m.brief() for m in recalled]})
+            from ..memory.neutral import neutral
+            self._emit("recall", {"memories": [{**m.brief(), "content": neutral(m.content)} if m.kind == "episode"
+                                               else m.brief() for m in recalled]})
         brief = ""
         if "board_read" in self.tool_names:
             try:

@@ -9,6 +9,7 @@ with it.
 from __future__ import annotations
 
 import json
+import re
 import time
 
 from .registry import ToolContext, tool
@@ -60,6 +61,40 @@ def render(items: list[dict]) -> str:
             "user asks for more.\n" + "\n".join(lines) + "\n</task_checklist>")
 
 
+PATHISH = re.compile(r"[\w./~-]*[\w-]\.[A-Za-z0-9]{1,5}\b|(?:~|/|\.\.?/)[\w./-]+")
+URL = re.compile(r"https?://\S+")
+
+
+def _tool_outputs(ctx: ToolContext) -> str:
+    agent = ctx.state.get("agent")
+    hist = getattr(agent, "history", None) or []
+    return "\n".join(m.text() for m in hist[-400:] if getattr(m, "role", "") == "tool")
+
+
+def verifiable(ctx: ToolContext, evidence: str) -> bool:
+    """Evidence someone else can check: an existing file, a URL, or text that a tool of this task really returned."""
+    ev = (evidence or "").strip()
+    if URL.search(ev):
+        return True
+    from ..fileaccess import resolve_file
+    for token in PATHISH.findall(ev):
+        try:
+            if resolve_file(ctx.config, token.strip(".,;:)(")).exists():
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    outputs = _tool_outputs(ctx)
+    if not outputs:
+        return True                        # no history to compare against (tests, direct calls)
+    flat = re.sub(r"\s+", " ", outputs)
+    for j, part in enumerate(re.split(r"[`\"“”「」]", ev)):
+        part = re.sub(r"\s+", " ", part).strip()
+        if len(part) >= (6 if j % 2 else 16) and part in flat:     # quoted output may be short
+            return True
+    norm = re.sub(r"\s+", " ", ev)
+    return any(norm[i:i + 16] in flat for i in range(0, max(1, len(norm) - 15), 4)) if len(norm) >= 16 else False
+
+
 @tool("task_checklist", "core",
       "The acceptance checklist of a multi-step task: what must be true for the result to be right (e.g. 'the "
       "report has a cover image', 'every number cites a source', 'the page opens without errors'), each with how "
@@ -107,6 +142,10 @@ def task_checklist(ctx: ToolContext, action: str, items: list | None = None, id:
             return f"ERROR: status must be one of {', '.join(STATUSES)}."
         if status == "done" and not evidence.strip():
             return "ERROR: marking an item done needs evidence (the command output, file path, screenshot or URL that shows it)."
+        if status == "done" and not verifiable(ctx, evidence):
+            return ("ERROR: the evidence must be checkable: a file path that exists, a URL, or words copied from a tool "
+                    "result of this task (for example a line of command output). A description of what you did, or "
+                    "'the check passed', is not evidence.")
         if status == "dropped" and not (note or evidence).strip():
             return "ERROR: say why the item is dropped (note)."
         item.update(status=status, evidence=(evidence or note).strip()[:300], updated=time.time())

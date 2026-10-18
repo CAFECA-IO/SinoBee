@@ -110,3 +110,36 @@ async def test_reviewer_runs_on_the_reviewer_model_and_its_unbacked_pass_is_flag
     assert "[系統核對] 審查員宣稱以下檢查通過" in judge_prompt          # the reviewer's audit claim is voided
     assert "UNBACKED CLAIMS" in judge_prompt and "所有 audit 都通過" in judge_prompt   # and the agent's own
     assert "WORK LOG" in judge_prompt and "read_file src.md" in judge_prompt
+
+
+# ---------- memory and evidence ----------
+
+def test_episode_summaries_lose_self_praise_and_are_labelled_when_recalled():
+    import time
+    from sinobee.agent.prompt import build_context_block
+    from sinobee.memory.neutral import neutral
+    from sinobee.memory.store import Memory
+    s = ("The agent successfully utilized the 'anatomy' skill and generated a visually enhanced HTML report, "
+         "which fully meets the delivery standard.")
+    assert neutral(s) == "The agent utilized the 'anatomy' skill and generated a HTML report."
+    assert neutral("審查完成，完全符合交付標準。代理成功地建立了報告") == "審查完成。代理建立了報告"
+    m = Memory("m1", "long", "episode", s, ["episode"], 0.3, 1.0, time.time(), time.time(), time.time(), 0)
+    block = build_context_block(recalled=[m], skills_index="", working={}, core_changes=[])
+    assert "successfully" not in block and "a lead, not a result - re-verify" in block
+
+
+async def test_checklist_evidence_must_be_checkable(home, provider):
+    provider.push("", [("task_checklist", {"action": "set", "items": [{"text": "模型使用影片的 250 kg"}]})])
+    provider.push("", [("shell", {"command": "echo AIR_KG=250"})])
+    provider.push("", [("task_checklist", {"action": "update", "id": 1, "status": "done",
+                                           "evidence": "check script reported no problems"})])   # a claim, not evidence
+    provider.push("", [("task_checklist", {"action": "update", "id": 1, "status": "done",
+                                           "evidence": "shell 輸出 `AIR_KG=250`"})])               # copied output
+    provider.push("好了")
+    cfg = Config.load()
+    cfg.data["permissions"]["approval"] = "auto"
+    agent = Agent(Runtime(cfg, provider=provider))
+    await agent.run("確認模型輸入")
+    texts = [m.text() for m in agent.history]
+    assert any("the evidence must be checkable" in t for t in texts)
+    assert agent.ctx.state["checklist"] == [] or agent.ctx.state["checklist"][0]["status"] == "done"
