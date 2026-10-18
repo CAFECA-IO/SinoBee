@@ -689,7 +689,7 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
 **技能宣告的檢查**（`skills/checks.py`）
 - `SKILL.md` metadata：`sinobee-checks: "scripts/check.py {file}"`（`{file}` / `{dir}` 自動帶入）與 `sinobee-checks-on: "reports/*.md"`。
 - 本輪用過的技能（`skill_view` / `skill_run` / 斜線指令）若有宣告，品質關卡就對符合的產出檔案執行它：結束碼 0 且輸出 JSON 的 `problems` 為空才算通過；`status: fix` 或 `ok: false` 也算失敗。腳本被拒絕、或需要核准但核准模式不是 auto 的技能不執行。
-- 結果寫進 `skill_checks` 表，技能統計多一欄 `checks`（次數、通過率、最近的問題）。`youtube-analysis` 已宣告 `scripts/run.py check {dir}`（`reports/youtube/*/report.md`）；`skill-authoring` 教寫技能時加上。
+- 結果寫進 `skill_checks` 表，技能統計多一欄 `checks`（次數、通過率、最近的問題）。只用 `{dir}` 的檢查以資料夾為單位，每個資料夾只跑一次，問題標在資料夾上。`youtube-analysis` 已宣告 `scripts/run.py check {dir}`（`reports/youtube/*/report.md`），`engineering-feasibility` 宣告同樣的指令（`reports/feasibility/*/report.md`，在報告寫好後檢查 feasibility.json、report.md 與 page.html）；`skill-authoring` 教寫技能時加上。
 - 設定：`agent.skill_checks`。
 
 **評測**（`sinobee/evals/`，CLI `sinobee eval`，API `/api/evals`，設定 →「品質」）

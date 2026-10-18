@@ -391,7 +391,7 @@ class SkillManager:
         r = self._stat_row(name)
         if not r:
             return {"uses": 0, "successes": 0, "failures": 0, "success_rate": None, "needs_revision": False,
-                    "status": "active"}
+                    "status": "active", "checks": self._check_summary(name)}
         rated = r["successes"] + r["failures"]
         return {"uses": r["uses"], "successes": r["successes"], "failures": r["failures"],
                 "success_rate": round(r["successes"] / rated, 2) if rated else None,

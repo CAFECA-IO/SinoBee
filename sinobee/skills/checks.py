@@ -104,6 +104,9 @@ async def run(ctx, skill_names, paths: list[Path]) -> list[dict]:
             continue
         cmd_tpl, globs = sp
         targets = [p for p in paths if p.is_file() and _matches(p, cfg.workspace, globs)]
+        per_dir = "{dir}" in cmd_tpl and "{file}" not in cmd_tpl
+        if per_dir:        # a folder check runs once per folder, however many of its files the task wrote
+            targets = list({p.parent: p for p in targets}.values())
         for target in list(dict.fromkeys(targets))[:5]:
             parts = cmd_tpl.split(None, 1)
             script = (s.path / parts[0]).resolve()
@@ -122,6 +125,8 @@ async def run(ctx, skill_names, paths: list[Path]) -> list[dict]:
             except Exception:  # noqa: BLE001
                 log.debug("could not record skill check", exc_info=True)
             for p in problems:
-                issues.append({"path": str(target), "name": target.name, "problem": f"技能 {name} 的檢查未通過：{p}",
+                issues.append({"path": str(target.parent if per_dir else target),
+                               "name": (target.parent.name + "/") if per_dir else target.name,
+                               "problem": f"技能 {name} 的檢查未通過：{p}",
                                "detail": "", "skill": name})
     return issues

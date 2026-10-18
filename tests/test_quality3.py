@@ -137,6 +137,29 @@ async def test_skill_declared_checks_run_before_the_task_may_finish(home, config
     assert st["runs"] == 2 and st["passed"] == 1
 
 
+async def test_folder_checks_run_once_per_folder(home, config):
+    from sinobee.skills import checks
+    from sinobee.tools.registry import ToolContext
+    d = config.skills_dir / "folder-check"
+    (d / "scripts").mkdir(parents=True)
+    (d / "SKILL.md").write_text("---\nname: folder-check\ndescription: Checks folders. Use for folders.\nmetadata:\n"
+                                "  sinobee-checks: \"scripts/c.py {dir}\"\n  sinobee-checks-on: \"jobs/*/*\"\n---\n# Procedure\nx\n",
+                                encoding="utf-8")
+    (d / "scripts" / "c.py").write_text("import json,sys,os\nprint(json.dumps({'problems': [] if os.path.exists("
+                                        "os.path.join(sys.argv[1], 'done.txt')) else ['done.txt missing']}))\n", encoding="utf-8")
+    job = ws(config) / "jobs" / "a"
+    job.mkdir(parents=True)
+    for n in ("x.md", "y.json"):
+        (job / n).write_text("1", encoding="utf-8")
+    rt = Runtime(config, provider=ScriptedProvider())
+    ctx = ToolContext(config=config, session_id="s", memory=rt.memory, skills=rt.skills)
+    issues = await checks.run(ctx, ["folder-check"], [job / "x.md", job / "y.json"])
+    assert len(issues) == 1 and issues[0]["name"] == "a/" and "done.txt missing" in issues[0]["problem"]
+    (job / "done.txt").write_text("ok", encoding="utf-8")
+    assert await checks.run(ctx, ["folder-check"], [job / "x.md"]) == []
+    assert rt.skills.stats("folder-check")["checks"]["runs"] == 2
+
+
 def test_check_output_parsing():
     from sinobee.skills.checks import parse
     assert parse(0, "[exit 0] cwd=/x\n{\"status\": \"ok\", \"problems\": []}") == []
