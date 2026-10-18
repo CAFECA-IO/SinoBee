@@ -233,10 +233,13 @@ def test_recall_does_not_bring_a_roadster_note_to_a_reactor_question(home):
     cfg = Config.load()
     mem = MemoryStore(cfg.db_path)
     mem.save("正在分析的系統是 Tesla Roadster 的「SpaceX 套件」冷氣推進器（Cold Gas Thruster）系統，其核心原理是利用高壓"
-             "氣體通過拉伐爾噴嘴進行等熵膨脹釋放推力。", kind="episode", tier="long", importance=0.3)
+             "氣體通過拉伐爾噴嘴進行等熵膨脹釋放推力。", kind="fact", tier="short", importance=0.9,
+             tags=["spacex", "cold gas thruster", "tesla roadster", "流體力學"])     # as stored on the user's machine
     mem.save("用戶要求總結目前的進展和卡點，並繼續深入分析。代理首先總結了已建立的科學原則和已識別的技術缺口。",
              kind="episode", tier="long", importance=0.3)
     mem.save("釷基熔鹽反應爐的燃料鹽是 LiF-BeF2-ThF4-UF4，需要 99.95% 以上的 Li-7。", kind="fact", tier="long")
-    hits = mem.search("解析釷基熔鹽反應爐 SMR 可行性方案設計與原理解說", k=6, tiers=("short", "long"), min_score=0.15)
+    hits = mem.search("解析釷基熔鹽反應爐 SMR 可行性方案設計與原理解說", k=6, tiers=("short", "long"), min_score=0.15,
+                      min_rel=0.3)
     assert [h.kind for h in hits] == ["fact"], [h.content[:20] for h in hits]
-    assert mem.search("Roadster 冷氣推進器的推力", k=6, tiers=("long",), min_score=0.15)[0].content.startswith("正在分析")
+    assert mem.search("Roadster 冷氣推進器的推力", k=6, tiers=("short",), min_score=0.15, min_rel=0.3)[0] \
+        .content.startswith("正在分析")

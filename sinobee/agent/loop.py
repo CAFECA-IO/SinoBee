@@ -348,7 +348,8 @@ class Agent:
             try:
                 recalled = await self.rt.memory.asearch(
                     query, k=int(self.config.get("memory.recall_k", 6)), tiers=("short", "long"),
-                    min_score=float(self.config.get("memory.recall_min_score", 0.15)))
+                    min_score=float(self.config.get("memory.recall_min_score", 0.15)),
+                    min_rel=float(self.config.get("memory.recall_min_rel", 0.3)))
             except Exception:
                 log.exception("recall failed")
         skills_index = ""

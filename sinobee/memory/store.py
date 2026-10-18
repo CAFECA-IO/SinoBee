@@ -512,8 +512,9 @@ class MemoryStore:
 
     def search(self, query: str, *, k: int = 8, tiers: tuple[str, ...] = ("core", "short", "long"),
                query_embedding: list[float] | None = None, kinds: list[str] | None = None,
-               touch: bool = True, min_score: float = 0.0) -> list[Memory]:
-        """Hybrid retrieval: BM25 + cosine + importance + recency + frequency."""
+               touch: bool = True, min_score: float = 0.0, min_rel: float = 0.0) -> list[Memory]:
+        """Hybrid retrieval: BM25 + cosine + importance + recency + frequency. `min_rel` drops memories whose
+        relevance alone is too low; importance and recency then cannot carry an unrelated memory into recall."""
         with self._lock:
             cands: dict[str, tuple[sqlite3.Row, float]] = {}
             q = fts_query(query)
@@ -554,7 +555,7 @@ class MemoryStore:
                     rel = lex_n
                 score = (0.75 * rel + 0.12 * r["importance"] + 0.08 * self._recency(r["last_access"])
                          + 0.05 * min(1.0, math.log1p(r["access_count"]) / 3) + (0.03 if r["pinned"] else 0.0))
-                if rel <= 0:
+                if rel <= 0 or rel < min_rel:
                     continue
                 if score >= min_score:
                     results.append(self._row(r, score))

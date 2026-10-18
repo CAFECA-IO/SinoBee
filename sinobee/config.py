@@ -67,6 +67,7 @@ DEFAULTS: dict[str, Any] = {
         "core_char_limit": 1500,
         "recall_k": 6,
         "recall_min_score": 0.15,
+        "recall_min_rel": 0.3,       # relevance alone needed to be recalled (importance and recency cannot carry it)
         "write_approval": False,
         "half_life_days": 30,
         "short_ttl_days": 14,       # short-term memories expire after this; useful ones are kept as long-term
