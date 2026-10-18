@@ -13,7 +13,7 @@ metadata:
   sinobee-checks: "scripts/run.py check {dir}"
   sinobee-checks-on: "reports/feasibility/*/report.md"
   sinobee-complexity: high
-  sinobee-quickstart: "1) video: skill_run(youtube-analysis, url) and read transcript.md / text: web research; 2) skill_run(engineering-feasibility, \"scaffold reports/feasibility/<slug>\"); 3) source_facts: quote every number the source states (exact words + time) into feasibility.json BEFORE assuming anything; 4) claims, assumptions, model.mjs from those facts (calc helpers: \"calc list\"); 5) verdict; 6) figures with anatomy, each audited into audits/<fig>.txt; 7) node page.mjs, report.md; 8) \"check <folder>\" until ok; 9) publish the page, deliver report."
+  sinobee-quickstart: "1) video: skill_run(youtube-analysis, url) and read transcript.md / text: web research; 2) skill_run(engineering-feasibility, \"scaffold reports/feasibility/<slug>\"); 3) source_facts: quote every number the source states (exact words + time) into feasibility.json BEFORE assuming anything; 4) claims, assumptions, model.mjs from those facts (calc helpers: \"calc list\"); 5) verdict; 6) figures with anatomy, then \"audit <folder>\" until every figure passes; 7) node page.mjs, report.md; 8) \"check <folder>\" until ok; 9) publish the page, deliver report."
 ---
 
 # When to Use
@@ -54,8 +54,9 @@ feasibility question (use anatomy alone).
 6. **Figures.** Pick them from the claims with `references/figure-patterns.md`: mechanism figures when feasible,
    limit and failure figures for every impossible core claim. Build each with the anatomy skill's workflow (read
    its SKILL.md first): real object, parts list, recorder + `A.settle` + `--audit` to zero, `scripts/lines.mjs`,
-   3D figures with `T.build` and the orbit audit (`--quick` in the background first). Save every audit:
-   `node figN.mjs --audit > audits/figN.txt 2>&1` (check requires `audit passed` in each). Every readout and every
+   3D figures with `T.build` and the orbit audit (`--quick` in the background first). Record the audits with
+   `skill_run(name="engineering-feasibility", args="audit reports/feasibility/<slug>")`: it runs each figure's
+   `build({ audit: true })` and writes `audits/<fig>.txt` with the figure's hash. Check accepts only these logs. Every readout and every
    motion comes from `model.mjs`.
 7. **Page.** Add each figure to `page.mjs` (one `.rr-figure` section and one `{ … }` live block each), the verdict
    tiles and the limits ledger come from `feasibility.json`. `node page.mjs` and `node page.mjs --dark`; capture

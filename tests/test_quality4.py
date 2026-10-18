@@ -165,3 +165,17 @@ def test_core_eval_has_the_source_numbers_regression():
     suite = json.loads((ROOT / "sinobee" / "evals" / "suites" / "core.json").read_text(encoding="utf-8"))
     task = next(t for t in suite["tasks"] if t["id"] == "source-numbers-win")
     assert "250 kilos of air" in task["setup"]["files"]["talk/transcript.md"]
+
+
+async def test_a_complex_skill_turn_gets_the_larger_step_budget(home, monkeypatch):
+    main = ScriptedProvider([msg("", [("list_dir", {"path": "."})]) for _ in range(8)] + [msg("好了")])
+    cfg = Config.load()
+    cfg.data["agent"].update(max_iterations=3, max_iterations_complex=12, verify=False)
+    agent = Agent(Runtime(cfg, provider=main))
+    await agent.run("看一下")
+    assert agent.last_status["status"] == "incomplete" and "3 步" in agent.last_status["error"]["summary"]
+    main2 = ScriptedProvider([msg("", [("list_dir", {"path": "."})]) for _ in range(8)] + [msg("好了")])
+    agent2 = Agent(Runtime(cfg, provider=main2))
+    monkeypatch.setattr(agent2, "_complex_task", lambda explicit: True)
+    out = await agent2.run("看一下")
+    assert out == "好了" and agent2.last_status["status"] == "done"

@@ -21,6 +21,11 @@ REPORT = "\n".join(["# R", "## 判定", "有條件", "## 主張", "## 工程原�
                     "## 來源", "https://www.youtube.com/watch?v=qt5p-_tE8d0", "https://example.org/a"])
 
 
+GOOD_FIG = ("// own figure\nexport function build({ audit = false } = {}) {\n"
+            "  if (audit) { console.log('clearance: 0 problems'); console.log('audit passed'); }\n  return {};\n}\n")
+BAD_FIG = "export function build({ audit = false } = {}) { if (audit) { console.log('audit failed: 2 problems'); process.exitCode = 1; } }\n"
+
+
 def workspace(tmp_path: Path) -> Path:
     ws = tmp_path / "ws"
     yt = ws / "reports" / "youtube" / VID
@@ -48,9 +53,8 @@ def own_analysis(folder: Path, facts=None, model="export const AIR = 250; // kg,
     f["figures"] = [{"fig": "Fig 1", "shows": "x", "mode": "mechanism", "claims": ["C1"], "file": "fig1.mjs"}]
     (folder / "feasibility.json").write_text(json.dumps(f, ensure_ascii=False), encoding="utf-8")
     (folder / "model.mjs").write_text(model, encoding="utf-8")
-    (folder / "fig1.mjs").write_text("// own figure\n", encoding="utf-8")
-    (folder / "audits").mkdir(exist_ok=True)
-    (folder / "audits" / "fig1.txt").write_text("clearance: 0 problems\naudit passed\n", encoding="utf-8")
+    (folder / "fig1.mjs").write_text(GOOD_FIG, encoding="utf-8")
+    assert run("audit", str(folder))["all_passed"]
     (folder / "page.html").write_text("<h2>Fig 1</h2>", encoding="utf-8")
     (folder / "report.md").write_text(REPORT, encoding="utf-8")
 
@@ -96,13 +100,23 @@ def test_a_misquoted_fact_is_caught(tmp_path):
     assert any("the quote is not in the transcript" in p for p in check.check(folder)["problems"])
 
 
-def test_figures_need_an_audit_log(tmp_path):
+def test_figures_need_a_real_audit_log(tmp_path):
     folder = workspace(tmp_path)
     own_analysis(folder)
-    (folder / "audits" / "fig1.txt").write_text("turn audit failed: 3 problems\n", encoding="utf-8")
-    assert any("does not end in 'audit passed'" in p for p in check.check(folder)["problems"])
+    # the forged log seen in the re-run of 2026-10-19: `node fig.mjs --audit && echo PASS > audits/fig.txt`
+    (folder / "audits" / "fig1.txt").write_text("PASS\naudit passed\n", encoding="utf-8")
+    assert any("not written by `run.py audit`" in p for p in check.check(folder)["problems"])
+    run("audit", str(folder))
+    (folder / "fig1.mjs").write_text(GOOD_FIG + "// edited after the audit\n", encoding="utf-8")
+    assert any("audited an older fig1.mjs" in p for p in check.check(folder)["problems"])
+    (folder / "fig1.mjs").write_text(BAD_FIG, encoding="utf-8")
+    res = run("audit", str(folder))
+    assert res["status"] == "fix" and not res["all_passed"]
+    assert any("did not pass" in p for p in check.check(folder)["problems"])
+    (folder / "fig1.mjs").write_text("// no build export\n", encoding="utf-8")
+    assert run("audit", str(folder))["figures"]["fig1.mjs"]["exit"] == 3
     shutil.rmtree(folder / "audits")
-    assert any("no audit log" in p for p in check.check(folder)["problems"])
+    assert any("not audited" in p for p in check.check(folder)["problems"])
 
 
 def test_scaffold_refuses_examples_and_records_provenance(tmp_path):

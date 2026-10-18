@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import json
 import re
@@ -811,7 +812,17 @@ class Agent:
         if self._run_rec.rid and not self.ctx.state.get("job_run"):
             self.ctx.state["run_id"] = self._run_rec.rid
 
-        for iteration in range(max_iter):
+        def step_limit() -> int:
+            # a multi-stage skill (sinobee-complexity: high) used in this turn gets the larger budget
+            if not self.max_iterations and self._complex_task(explicit):
+                return max(max_iter, int(self.config.get("agent.max_iterations_complex", 120)))
+            return max_iter
+
+        hit_limit = False
+        for iteration in itertools.count():                # counts up to the step limit (which may grow)
+            if iteration >= step_limit():
+                max_iter, hit_limit = step_limit(), True
+                break
             steps = iteration + 1
             if self._cancel:
                 final_text = "（已依你的要求停止）"
@@ -957,7 +968,7 @@ class Agent:
                 final_text = (f"⚠︎ 任務沒有完成：{why}。最後的錯誤：\n{stats.get('last_error', '')[:400]}")
                 self.history.append(Message("assistant", f"[上一次嘗試失敗：{why}。最後的錯誤：{stats.get('last_error', '')[:300]}]"))
                 break
-        else:
+        if hit_limit:
             status = "incomplete"
             error_info = {"summary": f"已達單次任務的步驟上限（{max_iter} 步）",
                           "hint": "可以回覆「繼續」讓我接著做，或在設定提高 agent.max_iterations。", "detail": ""}

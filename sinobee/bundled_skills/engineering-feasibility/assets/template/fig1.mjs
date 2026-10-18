@@ -1,6 +1,6 @@
 // Fig 1 template · a small instrument: a base plate, a post and a face-up dial whose needle shows demand
 // against a red-zone limit (the shape every "limit" figure needs). Replace the object with the subject's own
-// machine; keep the recorder, settle and audit wiring. Run `node fig1.mjs --audit` until `audit passed`.
+// machine; keep the recorder, settle and audit wiring. Audit with skill_run(engineering-feasibility, "audit <folder>") until it passes.
 import * as k from "./kit/iso-kit.mjs";
 import * as A from "./kit/audit.mjs";
 import { helpers } from "./helpers.mjs";

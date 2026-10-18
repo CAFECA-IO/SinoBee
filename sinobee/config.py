@@ -37,6 +37,7 @@ DEFAULTS: dict[str, Any] = {
     "agent": {
         "name": "SinoBee",
         "max_iterations": 60,
+        "max_iterations_complex": 120,  # turns that use a sinobee-complexity: high skill
         "context_budget": "auto",   # optional cap in tokens; "auto" = the model's context window (see model.context_window)
         "tool_output_limit": 12000, # chars per tool result
         "language": "auto",

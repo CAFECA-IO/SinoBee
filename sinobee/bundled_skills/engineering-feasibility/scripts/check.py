@@ -86,7 +86,7 @@ def provenance(folder: Path, f: dict) -> list[str]:
             hit = examples.get(_sha(p))
             if hit:
                 problems.append(f"{p.name} is identical to the worked example references/{hit}: an example's analysis "
-                                "is not this subject's. Rebuild it from this subject's source_facts")
+                                "is not this subject's. Scaffold a fresh folder (e.g. <slug>-2) and build this subject's own model and figures from its source_facts")
     for d in sorted((SKILL / "references").glob("example-*")):
         fp = d / "fingerprint.json"
         if not fp.is_file():
@@ -145,13 +145,22 @@ def source_facts(folder: Path, f: dict) -> list[str]:
 
 
 def audits(folder: Path) -> list[str]:
+    """Each figure needs the log `run.py audit` writes: its header names the figure's current hash and exit 0."""
     problems = []
     for fig in sorted(folder.glob("fig*.mjs")):
         log = folder / "audits" / f"{fig.stem}.txt"
         if not log.is_file():
-            problems.append(f"{fig.name}: no audit log; run `node {fig.name} --audit > audits/{fig.stem}.txt 2>&1`")
-        elif "audit passed" not in log.read_text(encoding="utf-8", errors="replace"):
-            problems.append(f"audits/{fig.stem}.txt does not end in 'audit passed': fix the geometry and audit again")
+            problems.append(f"{fig.name}: not audited; run skill_run(engineering-feasibility, \"audit <folder>\")")
+            continue
+        text = log.read_text(encoding="utf-8", errors="replace")
+        head = re.match(r"# run\.py audit · (\S+) · sha256 ([0-9a-f]{64}) · exit (\d+)", text)
+        if not head:
+            problems.append(f"audits/{fig.stem}.txt was not written by `run.py audit`; a hand-written log is not an "
+                            "audit. Run the audit command")
+        elif head.group(2) != _sha(fig):
+            problems.append(f"audits/{fig.stem}.txt audited an older {fig.name}; audit again")
+        elif head.group(3) != "0" or "audit passed" not in text:
+            problems.append(f"audits/{fig.stem}.txt: the audit did not pass; fix the geometry and audit again")
     return problems
 
 

@@ -6,6 +6,7 @@
   run.py calc <name> key=value ...                                   physics calculators (tank, nozzle, rocket,
                                                                      ballistic, landing, suction, vessel, energy)
   run.py calc list                                                   list calculators and their parameters
+  run.py audit <folder>                                              run every figure's anatomy audit, write audits/<fig>.txt
   run.py check <folder>                                              check feasibility.json, report.md and the page
 
 Every call prints one JSON object. `status`: ok | fix (problems listed) | error (read `error`).
@@ -17,6 +18,7 @@ import json
 import os
 import hashlib
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -87,6 +89,34 @@ def scaffold(folder: Path, anatomy: Path) -> dict:
     return out
 
 
+AUDIT_JS = """
+const url = process.argv[1];
+const m = await import(url);
+if (typeof m.build !== "function") { console.log("no build() export: a figure module must export build({ audit })"); process.exit(3); }
+await m.build({ audit: true });
+"""
+
+
+def audit(folder: Path, timeout: int = 900) -> dict:
+    """Runs each figure's own audit (build({ audit: true })) and records it with the figure's hash, so the log
+    proves which file was audited. A log written any other way does not pass check."""
+    out_dir = folder / "audits"
+    out_dir.mkdir(exist_ok=True)
+    results = {}
+    for fig in sorted(folder.glob("fig*.mjs")):
+        try:
+            res = subprocess.run(["node", "--input-type=module", "-e", AUDIT_JS, fig.resolve().as_uri()],
+                                 cwd=folder, capture_output=True, text=True, timeout=timeout)
+            code, text = res.returncode, (res.stdout + res.stderr)
+        except subprocess.TimeoutExpired:
+            code, text = 124, f"timeout after {timeout} s"
+        passed = code == 0 and "audit passed" in text
+        (out_dir / f"{fig.stem}.txt").write_text(
+            f"# run.py audit · {fig.name} · sha256 {sha(fig)} · exit {code}\n{text}", encoding="utf-8")
+        results[fig.name] = {"passed": passed, "exit": code, "tail": text.strip().splitlines()[-3:]}
+    return {"figures": results, "all_passed": bool(results) and all(r["passed"] for r in results.values())}
+
+
 def calc(argv: list[str]) -> dict:
     import physics
     if not argv or argv[0] == "list":
@@ -122,6 +152,11 @@ def main(argv: list[str]) -> None:
             emit({"status": "ok", **scaffold(folder, anatomy),
                   "next": "write source_facts from the transcript or article first, then feasibility.json and model.mjs; "
                           "build figures only after the verdict"})
+        if cmd == "audit":
+            folder = Path(argv[1]).expanduser().resolve()
+            res = audit(folder)
+            emit({"status": "ok" if res["all_passed"] else "fix", **res,
+                  "next": "check the folder" if res["all_passed"] else "fix the geometry of each failing figure and audit again"})
         if cmd == "calc":
             emit({"status": "ok", **calc(argv[1:])})
         if cmd == "check":
