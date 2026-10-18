@@ -1,0 +1,214 @@
+{
+ "example": true,
+ "subject": "Roadster Rocket 解剖：冷氣體推進、主動吸力與 600 L 超高壓儲氣",
+ "source": {
+  "kind": "video",
+  "ref": "https://www.youtube.com/watch?v=qt5p-_tE8d0",
+  "title": "Tesla Roadster Event (2026-10-15)"
+ },
+ "verdict": "limited",
+ "summary": "冷氣體推進、2 g 主動吸力與 690 bar COPV 都是成熟技術，足以做出倒掛、翻滾與跳躍；但可用的 151 kg 空氣只夠懸停 4.3 秒，每次特技用掉 84 kg，「飛行」只能是秒級彈道動作。",
+ "tiles": [
+  {
+   "value": "313 kg",
+   "label": "600 L · 690 bar 空氣"
+  },
+  {
+   "value": "151 kg",
+   "label": "減壓閥失壓前可用"
+  },
+  {
+   "value": "4.3 s",
+   "label": "全重懸停上限"
+  },
+  {
+   "value": "84 kg",
+   "label": "一次跳躍＋翻滾"
+  }
+ ],
+ "claims": [
+  {
+   "id": "C1",
+   "claim": "冷氣體推進器讓車短暫飛行",
+   "source": "TechCrunch 2026-10-15",
+   "physics": "Tsiolkovsky + 等熵噴嘴；總衝量 / 重量 = 懸停時間",
+   "required": {
+    "value": 5,
+    "unit": "s 懸停"
+   },
+   "limit": {
+    "value": 4.32,
+    "unit": "s"
+   },
+   "margin": 0.86,
+   "status": "limited",
+   "core": true,
+   "calc": "run.py calc tank p=690e5 V=0.6 p_end=110e5; calc rocket"
+  },
+  {
+   "id": "C2",
+   "claim": "吸力最高 2 g，可靜止倒掛",
+   "source": "Tech Insider（Lars Moravy）",
+   "physics": "ΔP × 密封面積；正壓力 = 吸力 − mg",
+   "required": {
+    "value": 1,
+    "unit": "g"
+   },
+   "limit": {
+    "value": 1.92,
+    "unit": "g"
+   },
+   "margin": 1.92,
+   "status": "ok",
+   "core": true,
+   "calc": "run.py calc suction mass=2000 area=5.5 dp=6850"
+  },
+  {
+   "id": "C3",
+   "claim": "飛越五台車並 kickflip 落地",
+   "source": "TechCrunch, Yahoo Finance",
+   "physics": "剛體模擬：升力脈衝、單側滾轉力矩、推力減速",
+   "required": {
+    "value": 84,
+    "unit": "kg 空氣"
+   },
+   "limit": {
+    "value": 151,
+    "unit": "kg"
+   },
+   "margin": 1.79,
+   "status": "limited",
+   "core": true,
+   "calc": "model.mjs mission()"
+  },
+  {
+   "id": "C4",
+   "claim": "倒掛在小半徑坡道",
+   "source": "Yahoo Finance（inverted half roller-coaster ramp）",
+   "physics": "軸距弦高 L²/8R 打開裙邊密封",
+   "required": {
+    "value": 1,
+    "unit": "g 吸力"
+   },
+   "limit": {
+    "value": 0.06,
+    "unit": "g（R = 8 m）"
+   },
+   "margin": 0.06,
+   "status": "impossible",
+   "core": false,
+   "calc": "run.py calc suction ... wheelbase=2.7 R=8"
+  }
+ ],
+ "assumptions": [
+  {
+   "what": "整車質量",
+   "value": "2,000 kg",
+   "why": "MKBHD 引述 4,000+ lb；Tesla 未公布"
+  },
+  {
+   "what": "儲氣壓力",
+   "value": "690 bar",
+   "why": "2018 SpaceX 套件設計值"
+  },
+  {
+   "what": "推進器尺寸與配置",
+   "value": "2×50 kN 後推、4×15 kN 升力、4×3 kN 姿態",
+   "why": "由「推力為輪胎 4–5 倍」與 10 顆數量反推"
+  },
+  {
+   "what": "風扇曲線與裙邊",
+   "value": "ΔP0 8.35 kPa、間隙 6 mm、行程 40 mm",
+   "why": "對齊 Tesla 的 2 g"
+  }
+ ],
+ "limits": [
+  {
+   "name": "氣體預算",
+   "value": "151 kg / 84.7 kN·s",
+   "explain": "懸停上限約 4 秒，十顆全開 0.6 秒用完"
+  },
+  {
+   "name": "絕熱降溫",
+   "value": "189 K",
+   "explain": "噴嘴出口 70–80 K 低於露點，需極乾燥空氣"
+  },
+  {
+   "name": "補充能量",
+   "value": "102 kWh",
+   "explain": "車上無法自行補氣"
+  },
+  {
+   "name": "儲能風險",
+   "value": "40 MJ",
+   "explain": "≈ 9.5 kg TNT"
+  }
+ ],
+ "figures": [
+  {
+   "fig": "Fig 1",
+   "shows": "冷氣體推進器推力台與噴流",
+   "mode": "mechanism",
+   "claims": [
+    "C1"
+   ],
+   "file": "fig1.mjs"
+  },
+  {
+   "fig": "Fig 2",
+   "shows": "COPV 絕熱放氣",
+   "mode": "limit",
+   "claims": [
+    "C1"
+   ],
+   "file": "fig2.mjs"
+  },
+  {
+   "fig": "Fig 3",
+   "shows": "倒置架：地面→牆面→天花板",
+   "mode": "mechanism",
+   "claims": [
+    "C2",
+    "C4"
+   ],
+   "file": "fig3.mjs"
+  },
+  {
+   "fig": "Fig 4",
+   "shows": "跳躍、翻滾、減速著地（3D 自由剛體）",
+   "mode": "mechanism",
+   "claims": [
+    "C3"
+   ],
+   "file": "fig4.mjs"
+  },
+  {
+   "fig": "Fig 5",
+   "shows": "飛行包絡與極限",
+   "mode": "limit",
+   "claims": [
+    "C1",
+    "C3"
+   ],
+   "file": "fig5.mjs"
+  }
+ ],
+ "sources": [
+  {
+   "title": "Tesla reveals SpaceX-powered Roadster",
+   "url": "https://techcrunch.com/2026/10/15/tesla-reveals-spacex-powered-roadster-that-flies-and-falls-with-style/",
+   "date": "2026-10-15"
+  },
+  {
+   "title": "Tesla unveils Cyberfied new Roadster that can kickflip",
+   "url": "https://electrek.co/2026/10/15/tesla-unveils-cyberfied-new-roadster-kickflip/",
+   "date": "2026-10-15"
+  },
+  {
+   "title": "Tesla Roadster Tricks: All 4 Stunts Explained",
+   "url": "https://tech-insider.org/tesla-roadster-tricks-stunts-explained-2026/",
+   "date": "2026-10"
+  }
+ ],
+ "page": "page.html"
+}
