@@ -1,7 +1,10 @@
 # Gotchas (each one cost time in a real run)
 
 ## Model and numbers
-- Real gas above ~200 bar: 600 L of air at 690 bar is 313 kg, not 480 kg (ideal). Use `calc tank`.
+- Real gas above ~200 bar: the ideal-gas law overstates the mass of air in a tank by tens of percent (about 50% at
+  700 bar). Use `calc tank`, and when the source states the mass, derive the pressure from it, not the reverse.
+- An example's or an old article's numbers are not this subject's inputs. Quote the source (`source_facts`) first;
+  a disagreeing figure from elsewhere is an `override` with its evidence.
 - Usable ≠ stored: a regulator needs the tank ~10 bar above its set point; with adiabatic blowdown half the gas
   can stay in the bottle. The tank also cools (300 → 190 K), which cuts Isp as it drains.
 - Body-fixed thrusters rotate with the body. Plan roll pulses while the body is near level; inverted "lift"

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Engineering feasibility - entry script.
 
-  run.py scaffold <folder> [--anatomy <dir>] [--example roadster]   make a work folder wired to the anatomy kit
+  run.py scaffold <folder> [--anatomy <dir>]                        make a work folder wired to the anatomy kit
+                                                                     (the template only; worked examples are read, never copied)
   run.py calc <name> key=value ...                                   physics calculators (tank, nozzle, rocket,
                                                                      ballistic, landing, suction, vessel, energy)
   run.py calc list                                                   list calculators and their parameters
@@ -14,6 +15,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import hashlib
 import shutil
 import sys
 from pathlib import Path
@@ -40,7 +42,11 @@ def find_anatomy(hint: str | None) -> Path | None:
     return None
 
 
-def scaffold(folder: Path, anatomy: Path, example: str | None) -> dict:
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def scaffold(folder: Path, anatomy: Path) -> dict:
     folder.mkdir(parents=True, exist_ok=True)
     kit = folder / "kit"
     kit.mkdir(exist_ok=True)
@@ -48,9 +54,7 @@ def scaffold(folder: Path, anatomy: Path, example: str | None) -> dict:
     for name in KIT_FILES:
         (kit / f"{name}.mjs").write_text(f'export * from "{(anatomy / "kit" / f"{name}.mjs").as_uri()}";\n', encoding="utf-8")
     (kit / "inline-kit.mjs").write_text(f'export * from "{(anatomy / "scripts" / "inline-kit.mjs").as_uri()}";\n', encoding="utf-8")
-    src = SKILL / "assets" / ("example-" + example if example else "template")
-    if not src.is_dir():
-        raise FileNotFoundError(f"no {src.name} in assets/")
+    src = SKILL / "assets" / "template"
     copied = []
     for f in sorted(src.iterdir()):
         dst = folder / f.name
@@ -59,9 +63,18 @@ def scaffold(folder: Path, anatomy: Path, example: str | None) -> dict:
             copied.append(f.name)
     fj = folder / "feasibility.json"
     if not fj.exists():
-        shutil.copy2(SKILL / "assets" / "feasibility.example.json", fj)
+        shutil.copy2(SKILL / "assets" / "feasibility.template.json", fj)
         copied.append("feasibility.json")
+    # provenance: what came from the skill, so check can tell the subject's own work from untouched template files
+    prov = folder / ".scaffold.json"
+    old = json.loads(prov.read_text(encoding="utf-8")) if prov.is_file() else {}
+    files = dict(old.get("files", {}))
+    for name in copied:
+        files[name] = sha(folder / name)
+    prov.write_text(json.dumps({"skill": "engineering-feasibility", "template": "template", "files": files},
+                               ensure_ascii=False, indent=1), encoding="utf-8")
     return {"folder": str(folder), "anatomy": str(anatomy), "copied": copied,
+            "patterns": str(SKILL / "references" / "example-roadster"),
             "scripts": {"capture": str(anatomy / "scripts" / "capture.mjs"), "drive": str(anatomy / "scripts" / "drive.mjs"),
                         "lines": str(anatomy / "scripts" / "lines.mjs")}}
 
@@ -91,12 +104,16 @@ def main(argv: list[str]) -> None:
         if cmd == "scaffold":
             folder = Path(argv[1]).expanduser().resolve()
             hint = argv[argv.index("--anatomy") + 1] if "--anatomy" in argv else None
-            example = argv[argv.index("--example") + 1] if "--example" in argv else None
+            if "--example" in argv:
+                emit({"status": "error", "error": "worked examples are not scaffolded: their numbers belong to another "
+                      "analysis. Scaffold the template, then read references/example-<name>/ for figure and model "
+                      "patterns, taking every input from this subject's own sources."}, 1)
             anatomy = find_anatomy(hint)
             if not anatomy:
                 emit({"status": "error", "error": "anatomy skill not found: install it (sinobee skills install hub:cafeca/anatomy) or pass --anatomy <dir>"}, 1)
-            emit({"status": "ok", **scaffold(folder, anatomy, example),
-                  "next": "fill feasibility.json and model.mjs first; build figures only after the verdict"})
+            emit({"status": "ok", **scaffold(folder, anatomy),
+                  "next": "write source_facts from the transcript or article first, then feasibility.json and model.mjs; "
+                          "build figures only after the verdict"})
         if cmd == "calc":
             emit({"status": "ok", **calc(argv[1:])})
         if cmd == "check":

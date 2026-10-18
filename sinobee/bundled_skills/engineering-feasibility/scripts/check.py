@@ -1,9 +1,16 @@
 """Checks a feasibility work folder before delivery: feasibility.json, report.md and the built page."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
+
+SKILL = Path(__file__).resolve().parent.parent
+SHARED = {"helpers.mjs", "README.md", "fingerprint.json"}        # shared library code, not analysis
+NUM = re.compile(r"(?<![\w.])[-+]?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?")
+SCALES = (1, 1e3, 1e-3, 1e5, 1e-5, 1e6, 1e-6)    # unit prefixes, L <-> m3, bar <-> Pa
+VIDEO_ID = re.compile(r"(?:v=|youtu\.be/|shorts/)([\w-]{6,})")
 
 VERDICTS = {"feasible", "limited", "infeasible"}
 STATUS = {"ok", "limited", "impossible", "unverified"}
@@ -13,6 +20,139 @@ REPORT_HEADINGS_EN = ["Verdict", "Claims", "How it works", "Physical limits", "A
 
 def _num(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _sha(p: Path) -> str:
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def _example_hashes() -> dict[str, str]:
+    """sha256 -> 'example-x/file' for every worked example's own analysis files."""
+    out = {}
+    for d in sorted((SKILL / "references").glob("example-*")):
+        for f in d.iterdir():
+            if f.is_file() and f.name not in SHARED:
+                out[_sha(f)] = f"{d.name}/{f.name}"
+    return out
+
+
+def _norm(text: str) -> str:
+    text = re.sub(r"\[\d{1,2}:\d{2}(?::\d{2})?\]|>>", " ", text.lower())
+    text = re.sub(r"[\"'“”‘’`.,!?;:()\[\]…—–\-]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _numbers(text: str) -> list[float]:
+    out = []
+    for m in NUM.findall(text):
+        try:
+            out.append(float(m.replace(",", "")))
+        except ValueError:
+            pass
+    return out
+
+
+def _used(value: float, numbers: list[float]) -> bool:
+    for n in numbers:
+        for k in SCALES:
+            v = value * k
+            if v and abs(n - v) <= 0.02 * abs(v):
+                return True
+    return False
+
+
+def _transcript(folder: Path, f: dict) -> Path | None:
+    src = f.get("source") or {}
+    ws = folder.parents[2] if len(folder.parents) > 2 else folder.parent
+    cands = []
+    t = str(src.get("transcript") or "")
+    if t and not t.startswith("TODO"):
+        cands += [Path(t).expanduser(), ws / t, folder / t]
+    m = VIDEO_ID.search(str(src.get("ref") or ""))
+    if m:
+        cands.append(ws / "reports" / "youtube" / m.group(1) / "transcript.md")
+    for c in cands:
+        if c.is_file():
+            return c
+    return None
+
+
+def provenance(folder: Path, f: dict) -> list[str]:
+    """The folder must hold this subject's own analysis: not a worked example, not the untouched template."""
+    problems = []
+    examples = _example_hashes()
+    for p in sorted(folder.iterdir()):
+        if p.is_file() and p.name not in SHARED and p.suffix in (".mjs", ".js", ".json", ".html", ".md"):
+            hit = examples.get(_sha(p))
+            if hit:
+                problems.append(f"{p.name} is identical to the worked example references/{hit}: an example's analysis "
+                                "is not this subject's. Rebuild it from this subject's source_facts")
+    for d in sorted((SKILL / "references").glob("example-*")):
+        fp = d / "fingerprint.json"
+        if not fp.is_file():
+            continue
+        ref = json.loads(fp.read_text(encoding="utf-8"))
+        mine = {(str(t.get("value")), str(t.get("label"))) for t in f.get("tiles") or []}
+        same = [t for t in ref.get("tiles", []) if tuple(t) in mine]
+        if len(same) >= 2 or (ref.get("summary") and str(f.get("summary", "")).startswith(ref["summary"])):
+            problems.append(f"feasibility.json repeats the worked example {d.name} (tiles {', '.join(t[0] for t in same) or 'summary'}): "
+                            "compute this subject's numbers from its own sources")
+    prov = folder / ".scaffold.json"
+    if prov.is_file():
+        files = json.loads(prov.read_text(encoding="utf-8")).get("files", {})
+        if "model.mjs" in files and (folder / "model.mjs").is_file() and _sha(folder / "model.mjs") == files["model.mjs"]:
+            problems.append("model.mjs is still the template: write this subject's model (one function per claim)")
+    todo = [k for k, v in f.items() if isinstance(v, str) and v.startswith("TODO")]
+    if todo:
+        problems.append(f"feasibility.json still has template placeholders in: {', '.join(todo)}")
+    return problems
+
+
+def source_facts(folder: Path, f: dict) -> list[str]:
+    """The source's own numbers must be quoted exactly and either used by the model or overridden with a reason."""
+    problems = []
+    kind = str((f.get("source") or {}).get("kind", ""))
+    facts = [x for x in (f.get("source_facts") or []) if not str(x.get("quote", "")).startswith("TODO")]
+    if kind in ("video", "article") and not facts:
+        return ["source_facts: quote every number the source itself states (quote, at, value, unit, use) before "
+                "assuming anything; a video's facts come from its transcript"]
+    text = None
+    tr = _transcript(folder, f)
+    if kind == "video":
+        if tr is None:
+            problems.append("source.transcript: the youtube-analysis transcript.md was not found; set its path")
+        else:
+            text = _norm(tr.read_text(encoding="utf-8", errors="replace"))
+    corpus = ""
+    for p in sorted(folder.glob("*.mjs")):
+        if p.name not in SHARED and not p.name.startswith("fig") and p.name != "page.mjs":
+            corpus += p.read_text(encoding="utf-8", errors="replace")
+    corpus += json.dumps(f.get("assumptions"), ensure_ascii=False)      # what the model is built from
+    numbers = _numbers(corpus)
+    for x in facts:
+        fid = x.get("id", "?")
+        q = _norm(str(x.get("quote", "")))
+        if text is not None and q and q not in text:
+            problems.append(f"source_facts {fid}: the quote is not in the transcript ({str(x.get('quote'))[:60]}…): copy the exact words")
+        v = x.get("value")
+        if not _num(v):
+            problems.append(f"source_facts {fid}: value must be the number the quote states")
+            continue
+        if not _used(float(v), numbers) and not x.get("override"):
+            problems.append(f"source_facts {fid}: the source says {v} {x.get('unit', '')} but neither model.mjs nor the "
+                            "assumptions use it; use it, or set override with the evidence for a different value")
+    return problems
+
+
+def audits(folder: Path) -> list[str]:
+    problems = []
+    for fig in sorted(folder.glob("fig*.mjs")):
+        log = folder / "audits" / f"{fig.stem}.txt"
+        if not log.is_file():
+            problems.append(f"{fig.name}: no audit log; run `node {fig.name} --audit > audits/{fig.stem}.txt 2>&1`")
+        elif "audit passed" not in log.read_text(encoding="utf-8", errors="replace"):
+            problems.append(f"audits/{fig.stem}.txt does not end in 'audit passed': fix the geometry and audit again")
+    return problems
 
 
 def check(folder: Path) -> dict:
@@ -25,7 +165,10 @@ def check(folder: Path) -> dict:
     except json.JSONDecodeError as e:
         return {"status": "fix", "problems": [f"feasibility.json is not valid JSON: {e}"]}
     if f.get("example"):
-        problems.append("feasibility.json still has \"example\": true — replace the sample with this subject's analysis")
+        problems.append("feasibility.json still has \"example\": true — replace the template with this subject's analysis")
+    problems += provenance(folder, f)
+    problems += source_facts(folder, f)
+    problems += audits(folder)
     verdict = f.get("verdict")
     if verdict not in VERDICTS:
         problems.append(f"verdict must be one of {sorted(VERDICTS)}")

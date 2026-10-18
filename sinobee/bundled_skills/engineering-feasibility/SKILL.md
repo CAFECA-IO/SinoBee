@@ -4,7 +4,7 @@ description: Analyses whether a technology shown in a video or described in text
 license: MIT
 compatibility: Needs the anatomy skill (Node.js 20.10+, Chrome or Chromium for checks) and, for video input, the youtube-analysis skill. Python 3.10+; CoolProp (pip) for real-gas tank states, optional.
 metadata:
-  version: 1.0.1
+  version: 1.1.0
   author: sinobee
   sinobee-tags: engineering, physics, feasibility, analysis, 3d, animation, report, anatomy
   sinobee-triggers: 可行性, 技術可行, 工程原理, 物理極限, 做得到嗎, 可能嗎, 原理分析, 科技影片, 發表會, 黑科技, feasibility, physically possible, how does it work, engineering analysis, debunk
@@ -13,7 +13,7 @@ metadata:
   sinobee-checks: "scripts/run.py check {dir}"
   sinobee-checks-on: "reports/feasibility/*/report.md"
   sinobee-complexity: high
-  sinobee-quickstart: "1) video: skill_run(youtube-analysis, url) and watch it / text: web research; 2) list claims with numbers; 3) skill_run(engineering-feasibility, \"scaffold reports/feasibility/<slug>\") and write model.mjs + feasibility.json (calc helpers: \"calc list\"); 4) verdict; 5) build figures with anatomy (audit to zero); 6) node page.mjs, report.md; 7) \"check <folder>\" until ok; 8) publish the page, deliver report."
+  sinobee-quickstart: "1) video: skill_run(youtube-analysis, url) and read transcript.md / text: web research; 2) skill_run(engineering-feasibility, \"scaffold reports/feasibility/<slug>\"); 3) source_facts: quote every number the source states (exact words + time) into feasibility.json BEFORE assuming anything; 4) claims, assumptions, model.mjs from those facts (calc helpers: \"calc list\"); 5) verdict; 6) figures with anatomy, each audited into audits/<fig>.txt; 7) node page.mjs, report.md; 8) \"check <folder>\" until ok; 9) publish the page, deliver report."
 ---
 
 # When to Use
@@ -31,24 +31,31 @@ feasibility question (use anatomy alone).
    - Text or a link: read it fully (`web_fetch`), then search for independent coverage.
    - Research with the web-research habits: two sources for every number that matters, note dates, separate the
      company's claims from independent measurements. Search for the published specs the source leaves out.
-2. **Claims.** List every testable claim with its number and its source (`references/method.md` §1). Translate
-   marketing words into the physical requirement they imply.
-3. **Scaffold.** `skill_run(name="engineering-feasibility", args="scaffold reports/feasibility/<slug>")`. It finds
+2. **Scaffold.** `skill_run(name="engineering-feasibility", args="scaffold reports/feasibility/<slug>")`. It finds
    the installed anatomy skill, makes `kit/` shims to it and copies the template (`model.mjs`, `fig1.mjs`,
-   `fig1.live.js`, `page.mjs`, `helpers.mjs`, `feasibility.json`). Add `--example roadster` to start from the
-   complete worked example (five figures, two of them 3D) instead.
+   `fig1.live.js`, `page.mjs`, `helpers.mjs`, `feasibility.json` with TODO placeholders) and records what it
+   copied in `.scaffold.json`. Worked examples are never copied: read `references/example-*/` for figure and model
+   *code* patterns only. Their numbers belong to another analysis (and `check` fails a folder that reuses them).
+3. **Source facts, then claims.** First fill `source_facts`: every number the source itself states, as the exact
+   words from `transcript.md` or the article, its time or URL, the value and unit, and which input uses it. `check`
+   finds each quote in the transcript and fails a fact the model does not use, unless `override` gives the
+   evidence for a different value. A press report or an old spec that disagrees with the presenters is an
+   override with a reason, never a silent replacement. Then list every testable claim with its number and its
+   source (`references/method.md` §1); translate marketing words into the physical requirement they imply.
 4. **Model and verdict.** Write `model.mjs` (one pure function per claim returning required, limit, margin) and
    fill `feasibility.json`. Use `skill_run(… args="calc list")` and `calc <name> key=value` for tanks (real gas),
    nozzles, rockets, ballistics, landings, suction, vessels and batteries; `references/physics-checklist.md` lists
    the test and the trap per domain. Classify each claim and the whole (`references/method.md` §4–5): run the
-   favourable case before calling anything impossible.
+   favourable case before calling anything impossible. Every input comes from a source fact or is an
+   assumption with a reason.
 5. **Tell the user the verdict first** (a short message with the deciding numbers), then size the animation with
    anatomy's tiers: a Figure or a Hero you build; an Epic (a whole vehicle, several systems, 3D on more than one
    subject) needs the user's yes, unless they already asked for it or the run is unattended.
 6. **Figures.** Pick them from the claims with `references/figure-patterns.md`: mechanism figures when feasible,
    limit and failure figures for every impossible core claim. Build each with the anatomy skill's workflow (read
    its SKILL.md first): real object, parts list, recorder + `A.settle` + `--audit` to zero, `scripts/lines.mjs`,
-   3D figures with `T.build` and the orbit audit (`--quick` in the background first). Every readout and every
+   3D figures with `T.build` and the orbit audit (`--quick` in the background first). Save every audit:
+   `node figN.mjs --audit > audits/figN.txt 2>&1` (check requires `audit passed` in each). Every readout and every
    motion comes from `model.mjs`.
 7. **Page.** Add each figure to `page.mjs` (one `.rr-figure` section and one `{ … }` live block each), the verdict
    tiles and the limits ledger come from `feasibility.json`. `node page.mjs` and `node page.mjs --dark`; capture
@@ -61,6 +68,8 @@ feasibility question (use anatomy alone).
     change the verdict.
 
 # Rules
+- The source's own numbers come first (`source_facts`); a worked example's or another run's numbers are never
+  inputs, and memory of an earlier run on the same subject is a lead to re-verify, not a result to reuse.
 - Numbers decide. No verdict without required vs limit for each core claim; no figure value that is not computed
   by `model.mjs`.
 - Separate what the source claims, what is independently reported, and what you assumed. Label assumptions on
@@ -87,8 +96,8 @@ audit` with no `separation`, `cycles`, `posed` or `layers` problems; remaining `
 and reported); the page has no console errors and no sideways scroll at 390 px in light and dark; every number in
 the report appears in `feasibility.json` or the page and traces to `model.mjs`.
 
-# Example
-`assets/example-roadster/` is a complete run: Tesla Roadster Rocket (cold-gas thrusters, 2 g suction, 600 L at
-690 bar). Verdict `limited`: 151 kg of 313 kg usable, 4.3 s hover, 84 kg per jump-and-flip. Figures: a thrust
-stand with a WebGL jet (shock diamonds, separation, condensation), a COPV skid draining on its dials, a 3D tilt
-rig from floor to ceiling, a 3D free-body jump with a 360° roll over five vehicles, and a limits panel.
+# Worked example (code patterns only)
+`references/example-roadster/` shows how a finished run is built: a WebGL jet on a thrust stand, a tank skid
+draining on dials, a 3D tilt rig, a 3D free-body jump with a roll, a limits panel and the page assembly. Read the
+code; never take its inputs or results. Its own README explains why: its tank inputs contradict what the
+presenters said on stage, which is the mistake `source_facts` exists to catch.
