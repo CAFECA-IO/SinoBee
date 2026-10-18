@@ -7,6 +7,7 @@ import json
 import re
 import uuid
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 import time
@@ -517,6 +518,19 @@ class Agent:
                     "to be right and how each is checked.</task_checklist>")
         return ""
 
+    async def _guarded(self, what: str, coro, stats: dict):
+        """Run one quality step; a bug inside it never turns a finished task into an error. The skip is recorded
+        on the turn (stats["quality_skipped"]) and shown, so a result that was not checked never looks checked."""
+        try:
+            return await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.exception("%s crashed", what)
+            stats.setdefault("quality_skipped", []).append(f"{what}: {type(e).__name__}: {e}")
+            self._event(f"⚠︎ {what}發生內部錯誤，已略過（{type(e).__name__}: {e}）；這次結果沒有經過{what}")
+            return None
+
     async def _quality_gate(self, stats: dict) -> tuple[str, str] | None:
         """Deterministic checks before the task may end: open checklist items, then problems in the files it made."""
         open_items = checklist_tools.open_items(checklist_tools.get(self.ctx))
@@ -844,7 +858,7 @@ class Agent:
                 self._emit("assistant", {"text": msg.text(), "final": not msg.tool_calls})
             if not msg.tool_calls:
                 final_text = msg.text()
-                gate = None if stats.get("consecutive_errors") else await self._quality_gate(stats)
+                gate = None if stats.get("consecutive_errors") else await self._guarded("成果檢查", self._quality_gate(stats), stats)
                 if gate:
                     kind, text = gate
                     if stats["gate_rounds"].get(kind, 0) < int(self.config.get("agent.quality_rounds", 2)):
@@ -857,7 +871,7 @@ class Agent:
                                   "hint": "可以回覆「繼續」讓我接著修，或告訴我哪些可以不用管。"}
                 elif not stats.get("consecutive_errors"):
                     stats["final_text"] = final_text
-                    outcome = await self._acceptance(query, final_text, stats, turn_start)
+                    outcome = await self._guarded("驗收審查", self._acceptance(query, final_text, stats, turn_start), stats)
                     if outcome == "retry":
                         continue
                     if isinstance(outcome, dict):
@@ -929,7 +943,8 @@ class Agent:
                                 "duration_s": round(time.time() - started, 1), "usage": turn_usage,
                                 "session_cost_usd": session_usage["cost_usd"],
                                 "session_tokens": session_usage["total_tokens"],
-                                "artifacts": stats.get("artifacts", [])[-30:]})
+                                "artifacts": stats.get("artifacts", [])[-30:],
+                                "quality_skipped": stats.get("quality_skipped") or []})
         if getattr(self, "_run_rec", None):
             self._run_rec.finish(status, final_text, error_info, turn_usage.get("cost_usd", 0), turn_id)
         bs = self.rt.budget_status()

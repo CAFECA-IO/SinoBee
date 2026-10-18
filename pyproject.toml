@@ -33,7 +33,7 @@ desktop-native = ["mss>=9.0", "pillow>=10.0", "pyautogui>=0.9.54"]
 embeddings = ["numpy>=1.26"]
 hub = ["cryptography>=42"]
 all = ["playwright>=1.44", "mss>=9.0", "pillow>=10.0", "numpy>=1.26", "cryptography>=42"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "cryptography>=42"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "cryptography>=42", "ruff>=0.5"]
 
 [project.scripts]
 sinobee = "sinobee.cli:main"

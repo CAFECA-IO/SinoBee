@@ -9,7 +9,7 @@ import base64
 import json
 import re
 
-from ..types import ChatResponse, ImagePart, Message, TextPart, ToolCall, ToolSpec, Usage
+from ..types import ChatResponse, ImagePart, Message, TextPart, ToolCall, Usage
 from .base import Provider
 
 _REASONING_MODEL = re.compile(r"^(o\d|gpt-5)", re.I)

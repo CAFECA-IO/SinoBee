@@ -19,7 +19,6 @@ import base64
 import io
 import json
 import re
-import shutil
 import tarfile
 import tempfile
 import time
