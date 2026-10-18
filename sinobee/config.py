@@ -50,6 +50,8 @@ DEFAULTS: dict[str, Any] = {
         "qa": True,                 # check the files a task made (pages, formulas, links …) before it may finish
         "quality_rounds": 2,
         "skill_checks": True,       # run the checks a skill declares (sinobee-checks) on the files it produced
+        "language_check": True,    # deliverables and the answer must be in the language the user wrote (or asked for)
+        "visual_check": True,      # screenshot every page, drawing and image made, and have a vision model judge them
         "snapshots": True,          # keep a copy of files before write_file/edit_file so a turn can be undone
         "snapshot_days": 14,
         "checklist_after_tool_calls": 4,  # remind the agent to write an acceptance checklist after this many tools        # times an open checklist / failed file check is sent back to be fixed

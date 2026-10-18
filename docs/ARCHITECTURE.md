@@ -749,6 +749,8 @@ sinobee eval show                   # 最近一次的結果
 | 召回不相關記憶 | 關鍵詞依查詢詞覆蓋率計分、embedding 0.45 以下不計、`memory.recall_min_rel`（0.3） | `memory/store.py` |
 | 挑容易的主張湊「可行」 | 極限清單每項要有主張檢驗或 `verdict_impact`；文章引文存 `sources/` 才能查證 | `engineering-feasibility` |
 | 圖形畫出畫框、範本文字留在頁面 | 成果檢查偵測 SVG 超出 viewBox；check 偵測範本可見文字 | `agent/qa.py`、`engineering-feasibility` |
+| 中文題目交英文報告（釷基熔鹽反應爐） | 成果檢查以字元統計判斷每個產出文字檔（.md/.html/.txt，剝除程式碼、網址、公式）與最後回答的語言，與使用者的語言不符就退回；分辨繁體／簡體；使用者明說「用英文」時以指示為準；子代理不檢查 | `agent/language.py`、`agent.language_check` |
+| 沒有人看過成果的畫面 | 結構檢查都通過後，替每個產出頁面截全頁與每張圖（svg/canvas/img/video，附圖說或最近的標題），連同產出的圖片檔，交給視覺模型（審查模型 → 升級模型 → 主模型，各有截止時間）依評分準則判讀：空白或被裁切、文字重疊、與圖說不符、物理上可見的錯誤（力或流向相反、座標軸沒有單位、數字互相矛盾）、範本文字或語言不符。只有 blocking 會退回；判讀過關的畫面以雜湊快取，同一輪不重送；無法判讀時記為「未檢查」，不當作通過 | `agent/visual.py`、`agent/qa.py`（FIG_PROBE）、`agent.visual_check` |
 | 回歸 | `core` 評測新增 `source-numbers-win`：逐字稿說 250 kg，舊文章說 690 bar／313 kg，答案必須以講者為準 | `evals/suites/core.json` |
 
 ### 仍待處理

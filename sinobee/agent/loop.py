@@ -594,8 +594,10 @@ class Agent:
             self._event(f"⚠︎ {what}發生內部錯誤，已略過（{type(e).__name__}: {e}）；這次結果沒有經過{what}")
             return None
 
-    async def _quality_gate(self, stats: dict) -> tuple[str, str] | None:
-        """Deterministic checks before the task may end: open checklist items, then problems in the files it made."""
+    async def _quality_gate(self, stats: dict, query: str = "", answer: str = "") -> tuple[str, str] | None:
+        """Checks before the task may end: open checklist items; then problems in the files it made (deterministic
+        file and page checks, the user's rules, skill checks, the user's language); then, when those pass, a vision
+        model's judgment of screenshots of every page, drawing and image it made."""
         open_items = checklist_tools.open_items(checklist_tools.get(self.ctx))
         if open_items:
             lines = "\n".join(f"- #{i['id']} {i['text']}" for i in open_items[:10])
@@ -608,10 +610,13 @@ class Agent:
                 paths.append(resolve_file(self.config, a["path"]))
             except Exception:  # noqa: BLE001
                 continue
-        if not paths:
-            return None
-        from . import qa, rules
+        from . import language, qa, rules
         issues = []
+        if self.config.get("agent.language_check", True) and self.depth == 0:
+            # deliverables and the answer in the user's language (a sub-agent answers its parent, not the user)
+            issues += await asyncio.to_thread(language.check, query, paths, answer)
+        if not paths and not issues:
+            return None
         if self.config.get("agent.qa", True):
             self._event("成果檢查：檢查本次產出的檔案")
             issues += await qa.check(paths)
@@ -624,6 +629,9 @@ class Agent:
                 issues += await checks.run(self.ctx, used, paths)
             except Exception:  # noqa: BLE001 - a broken skill check must not break the task
                 log.exception("skill checks failed")
+        if not issues and paths and self.depth == 0 and self.config.get("agent.visual_check", True) \
+                and self.config.get("model.vision", True):
+            issues += await self._visual_check(query, paths, stats)
         stats["qa_issues"] = issues
         if not issues:
             self._event("成果檢查通過")
@@ -632,6 +640,43 @@ class Agent:
         self._emit("qa", {"issues": issues[:20]})
         return "qa", ("[自動成果檢查] 交付前檢查本次產出的檔案，發現以下問題：\n" + qa.report(issues)
                       + "\n請修正這些問題（修好後我會再檢查一次），或在回答裡說明為什麼不需要修。")
+
+    async def _visual_check(self, query: str, paths: list, stats: dict) -> list[dict]:
+        """Screenshots judged by a vision model. A picture already judged acceptable this turn is not sent again;
+        when no model can judge, the turn records the check as skipped instead of passed."""
+        from . import language, visual
+        try:
+            shots = await visual.collect(paths)
+        except Exception as e:  # noqa: BLE001 - no browser / broken page: recorded as not checked
+            stats.setdefault("quality_skipped", []).append(f"視覺檢查: {type(e).__name__}: {e}")
+            return []
+        if not shots:
+            return []
+        cache = stats.setdefault("visual_ok", set())
+        todo = [s for s in shots if s["sha"] not in cache]
+        if not todo:
+            return []
+        want = language.wanted(query) or "zh-Hant"
+        lang = language.NAMES.get(want, want)
+        models = [m for m in dict.fromkeys([self.rt.reviewer(), self.rt.strong(), self.rt.provider]) if m]
+        self._event(f"視覺檢查：截取 {len(todo)} 張畫面，由 {models[0].label} 判讀")
+        deadline = float(self.config.get("agent.model_deadline", 240)) or None
+
+        def fallback(model, err):
+            self._event(f"⚠︎ 視覺檢查：{model.label} 無法判讀（{type(err).__name__}），改由下一個模型判讀")
+        try:
+            items = await visual.judge(models, query, lang, todo, deadline, fallback)
+        except Exception as e:  # noqa: BLE001
+            stats.setdefault("quality_skipped", []).append(f"視覺檢查: {type(e).__name__}: {e}")
+            self._event(f"⚠︎ 視覺檢查無法執行：{type(e).__name__}")
+            return []
+        issues = visual.to_issues(todo, items)
+        bad = {i["path"] + "|" + i["name"] for i in issues}
+        cache.update(s["sha"] for s in todo if s["path"] + "|" + s["label"] not in bad)
+        stats["visual"] = [{"label": s["label"], "caption": s.get("caption", "")} for s in todo]
+        self._emit("visual", {"shots": len(todo), "issues": issues[:10]})
+        self._event(f"視覺檢查：{len(todo)} 張畫面，{len(issues)} 個需要修正" if issues else f"視覺檢查通過（{len(todo)} 張畫面）")
+        return issues
 
     async def _acceptance(self, query: str, final_text: str, stats: dict, turn_start: int):
         """The model-based check for the quality level of this turn. Returns "retry" (a fix list went back to the
@@ -962,7 +1007,7 @@ class Agent:
                 self._emit("assistant", {"text": msg.text(), "final": not msg.tool_calls})
             if not msg.tool_calls:
                 final_text = msg.text()
-                gate = None if stats.get("consecutive_errors") else await self._guarded("成果檢查", self._quality_gate(stats), stats)
+                gate = None if stats.get("consecutive_errors") else await self._guarded("成果檢查", self._quality_gate(stats, query, final_text), stats)
                 if gate:
                     kind, text = gate
                     if stats["gate_rounds"].get(kind, 0) < int(self.config.get("agent.quality_rounds", 2)):
