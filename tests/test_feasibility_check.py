@@ -169,3 +169,11 @@ def test_untested_limits_and_unsaved_articles_are_caught(tmp_path):
     f["limits"][0]["verdict_impact"] = "only sets the outlet temperature, already inside the model"
     (folder / "feasibility.json").write_text(json.dumps(f, ensure_ascii=False), encoding="utf-8")
     assert check.check(folder)["status"] == "ok", check.check(folder)["problems"]
+
+
+def test_template_text_left_on_the_page_is_caught(tmp_path):
+    folder = workspace(tmp_path)
+    own_analysis(folder)
+    (folder / "page.html").write_text("<h2>Fig 1</h2><p>左右移動改變需求</p><figcaption>替換成主題的機構與真實數字。</figcaption>",
+                                      encoding="utf-8")
+    assert any("still shows the template's text" in p for p in check.check(folder)["problems"])

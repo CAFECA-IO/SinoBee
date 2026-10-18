@@ -77,6 +77,20 @@ def _transcript(folder: Path, f: dict) -> Path | None:
     return None
 
 
+def _template_phrases(html: str) -> list[str]:
+    """Visible sentences of the scaffold template (hints, captions, labels) left on the finished page."""
+    phrases = set()
+    for f in (SKILL / "assets" / "template").glob("*.*"):
+        if f.name == "helpers.mjs":
+            continue
+        src = f.read_text(encoding="utf-8", errors="replace")
+        src = "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("//"))   # not comments
+        for t in re.findall(r"[\u4e00-\u9fff][\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]{5,}", src):
+            phrases.add(t)
+    text = re.sub(r"<[^>]+>", " ", html)
+    return sorted(p for p in phrases if p in text)
+
+
 def provenance(folder: Path, f: dict) -> list[str]:
     """The folder must hold this subject's own analysis: not a worked example, not the untouched template."""
     problems = []
@@ -250,6 +264,10 @@ def check(folder: Path) -> dict:
         for fig in figs:
             if fig.get("fig") and fig["fig"] not in html:
                 problems.append(f"{page.name}: {fig['fig']} is planned but not on the page")
+        left = _template_phrases(html)
+        if left:
+            problems.append(f"{page.name} still shows the template's text: {'; '.join(left[:3])} - replace it with "
+                            "this subject's mechanism, labels and numbers")
         if re.search(r"\bTODO\b|lorem ipsum|__DATA\w*__", html, re.I):
             problems.append(f"{page.name}: placeholder text left (TODO, lorem ipsum or an unreplaced __DATA__)")
         if "glLayer({ canvas" in html and "data-gl" not in html:

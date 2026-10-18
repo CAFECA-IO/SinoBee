@@ -138,6 +138,18 @@ PAGE_PROBE = """() => {
   if (ke.length) out.push([`${ke.length} 個公式無法排版`, ke.slice(0, 3).map(e => (e.getAttribute('title') || e.textContent).slice(0, 120)).join('；')]);
   const mm = [...document.querySelectorAll('svg')].filter(s => /Syntax error in (text|graph)/i.test(s.textContent || ''));
   if (mm.length) out.push(['Mermaid 圖表語法錯誤', `${mm.length} 張圖畫不出來`]);
+  // a drawing much larger than its own frame: the camera was not fitted (seen: a 3494 x 2568 drawing in an
+  // 800 x 600 viewBox spilled over the whole page)
+  const spill = [];
+  for (const s of document.querySelectorAll('svg[viewBox]')) {
+    const vb = (s.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+    if (vb.length !== 4 || !(vb[2] > 40 && vb[3] > 40)) continue;
+    let b; try { b = s.getBBox(); } catch (e) { continue; }
+    const over = Math.max(vb[0] - b.x, b.x + b.width - vb[0] - vb[2]) / vb[2];
+    const overY = Math.max(vb[1] - b.y, b.y + b.height - vb[1] - vb[3]) / vb[3];
+    if (over > 0.25 || overY > 0.25) spill.push(`${Math.round(b.width)}×${Math.round(b.height)} 畫在 ${vb[2]}×${vb[3]} 的畫框裡`);
+  }
+  if (spill.length) out.push(['圖形超出自己的畫框', spill.slice(0, 3).join('；') + '：鏡頭沒有對準物體（fitProjection 的點）或尺寸單位錯誤']);
   const text = (document.body && document.body.innerText || '').trim();
   const visual = document.querySelectorAll('svg, canvas, img, video').length;
   if (!text && !visual) out.push(['頁面是空白的', '沒有文字也沒有圖形']);

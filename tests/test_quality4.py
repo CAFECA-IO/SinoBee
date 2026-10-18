@@ -289,3 +289,20 @@ def _wrap_review(agent, then):
             stats["reviewer"] = await agent._independent_review(query, final_text, [], [])
         return await then()
     return review
+
+
+async def test_qa_flags_a_drawing_that_spills_out_of_its_frame(tmp_path):
+    pytest.importorskip("playwright")
+    from sinobee.agent import qa
+    page = tmp_path / "fig.html"
+    page.write_text('<svg viewBox="0 0 800 600" style="overflow:visible;width:400px">'
+                    '<rect x="-1300" y="-400" width="3400" height="2500"/></svg><p>x</p>', encoding="utf-8")
+    ok = tmp_path / "ok.html"
+    ok.write_text('<svg viewBox="0 0 800 600"><rect x="10" y="10" width="700" height="500"/></svg><p>x</p>',
+                  encoding="utf-8")
+    issues = await qa.check([page, ok])
+    if not any("JavaScript" in str(i) or "畫框" in str(i) for i in issues) and not issues:
+        pytest.skip("no browser for qa")
+    texts = [str(i) for i in issues]
+    assert any("超出自己的畫框" in t and "fig.html" in t for t in texts)
+    assert not any("ok.html" in t for t in texts)
