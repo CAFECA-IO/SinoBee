@@ -55,6 +55,8 @@ def scaffold(folder: Path, anatomy: Path) -> dict:
         (kit / f"{name}.mjs").write_text(f'export * from "{(anatomy / "kit" / f"{name}.mjs").as_uri()}";\n', encoding="utf-8")
     (kit / "inline-kit.mjs").write_text(f'export * from "{(anatomy / "scripts" / "inline-kit.mjs").as_uri()}";\n', encoding="utf-8")
     src = SKILL / "assets" / "template"
+    kept = sorted(p.name for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")
+                  and p.name != "feasibility.json" and not ((src / p.name).is_file() and sha(src / p.name) == sha(p)))
     copied = []
     for f in sorted(src.iterdir()):
         dst = folder / f.name
@@ -73,10 +75,16 @@ def scaffold(folder: Path, anatomy: Path) -> dict:
         files[name] = sha(folder / name)
     prov.write_text(json.dumps({"skill": "engineering-feasibility", "template": "template", "files": files},
                                ensure_ascii=False, indent=1), encoding="utf-8")
-    return {"folder": str(folder), "anatomy": str(anatomy), "copied": copied,
+    out = {"folder": str(folder), "anatomy": str(anatomy), "copied": copied,
             "patterns": str(SKILL / "references" / "example-roadster"),
             "scripts": {"capture": str(anatomy / "scripts" / "capture.mjs"), "drive": str(anatomy / "scripts" / "drive.mjs"),
                         "lines": str(anatomy / "scripts" / "lines.mjs")}}
+    if kept or (fj.exists() and "feasibility.json" not in copied):
+        out["warning"] = ("this folder already holds files from an earlier run, kept as they were: "
+                          + ", ".join((["feasibility.json"] if "feasibility.json" not in copied else []) + kept)
+                          + ". They are not this task's analysis: rebuild each from this subject's sources, or "
+                          "scaffold a new folder (check fails files identical to a worked example)")
+    return out
 
 
 def calc(argv: list[str]) -> dict:

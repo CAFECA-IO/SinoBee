@@ -124,3 +124,12 @@ def test_skill_text_does_not_carry_an_answer():
     text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
     for leak in ("313 kg", "151 kg", "4.3 s", "84 kg", "--example roadster"):
         assert leak not in text, leak
+
+
+def test_scaffold_over_an_earlier_run_warns(tmp_path):
+    folder = tmp_path / "ws" / "reports" / "feasibility" / "again"
+    folder.mkdir(parents=True)
+    (folder / "model.mjs").write_text("export const P = 690;\n", encoding="utf-8")
+    (folder / "feasibility.json").write_text("{}", encoding="utf-8")
+    res = run("scaffold", str(folder))
+    assert res["status"] == "ok" and "earlier run" in res["warning"] and "model.mjs" in res["warning"]
