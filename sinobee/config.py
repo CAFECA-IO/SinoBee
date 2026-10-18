@@ -38,6 +38,7 @@ DEFAULTS: dict[str, Any] = {
         "name": "SinoBee",
         "max_iterations": 60,
         "max_iterations_complex": 120,  # turns that use a sinobee-complexity: high skill
+        "model_deadline": 240,          # s a stronger model may keep one step waiting before the main model takes over
         "context_budget": "auto",   # optional cap in tokens; "auto" = the model's context window (see model.context_window)
         "tool_output_limit": 12000, # chars per tool result
         "language": "auto",

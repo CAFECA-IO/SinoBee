@@ -560,6 +560,26 @@ class Agent:
                     "to be right and how each is checked.</task_checklist>")
         return ""
 
+    async def _step_chat(self, request, tool_specs, max_tokens: int, stats: dict):
+        """One model call with a deadline. A stronger model that keeps a step waiting past agent.model_deadline
+        (default 240 s; a slow request was retried five times with 180 s timeouts, 15 minutes of a silent
+        '思考中') hands this step to the main model, and the rest of the turn stays there."""
+        deadline = float(self.config.get("agent.model_deadline", 240))
+        call = self._prov.chat(request, tool_specs, temperature=self.config.get("model.temperature", 0.3),
+                               max_tokens=max_tokens)
+        fallback = self.rt.provider if self._prov is not self.rt.provider else None
+        if deadline <= 0 or fallback is None:
+            return await call
+        try:
+            return await asyncio.wait_for(call, deadline)
+        except asyncio.TimeoutError:
+            slow = self._prov.label
+            self._prov = fallback
+            stats["slow_model"] = slow
+            self._event(f"⚠︎ {slow} 超過 {deadline:.0f} 秒沒有回應，這一步起改用 {fallback.label}")
+            return await fallback.chat(request, tool_specs, temperature=self.config.get("model.temperature", 0.3),
+                                       max_tokens=max_tokens)
+
     async def _guarded(self, what: str, coro, stats: dict):
         """Run one quality step; a bug inside it never turns a finished task into an error. The skip is recorded
         on the turn (stats["quality_skipped"]) and shown, so a result that was not checked never looks checked."""
@@ -863,9 +883,7 @@ class Agent:
                 self._escalate(f"已進行 {steps - 1} 步仍未完成", stats)
             self._emit("thinking", {"iteration": iteration, "step": steps, "model": self._prov.label})
             try:
-                resp = await self._prov.chat(request, tool_specs,
-                                                   temperature=self.config.get("model.temperature", 0.3),
-                                                   max_tokens=max_tokens)
+                resp = await self._step_chat(request, tool_specs, max_tokens, stats)
             except Exception as e:
                 for qe in current_scope.get().drain_quota_events():
                     self._emit("quota", {**qe, "stopped": True})

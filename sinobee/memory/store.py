@@ -49,6 +49,10 @@ shall may might must what which who whom whose when where why how all any some a
 please help 的 了 是 我 你 他 她 它 們 在 和 與 或 也 就 都 而 及 嗎 呢 吧 啊 請 幫 一個 這個 那個 什麼 怎麼""".split())
 
 
+COVERAGE_FULL = 0.3      # a memory holding 30% of the query's content terms counts as fully lexically relevant
+VEC_FLOOR = 0.45         # cosine below this is treated as unrelated
+
+
 def fts_query(text: str, limit_terms: int = 24) -> str:
     seen, terms = set(), []
     toks = tokenize(text)
@@ -530,14 +534,22 @@ class MemoryStore:
             if not cands:
                 return []
             max_lex = max((s for _, s in cands.values()), default=0) or 1.0
+            # bm25 is normalised to the best candidate, so the best of a set of poor matches scored 1.0 and
+            # a Roadster note was recalled for a thorium-reactor question. Coverage (the share of the query's
+            # content terms a memory contains) keeps the relative order but caps weak overlaps.
+            q_terms = {t for t in tokenize(query) if t not in STOPWORDS}
             results = []
             for mid, (r, lex) in cands.items():
                 if r["tier"] not in tiers or (kinds and r["kind"] not in kinds):
                     continue
                 lex_n = max(0.0, lex) / max_lex
+                if q_terms and lex_n > 0:
+                    cover = len(q_terms & set(tokenize(r["content"]))) / len(q_terms)
+                    lex_n *= min(1.0, cover / COVERAGE_FULL)
                 vec = vec_scores.get(mid, 0.0)
                 if query_embedding:
-                    rel = 0.5 * lex_n + 0.5 * max(0.0, vec)
+                    # small embedding models put unrelated texts at cosine ~0.4-0.5: count only what is above that
+                    rel = 0.5 * lex_n + 0.5 * max(0.0, (vec - VEC_FLOOR) / (1 - VEC_FLOOR))
                 else:
                     rel = lex_n
                 score = (0.75 * rel + 0.12 * r["importance"] + 0.08 * self._recency(r["last_access"])

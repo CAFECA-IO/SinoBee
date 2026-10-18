@@ -179,3 +179,64 @@ async def test_a_complex_skill_turn_gets_the_larger_step_budget(home, monkeypatc
     monkeypatch.setattr(agent2, "_complex_task", lambda explicit: True)
     out = await agent2.run("看一下")
     assert out == "好了" and agent2.last_status["status"] == "done"
+
+
+async def test_a_stalled_stronger_model_hands_the_step_to_the_main_model(home):
+    import asyncio as _a
+
+    class Stalled(ScriptedProvider):
+        label = "gemini/gemini-pro-latest"
+
+        async def chat(self, messages, tools=None, **kw):
+            await _a.sleep(5)
+            return await super().chat(messages, tools, **kw)
+    main = ScriptedProvider([msg("主要模型接手完成")])
+    cfg = Config.load()
+    cfg.data["agent"]["model_deadline"] = 0.2
+    events = []
+    agent = Agent(Runtime(cfg, provider=main, strong_provider=Stalled([msg("太慢")])),
+                  emit=lambda k, d: events.append((k, d)))
+    agent.rt.strong()                                   # the escalation target exists
+
+    async def run():
+        agent._prov = agent.rt.strong()
+        return await agent._step_chat([Message("user", "hi")], [], 100, {})
+    resp = await run()
+    assert resp.message.text() == "主要模型接手完成" and agent._prov is main
+    assert any(k == "status" and "超過" in d["message"] for k, d in events)
+
+
+async def test_timeouts_are_retried_once(monkeypatch):
+    import httpx
+    from sinobee.providers.base import Provider, ProviderError
+    calls = []
+
+    class P(Provider):
+        def __init__(self):
+            super().__init__("y", "http://x", None, provider_name="x")
+
+        async def _chat(self, *a, **k):
+            calls.append(1)
+            raise httpx.ReadTimeout("slow")
+    monkeypatch.setattr("asyncio.sleep", lambda *_: _noop())
+    with pytest.raises(ProviderError):
+        await P().chat([Message("user", "hi")])
+    assert len(calls) == 2
+
+
+async def _noop():
+    return None
+
+
+def test_recall_does_not_bring_a_roadster_note_to_a_reactor_question(home):
+    from sinobee.memory.store import MemoryStore
+    cfg = Config.load()
+    mem = MemoryStore(cfg.db_path)
+    mem.save("正在分析的系統是 Tesla Roadster 的「SpaceX 套件」冷氣推進器（Cold Gas Thruster）系統，其核心原理是利用高壓"
+             "氣體通過拉伐爾噴嘴進行等熵膨脹釋放推力。", kind="episode", tier="long", importance=0.3)
+    mem.save("用戶要求總結目前的進展和卡點，並繼續深入分析。代理首先總結了已建立的科學原則和已識別的技術缺口。",
+             kind="episode", tier="long", importance=0.3)
+    mem.save("釷基熔鹽反應爐的燃料鹽是 LiF-BeF2-ThF4-UF4，需要 99.95% 以上的 Li-7。", kind="fact", tier="long")
+    hits = mem.search("解析釷基熔鹽反應爐 SMR 可行性方案設計與原理解說", k=6, tiers=("short", "long"), min_score=0.15)
+    assert [h.kind for h in hits] == ["fact"], [h.content[:20] for h in hits]
+    assert mem.search("Roadster 冷氣推進器的推力", k=6, tiers=("long",), min_score=0.15)[0].content.startswith("正在分析")

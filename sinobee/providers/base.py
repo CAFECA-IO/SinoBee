@@ -103,11 +103,16 @@ class Provider(ABC):
                    temperature: float | None = 0.3, max_tokens: int = 4096, retries: int = 4) -> ChatResponse:
         tools = tools or []
         delay = 1.5
+        timeouts = 0
         for attempt in range(retries + 1):
             try:
                 return await self._chat(messages, tools, temperature=temperature, max_tokens=max_tokens)
-            except (httpx.TimeoutException, httpx.TransportError) as e:
-                err: ProviderError = ProviderError(f"{self.label} network error: {e!r}", retryable=True)
+            except httpx.TimeoutException as e:
+                # a request that already ran into the timeout usually does so again: retry it once, not four times
+                err: ProviderError = ProviderError(f"{self.label} timed out: {e!r}", retryable=timeouts == 0)
+                timeouts += 1
+            except httpx.TransportError as e:
+                err = ProviderError(f"{self.label} network error: {e!r}", retryable=True)
             except ProviderError as e:
                 err = e
             if not err.retryable or attempt == retries:
