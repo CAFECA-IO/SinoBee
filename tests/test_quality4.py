@@ -74,3 +74,39 @@ def test_no_undefined_or_unused_names():
     res = subprocess.run(cmd + ["check", "--select", "F821,F811,F401,F823", "--output-format", "concise", "sinobee"],
                          cwd=ROOT, capture_output=True, text=True)
     assert res.returncode == 0, res.stdout + res.stderr
+
+
+# ---------- reviewer hardening ----------
+
+def test_unbacked_check_claims_are_found():
+    from sinobee.agent import review
+    turn = [msg("", [("skill_run", {"name": "engineering-feasibility", "args": "check reports/feasibility/x"}),
+                     ("shell", {"command": "node page.mjs"})])]
+    said = "page.html 整合 Fig 1 至 Fig 5，audit 與 check 均無錯誤。VERDICT: pass"
+    found = review.unbacked_claims(said, turn)
+    assert len(found) == 1 and found[0].startswith("audit")              # check ran, audit never did
+    turn.append(msg("", [("shell", {"command": "node fig1.mjs --audit > audits/fig1.txt"})]))
+    assert review.unbacked_claims(said, turn) == []
+    assert review.unbacked_claims("所有測試通過", turn)[0].startswith("test")
+    assert review.unbacked_claims("報告已寫好", turn) == []
+
+
+async def test_reviewer_runs_on_the_reviewer_model_and_its_unbacked_pass_is_flagged(home):
+    main = ScriptedProvider([msg("", [("read_file", {"path": "src.md"})]),
+                             msg("", [("write_file", {"path": "r.md", "content": "# 報告\n空氣 313 kg\n"})]),
+                             msg("完成，所有 audit 都通過")])
+    reviewer = ScriptedProvider([msg("數字都對，audit 均通過。\nVERDICT: pass"),              # the reviewer sub-agent
+                                 judge("revise", [{"what": "313 kg 與來源 250 kg 不符", "fix": "用 250 kg"}])])
+    cfg = Config.load()
+    cfg.data["agent"]["quality"] = "strict"
+    (Path(cfg.workspace) / "src.md").parent.mkdir(parents=True, exist_ok=True)
+    (Path(cfg.workspace) / "src.md").write_text("there's about 250 kilos of air", encoding="utf-8")
+    rt = Runtime(cfg, provider=main, strong_provider=ScriptedProvider([]), reviewer_provider=reviewer)
+    agent = Agent(rt)
+    await agent.run("依 src.md 寫報告 r.md")
+    task = next(m.text() for m in reviewer.requests[0][0] if "Subtask" in m.text())
+    assert "SOURCE CHECK" in task and "WORK LOG" in task and "src.md" in task
+    judge_prompt = reviewer.requests[1][0][0].text()
+    assert "[系統核對] 審查員宣稱以下檢查通過" in judge_prompt          # the reviewer's audit claim is voided
+    assert "UNBACKED CLAIMS" in judge_prompt and "所有 audit 都通過" in judge_prompt   # and the agent's own
+    assert "WORK LOG" in judge_prompt and "read_file src.md" in judge_prompt

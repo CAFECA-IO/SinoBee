@@ -79,10 +79,12 @@ class Runtime:
     """Shared, long-lived resources (one per process)."""
 
     def __init__(self, config: Config | None = None, *, provider=None, aux_provider=None, embedder=None,
-                 strong_provider=None):
+                 strong_provider=None, reviewer_provider=None):
         self.config = config or Config.load()
         self._strong = strong_provider
         self._strong_spec = None
+        self._reviewer = reviewer_provider
+        self._reviewer_spec = None
         self._fixed_provider = provider is not None
         self.provider_error: str | None = None
         if provider is not None:
@@ -166,6 +168,24 @@ class Runtime:
                 return None
         return self._strong
 
+    def reviewer(self):
+        """The model that judges results (model.reviewer): ideally another family than the main model, so the
+        acceptance review does not share the main model's blind spots. None: use strong() or the main model."""
+        if self._reviewer is not None and (self._fixed_provider or self._reviewer_spec is None):
+            return self._reviewer
+        spec = self.config.get("model.reviewer")
+        if not spec:
+            return None
+        if self._reviewer_spec != spec:
+            try:
+                self._reviewer = build_chain(self.config, spec)
+                self._reviewer.recorder = self._record
+                self._reviewer_spec = spec
+            except Exception as e:  # noqa: BLE001
+                log.warning("reviewer model %s unavailable: %s", spec, e)
+                return None
+        return self._reviewer
+
     def _build_models(self):
         """Build provider chain; never crash startup - an unconfigured model surfaces in the UI instead."""
         try:
@@ -185,6 +205,7 @@ class Runtime:
         if not self._fixed_provider:
             self.provider, self.aux, emb = self._build_models()
             self._strong, self._strong_spec = None, None      # rebuilt on demand with the new settings
+            self._reviewer, self._reviewer_spec = None, None
             self.memory.embedder = emb
             self._wire_recorders(emb)
         self.memory.core_char_limit = int(self.config.get("memory.core_char_limit", 1500))
@@ -233,7 +254,7 @@ class Agent:
     def __init__(self, runtime: Runtime, session_id: str | None = None, *, platform: str = "cli",
                  emit: EmitFn | None = None, approve: ApproveFn | None = None, tool_filter=None,
                  system_extra: str = "", max_iterations: int | None = None, board_scope: str | None = None,
-                 title: str | None = None, learn: bool = True, depth: int = 0, ask=None):
+                 title: str | None = None, learn: bool = True, depth: int = 0, ask=None, provider=None):
         """tool_filter(tool) -> bool narrows the tools (sub-agents / workflow roles); board_scope is the shared
         blackboard this agent reads and writes (default: its own session); depth > 0 marks a sub-agent."""
         self.rt = runtime
@@ -245,6 +266,7 @@ class Agent:
         self._cancel = False
         self._inbox: list[str] = getattr(self, "_inbox", [])
         self.depth = depth
+        self._provider_override = provider        # e.g. the reviewer sub-agent runs on model.reviewer
         self.learn = learn
         self.max_iterations = max_iterations
         self.tool_filter = tool_filter
@@ -585,6 +607,7 @@ class Agent:
         level, _ = stats["quality"]
         if level == "fast":
             return None
+        stats["turn_start"] = turn_start
         rounds = {"standard": 1, "strict": 2}[level]
         data = await self._review(query, final_text, stats, level)
         if data is None:                      # the reviewer could not run: fall back to the light completion check
@@ -637,10 +660,20 @@ class Agent:
             except Exception:  # noqa: BLE001
                 shots = {}
         items = checklist_tools.get(self.ctx)
+        turn = self.history[stats.get("turn_start", 0):]
+        log_text = review.work_log(turn)
+        unbacked = review.unbacked_claims(final_text, turn)
         reviewer = ""
         if level == "strict" and self.depth == 0 and self.config.get("agent.reviewer", True) and "reviewed" not in stats:
             stats["reviewed"] = True
-            reviewer = await self._independent_review(query, final_text, items, paths)
+            reviewer = await self._independent_review(query, final_text, items, paths, log_text,
+                                                      review.sources_read(turn))
+            fake = review.unbacked_claims(reviewer, turn)
+            if fake:
+                # the reviewer vouched for checks nobody ran: its pass is not evidence
+                reviewer += ("\n\n[系統核對] 審查員宣稱以下檢查通過，但本輪工作紀錄沒有執行過，這些宣稱不可採信，"
+                             "其 VERDICT 也不能當作通過的證據：\n" + "\n".join(f"- {x}" for x in fake))
+                self._event("審查員的部分宣稱沒有工作紀錄支持，已標示為不可採信")
             stats["reviewer"] = reviewer
         elif stats.get("reviewer"):
             reviewer = stats["reviewer"] + "\n(The agent has since tried to fix these; check the current files.)"
@@ -648,12 +681,13 @@ class Agent:
                   and m.content.startswith("[使用者在執行中補充指示]")]
         prompt = review.review_prompt(query=query, steers=steers, checklist=checklist_tools.render(items),
                                       qa_text="", files=review.excerpts(paths), answer=final_text,
-                                      reviewer=reviewer, level=level)
+                                      reviewer=reviewer, level=level, work_log=log_text,
+                                      unbacked="\n".join(unbacked))
         parts: list = [TextPart(prompt)]
         for path, img in list(shots.items())[:3]:
             parts += [TextPart(f"Screenshot of {Path(path).name} as the user sees it:"),
                       ImagePart.from_bytes(img, "image/jpeg")]
-        model = self.rt.strong() or self.rt.provider
+        model = self.rt.reviewer() or self.rt.strong() or self.rt.provider
         self._event(f"驗收審查：由 {model.label} 以全新上下文檢查結果")
         try:
             resp = await model.chat([Message("user", parts)], None, temperature=0, max_tokens=1500)
@@ -662,7 +696,8 @@ class Agent:
             return None
         return review.parse(resp.message.text())
 
-    async def _independent_review(self, query: str, final_text: str, items: list, paths: list) -> str:
+    async def _independent_review(self, query: str, final_text: str, items: list, paths: list,
+                                  log_text: str = "", sources: list | None = None) -> str:
         """Strict level: a read-only reviewer sub-agent re-checks sources and files before the acceptance review."""
         from . import review
         from ..work.agents import run_subagent
@@ -675,8 +710,10 @@ class Agent:
         try:
             res = await run_subagent(self.rt, role="reviewer", board_scope=self.ctx.state["board_scope"],
                                      task=review.reviewer_task(query=query, checklist=checklist_tools.render(items),
-                                                               files=[str(p) for p in paths], answer=final_text),
+                                                               files=[str(p) for p in paths], answer=final_text,
+                                                               work_log=log_text, sources=sources),
                                      parent_session=self.session_id, emit=self._emit, hub=hub,
+                                     provider=self.rt.reviewer(),
                                      max_iterations=int(self.config.get("agent.reviewer_iterations", 15)))
         except Exception as e:  # noqa: BLE001
             log.info("independent review failed: %s", e)
@@ -734,7 +771,7 @@ class Agent:
         nudge = False
         tool_specs = self._tool_specs()
         status, error_info, started, steps = "done", None, time.time(), 0
-        self._prov = self.rt.provider
+        self._prov = self._provider_override or self.rt.provider
         stats["verify_rounds"] = 0
         stats["gate_rounds"] = {}
         self._checklist_turn_start()

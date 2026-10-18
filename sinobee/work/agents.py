@@ -123,7 +123,7 @@ def extract_json(text: str):
 
 async def run_subagent(rt, *, role: str, task: str, board_scope: str, parent_session: str | None = None,
                        approve=None, emit=None, context: str = "", hub=None, title: str | None = None,
-                       max_iterations: int | None = None, owner: str | None = None) -> dict:
+                       max_iterations: int | None = None, owner: str | None = None, provider=None) -> dict:
     """Runs one child agent to completion; returns {role, task, status, result, session_id, cost_usd}."""
     from ..agent import Agent
     spec = ROLES.get(role) or ROLES["general"]
@@ -144,7 +144,7 @@ async def run_subagent(rt, *, role: str, task: str, board_scope: str, parent_ses
     agent = Agent(rt, sid, platform="subagent", emit=child_emit, approve=approve, tool_filter=tool_filter_for(role),
                   system_extra=spec["prompt"] + "\n\n" + CHILD_RULES, board_scope=board_scope,
                   max_iterations=max_iterations or spec["iterations"], title=title or f"[{label}] {task[:60]}",
-                  learn=False, depth=1)
+                  learn=False, depth=1, provider=provider)
     if hub is not None:
         hub.children[sid] = (agent, owner or parent_session)
     prompt = f"Subtask ({label}):\n{task}"

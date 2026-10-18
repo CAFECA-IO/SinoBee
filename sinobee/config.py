@@ -23,6 +23,8 @@ DEFAULTS: dict[str, Any] = {
         "fallbacks": [],
         "auxiliary": None,       # cheaper model for reflection / compression (None = default)
         "escalate": None,        # stronger model to switch to when a task keeps failing or is too complex
+        "reviewer": None,        # model for the acceptance review and the independent reviewer; another family than
+                                 # the main model catches what the main model misses (None: escalate, then default)
         "escalate_mode": "auto", # auto | consult (the stronger model advises) | switch (it takes over the turn)
         "embedding": None,       # e.g. openai/text-embedding-3-small ; None = BM25 only
         "temperature": 0.3,
@@ -230,6 +232,8 @@ class Config:
             lock("model.auxiliary", env["SINOBEE_AUX_MODEL"])
         if env.get("SINOBEE_ESCALATE_MODEL"):
             lock("model.escalate", env["SINOBEE_ESCALATE_MODEL"])
+        if env.get("SINOBEE_REVIEWER_MODEL"):
+            lock("model.reviewer", env["SINOBEE_REVIEWER_MODEL"])
         if env.get("SINOBEE_EMBEDDING_MODEL"):
             lock("model.embedding", env["SINOBEE_EMBEDDING_MODEL"])
         if env.get("SINOBEE_APPROVAL"):
