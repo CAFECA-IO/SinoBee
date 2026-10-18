@@ -651,6 +651,15 @@ class Agent:
         stats["turn_start"] = turn_start
         rounds = {"standard": 1, "strict": 2}[level]
         data = await self._review(query, final_text, stats, level)
+        if data is None and not stats.get("reviewer_fallback") and \
+                re.search(r"VERDICT:\s*revise", stats.get("reviewer") or "", re.I):
+            stats["reviewer_fallback"] = True
+            # the judge could not run, but the independent reviewer asked for changes: its findings stand
+            # (the thorium run passed as done although the reviewer had said revise)
+            data = {"verdict": "revise", "items": [], "notes": [],
+                    "summary": "獨立審查員要求修正（驗收審查無法執行）",
+                    "problems": [{"what": stats["reviewer"].split("VERDICT:")[-1].strip()[:300],
+                                  "evidence": "獨立審查員報告", "fix": stats["reviewer"][:1200]}]}
         if data is None:                      # the reviewer could not run: fall back to the light completion check
             verdict = await self._verify(query, final_text, stats) if self._should_verify(stats) else None
             if verdict and not verdict.get("complete"):

@@ -262,3 +262,31 @@ async def test_a_stalled_acceptance_review_falls_back_to_the_main_model(home):
     out = await agent.run("寫 r.md")
     assert out == "完成" and agent.last_status["status"] == "done"
     assert len(main.requests) == 3                     # the main model judged it
+
+
+async def test_a_reviewers_revise_stands_when_the_judge_cannot_run(home, monkeypatch):
+    main = ScriptedProvider([msg("", [("write_file", {"path": "r.md", "content": "# r\n"})]), msg("完成"),
+                             msg("原理解說缺漏\nVERDICT: revise - report.md 沒有原理解說"),          # reviewer
+                             msg("", [("write_file", {"path": "r.md", "content": "# r\n\n## 原理\n補上\n"})]),
+                             msg("補好了")])
+    cfg = Config.load()
+    cfg.data["agent"]["quality"] = "strict"
+    agent = Agent(Runtime(cfg, provider=main))
+
+    async def judge_down(*a, **k):
+        return None
+    monkeypatch.setattr(agent, "_review", _wrap_review(agent, judge_down))
+    out = await agent.run("寫 r.md")
+    fb = [m.text() for m in agent.history if m.text().startswith("[自動驗收審查]")]
+    assert fb and "沒有原理解說" in fb[0] and out == "補好了"
+
+
+def _wrap_review(agent, then):
+    orig = agent._review
+
+    async def review(query, final_text, stats, level):
+        if "reviewed" not in stats:                      # run the real independent reviewer once
+            stats["reviewed"] = True
+            stats["reviewer"] = await agent._independent_review(query, final_text, [], [])
+        return await then()
+    return review
