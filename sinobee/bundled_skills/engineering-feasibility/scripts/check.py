@@ -123,6 +123,13 @@ def source_facts(folder: Path, f: dict) -> list[str]:
             problems.append("source.transcript: the youtube-analysis transcript.md was not found; set its path")
         else:
             text = _norm(tr.read_text(encoding="utf-8", errors="replace"))
+    elif kind == "article":
+        snaps = sorted((folder / "sources").glob("*")) if (folder / "sources").is_dir() else []
+        if not snaps:
+            problems.append("sources/: save the text of every page the source_facts quote (the web_fetch result) as "
+                            "sources/<name>.md, so each quote can be checked")
+        else:
+            text = _norm("\n".join(p.read_text(encoding="utf-8", errors="replace") for p in snaps if p.is_file()))
     corpus = ""
     for p in sorted(folder.glob("*.mjs")):
         if p.name not in SHARED and not p.name.startswith("fig") and p.name != "page.mjs":
@@ -212,6 +219,13 @@ def check(folder: Path) -> dict:
         problems.append("assumptions: list every input that is not published (mass, sizes, efficiencies) with a reason")
     if len(f.get("limits") or []) < 3:
         problems.append("limits: at least 3 physical limits with numbers")
+    ids = {c.get("id") for c in claims}
+    for lim in f.get("limits") or []:
+        linked = [x for x in (lim.get("claims") or []) if x in ids]
+        if not linked and not str(lim.get("verdict_impact", "")).strip():
+            problems.append(f"limit {lim.get('name', '?')}: test it as a claim (limits[].claims) or say in "
+                            "verdict_impact why it does not change the verdict; a verdict cannot rest on easy claims "
+                            "while the hard limits stay untested")
     srcs = f.get("sources") or []
     if len(srcs) < 2:
         problems.append("sources: at least 2 independent sources with URL")

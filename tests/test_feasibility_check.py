@@ -51,6 +51,8 @@ def own_analysis(folder: Path, facts=None, model="export const AIR = 250; // kg,
         {"id": "F1", "quote": "There's about 250 kilos of air.", "at": "12:11", "value": 250, "unit": "kg", "use": "AIR"},
         {"id": "F2", "quote": "They are a total of 600 L", "at": "12:11", "value": 600, "unit": "L", "use": "V"}]
     f["figures"] = [{"fig": "Fig 1", "shows": "x", "mode": "mechanism", "claims": ["C1"], "file": "fig1.mjs"}]
+    for lim in f["limits"]:
+        lim["claims"] = ["C1"]
     (folder / "feasibility.json").write_text(json.dumps(f, ensure_ascii=False), encoding="utf-8")
     (folder / "model.mjs").write_text(model, encoding="utf-8")
     (folder / "fig1.mjs").write_text(GOOD_FIG, encoding="utf-8")
@@ -147,3 +149,23 @@ def test_scaffold_over_an_earlier_run_warns(tmp_path):
     (folder / "feasibility.json").write_text("{}", encoding="utf-8")
     res = run("scaffold", str(folder))
     assert res["status"] == "ok" and "earlier run" in res["warning"] and "model.mjs" in res["warning"]
+
+
+def test_untested_limits_and_unsaved_articles_are_caught(tmp_path):
+    """The thorium run of 2026-10-19: verdict 'feasible' from three easy claims (efficiency vs Carnot, pressure,
+    enrichment) while corrosion, Pa-233 removal and tritium sat untested in the limits ledger; its article quotes
+    were never saved, so nothing could check them."""
+    folder = workspace(tmp_path)
+    own_analysis(folder)
+    f = json.loads((folder / "feasibility.json").read_text(encoding="utf-8"))
+    f["limits"][0].pop("claims")
+    f["source"] = {"kind": "article", "ref": "https://en.wikipedia.org/wiki/TMSR", "title": "TMSR"}
+    f["source_facts"] = [{"id": "F1", "quote": "specifies 400 MWt", "at": "Wikipedia", "value": 250, "unit": "kg"}]
+    (folder / "feasibility.json").write_text(json.dumps(f, ensure_ascii=False), encoding="utf-8")
+    text = "\n".join(check.check(folder)["problems"])
+    assert "test it as a claim" in text and "sources/: save the text" in text
+    (folder / "sources").mkdir()
+    (folder / "sources" / "tmsr.md").write_text("The design specifies 400 MWt of heat.", encoding="utf-8")
+    f["limits"][0]["verdict_impact"] = "only sets the outlet temperature, already inside the model"
+    (folder / "feasibility.json").write_text(json.dumps(f, ensure_ascii=False), encoding="utf-8")
+    assert check.check(folder)["status"] == "ok", check.check(folder)["problems"]

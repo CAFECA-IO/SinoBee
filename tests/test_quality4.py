@@ -243,3 +243,22 @@ def test_recall_does_not_bring_a_roadster_note_to_a_reactor_question(home):
     assert [h.kind for h in hits] == ["fact"], [h.content[:20] for h in hits]
     assert mem.search("Roadster 冷氣推進器的推力", k=6, tiers=("short",), min_score=0.15, min_rel=0.3)[0] \
         .content.startswith("正在分析")
+
+
+async def test_a_stalled_acceptance_review_falls_back_to_the_main_model(home):
+    import asyncio as _a
+
+    class Stalled(ScriptedProvider):
+        label = "gemini/gemini-pro-latest"
+
+        async def chat(self, messages, tools=None, **kw):
+            await _a.sleep(5)
+            return await super().chat(messages, tools, **kw)
+    main = ScriptedProvider([msg("", [("write_file", {"path": "r.md", "content": "# r\n"})]), msg("完成"),
+                             judge("pass", summary="ok")])
+    cfg = Config.load()
+    cfg.data["agent"]["model_deadline"] = 0.2
+    agent = Agent(Runtime(cfg, provider=main, strong_provider=Stalled([])))
+    out = await agent.run("寫 r.md")
+    assert out == "完成" and agent.last_status["status"] == "done"
+    assert len(main.requests) == 3                     # the main model judged it

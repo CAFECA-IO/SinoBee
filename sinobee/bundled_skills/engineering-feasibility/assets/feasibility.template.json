@@ -22,7 +22,7 @@
   {"what": "TODO: an input the source does not give", "value": "TODO", "why": "TODO: reason, and the F-id it is derived from if any"}
  ],
  "limits": [
-  {"name": "TODO", "value": "TODO", "explain": "TODO"}
+  {"name": "TODO", "value": "TODO", "explain": "TODO", "claims": ["C1"], "verdict_impact": "TODO if no claim tests it: why it does not change the verdict"}
  ],
  "figures": [
   {"fig": "Fig 1", "shows": "TODO", "mode": "mechanism | limit | failure", "claims": ["C1"], "file": "fig1.mjs"}

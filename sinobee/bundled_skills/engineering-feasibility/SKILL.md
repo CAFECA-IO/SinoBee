@@ -40,13 +40,16 @@ feasibility question (use anatomy alone).
    words from `transcript.md` or the article, its time or URL, the value and unit, and which input uses it. `check`
    finds each quote in the transcript and fails a fact the model does not use, unless `override` gives the
    evidence for a different value. A press report or an old spec that disagrees with the presenters is an
-   override with a reason, never a silent replacement. Then list every testable claim with its number and its
+   override with a reason, never a silent replacement. For an article or a web page, save the fetched text as `sources/<name>.md`
+   so check can find each quote. Then list every testable claim with its number and its
    source (`references/method.md` §1); translate marketing words into the physical requirement they imply.
 4. **Model and verdict.** Write `model.mjs` (one pure function per claim returning required, limit, margin) and
    fill `feasibility.json`. Use `skill_run(… args="calc list")` and `calc <name> key=value` for tanks (real gas),
    nozzles, rockets, ballistics, landings, suction, vessels and batteries; `references/physics-checklist.md` lists
    the test and the trap per domain. Classify each claim and the whole (`references/method.md` §4–5): run the
-   favourable case before calling anything impossible. Every input comes from a source fact or is an
+   favourable case before calling anything impossible. The hardest problems of the subject (materials, fuel or energy cycle,
+   safety case, licensing, cost) are claims too: every entry of the limits ledger is tested by a claim
+   (`limits[].claims`) or says in `verdict_impact` why it cannot change the verdict. Every input comes from a source fact or is an
    assumption with a reason.
 5. **Tell the user the verdict first** (a short message with the deciding numbers), then size the animation with
    anatomy's tiers: a Figure or a Hero you build; an Epic (a whole vehicle, several systems, 3D on more than one

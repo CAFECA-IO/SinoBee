@@ -730,8 +730,17 @@ class Agent:
                       ImagePart.from_bytes(img, "image/jpeg")]
         model = self.rt.reviewer() or self.rt.strong() or self.rt.provider
         self._event(f"驗收審查：由 {model.label} 以全新上下文檢查結果")
+        deadline = float(self.config.get("agent.model_deadline", 240)) or None
         try:
-            resp = await model.chat([Message("user", parts)], None, temperature=0, max_tokens=1500)
+            try:
+                resp = await asyncio.wait_for(model.chat([Message("user", parts)], None, temperature=0,
+                                                         max_tokens=1500), deadline)
+            except asyncio.TimeoutError:
+                if model is self.rt.provider:
+                    raise
+                self._event(f"⚠︎ 驗收審查：{model.label} 超過 {deadline:.0f} 秒沒有回應，改由 {self.rt.provider.label} 審查")
+                resp = await asyncio.wait_for(self.rt.provider.chat([Message("user", parts)], None, temperature=0,
+                                                                    max_tokens=1500), deadline)
         except Exception as e:  # noqa: BLE001 - a failed review never blocks the answer
             log.info("acceptance review skipped: %s", e)
             return None
