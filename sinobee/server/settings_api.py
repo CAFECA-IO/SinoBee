@@ -49,7 +49,7 @@ def settings_payload(rt) -> dict:
         prov = split_model(default)[0]
         needs_setup = not usable_now(prov, cfg)
     return {
-        "model": {**{k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "escalate", "embedding",
+        "model": {**{k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "escalate", "reviewer", "embedding",
                                                          "vision", "context_window")},
                   "escalate_mode": cfg.get("model.escalate_mode", "auto")},
         "agent": {"verify": cfg.get("agent.verify", True), "quality": cfg.get("agent.quality", "auto"),
@@ -79,7 +79,7 @@ def _role_usable(spec: str, cfg) -> bool:
 def _selected(cfg) -> dict:
     """The model chosen for each role and whether its provider can be used (key present)."""
     out = {}
-    for role in ("default", "auxiliary", "escalate", "embedding"):
+    for role in ("default", "auxiliary", "escalate", "reviewer", "embedding"):
         spec = cfg.get(f"model.{role}")
         out[role] = {"spec": spec, "ok": bool(spec) and _valid_spec(spec) and _role_usable(spec, cfg)}
     out["fallbacks"] = [{"spec": f, "ok": _valid_spec(f) and _role_usable(f, cfg)}
@@ -111,7 +111,7 @@ def register(app: FastAPI, rt_getter) -> None:
         errors: list[str] = []
         if "model" in body:
             m = {}
-            for k in ("default", "auxiliary", "escalate", "embedding"):
+            for k in ("default", "auxiliary", "escalate", "reviewer", "embedding"):
                 if k in body["model"]:
                     v = (body["model"][k] or "").strip() or None
                     if v and not _valid_spec(v):

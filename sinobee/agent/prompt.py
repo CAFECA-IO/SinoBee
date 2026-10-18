@@ -111,8 +111,15 @@ def build_system_prompt(config, core_memory: str, tool_names: list[str]) -> str:
 def build_context_block(*, recalled: list, skills_index: str, working: dict, core_changes: list[str]) -> str:
     sections = [f"time: {time.strftime('%Y-%m-%d %H:%M %Z (%A)')}"]
     if recalled:
-        sections.append("recalled memories (may be outdated; verify if critical):\n" +
-                        "\n".join(f"[{m.id}] ({m.kind}) {m.content}" for m in recalled))
+        from ..memory.neutral import neutral
+
+        def line(m) -> str:
+            if m.kind == "episode":
+                day = time.strftime("%Y-%m-%d", time.localtime(m.created_at or 0))
+                return (f"[{m.id}] (past session {day}: a lead, not a result - re-verify its numbers from this "
+                        f"task's sources before reusing anything) {neutral(m.content)}")
+            return f"[{m.id}] ({m.kind}) {m.content}"
+        sections.append("recalled memories (may be outdated; verify if critical):\n" + "\n".join(line(m) for m in recalled))
     if core_changes:
         sections.append("core memory changes this session:\n" + "\n".join(core_changes))
     if skills_index:

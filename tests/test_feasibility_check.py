@@ -1,0 +1,179 @@
+"""engineering-feasibility: the scaffold never hands out a finished answer, and check rejects a folder that is a
+worked example, an untouched template, or an analysis that ignores the numbers its own source states.
+
+Reproduces the Roadster Rocket run of 2026-10-18: the agent scaffolded `--example roadster`, flipped
+"example": true to false and delivered the example (690 bar, 313 kg) although the transcript says ~250 kg."""
+import importlib.util
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+SKILL = Path(__file__).resolve().parent.parent / "sinobee" / "bundled_skills" / "engineering-feasibility"
+FIX = Path(__file__).resolve().parent / "fixtures" / "roadster_incident"
+_spec = importlib.util.spec_from_file_location("feasibility_check", SKILL / "scripts" / "check.py")
+check = importlib.util.module_from_spec(_spec)     # a unique name: youtube-analysis also has scripts/check.py
+_spec.loader.exec_module(check)
+
+VID = "qt5p-_tE8d0"
+REPORT = "\n".join(["# R", "## 判定", "有條件", "## 主張", "## 工程原理", "## 物理極限", "## 假設",
+                    "## 來源", "https://www.youtube.com/watch?v=qt5p-_tE8d0", "https://example.org/a"])
+
+
+GOOD_FIG = ("// own figure\nexport function build({ audit = false } = {}) {\n"
+            "  if (audit) { console.log('clearance: 0 problems'); console.log('audit passed'); }\n  return {};\n}\n")
+BAD_FIG = "export function build({ audit = false } = {}) { if (audit) { console.log('audit failed: 2 problems'); process.exitCode = 1; } }\n"
+
+
+def workspace(tmp_path: Path) -> Path:
+    ws = tmp_path / "ws"
+    yt = ws / "reports" / "youtube" / VID
+    yt.mkdir(parents=True)
+    shutil.copy(FIX / "transcript.md", yt / "transcript.md")
+    folder = ws / "reports" / "feasibility" / "roadster"
+    folder.mkdir(parents=True)
+    return folder
+
+
+def run(*args, cwd=None):
+    out = subprocess.run([sys.executable, str(SKILL / "scripts" / "run.py"), *args], capture_output=True, text=True, cwd=cwd)
+    return json.loads(out.stdout)
+
+
+def own_analysis(folder: Path, facts=None, model="export const AIR = 250; // kg, F1\nexport const V = 0.6;\n"):
+    f = json.loads((FIX / "feasibility.json").read_text(encoding="utf-8"))
+    f.update(summary="可行但只有幾秒：250 kg 空氣、約 450 bar", tiles=[{"value": "250 kg", "label": "600 L 空氣（官方）"}],
+             sources=[{"title": "Tesla", "url": "https://www.youtube.com/watch?v=qt5p-_tE8d0"},
+                      {"title": "a", "url": "https://example.org/a"}])
+    f["source"]["transcript"] = f"reports/youtube/{VID}/transcript.md"
+    f["source_facts"] = facts if facts is not None else [
+        {"id": "F1", "quote": "There's about 250 kilos of air.", "at": "12:11", "value": 250, "unit": "kg", "use": "AIR"},
+        {"id": "F2", "quote": "They are a total of 600 L", "at": "12:11", "value": 600, "unit": "L", "use": "V"}]
+    f["figures"] = [{"fig": "Fig 1", "shows": "x", "mode": "mechanism", "claims": ["C1"], "file": "fig1.mjs"}]
+    for lim in f["limits"]:
+        lim["claims"] = ["C1"]
+    (folder / "feasibility.json").write_text(json.dumps(f, ensure_ascii=False), encoding="utf-8")
+    (folder / "model.mjs").write_text(model, encoding="utf-8")
+    (folder / "fig1.mjs").write_text(GOOD_FIG, encoding="utf-8")
+    assert run("audit", str(folder))["all_passed"]
+    (folder / "page.html").write_text("<h2>Fig 1</h2>", encoding="utf-8")
+    (folder / "report.md").write_text(REPORT, encoding="utf-8")
+
+
+def test_the_incident_folder_fails(tmp_path):
+    folder = workspace(tmp_path)
+    for p in (SKILL / "references" / "example-roadster").iterdir():
+        shutil.copy(p, folder / p.name)
+    shutil.copy(FIX / "feasibility.json", folder / "feasibility.json")
+    (folder / "page.html").write_text("<h2>Fig 1</h2>", encoding="utf-8")
+    (folder / "report.md").write_text(REPORT, encoding="utf-8")
+    res = check.check(folder)
+    text = "\n".join(res["problems"])
+    assert res["status"] == "fix"
+    assert "identical to the worked example references/example-roadster/model.mjs" in text
+    assert "repeats the worked example example-roadster" in text
+    assert "source_facts: quote every number the source itself states" in text
+
+
+def test_an_own_analysis_that_uses_the_source_passes(tmp_path):
+    folder = workspace(tmp_path)
+    own_analysis(folder)
+    res = check.check(folder)
+    assert res["status"] == "ok", res["problems"]
+
+
+def test_a_source_number_the_model_ignores_is_caught(tmp_path):
+    folder = workspace(tmp_path)
+    own_analysis(folder, model="export const AIR = 313; // kg at 690 bar\nexport const V = 0.6;\n")
+    text = "\n".join(check.check(folder)["problems"])
+    assert "the source says 250 kg but neither model.mjs nor the assumptions use it" in text
+    # a deliberate, explained override is allowed
+    f = json.loads((folder / "feasibility.json").read_text(encoding="utf-8"))
+    f["source_facts"][0]["override"] = "a later spec sheet gives 313 kg (URL)"
+    (folder / "feasibility.json").write_text(json.dumps(f, ensure_ascii=False), encoding="utf-8")
+    assert check.check(folder)["status"] == "ok"
+
+
+def test_a_misquoted_fact_is_caught(tmp_path):
+    folder = workspace(tmp_path)
+    own_analysis(folder, facts=[{"id": "F1", "quote": "about 313 kilos of air at 690 bar", "at": "12:11",
+                                 "value": 250, "unit": "kg"}])
+    assert any("the quote is not in the transcript" in p for p in check.check(folder)["problems"])
+
+
+def test_figures_need_a_real_audit_log(tmp_path):
+    folder = workspace(tmp_path)
+    own_analysis(folder)
+    # the forged log seen in the re-run of 2026-10-19: `node fig.mjs --audit && echo PASS > audits/fig.txt`
+    (folder / "audits" / "fig1.txt").write_text("PASS\naudit passed\n", encoding="utf-8")
+    assert any("not written by `run.py audit`" in p for p in check.check(folder)["problems"])
+    run("audit", str(folder))
+    (folder / "fig1.mjs").write_text(GOOD_FIG + "// edited after the audit\n", encoding="utf-8")
+    assert any("audited an older fig1.mjs" in p for p in check.check(folder)["problems"])
+    (folder / "fig1.mjs").write_text(BAD_FIG, encoding="utf-8")
+    res = run("audit", str(folder))
+    assert res["status"] == "fix" and not res["all_passed"]
+    assert any("did not pass" in p for p in check.check(folder)["problems"])
+    (folder / "fig1.mjs").write_text("// no build export\n", encoding="utf-8")
+    assert run("audit", str(folder))["figures"]["fig1.mjs"]["exit"] == 3
+    shutil.rmtree(folder / "audits")
+    assert any("not audited" in p for p in check.check(folder)["problems"])
+
+
+def test_scaffold_refuses_examples_and_records_provenance(tmp_path):
+    folder = tmp_path / "ws" / "reports" / "feasibility" / "x"
+    res = run("scaffold", str(folder), "--example", "roadster")
+    assert res["status"] == "error" and "not scaffolded" in res["error"]
+    res = run("scaffold", str(folder))
+    assert res["status"] == "ok" and "feasibility.json" in res["copied"]
+    f = json.loads((folder / "feasibility.json").read_text(encoding="utf-8"))
+    assert f["example"] is True and "Roadster" not in json.dumps(f, ensure_ascii=False)
+    assert "313" not in json.dumps(f) and "690" not in json.dumps(f)
+    prov = json.loads((folder / ".scaffold.json").read_text(encoding="utf-8"))
+    assert "model.mjs" in prov["files"]
+    problems = "\n".join(check.check(folder)["problems"])
+    assert "model.mjs is still the template" in problems and "template placeholders" in problems
+
+
+def test_skill_text_does_not_carry_an_answer():
+    text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+    for leak in ("313 kg", "151 kg", "4.3 s", "84 kg", "--example roadster"):
+        assert leak not in text, leak
+
+
+def test_scaffold_over_an_earlier_run_warns(tmp_path):
+    folder = tmp_path / "ws" / "reports" / "feasibility" / "again"
+    folder.mkdir(parents=True)
+    (folder / "model.mjs").write_text("export const P = 690;\n", encoding="utf-8")
+    (folder / "feasibility.json").write_text("{}", encoding="utf-8")
+    res = run("scaffold", str(folder))
+    assert res["status"] == "ok" and "earlier run" in res["warning"] and "model.mjs" in res["warning"]
+
+
+def test_untested_limits_and_unsaved_articles_are_caught(tmp_path):
+    """The thorium run of 2026-10-19: verdict 'feasible' from three easy claims (efficiency vs Carnot, pressure,
+    enrichment) while corrosion, Pa-233 removal and tritium sat untested in the limits ledger; its article quotes
+    were never saved, so nothing could check them."""
+    folder = workspace(tmp_path)
+    own_analysis(folder)
+    f = json.loads((folder / "feasibility.json").read_text(encoding="utf-8"))
+    f["limits"][0].pop("claims")
+    f["source"] = {"kind": "article", "ref": "https://en.wikipedia.org/wiki/TMSR", "title": "TMSR"}
+    f["source_facts"] = [{"id": "F1", "quote": "specifies 400 MWt", "at": "Wikipedia", "value": 250, "unit": "kg"}]
+    (folder / "feasibility.json").write_text(json.dumps(f, ensure_ascii=False), encoding="utf-8")
+    text = "\n".join(check.check(folder)["problems"])
+    assert "test it as a claim" in text and "sources/: save the text" in text
+    (folder / "sources").mkdir()
+    (folder / "sources" / "tmsr.md").write_text("The design specifies 400 MWt of heat.", encoding="utf-8")
+    f["limits"][0]["verdict_impact"] = "only sets the outlet temperature, already inside the model"
+    (folder / "feasibility.json").write_text(json.dumps(f, ensure_ascii=False), encoding="utf-8")
+    assert check.check(folder)["status"] == "ok", check.check(folder)["problems"]
+
+
+def test_template_text_left_on_the_page_is_caught(tmp_path):
+    folder = workspace(tmp_path)
+    own_analysis(folder)
+    (folder / "page.html").write_text("<h2>Fig 1</h2><p>左右移動改變需求</p><figcaption>替換成主題的機構與真實數字。</figcaption>",
+                                      encoding="utf-8")
+    assert any("still shows the template's text" in p for p in check.check(folder)["problems"])

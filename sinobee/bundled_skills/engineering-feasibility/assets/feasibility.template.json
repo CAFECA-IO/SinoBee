@@ -1,0 +1,34 @@
+{
+ "example": true,
+ "subject": "TODO: the product or technology and what it claims, in one line",
+ "source": {
+  "kind": "video | article | text",
+  "ref": "TODO: URL",
+  "title": "TODO",
+  "transcript": "TODO for a video: path to youtube-analysis transcript.md (reports/youtube/<id>/transcript.md)"
+ },
+ "verdict": "TODO: feasible | limited | infeasible",
+ "summary": "TODO: one sentence with the verdict and the deciding number",
+ "tiles": [
+  {"value": "TODO", "label": "TODO: a deciding number with its unit"}
+ ],
+ "source_facts": [
+  {"id": "F1", "quote": "TODO: the exact words of the source (copied from the transcript or article)", "at": "TODO: mm:ss or URL", "value": null, "unit": "TODO", "use": "TODO: which model input or claim uses it"}
+ ],
+ "claims": [
+  {"id": "C1", "claim": "TODO", "source": "TODO: F-id, time or URL", "physics": "TODO", "required": {"value": null, "unit": "TODO"}, "limit": {"value": null, "unit": "TODO"}, "margin": null, "status": "TODO: ok | limited | impossible | unverified", "core": true, "calc": "TODO"}
+ ],
+ "assumptions": [
+  {"what": "TODO: an input the source does not give", "value": "TODO", "why": "TODO: reason, and the F-id it is derived from if any"}
+ ],
+ "limits": [
+  {"name": "TODO", "value": "TODO", "explain": "TODO", "claims": ["C1"], "verdict_impact": "TODO if no claim tests it: why it does not change the verdict"}
+ ],
+ "figures": [
+  {"fig": "Fig 1", "shows": "TODO", "mode": "mechanism | limit | failure", "claims": ["C1"], "file": "fig1.mjs"}
+ ],
+ "sources": [
+  {"title": "TODO", "url": "TODO", "date": "TODO"}
+ ],
+ "page": "page.html"
+}

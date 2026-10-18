@@ -34,7 +34,11 @@ def read_file(ctx: ToolContext, path: str, offset: int = 1, limit: int = 400):
     p = resolve(ctx, path)
     if p.suffix.lower() in IMAGE_EXT:
         return [TextPart(f"Image file {p}"), ImagePart.from_bytes(p.read_bytes(), IMAGE_EXT[p.suffix.lower()])]
-    lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    from ..docread import EXT as DOC_BINARY, extract
+    if p.suffix.lower() in DOC_BINARY:      # Office / PDF: their text, not the bytes of the zip or PDF
+        lines = extract(p).splitlines()
+    else:
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
     start = max(1, int(offset or 1))
     chunk = lines[start - 1:start - 1 + int(limit or 400)]
     body = "\n".join(f"{i:>6}\t{l}" for i, l in enumerate(chunk, start))

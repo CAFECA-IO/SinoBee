@@ -9,14 +9,16 @@ Write each as one line with its number and its source time or URL:
 
 | id | claim (as stated) | source | number | test |
 |---|---|---|---|---|
-| C1 | "flies for a short time" | 12:40 | ? | hover time from stored impulse |
-| C2 | "holds 2 g, even upside down" | Moravy, 6:10 | 2 g | ΔP × sealed area vs 1 g |
+| C1 | "hovers for a full minute" | 03:15 | 60 s | battery energy vs hover power |
+| C2 | "lifts a 20 kg parcel" | spec sheet URL | 20 kg | rotor thrust at max power vs weight |
 
 - A claim with no number gets the number the demonstration implies (a jump over a 4 m truck needs ~5 m apex).
 - Mark the claims the product **depends on** as `core: true`; side remarks are `core: false`.
 - Marketing words ("flies", "rocket") are claims too: translate them into the physical requirement they imply.
 
 ## 2. Fill the inputs
+- Start with `source_facts`: the source's own numbers as exact quotes with time or URL. `check` verifies each
+  quote against the transcript and that the model uses it (or an `override` says why not).
 - Published numbers first, two sources each when they matter; note the date.
 - Everything else is an **assumption** with a reason (a reported weight, a size scaled from a photo, a typical
   efficiency). Assumptions go in `feasibility.json` and on the page; never present them as published.
@@ -27,7 +29,7 @@ Write each as one line with its number and its source time or URL:
 `model.mjs` holds one pure function per claim that returns `{ required, limit, margin }` and everything a figure
 or readout needs. Simulations (a jump, a blowdown, a landing) run at build time and pass sampled frames to the
 page. Search parameters (burn times, lead distances) with a small brute-force loop to find the least-cost
-manoeuvre that satisfies the claim, as `mission()` does in the Roadster example.
+manoeuvre that satisfies the claim, as `mission()` does in `references/example-roadster/model.mjs` (read the code, never its inputs).
 
 ## 4. Classify each claim
 `margin = limit / required` (for an upper bound such as stress or temperature: `limit / actual`).

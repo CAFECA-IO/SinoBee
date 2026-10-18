@@ -90,6 +90,11 @@ Judge the RESULT, not the effort:
 - Is the final answer truthful about what was done (no claims the files or steps do not support)?
 - Are there errors a careful expert would catch: wrong numbers, contradictions, unsupported factual claims, broken
   structure, missing sections, visibly wrong rendering in a screenshot?
+- Do the result's key inputs match the task's own sources? A number that contradicts what the source says (a
+  transcript, the user's file, a cited page), or that was carried over from a template, a skill's worked example or
+  an earlier session instead of this task's sources, is BLOCKING even if the rest is well made.
+- Only the WORK LOG shows what was really run. A claim that a check, audit, test or build passed with no matching
+  step in the log is unsupported (the UNBACKED CLAIMS section lists the ones found automatically).
 Only BLOCKING problems go back to the agent: those that make the result wrong or miss a stated requirement. Style
 preferences, optional extras and things outside the request are NOT blocking (list them under "notes", or omit).
 Asking the user a necessary question, or clearly explaining an external blocker, counts as acceptable.
@@ -102,7 +107,7 @@ Reply with JSON only:
 
 
 def review_prompt(*, query: str, steers: list[str], checklist: str, qa_text: str, files: str, answer: str,
-                  reviewer: str = "", level: str = "standard") -> str:
+                  reviewer: str = "", level: str = "standard", work_log: str = "", unbacked: str = "") -> str:
     parts = [REVIEW_RULES, f"\nQUALITY LEVEL: {level}", f"\nUSER REQUEST:\n{query[:4000]}"]
     if steers:
         parts.append("LATER INSTRUCTIONS FROM THE USER:\n" + "\n".join(steers)[:2000])
@@ -111,6 +116,10 @@ def review_prompt(*, query: str, steers: list[str], checklist: str, qa_text: str
     if reviewer:
         parts.append("INDEPENDENT REVIEWER'S FINDINGS (they re-checked sources and files; decide which ones are "
                      "blocking - drop the ones that do not affect correctness or the requirements):\n" + reviewer[:6000])
+    if work_log:
+        parts.append("WORK LOG (every tool step of this task, in order):\n" + work_log[:5000])
+    if unbacked:
+        parts.append("UNBACKED CLAIMS (said to have passed, but no matching step in the work log):\n" + unbacked[:1500])
     parts.append("PRODUCED FILES:\n" + (files or "(no files)"))
     parts.append(f"FINAL ANSWER:\n{answer[:5000]}")
     return "\n\n".join(parts)
@@ -149,11 +158,82 @@ def fix_list(data: dict, checklist_items: list[dict]) -> str:
     return "\n".join(lines[:15])
 
 
-def reviewer_task(*, query: str, checklist: str, files: list[str], answer: str) -> str:
+def reviewer_task(*, query: str, checklist: str, files: list[str], answer: str, work_log: str = "",
+                  sources: list[str] | None = None) -> str:
+    src = "\n".join((sources or [])[:10])
     return (f"Independently check the result of this task before it is delivered.\n\nUSER REQUEST:\n{query[:3000]}\n\n"
             f"ACCEPTANCE CHECKLIST:\n{checklist[:2500] or '(none)'}\n\nFILES PRODUCED:\n"
-            + ("\n".join(files[:20]) or "(none)") + f"\n\nTHE AGENT'S FINAL ANSWER:\n{answer[:4000]}\n\n"
-            "Re-check the important claims yourself: open the cited sources (web_fetch), re-run read-only queries, "
-            "read the files and recompute key numbers. Report only problems that make the result wrong or miss a "
-            "stated requirement, each with the evidence; ignore style and optional extras. Keep the report under "
-            "300 words and end with 'VERDICT: pass' or 'VERDICT: revise - <reason>'.")
+            + ("\n".join(files[:20]) or "(none)")
+            + (f"\n\nSOURCES THIS TASK READ (check the result against them):\n{src}" if src else "")
+            + (f"\n\nWORK LOG (what the agent actually ran):\n{work_log[:3500]}" if work_log else "")
+            + f"\n\nTHE AGENT'S FINAL ANSWER:\n{answer[:4000]}\n\n"
+            "Do this in order:\n"
+            "1. SOURCE CHECK. List the 3-8 numbers the result depends on most. For each, quote the line of the "
+            "source that gives it (read the source file or page) and say match / contradicts / not in the source. "
+            "A number that contradicts the source, or that only appears in a template, a skill's example or an "
+            "earlier session, is a problem.\n"
+            "2. Re-check the other important claims yourself: open the cited sources (web_fetch), re-run read-only "
+            "queries, read the files and recompute key numbers.\n"
+            "3. Never write that a check, audit, test or build passed unless the WORK LOG shows that step or you ran "
+            "it yourself in this review; otherwise write 'not verified'.\n"
+            "Report only problems that make the result wrong or miss a stated requirement, each with the evidence; "
+            "ignore style and optional extras. Keep the report under 350 words and end with 'VERDICT: pass' or "
+            "'VERDICT: revise - <reason>'.")
+
+
+def work_log(history, limit: int = 60) -> str:
+    """One line per tool step of the turn: the call and whether it worked, so a reviewer judges from what ran."""
+    results = {}
+    for m in history:
+        if m.role == "tool" and m.tool_call_id:
+            results[m.tool_call_id] = m.text()
+    lines = []
+    for m in history:
+        for c in m.tool_calls:
+            args = " ".join(str(v) for v in c.arguments.values() if isinstance(v, (str, int, float)))[:140]
+            out = (results.get(c.id) or "").replace("\n", " ")
+            ok = "✕" if out.startswith(("ERROR", "Error", "錯誤")) else "✓"
+            lines.append(f"{ok} {c.name} {args}".rstrip() + (f" → {out[:120]}" if out else ""))
+    if len(lines) > limit:
+        lines = lines[:10] + [f"… {len(lines) - limit} steps …"] + lines[-(limit - 10):]
+    return "\n".join(lines)
+
+
+CLAIM_KINDS = {
+    # kind: (words that name the check in a claim, words that show it in a tool step)
+    "audit": (r"audit|稽核|審計", r"--audit|\baudit\b|turn-check|lines\.mjs"),
+    "check": (r"\bcheck(?:s)?\b|檢查腳本|check script", r"\bcheck\b"),
+    "test": (r"\btests?\b|測試|pytest|unit test", r"pytest|\btest\b|npm (?:run )?test|go test|cargo test"),
+    "build": (r"\bbuild\b|建置|編譯|compil", r"\bbuild\b|make\b|tsc\b|vite|webpack|compil"),
+    "lint": (r"\blint|ruff|eslint", r"lint|ruff|eslint|flake8"),
+}
+PASSED = r"(?:pass(?:ed|es)?|通過|無錯誤|沒有錯誤|no (?:errors|problems)|all green|成功|ok\b|succeed)"
+
+
+def unbacked_claims(text: str, history) -> list[str]:
+    """Kinds of checks a text says passed while no tool step of the turn ran such a check."""
+    steps = " ".join(f"{c.name} " + " ".join(str(v) for v in c.arguments.values() if isinstance(v, (str, int, float)))
+                     for m in history for c in m.tool_calls).lower()
+    low = (text or "").lower()
+    out = []
+    for kind, (said, ran) in CLAIM_KINDS.items():
+        near = re.search(rf"(?:{said})[^。\n.]{{0,40}}{PASSED}|{PASSED}[^。\n.]{{0,20}}(?:{said})", low)
+        if near and not re.search(ran, steps):
+            out.append(f"{kind}: “{(text or '')[max(0, near.start() - 10):near.end() + 10].strip()}”")
+    return out
+
+
+
+def sources_read(history) -> list[str]:
+    """Files and pages the task read: the material its result must agree with."""
+    out = []
+    for m in history:
+        for c in m.tool_calls:
+            a = c.arguments
+            if c.name == "read_file" and a.get("path"):
+                out.append(str(a["path"]))
+            elif c.name in ("web_fetch",) and a.get("url"):
+                out.append(str(a["url"]))
+            elif c.name == "browser" and a.get("action") == "navigate" and a.get("url"):
+                out.append(str(a["url"]))
+    return list(dict.fromkeys(out))

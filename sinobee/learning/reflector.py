@@ -48,7 +48,7 @@ Return ONLY a JSON object (omit keys or leave them empty when nothing applies):
             "content": "full SKILL.md (create)",
             "old_string": "exact text copied from the skill (patch)", "new_string": "replacement (patch)"},
   "skill_feedback": [ {"name": "...", "success": true, "note": "what worked or failed"} ],
-  "episode_summary": "2-4 sentences: what the user wanted, what was done, outcome"
+  "episode_summary": "2-4 factual sentences: what the user asked, what was done (file paths, tools, sources), the outcome status and what is still open. No self-evaluation: never 'successfully', 'accurate', 'complete', 'high quality', 'meets the standard' - checks and the user judge results, not the summary"
 }
 
 Memory rules: durable facts about the user, preferences and corrections (importance >= 0.8; tier core only if it
@@ -241,7 +241,8 @@ async def _reflect(rt, session_id: str, turn: list[Message], stats: dict, unrate
                                            **rt.skills.feedback(fb["name"], bool(fb.get("success")), fb.get("note", ""))})
         except Exception as e:
             report["errors"].append(f"feedback: {e}")
-    summary = (data.get("episode_summary") or "").strip()
+    from ..memory.neutral import neutral
+    summary = neutral((data.get("episode_summary") or "").strip())
     if summary:
         prev = next((s.get("summary") for s in rt.memory.sessions(500) if s["id"] == session_id), None)
         rt.memory.set_summary(session_id, (prev + "\n" if prev else "") + summary)

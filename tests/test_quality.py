@@ -56,7 +56,8 @@ async def test_checklist_must_be_closed_with_evidence_before_the_task_ends(home,
                                                                       {"text": "附上資料來源"}]})])
     provider.push("做完了")                                                     # stops with both items open
     provider.push("", [("task_checklist", {"action": "update", "id": 1, "status": "done"})])     # no evidence
-    provider.push("", [("task_checklist", {"action": "update", "id": 1, "status": "done", "evidence": "write_file wrote report.md"}),
+    provider.push("", [("write_file", {"path": "report.md", "content": "# 報告\n"}),
+                       ("task_checklist", {"action": "update", "id": 1, "status": "done", "evidence": "write_file wrote report.md"}),
                        ("task_checklist", {"action": "update", "id": 2, "status": "dropped", "note": "使用者說不用"})])
     provider.push("報告完成")
     rt = Runtime(Config.load(), provider=provider)

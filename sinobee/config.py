@@ -23,6 +23,8 @@ DEFAULTS: dict[str, Any] = {
         "fallbacks": [],
         "auxiliary": None,       # cheaper model for reflection / compression (None = default)
         "escalate": None,        # stronger model to switch to when a task keeps failing or is too complex
+        "reviewer": None,        # model for the acceptance review and the independent reviewer; another family than
+                                 # the main model catches what the main model misses (None: escalate, then default)
         "escalate_mode": "auto", # auto | consult (the stronger model advises) | switch (it takes over the turn)
         "embedding": None,       # e.g. openai/text-embedding-3-small ; None = BM25 only
         "temperature": 0.3,
@@ -35,6 +37,8 @@ DEFAULTS: dict[str, Any] = {
     "agent": {
         "name": "SinoBee",
         "max_iterations": 60,
+        "max_iterations_complex": 120,  # turns that use a sinobee-complexity: high skill
+        "model_deadline": 240,          # s a stronger model may keep one step waiting before the main model takes over
         "context_budget": "auto",   # optional cap in tokens; "auto" = the model's context window (see model.context_window)
         "tool_output_limit": 12000, # chars per tool result
         "language": "auto",
@@ -46,10 +50,13 @@ DEFAULTS: dict[str, Any] = {
         "qa": True,                 # check the files a task made (pages, formulas, links …) before it may finish
         "quality_rounds": 2,
         "skill_checks": True,       # run the checks a skill declares (sinobee-checks) on the files it produced
+        "language_check": True,    # deliverables and the answer must be in the language the user wrote (or asked for)
+        "visual_check": True,      # screenshot every page, drawing and image made, and have a vision model judge them
         "snapshots": True,          # keep a copy of files before write_file/edit_file so a turn can be undone
         "snapshot_days": 14,
         "checklist_after_tool_calls": 4,  # remind the agent to write an acceptance checklist after this many tools        # times an open checklist / failed file check is sent back to be fixed
         "escalate_after_errors": 3, # consecutive tool errors before switching to model.escalate
+        "inline_aux": "auto",       # model for compaction a running task waits on: auto | auxiliary | main
         "escalate_after_steps": 25, # steps in one turn before switching to model.escalate
     },
     "permissions": {
@@ -62,6 +69,7 @@ DEFAULTS: dict[str, Any] = {
         "core_char_limit": 1500,
         "recall_k": 6,
         "recall_min_score": 0.15,
+        "recall_min_rel": 0.3,       # relevance alone needed to be recalled (importance and recency cannot carry it)
         "write_approval": False,
         "half_life_days": 30,
         "short_ttl_days": 14,       # short-term memories expire after this; useful ones are kept as long-term
@@ -230,6 +238,8 @@ class Config:
             lock("model.auxiliary", env["SINOBEE_AUX_MODEL"])
         if env.get("SINOBEE_ESCALATE_MODEL"):
             lock("model.escalate", env["SINOBEE_ESCALATE_MODEL"])
+        if env.get("SINOBEE_REVIEWER_MODEL"):
+            lock("model.reviewer", env["SINOBEE_REVIEWER_MODEL"])
         if env.get("SINOBEE_EMBEDDING_MODEL"):
             lock("model.embedding", env["SINOBEE_EMBEDDING_MODEL"])
         if env.get("SINOBEE_APPROVAL"):

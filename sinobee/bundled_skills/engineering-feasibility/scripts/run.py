@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Engineering feasibility - entry script.
 
-  run.py scaffold <folder> [--anatomy <dir>] [--example roadster]   make a work folder wired to the anatomy kit
+  run.py scaffold <folder> [--anatomy <dir>]                        make a work folder wired to the anatomy kit
+                                                                     (the template only; worked examples are read, never copied)
   run.py calc <name> key=value ...                                   physics calculators (tank, nozzle, rocket,
                                                                      ballistic, landing, suction, vessel, energy)
   run.py calc list                                                   list calculators and their parameters
+  run.py audit <folder>                                              run every figure's anatomy audit, write audits/<fig>.txt
   run.py check <folder>                                              check feasibility.json, report.md and the page
 
 Every call prints one JSON object. `status`: ok | fix (problems listed) | error (read `error`).
@@ -14,7 +16,9 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import hashlib
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -40,7 +44,11 @@ def find_anatomy(hint: str | None) -> Path | None:
     return None
 
 
-def scaffold(folder: Path, anatomy: Path, example: str | None) -> dict:
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def scaffold(folder: Path, anatomy: Path) -> dict:
     folder.mkdir(parents=True, exist_ok=True)
     kit = folder / "kit"
     kit.mkdir(exist_ok=True)
@@ -48,9 +56,9 @@ def scaffold(folder: Path, anatomy: Path, example: str | None) -> dict:
     for name in KIT_FILES:
         (kit / f"{name}.mjs").write_text(f'export * from "{(anatomy / "kit" / f"{name}.mjs").as_uri()}";\n', encoding="utf-8")
     (kit / "inline-kit.mjs").write_text(f'export * from "{(anatomy / "scripts" / "inline-kit.mjs").as_uri()}";\n', encoding="utf-8")
-    src = SKILL / "assets" / ("example-" + example if example else "template")
-    if not src.is_dir():
-        raise FileNotFoundError(f"no {src.name} in assets/")
+    src = SKILL / "assets" / "template"
+    kept = sorted(p.name for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")
+                  and p.name != "feasibility.json" and not ((src / p.name).is_file() and sha(src / p.name) == sha(p)))
     copied = []
     for f in sorted(src.iterdir()):
         dst = folder / f.name
@@ -59,11 +67,54 @@ def scaffold(folder: Path, anatomy: Path, example: str | None) -> dict:
             copied.append(f.name)
     fj = folder / "feasibility.json"
     if not fj.exists():
-        shutil.copy2(SKILL / "assets" / "feasibility.example.json", fj)
+        shutil.copy2(SKILL / "assets" / "feasibility.template.json", fj)
         copied.append("feasibility.json")
-    return {"folder": str(folder), "anatomy": str(anatomy), "copied": copied,
+    # provenance: what came from the skill, so check can tell the subject's own work from untouched template files
+    prov = folder / ".scaffold.json"
+    old = json.loads(prov.read_text(encoding="utf-8")) if prov.is_file() else {}
+    files = dict(old.get("files", {}))
+    for name in copied:
+        files[name] = sha(folder / name)
+    prov.write_text(json.dumps({"skill": "engineering-feasibility", "template": "template", "files": files},
+                               ensure_ascii=False, indent=1), encoding="utf-8")
+    out = {"folder": str(folder), "anatomy": str(anatomy), "copied": copied,
+            "patterns": str(SKILL / "references" / "example-roadster"),
             "scripts": {"capture": str(anatomy / "scripts" / "capture.mjs"), "drive": str(anatomy / "scripts" / "drive.mjs"),
                         "lines": str(anatomy / "scripts" / "lines.mjs")}}
+    if kept or (fj.exists() and "feasibility.json" not in copied):
+        out["warning"] = ("this folder already holds files from an earlier run, kept as they were: "
+                          + ", ".join((["feasibility.json"] if "feasibility.json" not in copied else []) + kept)
+                          + ". They are not this task's analysis: rebuild each from this subject's sources, or "
+                          "scaffold a new folder (check fails files identical to a worked example)")
+    return out
+
+
+AUDIT_JS = """
+const url = process.argv[1];
+const m = await import(url);
+if (typeof m.build !== "function") { console.log("no build() export: a figure module must export build({ audit })"); process.exit(3); }
+await m.build({ audit: true });
+"""
+
+
+def audit(folder: Path, timeout: int = 900) -> dict:
+    """Runs each figure's own audit (build({ audit: true })) and records it with the figure's hash, so the log
+    proves which file was audited. A log written any other way does not pass check."""
+    out_dir = folder / "audits"
+    out_dir.mkdir(exist_ok=True)
+    results = {}
+    for fig in sorted(folder.glob("fig*.mjs")):
+        try:
+            res = subprocess.run(["node", "--input-type=module", "-e", AUDIT_JS, fig.resolve().as_uri()],
+                                 cwd=folder, capture_output=True, text=True, timeout=timeout)
+            code, text = res.returncode, (res.stdout + res.stderr)
+        except subprocess.TimeoutExpired:
+            code, text = 124, f"timeout after {timeout} s"
+        passed = code == 0 and "audit passed" in text
+        (out_dir / f"{fig.stem}.txt").write_text(
+            f"# run.py audit · {fig.name} · sha256 {sha(fig)} · exit {code}\n{text}", encoding="utf-8")
+        results[fig.name] = {"passed": passed, "exit": code, "tail": text.strip().splitlines()[-3:]}
+    return {"figures": results, "all_passed": bool(results) and all(r["passed"] for r in results.values())}
 
 
 def calc(argv: list[str]) -> dict:
@@ -91,12 +142,21 @@ def main(argv: list[str]) -> None:
         if cmd == "scaffold":
             folder = Path(argv[1]).expanduser().resolve()
             hint = argv[argv.index("--anatomy") + 1] if "--anatomy" in argv else None
-            example = argv[argv.index("--example") + 1] if "--example" in argv else None
+            if "--example" in argv:
+                emit({"status": "error", "error": "worked examples are not scaffolded: their numbers belong to another "
+                      "analysis. Scaffold the template, then read references/example-<name>/ for figure and model "
+                      "patterns, taking every input from this subject's own sources."}, 1)
             anatomy = find_anatomy(hint)
             if not anatomy:
                 emit({"status": "error", "error": "anatomy skill not found: install it (sinobee skills install hub:cafeca/anatomy) or pass --anatomy <dir>"}, 1)
-            emit({"status": "ok", **scaffold(folder, anatomy, example),
-                  "next": "fill feasibility.json and model.mjs first; build figures only after the verdict"})
+            emit({"status": "ok", **scaffold(folder, anatomy),
+                  "next": "write source_facts from the transcript or article first, then feasibility.json and model.mjs; "
+                          "build figures only after the verdict"})
+        if cmd == "audit":
+            folder = Path(argv[1]).expanduser().resolve()
+            res = audit(folder)
+            emit({"status": "ok" if res["all_passed"] else "fix", **res,
+                  "next": "check the folder" if res["all_passed"] else "fix the geometry of each failing figure and audit again"})
         if cmd == "calc":
             emit({"status": "ok", **calc(argv[1:])})
         if cmd == "check":

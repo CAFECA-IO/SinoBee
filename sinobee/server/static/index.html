@@ -612,7 +612,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
       <!-- ───── 模型 ───── -->
       <section class="pane on" data-pane="model">
         <div class="grp"><div class="grp-h">使用哪些模型<span class="grp-d">從已連線的供應商挑選；雲端與本機模型可以混用</span></div>
-          <input type="hidden" id="mDefault"><input type="hidden" id="mAux"><input type="hidden" id="mEsc"><input type="hidden" id="mEmb"><input type="hidden" id="mFallbacks">
+          <input type="hidden" id="mDefault"><input type="hidden" id="mAux"><input type="hidden" id="mEsc"><input type="hidden" id="mRev"><input type="hidden" id="mEmb"><input type="hidden" id="mFallbacks">
           <div id="roleRows"></div>
           <div id="roleHint" class="note" hidden></div>
           <div class="srow end"><span id="testResult" class="sd"></span>
@@ -1944,7 +1944,7 @@ function keySource(p){
 function renderSettings(){
   const m = SET.model;
   $('#mDefault').value = m.default || ''; $('#mFallbacks').value = (m.fallbacks || []).join(', ');
-  $('#mAux').value = m.auxiliary || ''; $('#mEsc').value = m.escalate || ''; $('#mEmb').value = m.embedding || ''; $("#aVerify").checked = (SET.agent || {}).verify !== false; $('#aQuality').value = (SET.agent || {}).verify === false ? 'fast' : ((SET.agent || {}).quality || 'auto'); $('#mEscMode').value = m.escalate_mode || 'auto'; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : '';
+  $('#mAux').value = m.auxiliary || ''; $('#mEsc').value = m.escalate || ''; $('#mRev').value = m.reviewer || ''; $('#mEmb').value = m.embedding || ''; $("#aVerify").checked = (SET.agent || {}).verify !== false; $('#aQuality').value = (SET.agent || {}).verify === false ? 'fast' : ((SET.agent || {}).quality || 'auto'); $('#mEscMode').value = m.escalate_mode || 'auto'; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : '';
   { const c = SET.context || {}, k = n => n >= 1e6 ? `${+(n / 1e6).toFixed(2)}M` : `${Math.round(n / 1000)}K`;
     $('#mCtxNote').textContent = c.window ? `目前以 ${k(c.window)} tokens 計算（${{setting: '手動設定', local: '本機 num_ctx', model: '依模型', default: '未知模型的預設值'}[c.source] || c.source}），對話超過約 ${k(Math.round(c.budget * 0.8))} 時，較早的內容會自動整理成摘要` : '對話超過約八成時，較早的內容會自動整理成摘要；auto 依模型自動判斷'; }
   const customs = SET.providers.filter(p => p.custom);
@@ -1973,6 +1973,7 @@ const ROLES = [
   {k: 'default', id: '#mDefault', name: '主要模型', desc: '平常的對話與任務都用它', kind: 'chat', empty: '— 請選擇 —', lock: 'model.default'},
   {k: 'auxiliary', id: '#mAux', name: '輔助模型', desc: '反思、摘要長對話、記憶整理等背景工作；建議選便宜快速的', kind: 'chat', empty: '同主要模型', lock: 'model.auxiliary'},
   {k: 'escalate', id: '#mEsc', name: '升級模型', desc: '任務連續失敗、步驟太多、未通過完成檢查或屬於複雜技能（如影片製作）時自動改用；建議選最強的', kind: 'chat', empty: '不升級', lock: 'model.escalate'},
+  {k: 'reviewer', id: '#mRev', name: '審查模型', desc: '交付前的驗收審查與獨立審查員；選和主要模型不同家族的，較能抓到主要模型自己看不出的錯', kind: 'chat', empty: '同升級模型', lock: 'model.reviewer'},
   {k: 'embedding', id: '#mEmb', name: 'Embedding 模型', desc: '讓記憶搜尋更準確；不使用時改用關鍵字搜尋', kind: 'embedding', empty: '不使用（關鍵字搜尋）', lock: 'model.embedding'},
 ];
 async function loadCatalog(refresh = false, only = null){
@@ -2179,7 +2180,7 @@ async function openSettings(firstRun = false, pane = null){
   $('#settings').classList.add('open');
 }
 function collectSettings(){
-  const body = {agent: {verify: true, quality: $('#aQuality').value}, model: {escalate_mode: $('#mEscMode').value, default: $('#mDefault').value, fallbacks: $('#mFallbacks').value, auxiliary: $('#mAux').value, escalate: $('#mEsc').value,
+  const body = {agent: {verify: true, quality: $('#aQuality').value}, model: {escalate_mode: $('#mEscMode').value, default: $('#mDefault').value, fallbacks: $('#mFallbacks').value, auxiliary: $('#mAux').value, escalate: $('#mEsc').value, reviewer: $('#mRev').value,
                         embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto'},
                 permissions: {approval: $('#pApproval').value, toolsets: [...document.querySelectorAll('#pToolsets input:checked')].map(i => i.value)},
                 usage: {daily_budget_usd: $('#uDaily').value, monthly_budget_usd: $('#uMonthly').value, currency: $('#uCurrency').value,

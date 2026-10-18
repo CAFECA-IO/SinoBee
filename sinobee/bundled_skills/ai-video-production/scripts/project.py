@@ -260,9 +260,32 @@ def cmd_remove(a) -> None:
     emit({"ok": True, "removed": a.path})
 
 
+EXAMPLES = Path(__file__).resolve().parent.parent / "assets"
+
+
+def example_copy(proj: dict) -> str | None:
+    """The bundled example films show the plan's shape; their content is not the user's film."""
+    if proj.get("example_ok"):            # set only when the user asked for the sample film itself
+        return None
+    body = ((proj.get("script") or {}).get("body") or "").strip()
+    for f in sorted(EXAMPLES.glob("example-*.json")):
+        try:
+            ex = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        ex_body = ((ex.get("script") or {}).get("body") or "").strip()
+        if (ex.get("title") and proj.get("title") == ex.get("title")) or (ex_body and body == ex_body):
+            return f.name
+    return None
+
+
 def check(proj: dict, root: Path) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warns: list[str] = []
+    ex = example_copy(proj)
+    if ex:
+        errors.append(f"[腳本] the title or script.body is the bundled example {ex}: it only shows the shape of a plan. "
+                      "Write the film the user asked for (set example_ok: true only if they asked for this sample)")
     subj = {s["id"]: s for s in proj.get("subjects", [])}
     envs = {e["id"]: e for e in proj.get("environments", [])}
     genre = proj.get("genre", "film")

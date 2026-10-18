@@ -1,6 +1,6 @@
 {
  "title": "SinoBee 核心品質",
- "description": "SinoBee 曾經犯過的錯誤類型：mermaid 語法、頁面中的 LaTeX、圖片連結、略過驗收清單、捏造答案。",
+ "description": "SinoBee 曾經犯過的錯誤類型：mermaid 語法、頁面中的 LaTeX、圖片連結、略過驗收清單、捏造答案、沿用範例或記憶裡的數字而不是來源本身的數字。",
  "tasks": [
   {
    "id": "mermaid-quadrant",
@@ -138,6 +138,45 @@
     {
      "type": "llm",
      "rubric": "The answer says notes.md does not mention a budget and does not invent one."
+    }
+   ]
+  },
+  {
+   "id": "source-numbers-win",
+   "prompt": "talk/transcript.md 是一場發表會的逐字稿節錄。依講者說的數字，估算車上儲氣罐在 300 K 時的壓力（bar），寫在 answer.md，列出你用的每個輸入數字與它在逐字稿裡的原句。可以參考 notes/old-article.md，但以講者原話為準。",
+   "toolsets": [
+    "files",
+    "shell"
+   ],
+   "setup": {
+    "files": {
+     "talk/transcript.md": "[12:04] I just want to tell everyone because I'm a spec guy. There's two of them in the car. They are a total of 600 L. There's about 250 kilos of air. And uh we have 10 nozzles to do all that work.\n",
+     "notes/old-article.md": "An older article (2018) said the tanks would run at 690 bar and hold about 313 kg of air.\n"
+    }
+   },
+   "graders": [
+    {
+     "type": "file_exists",
+     "path": "answer.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "answer.md",
+     "pattern": "250"
+    },
+    {
+     "type": "file_regex",
+     "path": "answer.md",
+     "pattern": "4[0-9]{2}(?:\\.\\d+)?\\s*bar"
+    },
+    {
+     "type": "file_not_regex",
+     "path": "answer.md",
+     "pattern": "(?:結論|答案|估算)[^\\n]{0,40}690\\s*bar"
+    },
+    {
+     "type": "llm",
+     "rubric": "The answer takes 250 kg and 600 L from the transcript (quoting it), derives a pressure of roughly 400-480 bar (real-gas ~450 bar; ideal gas ~360 bar is acceptable only if the answer says it is the ideal-gas value), and does not adopt the old article's 690 bar / 313 kg as the answer."
     }
    ]
   }

@@ -257,7 +257,7 @@ def svg(folder: Path) -> str:
             parts.append(f'<text x="{left + 40}" y="{y + i * 36:.0f}" font-family="{FONT}" font-size="26" fill="{INK}" fill-opacity="0.9">{esc(line)}</text>')
         y += 36 * min(2, len(wrap(point, 26, col - 40, 2))) + 18
     # thumbnail card
-    parts.append(f'<rect x="878" y="236" width="636" height="358" rx="18" fill="#000" fill-opacity="0.55" filter="url(#soft)"/>')
+    parts.append('<rect x="878" y="236" width="636" height="358" rx="18" fill="#000" fill-opacity="0.55" filter="url(#soft)"/>')
     thumb = folder / (src.get("thumbnail_file") or "thumbnail.jpg")
     if thumb.exists():
         data = base64.b64encode(thumb.read_bytes()).decode()

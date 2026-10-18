@@ -138,6 +138,18 @@ PAGE_PROBE = """() => {
   if (ke.length) out.push([`${ke.length} 個公式無法排版`, ke.slice(0, 3).map(e => (e.getAttribute('title') || e.textContent).slice(0, 120)).join('；')]);
   const mm = [...document.querySelectorAll('svg')].filter(s => /Syntax error in (text|graph)/i.test(s.textContent || ''));
   if (mm.length) out.push(['Mermaid 圖表語法錯誤', `${mm.length} 張圖畫不出來`]);
+  // a drawing much larger than its own frame: the camera was not fitted (seen: a 3494 x 2568 drawing in an
+  // 800 x 600 viewBox spilled over the whole page)
+  const spill = [];
+  for (const s of document.querySelectorAll('svg[viewBox]')) {
+    const vb = (s.getAttribute('viewBox') || '').trim().split(/[\\s,]+/).map(Number);
+    if (vb.length !== 4 || !(vb[2] > 40 && vb[3] > 40)) continue;
+    let b; try { b = s.getBBox(); } catch (e) { continue; }
+    const over = Math.max(vb[0] - b.x, b.x + b.width - vb[0] - vb[2]) / vb[2];
+    const overY = Math.max(vb[1] - b.y, b.y + b.height - vb[1] - vb[3]) / vb[3];
+    if (over > 0.25 || overY > 0.25) spill.push(`${Math.round(b.width)}×${Math.round(b.height)} 畫在 ${vb[2]}×${vb[3]} 的畫框裡`);
+  }
+  if (spill.length) out.push(['圖形超出自己的畫框', spill.slice(0, 3).join('；') + '：鏡頭沒有對準物體（fitProjection 的點）或尺寸單位錯誤']);
   const text = (document.body && document.body.innerText || '').trim();
   const visual = document.querySelectorAll('svg, canvas, img, video').length;
   if (!text && !visual) out.push(['頁面是空白的', '沒有文字也沒有圖形']);
@@ -145,7 +157,63 @@ PAGE_PROBE = """() => {
 }"""
 
 
-async def _browser_checks(pages: list[Path], docs: list[tuple[Path, list, list]], shots: dict | None = None) -> list[dict]:
+FIG_PROBE = r"""() => {
+  // the drawings on a page (svg, canvas, img, video) big enough to judge, with the text that says what they show
+  const out = [];
+  const seen = new Set();
+  const capOf = el => {
+    const fig = el.closest('figure');
+    const fc = fig && fig.querySelector('figcaption');
+    if (fc && fc.innerText.trim()) return fc.innerText.trim();
+    let n = el;
+    for (let up = 0; n && up < 6; up++, n = n.parentElement) {
+      let s = n.previousElementSibling;
+      for (let k = 0; s && k < 4; k++, s = s.previousElementSibling) {
+        if (/^H[1-4]$/.test(s.tagName) && s.innerText.trim()) return s.innerText.trim();
+        const h = s.querySelector && s.querySelector('h1,h2,h3,h4');
+        if (h && h.innerText.trim()) return h.innerText.trim();
+      }
+    }
+    return el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('title') || '';
+  };
+  for (const el of document.querySelectorAll('svg, canvas, img, video')) {
+    if (el.tagName.toLowerCase() === 'svg' && el.parentElement && el.parentElement.closest('svg')) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 200 || r.height < 120) continue;
+    const box = el.closest('figure') || el;
+    if (seen.has(box)) continue;
+    seen.add(box);
+    const b = box.getBoundingClientRect();
+    out.push({x: Math.max(0, b.left + scrollX), y: Math.max(0, b.top + scrollY),
+              w: Math.min(b.width, 1600), h: Math.min(b.height, 1400),
+              tag: el.tagName.toLowerCase(), caption: capOf(el).slice(0, 300)});
+    if (out.length >= 6) break;
+  }
+  return out;
+}"""
+
+
+async def _figure_shots(pg, page_path: Path, figures: list) -> None:
+    """A full-page screenshot and one per drawing; a failure here only loses the pictures, never the page checks."""
+    try:
+        height = min(int(await pg.evaluate("document.documentElement.scrollHeight")), 3600)
+        figures.append({"path": str(page_path), "label": f"{page_path.name} 全頁", "caption": "",
+                        "image": await pg.screenshot(type="jpeg", quality=60, full_page=True,
+                                                     clip={"x": 0, "y": 0, "width": 1280, "height": max(height, 100)})})
+        for n, f in enumerate(await pg.evaluate(FIG_PROBE), 1):
+            await pg.evaluate(f"window.scrollTo(0, {max(0, f['y'] - 100)})")
+            await pg.wait_for_timeout(400)          # let an animation draw a frame
+            figures.append({"path": str(page_path), "label": f"{page_path.name} 圖 {n}（{f['tag']}）",
+                            "caption": f["caption"],
+                            "image": await pg.screenshot(type="jpeg", quality=75, full_page=True,
+                                                         clip={"x": f["x"], "y": f["y"], "width": max(f["w"], 1),
+                                                               "height": max(f["h"], 1)})})
+    except Exception as e:  # noqa: BLE001
+        log.info("figure screenshots failed for %s: %s", page_path, e)
+
+
+async def _browser_checks(pages: list[Path], docs: list[tuple[Path, list, list]], shots: dict | None = None,
+                          figures: list | None = None) -> list[dict]:
     try:
         from playwright.async_api import async_playwright
     except ImportError:
@@ -191,6 +259,8 @@ async def _browser_checks(pages: list[Path], docs: list[tuple[Path, list, list]]
                         found = await pg.evaluate(PAGE_PROBE)
                         if shots is not None:          # what the page looks like, for the acceptance review
                             shots[str(page_path)] = await pg.screenshot(type="jpeg", quality=70)
+                        if figures is not None:        # every drawing on its own, for the visual judgment
+                            await _figure_shots(pg, page_path, figures)
                     except Exception as e:  # noqa: BLE001
                         found = [["頁面無法開啟", str(e)[:200]]]
                     await ctx.close()
@@ -221,9 +291,10 @@ async def _browser_checks(pages: list[Path], docs: list[tuple[Path, list, list]]
     return issues
 
 
-async def check(paths: list[Path], shots: dict | None = None) -> list[dict]:
+async def check(paths: list[Path], shots: dict | None = None, figures: list | None = None) -> list[dict]:
     """All problems found in the given files (deduplicated, at most 20 files). `shots` (optional) receives a
-    screenshot of each HTML page (path -> JPEG bytes)."""
+    screenshot of each HTML page (path -> JPEG bytes); `figures` (optional) receives a full-page screenshot and one
+    per drawing of each page: {"path", "label", "caption", "image"}."""
     files = [p for p in dict.fromkeys(Path(x) for x in paths)][:MAX_FILES]
     issues: list[dict] = []
     pages, docs = [], []
@@ -240,7 +311,7 @@ async def check(paths: list[Path], shots: dict | None = None) -> list[dict]:
             if formulas or diagrams:
                 docs.append((p, formulas, diagrams))
     if pages or docs:
-        issues += await _browser_checks(pages, docs, shots)
+        issues += await _browser_checks(pages, docs, shots, figures)
     return issues
 
 

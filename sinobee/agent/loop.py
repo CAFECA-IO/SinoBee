@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import json
 import re
 import uuid
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 import time
@@ -78,10 +80,12 @@ class Runtime:
     """Shared, long-lived resources (one per process)."""
 
     def __init__(self, config: Config | None = None, *, provider=None, aux_provider=None, embedder=None,
-                 strong_provider=None):
+                 strong_provider=None, reviewer_provider=None):
         self.config = config or Config.load()
         self._strong = strong_provider
         self._strong_spec = None
+        self._reviewer = reviewer_provider
+        self._reviewer_spec = None
         self._fixed_provider = provider is not None
         self.provider_error: str | None = None
         if provider is not None:
@@ -165,6 +169,41 @@ class Runtime:
                 return None
         return self._strong
 
+    @staticmethod
+    def is_local(prov) -> bool:
+        label = str(getattr(prov, "label", "") or "")
+        return label.startswith(("ollama/", "local/", "lmstudio/", "vllm/")) or \
+            bool(re.search(r"//(localhost|127\.0\.0\.1|host\.docker\.internal)", str(getattr(prov, "base_url", ""))))
+
+    def inline_aux(self):
+        """The model for auxiliary work that a running task waits on (compaction, working-memory compression).
+        agent.inline_aux: auto (default) uses model.auxiliary unless it runs locally while the main model is in the
+        cloud - a small local model there turned every long step into minutes - then the main model is used;
+        "auxiliary" or "main" force one. Background work (reflection, memory upkeep) always uses model.auxiliary."""
+        mode = str(self.config.get("agent.inline_aux", "auto")).lower()
+        if mode == "main" or (mode == "auto" and self.aux is not self.provider
+                              and self.is_local(self.aux) and not self.is_local(self.provider)):
+            return self.provider
+        return self.aux
+
+    def reviewer(self):
+        """The model that judges results (model.reviewer): ideally another family than the main model, so the
+        acceptance review does not share the main model's blind spots. None: use strong() or the main model."""
+        if self._reviewer is not None and (self._fixed_provider or self._reviewer_spec is None):
+            return self._reviewer
+        spec = self.config.get("model.reviewer")
+        if not spec:
+            return None
+        if self._reviewer_spec != spec:
+            try:
+                self._reviewer = build_chain(self.config, spec)
+                self._reviewer.recorder = self._record
+                self._reviewer_spec = spec
+            except Exception as e:  # noqa: BLE001
+                log.warning("reviewer model %s unavailable: %s", spec, e)
+                return None
+        return self._reviewer
+
     def _build_models(self):
         """Build provider chain; never crash startup - an unconfigured model surfaces in the UI instead."""
         try:
@@ -184,6 +223,7 @@ class Runtime:
         if not self._fixed_provider:
             self.provider, self.aux, emb = self._build_models()
             self._strong, self._strong_spec = None, None      # rebuilt on demand with the new settings
+            self._reviewer, self._reviewer_spec = None, None
             self.memory.embedder = emb
             self._wire_recorders(emb)
         self.memory.core_char_limit = int(self.config.get("memory.core_char_limit", 1500))
@@ -232,7 +272,7 @@ class Agent:
     def __init__(self, runtime: Runtime, session_id: str | None = None, *, platform: str = "cli",
                  emit: EmitFn | None = None, approve: ApproveFn | None = None, tool_filter=None,
                  system_extra: str = "", max_iterations: int | None = None, board_scope: str | None = None,
-                 title: str | None = None, learn: bool = True, depth: int = 0, ask=None):
+                 title: str | None = None, learn: bool = True, depth: int = 0, ask=None, provider=None):
         """tool_filter(tool) -> bool narrows the tools (sub-agents / workflow roles); board_scope is the shared
         blackboard this agent reads and writes (default: its own session); depth > 0 marks a sub-agent."""
         self.rt = runtime
@@ -244,6 +284,7 @@ class Agent:
         self._cancel = False
         self._inbox: list[str] = getattr(self, "_inbox", [])
         self.depth = depth
+        self._provider_override = provider        # e.g. the reviewer sub-agent runs on model.reviewer
         self.learn = learn
         self.max_iterations = max_iterations
         self.tool_filter = tool_filter
@@ -307,7 +348,8 @@ class Agent:
             try:
                 recalled = await self.rt.memory.asearch(
                     query, k=int(self.config.get("memory.recall_k", 6)), tiers=("short", "long"),
-                    min_score=float(self.config.get("memory.recall_min_score", 0.15)))
+                    min_score=float(self.config.get("memory.recall_min_score", 0.15)),
+                    min_rel=float(self.config.get("memory.recall_min_rel", 0.3)))
             except Exception:
                 log.exception("recall failed")
         skills_index = ""
@@ -316,7 +358,9 @@ class Agent:
                 query, self.tool_names, self.config.get("skills.index_mode", "auto"),
                 int(self.config.get("skills.index_all_threshold", 20)), int(self.config.get("skills.retrieve_n", 6)))
         if recalled:
-            self._emit("recall", {"memories": [m.brief() for m in recalled]})
+            from ..memory.neutral import neutral
+            self._emit("recall", {"memories": [{**m.brief(), "content": neutral(m.content)} if m.kind == "episode"
+                                               else m.brief() for m in recalled]})
         brief = ""
         if "board_read" in self.tool_names:
             try:
@@ -366,7 +410,7 @@ class Agent:
         wm = self.ctx.working
         if wm and sum(len(str(v)) for v in wm.values()) > limit // 2:
             from ..memory.working import compress_working
-            new = await compress_working(wm, self.rt.aux, limit // 2)
+            new = await compress_working(wm, self.rt.inline_aux(), limit // 2)
             if new != wm:
                 wm.clear()
                 wm.update(new)
@@ -517,8 +561,43 @@ class Agent:
                     "to be right and how each is checked.</task_checklist>")
         return ""
 
-    async def _quality_gate(self, stats: dict) -> tuple[str, str] | None:
-        """Deterministic checks before the task may end: open checklist items, then problems in the files it made."""
+    async def _step_chat(self, request, tool_specs, max_tokens: int, stats: dict):
+        """One model call with a deadline. A stronger model that keeps a step waiting past agent.model_deadline
+        (default 240 s; a slow request was retried five times with 180 s timeouts, 15 minutes of a silent
+        '思考中') hands this step to the main model, and the rest of the turn stays there."""
+        deadline = float(self.config.get("agent.model_deadline", 240))
+        call = self._prov.chat(request, tool_specs, temperature=self.config.get("model.temperature", 0.3),
+                               max_tokens=max_tokens)
+        fallback = self.rt.provider if self._prov is not self.rt.provider else None
+        if deadline <= 0 or fallback is None:
+            return await call
+        try:
+            return await asyncio.wait_for(call, deadline)
+        except asyncio.TimeoutError:
+            slow = self._prov.label
+            self._prov = fallback
+            stats["slow_model"] = slow
+            self._event(f"⚠︎ {slow} 超過 {deadline:.0f} 秒沒有回應，這一步起改用 {fallback.label}")
+            return await fallback.chat(request, tool_specs, temperature=self.config.get("model.temperature", 0.3),
+                                       max_tokens=max_tokens)
+
+    async def _guarded(self, what: str, coro, stats: dict):
+        """Run one quality step; a bug inside it never turns a finished task into an error. The skip is recorded
+        on the turn (stats["quality_skipped"]) and shown, so a result that was not checked never looks checked."""
+        try:
+            return await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.exception("%s crashed", what)
+            stats.setdefault("quality_skipped", []).append(f"{what}: {type(e).__name__}: {e}")
+            self._event(f"⚠︎ {what}發生內部錯誤，已略過（{type(e).__name__}: {e}）；這次結果沒有經過{what}")
+            return None
+
+    async def _quality_gate(self, stats: dict, query: str = "", answer: str = "") -> tuple[str, str] | None:
+        """Checks before the task may end: open checklist items; then problems in the files it made (deterministic
+        file and page checks, the user's rules, skill checks, the user's language); then, when those pass, a vision
+        model's judgment of screenshots of every page, drawing and image it made."""
         open_items = checklist_tools.open_items(checklist_tools.get(self.ctx))
         if open_items:
             lines = "\n".join(f"- #{i['id']} {i['text']}" for i in open_items[:10])
@@ -531,10 +610,13 @@ class Agent:
                 paths.append(resolve_file(self.config, a["path"]))
             except Exception:  # noqa: BLE001
                 continue
-        if not paths:
-            return None
-        from . import qa, rules
+        from . import language, qa, rules
         issues = []
+        if self.config.get("agent.language_check", True) and self.depth == 0:
+            # deliverables and the answer in the user's language (a sub-agent answers its parent, not the user)
+            issues += await asyncio.to_thread(language.check, query, paths, answer)
+        if not paths and not issues:
+            return None
         if self.config.get("agent.qa", True):
             self._event("成果檢查：檢查本次產出的檔案")
             issues += await qa.check(paths)
@@ -547,6 +629,9 @@ class Agent:
                 issues += await checks.run(self.ctx, used, paths)
             except Exception:  # noqa: BLE001 - a broken skill check must not break the task
                 log.exception("skill checks failed")
+        if not issues and paths and self.depth == 0 and self.config.get("agent.visual_check", True) \
+                and self.config.get("model.vision", True):
+            issues += await self._visual_check(query, paths, stats)
         stats["qa_issues"] = issues
         if not issues:
             self._event("成果檢查通過")
@@ -555,6 +640,43 @@ class Agent:
         self._emit("qa", {"issues": issues[:20]})
         return "qa", ("[自動成果檢查] 交付前檢查本次產出的檔案，發現以下問題：\n" + qa.report(issues)
                       + "\n請修正這些問題（修好後我會再檢查一次），或在回答裡說明為什麼不需要修。")
+
+    async def _visual_check(self, query: str, paths: list, stats: dict) -> list[dict]:
+        """Screenshots judged by a vision model. A picture already judged acceptable this turn is not sent again;
+        when no model can judge, the turn records the check as skipped instead of passed."""
+        from . import language, visual
+        try:
+            shots = await visual.collect(paths)
+        except Exception as e:  # noqa: BLE001 - no browser / broken page: recorded as not checked
+            stats.setdefault("quality_skipped", []).append(f"視覺檢查: {type(e).__name__}: {e}")
+            return []
+        if not shots:
+            return []
+        cache = stats.setdefault("visual_ok", set())
+        todo = [s for s in shots if s["sha"] not in cache]
+        if not todo:
+            return []
+        want = language.wanted(query) or "zh-Hant"
+        lang = language.NAMES.get(want, want)
+        models = [m for m in dict.fromkeys([self.rt.reviewer(), self.rt.strong(), self.rt.provider]) if m]
+        self._event(f"視覺檢查：截取 {len(todo)} 張畫面，由 {models[0].label} 判讀")
+        deadline = float(self.config.get("agent.model_deadline", 240)) or None
+
+        def fallback(model, err):
+            self._event(f"⚠︎ 視覺檢查：{model.label} 無法判讀（{type(err).__name__}），改由下一個模型判讀")
+        try:
+            items = await visual.judge(models, query, lang, todo, deadline, fallback)
+        except Exception as e:  # noqa: BLE001
+            stats.setdefault("quality_skipped", []).append(f"視覺檢查: {type(e).__name__}: {e}")
+            self._event(f"⚠︎ 視覺檢查無法執行：{type(e).__name__}")
+            return []
+        issues = visual.to_issues(todo, items)
+        bad = {i["path"] + "|" + i["name"] for i in issues}
+        cache.update(s["sha"] for s in todo if s["path"] + "|" + s["label"] not in bad)
+        stats["visual"] = [{"label": s["label"], "caption": s.get("caption", "")} for s in todo]
+        self._emit("visual", {"shots": len(todo), "issues": issues[:10]})
+        self._event(f"視覺檢查：{len(todo)} 張畫面，{len(issues)} 個需要修正" if issues else f"視覺檢查通過（{len(todo)} 張畫面）")
+        return issues
 
     async def _acceptance(self, query: str, final_text: str, stats: dict, turn_start: int):
         """The model-based check for the quality level of this turn. Returns "retry" (a fix list went back to the
@@ -571,8 +693,18 @@ class Agent:
         level, _ = stats["quality"]
         if level == "fast":
             return None
+        stats["turn_start"] = turn_start
         rounds = {"standard": 1, "strict": 2}[level]
         data = await self._review(query, final_text, stats, level)
+        if data is None and not stats.get("reviewer_fallback") and \
+                re.search(r"VERDICT:\s*revise", stats.get("reviewer") or "", re.I):
+            stats["reviewer_fallback"] = True
+            # the judge could not run, but the independent reviewer asked for changes: its findings stand
+            # (the thorium run passed as done although the reviewer had said revise)
+            data = {"verdict": "revise", "items": [], "notes": [],
+                    "summary": "獨立審查員要求修正（驗收審查無法執行）",
+                    "problems": [{"what": stats["reviewer"].split("VERDICT:")[-1].strip()[:300],
+                                  "evidence": "獨立審查員報告", "fix": stats["reviewer"][:1200]}]}
         if data is None:                      # the reviewer could not run: fall back to the light completion check
             verdict = await self._verify(query, final_text, stats) if self._should_verify(stats) else None
             if verdict and not verdict.get("complete"):
@@ -623,10 +755,20 @@ class Agent:
             except Exception:  # noqa: BLE001
                 shots = {}
         items = checklist_tools.get(self.ctx)
+        turn = self.history[stats.get("turn_start", 0):]
+        log_text = review.work_log(turn)
+        unbacked = review.unbacked_claims(final_text, turn)
         reviewer = ""
         if level == "strict" and self.depth == 0 and self.config.get("agent.reviewer", True) and "reviewed" not in stats:
             stats["reviewed"] = True
-            reviewer = await self._independent_review(query, final_text, items, paths)
+            reviewer = await self._independent_review(query, final_text, items, paths, log_text,
+                                                      review.sources_read(turn))
+            fake = review.unbacked_claims(reviewer, turn)
+            if fake:
+                # the reviewer vouched for checks nobody ran: its pass is not evidence
+                reviewer += ("\n\n[系統核對] 審查員宣稱以下檢查通過，但本輪工作紀錄沒有執行過，這些宣稱不可採信，"
+                             "其 VERDICT 也不能當作通過的證據：\n" + "\n".join(f"- {x}" for x in fake))
+                self._event("審查員的部分宣稱沒有工作紀錄支持，已標示為不可採信")
             stats["reviewer"] = reviewer
         elif stats.get("reviewer"):
             reviewer = stats["reviewer"] + "\n(The agent has since tried to fix these; check the current files.)"
@@ -634,21 +776,32 @@ class Agent:
                   and m.content.startswith("[使用者在執行中補充指示]")]
         prompt = review.review_prompt(query=query, steers=steers, checklist=checklist_tools.render(items),
                                       qa_text="", files=review.excerpts(paths), answer=final_text,
-                                      reviewer=reviewer, level=level)
+                                      reviewer=reviewer, level=level, work_log=log_text,
+                                      unbacked="\n".join(unbacked))
         parts: list = [TextPart(prompt)]
         for path, img in list(shots.items())[:3]:
             parts += [TextPart(f"Screenshot of {Path(path).name} as the user sees it:"),
                       ImagePart.from_bytes(img, "image/jpeg")]
-        model = self.rt.strong() or self.rt.provider
+        model = self.rt.reviewer() or self.rt.strong() or self.rt.provider
         self._event(f"驗收審查：由 {model.label} 以全新上下文檢查結果")
+        deadline = float(self.config.get("agent.model_deadline", 240)) or None
         try:
-            resp = await model.chat([Message("user", parts)], None, temperature=0, max_tokens=1500)
+            try:
+                resp = await asyncio.wait_for(model.chat([Message("user", parts)], None, temperature=0,
+                                                         max_tokens=1500), deadline)
+            except asyncio.TimeoutError:
+                if model is self.rt.provider:
+                    raise
+                self._event(f"⚠︎ 驗收審查：{model.label} 超過 {deadline:.0f} 秒沒有回應，改由 {self.rt.provider.label} 審查")
+                resp = await asyncio.wait_for(self.rt.provider.chat([Message("user", parts)], None, temperature=0,
+                                                                    max_tokens=1500), deadline)
         except Exception as e:  # noqa: BLE001 - a failed review never blocks the answer
             log.info("acceptance review skipped: %s", e)
             return None
         return review.parse(resp.message.text())
 
-    async def _independent_review(self, query: str, final_text: str, items: list, paths: list) -> str:
+    async def _independent_review(self, query: str, final_text: str, items: list, paths: list,
+                                  log_text: str = "", sources: list | None = None) -> str:
         """Strict level: a read-only reviewer sub-agent re-checks sources and files before the acceptance review."""
         from . import review
         from ..work.agents import run_subagent
@@ -661,8 +814,10 @@ class Agent:
         try:
             res = await run_subagent(self.rt, role="reviewer", board_scope=self.ctx.state["board_scope"],
                                      task=review.reviewer_task(query=query, checklist=checklist_tools.render(items),
-                                                               files=[str(p) for p in paths], answer=final_text),
+                                                               files=[str(p) for p in paths], answer=final_text,
+                                                               work_log=log_text, sources=sources),
                                      parent_session=self.session_id, emit=self._emit, hub=hub,
+                                     provider=self.rt.reviewer(),
                                      max_iterations=int(self.config.get("agent.reviewer_iterations", 15)))
         except Exception as e:  # noqa: BLE001
             log.info("independent review failed: %s", e)
@@ -720,7 +875,7 @@ class Agent:
         nudge = False
         tool_specs = self._tool_specs()
         status, error_info, started, steps = "done", None, time.time(), 0
-        self._prov = self.rt.provider
+        self._prov = self._provider_override or self.rt.provider
         stats["verify_rounds"] = 0
         stats["gate_rounds"] = {}
         self._checklist_turn_start()
@@ -741,7 +896,17 @@ class Agent:
         if self._run_rec.rid and not self.ctx.state.get("job_run"):
             self.ctx.state["run_id"] = self._run_rec.rid
 
-        for iteration in range(max_iter):
+        def step_limit() -> int:
+            # a multi-stage skill (sinobee-complexity: high) used in this turn gets the larger budget
+            if not self.max_iterations and self._complex_task(explicit):
+                return max(max_iter, int(self.config.get("agent.max_iterations_complex", 120)))
+            return max_iter
+
+        hit_limit = False
+        for iteration in itertools.count():                # counts up to the step limit (which may grow)
+            if iteration >= step_limit():
+                max_iter, hit_limit = step_limit(), True
+                break
             steps = iteration + 1
             if self._cancel:
                 final_text = "（已依你的要求停止）"
@@ -782,9 +947,7 @@ class Agent:
                 self._escalate(f"已進行 {steps - 1} 步仍未完成", stats)
             self._emit("thinking", {"iteration": iteration, "step": steps, "model": self._prov.label})
             try:
-                resp = await self._prov.chat(request, tool_specs,
-                                                   temperature=self.config.get("model.temperature", 0.3),
-                                                   max_tokens=max_tokens)
+                resp = await self._step_chat(request, tool_specs, max_tokens, stats)
             except Exception as e:
                 for qe in current_scope.get().drain_quota_events():
                     self._emit("quota", {**qe, "stopped": True})
@@ -844,7 +1007,7 @@ class Agent:
                 self._emit("assistant", {"text": msg.text(), "final": not msg.tool_calls})
             if not msg.tool_calls:
                 final_text = msg.text()
-                gate = None if stats.get("consecutive_errors") else await self._quality_gate(stats)
+                gate = None if stats.get("consecutive_errors") else await self._guarded("成果檢查", self._quality_gate(stats, query, final_text), stats)
                 if gate:
                     kind, text = gate
                     if stats["gate_rounds"].get(kind, 0) < int(self.config.get("agent.quality_rounds", 2)):
@@ -857,7 +1020,7 @@ class Agent:
                                   "hint": "可以回覆「繼續」讓我接著修，或告訴我哪些可以不用管。"}
                 elif not stats.get("consecutive_errors"):
                     stats["final_text"] = final_text
-                    outcome = await self._acceptance(query, final_text, stats, turn_start)
+                    outcome = await self._guarded("驗收審查", self._acceptance(query, final_text, stats, turn_start), stats)
                     if outcome == "retry":
                         continue
                     if isinstance(outcome, dict):
@@ -887,7 +1050,7 @@ class Agent:
                 final_text = (f"⚠︎ 任務沒有完成：{why}。最後的錯誤：\n{stats.get('last_error', '')[:400]}")
                 self.history.append(Message("assistant", f"[上一次嘗試失敗：{why}。最後的錯誤：{stats.get('last_error', '')[:300]}]"))
                 break
-        else:
+        if hit_limit:
             status = "incomplete"
             error_info = {"summary": f"已達單次任務的步驟上限（{max_iter} 步）",
                           "hint": "可以回覆「繼續」讓我接著做，或在設定提高 agent.max_iterations。", "detail": ""}
@@ -929,7 +1092,8 @@ class Agent:
                                 "duration_s": round(time.time() - started, 1), "usage": turn_usage,
                                 "session_cost_usd": session_usage["cost_usd"],
                                 "session_tokens": session_usage["total_tokens"],
-                                "artifacts": stats.get("artifacts", [])[-30:]})
+                                "artifacts": stats.get("artifacts", [])[-30:],
+                                "quality_skipped": stats.get("quality_skipped") or []})
         if getattr(self, "_run_rec", None):
             self._run_rec.finish(status, final_text, error_info, turn_usage.get("cost_usd", 0), turn_id)
         bs = self.rt.budget_status()
@@ -1023,10 +1187,11 @@ class Agent:
         if usage_scope is not None:
             usage_scope.purpose = "compression"
         self._persist()   # the DB keeps the full transcript; only the model context is compacted
-        aux_spec = self.config.get("model.auxiliary") or self.config.get("model.default")
+        aux_spec = (self.config.get("model.auxiliary") if self.rt.inline_aux() is self.rt.aux else None) \
+            or self.config.get("model.default")
         aux_window, _ = context_window(self.config, aux_spec)
         try:
-            res = await compact([self.system] + self.history, self.rt.aux, budget=budget, tools=tool_specs,
+            res = await compact([self.system] + self.history, self.rt.inline_aux(), budget=budget, tools=tool_specs,
                                 extra=context_block, force=force, keep_ratio=keep_ratio,
                                 digest_tokens=max(2000, min(40000, int(aux_window * 0.6) - 2000)))
         finally:

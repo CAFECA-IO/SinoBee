@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import shlex
+import sys
 
 from .approval import shell_danger
 from ..types import ToolResult
@@ -102,7 +103,7 @@ def _run_danger(args: dict) -> str | None:
 @tool("skill_run", "skills",
       "Run a skill's script. `script` is a file INSIDE the skill (e.g. scripts/run.py) - never a project file or "
       "folder; put commands, folders and files in `args`. Skills marked [run: …] have an entry script: call "
-      "skill_run(name, args=\"<input>\") without `script`. Python runs with python3, .sh with bash, .js with node. "
+      "skill_run(name, args=\"<input>\") without `script`. Python runs with SinoBee's own Python, .sh with bash, .js with node. "
       "A non-zero exit is reported as an error.",
       {"properties": {"name": {"type": "string"},
                       "script": {"type": "string", "description": "a file of the skill, e.g. scripts/run.py; "
@@ -137,13 +138,40 @@ async def skill_run(ctx: ToolContext, name: str, script: str = "", args: str = "
             f"runs a script from a {s.trust} skill that has not been reviewed")
         if not ok:
             return ToolResult.error("user did not approve running this unreviewed skill script")
-    runner = {"py": "python3", "sh": "bash", "js": "node"}.get(target.suffix.lstrip("."), "")
+    missing = missing_python(s.metadata.get("sinobee-requires-python"))
+    if missing:
+        pkgs = " ".join(shlex.quote(m) for m in missing)
+        return ToolResult.error(
+            f"skill {name} needs Python packages that SinoBee's Python does not have: {', '.join(missing)}. "
+            f"Install them (ask the user first) with: {shlex.quote(sys.executable)} -m pip install {pkgs}  "
+            f"- or install SinoBee with the office extra: pip install \"sinobee[office]\"")
+    runner = {"py": shlex.quote(sys.executable), "sh": "bash", "js": "node"}.get(target.suffix.lstrip("."), "")
     cmd = f"{runner} {shlex.quote(str(target))} {args}".strip()
     ctx.state.setdefault("skills_used", set()).add(name)
     out = await shell(ctx, cmd, timeout=timeout, cwd=None)
     m = re.match(r"\[exit (-?\d+)", out)
     if m and m.group(1) != "0":
         return ToolResult(f"ERROR: {script} exited with code {m.group(1)}\n{out}", True)
+    return out
+
+
+def missing_python(spec) -> list[str]:
+    """pip names of the modules a skill declares (sinobee-requires-python: "docx=python-docx, openpyxl") that
+    SinoBee's own Python cannot import."""
+    import importlib.util
+    items = spec if isinstance(spec, list) else str(spec or "").split(",")
+    out = []
+    for item in items:
+        item = str(item).strip()
+        if not item:
+            continue
+        mod, _, pip = item.partition("=")
+        try:
+            found = importlib.util.find_spec(mod.strip()) is not None
+        except (ImportError, ValueError):
+            found = False
+        if not found:
+            out.append((pip or mod).strip())
     return out
 
 

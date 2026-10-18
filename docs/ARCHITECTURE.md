@@ -716,7 +716,48 @@ sinobee eval show                   # 最近一次的結果
 - 驗收清單 8 項以上且仍有未完成時，尾端提醒「一次只做一項：標成 doing、做完並驗證、附證據標 done，再開始下一項」。
 - 任務沒做完就結束（步驟用完、連續錯誤、未通過驗收…）且清單還有未完成項目時，寫一則黑板筆記（`note`，key `progress`）：已完成哪些、還剩哪些、為什麼停下；下一輪「繼續」時與清單一起接上。
 
-## 17. 後續路線
+## 17. 從 Roadster Rocket 案例學到的（2026-10-18）
+
+### 案例
+題目是分析 Tesla Roadster Event 影片的 Roadster Rocket，並用 anatomy 做 3D 動畫。本機 SinoBee（gemini-flash → gemini-pro）跑了 36 分鐘、30 步，交付的 page.html 與 sinobee.ai 上的分享成果**逐位元組相同**：
+
+1. `engineering-feasibility` 的範本 `feasibility.example.json` 本身就是 Roadster 的完整答案，`--example roadster` 又把整套模型與五張圖複製進工作區。代理只把 `"example": true` 改成 `false`。
+2. 答案裡的 690 bar／313 kg 和逐字稿矛盾。講者在 12:11 說「two of them … 600 L … about 250 kilos of air」，換算約 450 bar。代理手上已有逐字稿，卻沒有發現。
+3. 獨立審查員寫「2 罐」（頁面是 3 罐）、「audit 與 check 均無錯誤」（本輪沒跑 audit），最後判 pass。
+4. 審查結束後品質關卡崩潰：`name 'Path' is not defined`。
+5. 開頭召回的情節記憶帶著「successfully … fully meets」這類自評。
+6. 每步等 1–3 分鐘：輸入約 35k token/呼叫，同步的上下文壓縮跑在本機 4B 模型上。
+
+### 修正
+
+| 缺陷 | 修正 | 位置 |
+|---|---|---|
+| 品質關卡崩潰 | 補 `Path`；每個品質步驟包在 `_guarded`，出錯只略過該步並記在 `turn_end.quality_skipped`，不讓已完成的任務變成 error；`ruff F821/F811/F401` 成為測試 | `agent/loop.py`、`tests/test_quality4.py` |
+| 技能範例＝答案 | 範本改成 TODO 骨架；拒絕 `--example`，Roadster 移到 `references/` 只當程式寫法參考；scaffold 寫 `.scaffold.json` 出處；check 擋下與範例相同的檔案、重複範例的 tiles、未改的範本模型 | `bundled_skills/engineering-feasibility` |
+| 數字與來源矛盾 | `feasibility.json` 新增 `source_facts`（原句、時間、數值、單位）。check 會在逐字稿裡找原句，並要求模型用到每個數字，否則必須寫 `override` 與證據；每張圖要有 `audits/<fig>.txt` 且含 `audit passed` | 同上 `scripts/check.py` |
+| 影片技能同型風險 | plan.json 的標題或劇本與內建範例片相同時，validate 判錯（`example_ok: true` 才放行） | `ai-video-production/scripts/project.py` |
+| 審查員蓋章 | 審查員與驗收審查都拿到 **工作紀錄**（每個工具步驟）與本輪讀過的來源；審查員必須先做 SOURCE CHECK（引用來源原句核對關鍵數字），只有工作紀錄裡有、或自己跑過的檢查才能說通過；宣稱某項檢查通過、但工作紀錄裡沒有對應步驟的，會被標記：審查員的 pass 作廢，代理自己的宣稱以 UNBACKED CLAIMS 交給驗收審查 | `agent/review.py`、`agent/loop.py` |
+| 同源盲點 | 新角色 `model.reviewer`（設定頁「審查模型」、`SINOBEE_REVIEWER_MODEL`）：獨立審查員與驗收審查都用它，建議選和主要模型不同家族的模型 | `config.py`、`settings_api.py`、`index.html` |
+| 記憶自評 | 反思提示要求情節摘要只寫事實；存入與召回時都去掉自評字眼；召回的情節標示「過去會話的線索，需重新驗證」 | `memory/neutral.py`、`learning/reflector.py`、`agent/prompt.py` |
+| 證據只是自述 | 驗收清單標 done 的證據必須可查：存在的檔案路徑、URL，或本輪工具真的回傳過的文字 | `tools/checklist_tools.py` |
+| 延遲 | `agent.inline_aux`（預設 auto）：主模型在雲端、輔助模型在本機時，任務當下要等的壓縮改用主模型；背景工作仍用輔助模型 | `agent/loop.py` |
+| 重跑時偽造稽核紀錄（`echo PASS`） | `run.py audit <folder>` 執行每張圖的 `build({ audit: true })`，紀錄帶圖檔雜湊與結束碼；check 只認這種紀錄 | `engineering-feasibility` |
+| 舊資料夾被沉默沿用 | scaffold 對已有前次檔案的資料夾發出警告 | 同上 |
+| 60 步不夠 | 用到 `sinobee-complexity: high` 技能的回合上限為 `agent.max_iterations_complex`（120） | `agent/loop.py` |
+| 升級模型一步卡 15 分鐘 | `agent.model_deadline`（240 s）：步驟與驗收審查超時就改用主模型；逾時請求只重試 1 次 | `agent/loop.py`、`providers/base.py` |
+| 審查員的 revise 被丟掉 | 驗收審查無法執行時，審查員的 revise 當修正清單送回一次 | `agent/loop.py` |
+| 召回不相關記憶 | 關鍵詞依查詢詞覆蓋率計分、embedding 0.45 以下不計、`memory.recall_min_rel`（0.3） | `memory/store.py` |
+| 挑容易的主張湊「可行」 | 極限清單每項要有主張檢驗或 `verdict_impact`；文章引文存 `sources/` 才能查證 | `engineering-feasibility` |
+| 圖形畫出畫框、範本文字留在頁面 | 成果檢查偵測 SVG 超出 viewBox；check 偵測範本可見文字 | `agent/qa.py`、`engineering-feasibility` |
+| 中文題目交英文報告（釷基熔鹽反應爐） | 成果檢查以字元統計判斷每個產出文字檔（.md/.html/.txt，剝除程式碼、網址、公式）與最後回答的語言，與使用者的語言不符就退回；分辨繁體／簡體；使用者明說「用英文」時以指示為準；子代理不檢查 | `agent/language.py`、`agent.language_check` |
+| 沒有人看過成果的畫面 | 結構檢查都通過後，替每個產出頁面截全頁與每張圖（svg/canvas/img/video，附圖說或最近的標題），連同產出的圖片檔，交給視覺模型（審查模型 → 升級模型 → 主模型，各有截止時間）依評分準則判讀：空白或被裁切、文字重疊、與圖說不符、物理上可見的錯誤（力或流向相反、座標軸沒有單位、數字互相矛盾）、範本文字或語言不符。只有 blocking 會退回；判讀過關的畫面以雜湊快取，同一輪不重送；無法判讀時記為「未檢查」，不當作通過 | `agent/visual.py`、`agent/qa.py`（FIG_PROBE）、`agent.visual_check` |
+| 回歸 | `core` 評測新增 `source-numbers-win`：逐字稿說 250 kg，舊文章說 690 bar／313 kg，答案必須以講者為準 | `evals/suites/core.json` |
+
+### 仍待處理
+- 一般性的「產出與技能資產相同」偵測只在 engineering-feasibility 與 ai-video-production 的 check 裡；其他技能的範例，在新增時就要遵守「範例只示範形狀，不放可直接交付的內容」。
+- 已安裝且被使用者改過的內建技能不會自動升級（`_install_bundled` 只升級未修改的副本）；改過 engineering-feasibility 的使用者要手動更新。
+
+## 18. 後續路線
 
 1. MCP client：接入外部 MCP 工具
 2. 訊息閘道：Slack / Telegram / LINE（背景工作完成與待核准通知）
@@ -726,4 +767,29 @@ sinobee eval show                   # 最近一次的結果
 6. 記憶：有 embedding 時以向量分群壓縮
 7. 技能品質分數：把技能宣告檢查的通過率（匿名、可關閉）上傳 SinoBee.ai，顯示在技能頁
 
-（子代理、平行工作流與排程任務已在第 14 節實作。）
+（子代理、平行工作流與排程任務已在第 14 節實作；Roadster 案例的修正見第 17 節。）
+
+## 19. 內建技能盤點（對照 Claude 內建技能，2026-10-19）
+
+對照 Claude（Claude Code / Cowork）提供的技能，SinoBee 缺少的是**一般工作最常交付的檔案格式**與**看成果**的能力。補上的技能全部是 SinoBee 自己撰寫（Claude 的 docx/xlsx/pptx/pdf 技能為專有授權，不複製），每個都有 `scripts/run.py`、宣告的檢查與測試（`tests/test_builtin_skills.py`）。
+
+| Claude 技能 | SinoBee 對應 | 狀態 |
+|---|---|---|
+| docx | `word-documents`：大綱 JSON → .docx（樣式化標題、清單、表格、圖說、目錄、頁碼、東亞字型）；`replace --track` 產生真正的追蹤修訂；check（標題層級、殘留範本字、CJK 字型、空段落）；render | 新增 |
+| xlsx | `spreadsheets`：活公式、輸入/公式配色、數字格式、凍結窗格、原生圖表；check 以 LibreOffice 重算後找 #DIV/0!、#REF!、#NAME?、文字型數字、手打的合計 | 新增 |
+| pptx | `presentations`：16:9 主題版型（title/section/bullets/two-column/image/chart/table/quote/big-number/closing）、原生圖表、講者備註；check 以 CJK 字寬估算文字溢出、出界、空白版位、過小字級；render 逐頁 PNG | 新增 |
+| pdf / pdf-reading | `pdf-documents`：info（掃描頁、字型嵌入）、text、tables、render、merge/split/rotate/stamp、表單 fields/fill、HTML→PDF（Chromium，中文正確） | 新增 |
+| file-reading | 核心：`read_file` 讀 .docx/.xlsx/.pptx/.pdf 時回傳文字（`sinobee/docread.py`，Office 只用標準函式庫） | 核心改進 |
+| dataviz | `data-visualization`：圖表形式選擇、誠實刻度、`sbplot`（CJK 字型、缺字拒存）、經 protan/deutan/tritan 模擬驗證的 6 色調色盤（`run.py validate`） | 新增 |
+| frontend-design | `frontend-design`：方向、設計代號、行動優先、離線自足；check 以 390/1280 px 與深色模式開頁：橫向捲動、對比、alt、lang、viewport、網路資源、腳本錯誤 | 新增 |
+| /review、/security-review（Claude Code） | `code-review`：scope（範圍、提交、diff、測試指令）、secrets；流程要求每個發現都要以具體輸入證實 | 新增 |
+| skill-creator | `skill-authoring` | 已有 |
+| deep-research | `web-research` | 已有 |
+| computer-use / chrome-browser | `desktop-automation`、`browser-form-filling` | 已有 |
+| 生活類（訂餐、退貨、報帳…）、品牌/主題、Slack GIF | 不內建：屬個人或組織情境，可由使用者安裝 | 不納入 |
+
+核心配套：
+- 技能的 Python 腳本改用 SinoBee 自己的直譯器（`sys.executable`）執行，`pip install "sinobee[office]"` 裝的套件就用得到。
+- 新的中繼資料 `sinobee-requires-python`（`docx=python-docx, openpyxl`）：缺套件時 `skill_run` 直接回報缺哪些與安裝指令；技能檢查在缺套件時略過而不誤擋。
+- 視覺檢查（第 17 節）會把產出的 PDF / Word / PowerPoint / Excel 前 4 頁轉成圖片一起判讀（需要 LibreOffice 與 pdftoppm）。
+- `pyproject.toml` 新增 `office` extra。

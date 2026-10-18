@@ -25,7 +25,7 @@ _SECRET = re.compile(r"(sk-[A-Za-z0-9_\-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{
                      r"-----BEGIN [A-Z ]*PRIVATE KEY-----)")
 _INJECTION = re.compile(r"(ignore (all |any )?(previous|prior|above) instructions|disregard (the )?system prompt|"
                         r"you are now (in )?developer mode|忽略(之前|以上|先前)的?(所有)?指令)", re.I)
-_INVISIBLE = re.compile("[​-‏‪-‮⁠-⁤﻿\U000e0000-\U000e007f]")
+_INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\U000e0000-\U000e007f]")
 
 
 def shell_danger(command: str) -> str | None:
