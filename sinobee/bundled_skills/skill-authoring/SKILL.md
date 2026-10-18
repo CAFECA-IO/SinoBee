@@ -36,6 +36,9 @@ task that is likely to recur and no existing skill covers it.
    ---
    ```
    Metadata values are strings. Never use flow style like `[a, b]`.
+   When the skill produces files and a script can verify them, declare it so SinoBee runs it before the task may
+   finish: `sinobee-checks: "scripts/check.py {file}"` (`{file}` / `{dir}` are filled in; exit 0 or JSON with an
+   empty `problems` list means pass) and `sinobee-checks-on: "reports/*.md"` (which produced files it applies to).
 5. Body (< 500 lines, ideally far less): `# When to Use`, `# Procedure` (numbered, with one clear default rather
    than a menu of options), `# Gotchas` (what failed and the fix), `# Verification` (how to confirm success).
 6. Put long material in `references/<topic>.md` and say WHEN to read it ("read references/errors.md if the API

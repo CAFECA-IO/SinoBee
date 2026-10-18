@@ -606,7 +606,7 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
 |---|---|---|
 | 1 | 易變上下文移到尾端、歷史只增不改；驗收清單每步附在尾端；確定性成果檢查；完成前的品質關卡 | **已實作**（見下） |
 | 2 | 全新上下文 + 強模型逐項驗收（輸入實際成果與截圖）；高風險任務自動加審查員並過濾審查意見；委派投入量規則；子代理摘要上限；向強模型「請教」取代單向切換；依風險分級的驗證深度（快速 / 標準 / 嚴謹） | **已實作**（見下） |
-| 3 | `sinobee eval`（真實失敗評估集、pass^k）；**每個 bug 變成一條檢查規則**（倒讚或回報 → 反思產生確定性規則 + 回歸題）；技能宣告 `sinobee-checks`，結果回饋成 SinoBee.ai 技能品質分數；長時任務初始化流程與寫檔快照 | 待做 |
+| 3 | `sinobee eval`（評估集、pass@k / pass^k、退步偵測）；**每個 bug 變成一條檢查規則**（倒讚 → 確定性規則 + 回歸題）；技能宣告 `sinobee-checks`；寫檔快照與一鍵復原；長時任務的進度筆記與逐項專注 | **已實作**（見下）；技能品質分數上傳 SinoBee.ai 尚未做 |
 
 ### 第 1 階段（已實作）
 
@@ -675,6 +675,47 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
 
 **介面**：設定 →「模型」→ 進階：「品質把關」（自動／快速／標準／嚴謹）與「卡關時找較強的模型」（自動／請教／切換）。對話中顯示品質等級、獨立審查、驗收審查的進度；審查要求修正時列出問題與修法，成果檢查的問題也以清單顯示。
 
+### 第 3 階段（已實作）
+
+**品質規則：每個 bug 變成一條檢查**（`agent/rules.py`，存在 `$SINOBEE_HOME/qa_rules.json`）
+- 一條規則 = 套用的檔案（glob）＋一個正規表示式，`forbid`（不可出現）或 `require`（必須包含）。不可出現的規則不得匹配空字串（否則每個檔案都會被擋）。
+- 品質關卡在成果檢查之後套用所有啟用的規則，違反時以「違反品質規則「…」」退回，和成果檢查共用修正輪數；每條規則記錄抓到的次數。
+- 三個來源：
+  1. 使用者對結果按 👎：`learn_from_feedback` 在反思之後呼叫 `propose_from_feedback`，由輔助模型判斷問題能否用一個正規表示式在產出檔案中抓到。**只有實際能標出這一輪被嫌棄的檔案時才保留**（證明它抓得到這個 bug），同時存一題回歸題（評分：完成、該規則不再違反、依回饋寫成的 rubric）。對話裡顯示「新增品質規則…」。
+  2. 使用者要求「以後不要再犯」：工具 `quality_rule`（core 工具組，子代理不可用），新增 / 刪除需要使用者核准（核准模式為 auto 時除外）。
+  3. 設定 →「品質」手動新增。
+- 設定：`learning.quality_rules`（倒讚是否提出規則，預設開）。
+
+**技能宣告的檢查**（`skills/checks.py`）
+- `SKILL.md` metadata：`sinobee-checks: "scripts/check.py {file}"`（`{file}` / `{dir}` 自動帶入）與 `sinobee-checks-on: "reports/*.md"`。
+- 本輪用過的技能（`skill_view` / `skill_run` / 斜線指令）若有宣告，品質關卡就對符合的產出檔案執行它：結束碼 0 且輸出 JSON 的 `problems` 為空才算通過；`status: fix` 或 `ok: false` 也算失敗。腳本被拒絕、或需要核准但核准模式不是 auto 的技能不執行。
+- 結果寫進 `skill_checks` 表，技能統計多一欄 `checks`（次數、通過率、最近的問題）。`youtube-analysis` 已宣告 `scripts/run.py check {dir}`（`reports/youtube/*/report.md`）；`skill-authoring` 教寫技能時加上。
+- 設定：`agent.skill_checks`。
+
+**評測**（`sinobee/evals/`，CLI `sinobee eval`，API `/api/evals`，設定 →「品質」）
+- 任務：`prompt`、`setup.files`（文字、base64 或從檔案複製）、`toolsets`、`trials`、`timeout`、`graders`。
+- 評分器：`file_exists`、`file_regex`、`file_not_regex`、`answer_regex`、`answer_not_regex`、`qa_clean`（成果檢查＋品質規則）、`status`、`command`（在工作區執行，看結束碼）、`tool_used`、`rule`、`llm`（強模型依 rubric 評，不確定就判失敗）。能用確定性評分就不用模型。
+- 每次試跑都在**拋棄式的 SinoBee** 裡進行：暫時的 home 與工作區、使用者技能的複本、核准自動、學習與快照關閉，讀取使用者的金鑰但不寫入任何設定、記憶或技能；模型費用以 purpose `eval` 計入使用者的用量。
+- 指標：每題 k 次的 pass@k（至少一次通過：做得到）與 pass^k（全部通過：靠得住），加上費用、平均步數、時間。和同一測試組上一次的結果比較，列出**退步**（上次通過、這次失敗）與修好的題目；CLI 有退步時結束碼為 2，可放進 CI。
+- 測試組：`core`（內建：mermaid quadrantChart、頁面中的 LaTeX、Markdown 圖片嵌入、驗收清單紀律與數字一致、不捏造答案）、`regressions`（從 👎 產生）、`skill:<名稱>`（技能的 `evals/evals.json`，anatomy 格式，以 expected_output 當 rubric）、任意 JSON 檔。
+- 結果存在 `$SINOBEE_HOME/evals/results/<id>.json`。
+```
+sinobee eval list
+sinobee eval run core -k 3          # 每題跑 3 次
+sinobee eval run regressions
+sinobee eval run skill:youtube-analysis --task youtube-analysis:1 --keep
+sinobee eval show                   # 最近一次的結果
+```
+
+**寫檔快照與復原**（`agent/snapshots.py`）
+- `write_file` / `edit_file` 改動檔案前，把原本的內容複製到 `$SINOBEE_HOME/snapshots/<session>/<turn>/`（每個檔案每輪只存第一次，也就是要回到的狀態；超過 20 MB 不存並註明）。同一輪內子代理的改動也存在同一份快照。
+- 結果卡出現「復原本輪的檔案變更」：把改過的檔案放回原樣、移除這輪新建的檔案，並列出無法復原的檔案。shell 指令造成的改動不在範圍內。
+- 舊快照在 `agent.snapshot_days`（預設 14）天後清除；`agent.snapshots=false` 關閉。
+
+**長時任務**
+- 驗收清單 8 項以上且仍有未完成時，尾端提醒「一次只做一項：標成 doing、做完並驗證、附證據標 done，再開始下一項」。
+- 任務沒做完就結束（步驟用完、連續錯誤、未通過驗收…）且清單還有未完成項目時，寫一則黑板筆記（`note`，key `progress`）：已完成哪些、還剩哪些、為什麼停下；下一輪「繼續」時與清單一起接上。
+
 ## 17. 後續路線
 
 1. MCP client：接入外部 MCP 工具
@@ -683,5 +724,6 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
 4. sinobee.ai Skill Hub 服務端（協定見 SKILL_HUB.md；用戶端已完成）
 5. Electron 桌面殼：包裝 Web UI，並以主機模式運行
 6. 記憶：有 embedding 時以向量分群壓縮
+7. 技能品質分數：把技能宣告檢查的通過率（匿名、可關閉）上傳 SinoBee.ai，顯示在技能頁
 
 （子代理、平行工作流與排程任務已在第 14 節實作。）

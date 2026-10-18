@@ -6,6 +6,7 @@ import logging
 import json
 import re
 import uuid
+from contextvars import ContextVar
 from typing import Any, Awaitable, Callable
 
 import time
@@ -207,6 +208,10 @@ class Runtime:
     async def drain(self, timeout: float = 120) -> None:
         if self.background:
             await asyncio.wait(list(self.background), timeout=timeout)
+
+
+# the file snapshot of the user's current turn; sub-agents started inside it snapshot into the same one
+_SNAPSHOT: ContextVar = ContextVar("sinobee_snapshot", default=None)
 
 
 def _title(text: str) -> str:
@@ -497,7 +502,12 @@ class Agent:
     def _checklist_tail(self, stats: dict, steps: int) -> str:
         items = checklist_tools.get(self.ctx)
         if items:
-            return checklist_tools.render(items)
+            out = checklist_tools.render(items)
+            if len(items) >= 8 and checklist_tools.open_items(items):
+                # long tasks drift when many things are half done: one item at a time, verified, then the next
+                out += ("\n<focus>This is a long task. Work on ONE item at a time: mark it doing, finish and verify "
+                        "it, mark it done with evidence, then start the next. Do not start several at once.</focus>")
+            return out
         many = stats.get("tool_calls", 0) >= int(self.config.get("agent.checklist_after_tool_calls", 4))
         if "task_checklist" in self.tool_names and (many or self._complex_task(stats.get("explicit_skills"))) \
                 and steps <= 15 \
@@ -515,8 +525,6 @@ class Agent:
             self._event(f"驗收清單還有 {len(open_items)} 項未完成")
             return "checklist", (f"[自動驗收] 驗收清單還有 {len(open_items)} 項未完成：\n{lines}\n請完成它們並附上證據"
                                  "（task_checklist update status=done），或改成 dropped 並說明原因，再回報結果。")
-        if not self.config.get("agent.qa", True):
-            return None
         paths = []
         for a in stats.get("artifacts", []):
             try:
@@ -525,9 +533,20 @@ class Agent:
                 continue
         if not paths:
             return None
-        from . import qa
-        self._event("成果檢查：檢查本次產出的檔案")
-        issues = await qa.check(paths)
+        from . import qa, rules
+        issues = []
+        if self.config.get("agent.qa", True):
+            self._event("成果檢查：檢查本次產出的檔案")
+            issues += await qa.check(paths)
+        # the user's quality rules (bugs they reported once) and the checks the used skills declare
+        issues += await asyncio.to_thread(rules.check, self.config.home, paths)
+        used = set(self.ctx.state.get("skills_used", set())) | set(stats.get("explicit_skills") or [])
+        if used and self.config.get("agent.skill_checks", True):
+            from ..skills import checks
+            try:
+                issues += await checks.run(self.ctx, used, paths)
+            except Exception:  # noqa: BLE001 - a broken skill check must not break the task
+                log.exception("skill checks failed")
         stats["qa_issues"] = issues
         if not issues:
             self._event("成果檢查通過")
@@ -708,6 +727,14 @@ class Agent:
         if self._complex_task(explicit):
             self._escalate("任務屬於複雜類型", stats, at_start=True)
         self._turn_started = started
+        self._snap = None
+        if self.depth == 0:
+            if self.config.get("agent.snapshots", True):
+                self._snap = (self.session_id, f"t{int(started * 1000)}")
+                self.rt.spawn(self._prune_snapshots())
+            _SNAPSHOT.set(self._snap)
+        else:
+            self._snap = _SNAPSHOT.get()
         stats["artifacts"] = []
         from ..work.chatrun import ChatRun
         self._run_rec = ChatRun(self, query, _title(query))
@@ -885,7 +912,19 @@ class Agent:
                                                  turn_usage.get("cost_usd", 0), round(time.time() - started, 1))
         except Exception:
             log.exception("could not record turn")
+        if status != "done":
+            self._save_progress(status, error_info, final_text)
+        snap = None
+        if self.depth == 0 and self._snap:
+            from . import snapshots
+            try:
+                inf = snapshots.info(self.config.home, *self._snap)      # includes the sub-agents' changes
+            except Exception:  # noqa: BLE001
+                inf = None
+            if inf and inf["files"]:
+                snap = {"session": self._snap[0], "key": self._snap[1], "files": len(inf["files"])}
         self._emit("turn_end", {"text": final_text, "status": status, "error": error_info, "steps": steps,
+                                "snapshot": snap,
                                 "turn_id": turn_id, "skills": turn_skills,
                                 "duration_s": round(time.time() - started, 1), "usage": turn_usage,
                                 "session_cost_usd": session_usage["cost_usd"],
@@ -1093,6 +1132,8 @@ class Agent:
                 "arguments (for skill_run: `script` must be a file inside the skill, put folders/files in `args`) "
                 "or take a different approach. If you cannot, tell the user plainly what failed.")
         else:
+            if call.name in ("write_file", "edit_file") and getattr(self, "_snap", None):
+                self._snapshot((call.arguments or {}).get("path"), stats)
             result = await REGISTRY.dispatch(call, self.ctx, self.tool_names)
         elapsed = round(time.time() - t0, 1)
         stats["tool_calls"] += 1
@@ -1131,6 +1172,44 @@ class Agent:
                     rec.files(arts)
                 self._emit("artifact", {"id": call.id, "tool": call.name, "files": arts})
         return Message("tool", result.content, tool_call_id=call.id, name=call.name)
+
+    def _snapshot(self, path, stats: dict) -> None:
+        """Keep the file as it is before this turn changes it (so the turn can be undone)."""
+        if not path:
+            return
+        from . import snapshots
+        try:
+            from ..tools.files import resolve as resolve_write
+            target = resolve_write(self.ctx, str(path))        # the same path write_file / edit_file will use
+            if snapshots.take(self.config.home, *self._snap, target):
+                stats["snapshot_files"] = stats.get("snapshot_files", 0) + 1
+        except Exception:  # noqa: BLE001 - never block a write because the copy failed
+            log.debug("snapshot failed for %s", path, exc_info=True)
+
+    async def _prune_snapshots(self) -> None:
+        from . import snapshots
+        try:
+            await asyncio.to_thread(snapshots.prune, self.config.home, float(self.config.get("agent.snapshot_days", 14)))
+        except Exception:  # noqa: BLE001
+            log.debug("snapshot prune failed", exc_info=True)
+
+    def _save_progress(self, status: str, error_info: dict | None, final_text: str) -> None:
+        """A task that stopped before it was done leaves a progress note on the blackboard, so the next turn (or
+        a resumed run) knows what is finished, what is left and why it stopped."""
+        items = checklist_tools.get(self.ctx)
+        left = checklist_tools.open_items(items)
+        if not left:
+            return
+        done = [i for i in items if i.get("status") == "done"]
+        lines = [f"任務未完成（{status}）：{(error_info or {}).get('summary') or final_text[:200]}",
+                 f"已完成 {len(done)}/{len(items)} 項：" + "；".join(i["text"][:60] for i in done[:8]),
+                 "尚未完成：" + "；".join(f"#{i['id']} {i['text'][:80]}" for i in left[:10])]
+        try:
+            from ..work.hub import get_hub
+            get_hub(self.rt).store.board_write(self.ctx.state["board_scope"], "note", "\n".join(lines),
+                                               key="progress", author="agent")
+        except Exception:  # noqa: BLE001
+            log.debug("could not save progress note", exc_info=True)
 
     def _persist(self) -> None:
         new = self.history[self._persisted:]

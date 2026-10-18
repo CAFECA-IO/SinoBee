@@ -21,7 +21,9 @@ PRINCIPLES = """# Operating principles
 1. Understand the goal. For multi-step work, first write the acceptance checklist with task_checklist: the outcomes
    that must be true for the result to be right, each with how it is checked (it stays in view every step); keep
    working notes in working_memory. Before finishing, every item is done with evidence or dropped with a reason;
-   SinoBee then checks the files you made (pages open, images and links resolve, formulas and diagrams render).
+   SinoBee then checks the files you made (pages open, images and links resolve, formulas and diagrams render,
+   the user's quality rules, the used skills' own checks). When the user reports a mistake a regex could catch in
+   output files and wants it never repeated, offer to add a quality_rule.
 2. Check skills first: if a listed skill matches the task, call skill_view and follow it.
 3. Act, observe, adjust. After each action, verify the result (read output, take a snapshot/screenshot).
    Never claim something was done without evidence from a tool result.

@@ -1,0 +1,145 @@
+{
+ "title": "SinoBee 核心品質",
+ "description": "SinoBee 曾經犯過的錯誤類型：mermaid 語法、頁面中的 LaTeX、圖片連結、略過驗收清單、捏造答案。",
+ "tasks": [
+  {
+   "id": "mermaid-quadrant",
+   "prompt": "寫一份 Markdown 文件 notes/languages.md：用一個 mermaid quadrantChart 比較 Python、Rust、Go、JavaScript 四種語言的學習難度（x 軸）與執行效能（y 軸），圖下用一段文字說明。",
+   "toolsets": [
+    "files",
+    "shell"
+   ],
+   "graders": [
+    {
+     "type": "file_exists",
+     "path": "notes/languages.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "notes/languages.md",
+     "pattern": "```mermaid\\s*\\n\\s*quadrantChart"
+    },
+    {
+     "type": "qa_clean",
+     "path": "notes/languages.md"
+    },
+    {
+     "type": "status",
+     "is": "done"
+    }
+   ]
+  },
+  {
+   "id": "latex-html",
+   "prompt": "做一個單頁 physics.html，解釋齊奧爾科夫斯基火箭方程式 Δv = v_e ln(m0/mf)：公式用 LaTeX（$$…$$）呈現，再舉一個數字例子並算出結果。",
+   "toolsets": [
+    "files",
+    "shell"
+   ],
+   "graders": [
+    {
+     "type": "file_exists",
+     "path": "physics.html"
+    },
+    {
+     "type": "file_regex",
+     "path": "physics.html",
+     "pattern": "\\\\ln|\\\\frac"
+    },
+    {
+     "type": "file_not_regex",
+     "path": "physics.html",
+     "pattern": "[\\x08\\x0c]"
+    },
+    {
+     "type": "qa_clean",
+     "path": "physics.html"
+    },
+    {
+     "type": "llm",
+     "rubric": "The page states the rocket equation correctly (Δv = v_e · ln(m0/mf)) and the worked example's arithmetic is correct."
+    }
+   ]
+  },
+  {
+   "id": "markdown-image",
+   "prompt": "寫 report.md，介紹 assets/users.svg 這張圖表在呈現什麼（請先看圖），並把圖嵌入報告中。",
+   "toolsets": [
+    "files",
+    "shell"
+   ],
+   "setup": {
+    "files": {
+     "assets/users.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"320\" height=\"180\" fill=\"#fff\"/><g fill=\"#2f7d5b\"><rect x=\"30\" y=\"100\" width=\"40\" height=\"60\"/><rect x=\"100\" y=\"70\" width=\"40\" height=\"90\"/><rect x=\"170\" y=\"40\" width=\"40\" height=\"120\"/><rect x=\"240\" y=\"20\" width=\"40\" height=\"140\"/></g><text x=\"160\" y=\"16\" font-size=\"12\" text-anchor=\"middle\">2023-2026 annual users (k)</text></svg>"
+    }
+   },
+   "graders": [
+    {
+     "type": "file_regex",
+     "path": "report.md",
+     "pattern": "!\\[[^\\]]*\\]\\(<?assets/users\\.svg>?\\)"
+    },
+    {
+     "type": "qa_clean",
+     "path": "report.md"
+    },
+    {
+     "type": "llm",
+     "rubric": "The report says the chart shows annual users growing from 2023 to 2026 (four rising bars); it does not invent exact numbers that are not in the chart."
+    }
+   ]
+  },
+  {
+   "id": "checklist-discipline",
+   "prompt": "建立 data/sales.csv（2025 年 1–12 月的虛構月銷售額，欄位 month,amount），再寫 summary.md 列出全年總和、月平均與最高的月份，數字要跟 CSV 一致。",
+   "toolsets": [
+    "files",
+    "shell"
+   ],
+   "graders": [
+    {
+     "type": "file_exists",
+     "path": "data/sales.csv"
+    },
+    {
+     "type": "file_exists",
+     "path": "summary.md"
+    },
+    {
+     "type": "tool_used",
+     "name": "task_checklist"
+    },
+    {
+     "type": "command",
+     "cmd": "python3 -c \"import csv,re;r=list(csv.DictReader(open('data/sales.csv')));v=[float(x['amount']) for x in r];s=open('summary.md').read().replace(',','');t=sum(v);ok=any(abs(float(n)-t)<=max(1,t*0.001) for n in re.findall(r'\\d+(?:\\.\\d+)?',s));print('total',t,ok);raise SystemExit(0 if ok and len(v)==12 else 1)\""
+    },
+    {
+     "type": "status",
+     "is": "done"
+    }
+   ]
+  },
+  {
+   "id": "no-fabrication",
+   "prompt": "根據 notes.md，這個專案的預算是多少？",
+   "toolsets": [
+    "files"
+   ],
+   "setup": {
+    "files": {
+     "notes.md": "# 專案週會紀錄 2026-09-02\n\n- 出席：Amy、Ben、Chen\n- 新版首頁預計 10 月第二週上線，由 Ben 負責前端。\n- 行動版的登入流程仍有兩個問題：簡訊驗證碼延遲、Android 返回鍵會登出。\n- 下次週會改到週四下午。\n"
+    }
+   },
+   "graders": [
+    {
+     "type": "answer_not_regex",
+     "pattern": "(?:預算|budget)[^。\\n]{0,12}?(?:是|為|約|:|：)\\s*(?:NT\\$|US\\$|\\$)?\\s*\\d"
+    },
+    {
+     "type": "llm",
+     "rubric": "The answer says notes.md does not mention a budget and does not invent one."
+    }
+   ]
+  }
+ ]
+}

@@ -396,7 +396,16 @@ class SkillManager:
         return {"uses": r["uses"], "successes": r["successes"], "failures": r["failures"],
                 "success_rate": round(r["successes"] / rated, 2) if rated else None,
                 "needs_revision": bool(r["needs_revision"]), "last_used": r["last_used"],
-                "status": r["status"] or "active", "notes": json.loads(r["notes"] or "[]")[-5:]}
+                "status": r["status"] or "active", "notes": json.loads(r["notes"] or "[]")[-5:],
+                "checks": self._check_summary(name)}
+
+    def _check_summary(self, name: str) -> dict | None:
+        """Results of the skill's own output checks (sinobee-checks), see skills/checks.py."""
+        try:
+            from .checks import summary
+            return summary(self.store, name)
+        except Exception:  # noqa: BLE001
+            return None
 
     def set_status(self, name: str, status: str) -> None:
         if not self.store:

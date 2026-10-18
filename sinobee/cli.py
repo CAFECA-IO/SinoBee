@@ -741,6 +741,58 @@ def _work_cmd(args) -> None:
         print("ok（若 sinobee serve 正在執行，幾秒內生效）")
 
 
+def _eval_cmd(args) -> None:
+    """Evaluations: run fixed tasks in throw-away workspaces and grade them (see sinobee/evals)."""
+    import json as _json
+    from . import evals as E
+    from .config import Config
+    if args.action == "list":
+        cfg = Config.load()
+        from .skills import manager_from_config
+        skills = manager_from_config(cfg)
+        for s in E.suites(cfg.home, skills):
+            print(f"{s['name']:<28} {s['tasks']:>3} tasks  {s['title']}")
+        runs = E.results(cfg.home, 10)
+        if runs:
+            print("\nrecent runs:")
+            for r in runs:
+                t = r.get("totals") or {}
+                print(f"  {r['id']:<34} {r['status']:<8} pass@k {t.get('pass_at_k', 0):.0%} pass^k "
+                      f"{t.get('pass_hat_k', 0):.0%} ${t.get('cost_usd', 0):.4f}"
+                      + (f"  REGRESSIONS: {', '.join(r['regressions'])}" if r.get("regressions") else ""))
+        return
+    if args.action == "show":
+        cfg = Config.load()
+        from .evals.runner import report
+        runs = E.results(cfg.home, 1)
+        rid = args.target or (runs[0]["id"] if runs else None)
+        if not rid:
+            raise SystemExit("no eval runs yet")
+        doc = E.result(cfg.home, rid)
+        print(_json.dumps(doc, ensure_ascii=False, indent=1) if args.json else report(doc))
+        return
+
+    async def go():
+        from .evals.runner import report, run
+        from .tools import browser
+        rt = _runtime(args)
+
+        def emit(kind, data):
+            if kind == "eval_progress" and not args.json:
+                print(f"[{data['done'] + 1}/{data['total']}] {data['task']} …", flush=True)
+
+        try:
+            doc = await run(rt, args.target or "core", k=args.k, task_ids=args.task or None, emit=emit, keep=args.keep)
+        except E.EvalError as e:
+            raise SystemExit(f"eval: {e}") from None
+        finally:
+            await browser.shutdown()
+        print(_json.dumps(doc, ensure_ascii=False, indent=1) if args.json else report(doc))
+        if doc.get("regressions"):
+            raise SystemExit(2)
+    asyncio.run(go())
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="sinobee", description="SinoBee autonomous agent")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -829,6 +881,16 @@ def main(argv: list[str] | None = None) -> None:
                     choices=["status", "jobs", "runs", "workflows", "pause", "resume", "delete"])
     wk.add_argument("ref", nargs="?", help="job id (runs/pause/resume/delete)")
     wk.add_argument("--limit", type=int, default=100)
+    ev = sub.add_parser("eval", help="evaluations: run fixed tasks in a throw-away workspace and grade the results")
+    ev.add_argument("action", choices=["list", "run", "show"])
+    ev.add_argument("target", nargs="?", help="run: core | regressions | skill:<name> | file.json; show: run id")
+    ev.add_argument("-k", type=int, help="trials per task (pass@k / pass^k); default: each task's own")
+    ev.add_argument("--task", action="append", help="only this task id (repeatable)")
+    ev.add_argument("--keep", action="store_true", help="keep the trial workspaces for inspection")
+    ev.add_argument("--json", action="store_true")
+    ev.add_argument("-m", "--model")
+    ev.add_argument("-c", "--config")
+    ev.add_argument("--approval", default=None, help=argparse.SUPPRESS)
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -862,6 +924,8 @@ def main(argv: list[str] | None = None) -> None:
         _db_cmd(args)
     elif args.cmd == "work":
         _work_cmd(args)
+    elif args.cmd == "eval":
+        _eval_cmd(args)
 
 
 if __name__ == "__main__":

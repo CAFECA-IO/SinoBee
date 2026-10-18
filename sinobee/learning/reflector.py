@@ -321,6 +321,19 @@ async def learn_from_feedback(rt, feedback_id: int, turn: dict, rating: int, tag
         stats = {"skill_request": False, "tool_calls": turn.get("tool_calls", 0), "status": "done"}
         rep = await reflect(rt, turn["session_id"], messages, stats, [], emit=None, extra=extra)
         report.update({k: rep.get(k) for k in ("memories", "updates", "skill", "errors", "usage")})
+        if not positive:
+            # a bug the user reported once becomes a check that runs on every later task (and a regression eval)
+            try:
+                from ..agent.rules import propose_from_feedback
+                prop = await propose_from_feedback(rt, turn, messages, rating, comment, tags)
+            except Exception as e:  # noqa: BLE001
+                prop = {"rule_rejected": f"proposal failed: {e}"}
+            if prop.get("rule"):
+                report["rule"] = prop["rule"]
+                if emit:
+                    emit("rule_added", {"rule": prop["rule"], "session_id": turn["session_id"]})
+            if prop.get("eval"):
+                report["eval"] = prop["eval"]["id"]
     rt.memory.mark_feedback_learned(feedback_id, report)
     if emit:
         emit("feedback_learned", {**report, "session_id": turn["session_id"], "turn_id": turn["id"]})

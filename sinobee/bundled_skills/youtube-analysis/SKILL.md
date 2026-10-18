@@ -4,12 +4,14 @@ description: Watches a YouTube video (metadata, full transcript with timestamps,
 license: MIT
 compatibility: Needs network access to youtube.com and i.ytimg.com, Python 3.10+, yt-dlp (installed on first use), Pillow for stills, and Playwright Chromium or cairosvg for the PNG cover (all in the SinoBee Docker image except yt-dlp).
 metadata:
-  version: 1.0.1
+  version: 1.0.2
   author: sinobee
   sinobee-tags: youtube, video, summary, report, fact-check, analysis
   sinobee-triggers: YouTube, youtube, 影片分析, 影片摘要, 看影片, 這部影片, 這支影片, 查核, 懶人包, video summary, analyse video, fact-check video
   sinobee-requires-tools: skill_run, read_file, write_file, web_search, web_fetch
   sinobee-entry: scripts/run.py
+  sinobee-checks: "scripts/run.py check {dir}"
+  sinobee-checks-on: "reports/youtube/*/report.md"
   sinobee-quickstart: "1) skill_run(name=youtube-analysis, args=\"<url>\"); 2) read transcript.md and every sheets/*.jpg; 3) category + fact-check; 4) write cover.json, skill_run args=\"cover <folder>\"; 5) write report.md, skill_run args=\"check <folder>\" until ok; 6) deliver report.md."
 ---
 

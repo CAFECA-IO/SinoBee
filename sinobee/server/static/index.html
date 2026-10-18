@@ -510,6 +510,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 #quotaBar[hidden]{display:none}#quotaBar .qb-h{display:flex;align-items:center;gap:6px}#quotaBar .qb-h b{font-size:12px}
 #quotaBar .qb-h .badge{margin-left:auto}#quotaBar .qwarn{color:var(--warn)}#quotaBar .qerr{color:var(--err)}
 .qrel{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--muted);margin-top:6px}.qrel span b{color:var(--ink);font-weight:600}
+.result .btn.undo{margin:0 0 0 10px;vertical-align:middle;display:inline-flex;align-items:center;gap:4px}.result .btn.undo svg{width:13px;height:13px}
 .note.qacard ul{margin:6px 0 0;padding-left:18px}.note.qacard li{margin:2px 0}.note.qacard small{display:block;color:var(--muted)}
 .cklist{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:10px 12px;margin:6px 0 4px}
 .ckl-h{display:flex;align-items:center;gap:8px;font-size:12.5px}.ckl-h span{color:var(--muted);font-variant-numeric:tabular-nums}
@@ -603,6 +604,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
       <button type="button" data-pane="model" class="on"><span data-icon="sparkles"></span><b>模型</b><small>模型來源、金鑰</small></button>
       <button type="button" data-pane="perm"><span data-icon="shield"></span><b>權限與安全</b><small>核准方式、可用能力</small></button>
       <button type="button" data-pane="skills"><span data-icon="skill"></span><b>技能</b><small>自動學習、專案技能</small></button>
+      <button type="button" data-pane="quality"><span data-icon="checkCircle"></span><b>品質</b><small>品質規則、評測</small></button>
       <button type="button" data-pane="usage"><span data-icon="chart"></span><b>用量與預算</b><small>預算上限、幣別、費率</small></button>
       <button type="button" data-pane="account"><span data-icon="user"></span><b>SinoBee.ai 帳號</b><small>登入、保險箱、分享</small></button>
     </nav>
@@ -681,6 +683,30 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
           <div class="srow"><div class="sl"><b>與其他 agent 共用技能</b><span class="sd">同時讀取 .agents/skills（Claude Code 等工具也使用這個位置）</span></div>
             <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="sInterop" aria-label="與其他 agent 共用技能"></div></div>
         </div>
+      </section>
+
+      <!-- ───── 品質 ───── -->
+      <section class="pane" data-pane="quality">
+        <div class="grp"><div class="grp-h">品質規則<span class="grp-d">每個任務交付前都會檢查產出的檔案是否違反這些規則；你按 👎 回報的錯誤、或請 SinoBee「以後不要再犯」時會自動提出，變更立即生效</span></div>
+          <div id="qRules"></div>
+          <details class="adv" id="qRuleAdd"><summary>＋ 手動新增規則</summary>
+            <div class="grid2" style="margin-top:8px">
+              <label class="f">名稱<input id="qrTitle" placeholder="例如 報告要附參考來源"></label>
+              <label class="f">套用的檔案<input id="qrFiles" placeholder="*.md, *.html"></label>
+              <label class="f">類型<select class="inp" id="qrKind"><option value="require">必須包含</option><option value="forbid">不可出現</option></select></label>
+              <label class="f">規則（正規表示式）<input id="qrPattern" placeholder="例如 參考來源|References" spellcheck="false"></label>
+            </div>
+            <div class="row" style="margin-top:8px"><span class="badge" id="qrMsg"></span><span style="flex:1"></span><button class="btn sm primary" type="button" id="qrAdd">新增</button></div>
+          </details></div>
+        <div class="grp"><div class="grp-h">評測<span class="grp-d">在拋棄式工作區重跑固定任務並自動評分，用來比較模型、設定或技能改動前後的品質；會實際呼叫模型並計入用量</span></div>
+          <div class="srow"><div class="sl"><b>測試組</b><span class="sd">core：SinoBee 曾犯過的錯誤類型；regressions：從 👎 回饋產生；skill:…：技能自帶的評測</span></div>
+            <div class="sc"><select class="inp" id="qSuite"></select></div></div>
+          <div class="srow"><div class="sl"><b>每題重跑次數</b><span class="sd">pass@k：k 次中至少一次通過（做得到）；pass^k：k 次全部通過（靠得住）</span></div>
+            <div class="sc"><input class="inp num" id="qK" type="number" min="1" max="10" placeholder="預設"></div></div>
+          <div class="row" style="margin:6px 0 10px"><span class="badge" id="qMsg"></span><span style="flex:1"></span>
+            <button class="btn" type="button" id="qStop" hidden>停止</button><button class="btn primary" type="button" id="qRun">開始評測</button></div>
+          <div style="overflow-x:auto"><table class="t" id="qRuns"><thead><tr><th>時間</th><th>測試組</th><th>狀態</th><th>pass@k</th><th>pass^k</th><th>費用</th></tr></thead><tbody></tbody></table></div>
+          <div id="qRegs"></div></div>
       </section>
 
       <!-- ───── 用量與預算 ───── -->
@@ -1422,7 +1448,10 @@ function handle(ev, replay = false){
       procClose(); document.querySelectorAll('#chat .cklist[data-live]').forEach(x => x.removeAttribute('data-live'));
       // mark any tool card still spinning (e.g. force-stopped) as interrupted
       document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
-      { const c = resultCard(ev); if (ev.artifacts?.length && c) c.insertAdjacentHTML('beforeend', artStrip(ev.artifacts, '本次產出')); }
+      { const c = resultCard(ev); if (ev.artifacts?.length && c) c.insertAdjacentHTML('beforeend', artStrip(ev.artifacts, '本次產出'));
+        if (ev.snapshot && c) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm undo';
+          b.innerHTML = ic('refresh') + ' 復原本輪的檔案變更'; b.title = `把這一輪修改的 ${ev.snapshot.files} 個檔案還原`;
+          b.onclick = () => restoreTurn(b, ev.snapshot); c.appendChild(b); } }
       if (!replay && ev.usage?.quota) quotaFromTurn(ev.usage.quota);
       if (ev.error?.quota && !replay) showQuotaModal(ev.error.quota, ev.error.model);
       loadSide(); refreshStatus(false); break; }
@@ -1431,8 +1460,12 @@ function handle(ev, replay = false){
       if (ev.skills_rated?.length) parts.push(`更新技能成效：${ev.skills_rated.join('、')}`);
       if (ev.memories?.length) parts.push(`記下 ${ev.memories.length} 則經驗`);
       if (ev.skill) parts.push(`技能 ${ev.skill.name || ''} ${ev.skill.status || ''}`);
+      if (ev.rule) parts.push(`新增品質規則「${esc(ev.rule.title)}」，以後每個任務都會檢查`);
+      if (ev.eval) parts.push('建立一題回歸測試');
       if (parts.length) add('✨ 從你的回饋學到：' + parts.join('、'), 'note learn');
       loadSide(); break; }
+    case 'rule_added': if (ev.session_id === sessionId || !ev.session_id) add(`✨ 新增品質規則「${esc(ev.rule?.title || '')}」：以後每個任務交付前都會檢查`, 'note learn'); break;
+    case 'eval_progress': case 'eval_done': if ($('#settings').classList.contains('open')) loadQuality(); break;
     case 'budget': add(`⚠︎ 花費提醒：今日 ${fmtCost(ev.daily.spent)}${ev.daily.limit ? ' / ' + fmtCost(ev.daily.limit) : ''}，本月 ${fmtCost(ev.monthly.spent)}${ev.monthly.limit ? ' / ' + fmtCost(ev.monthly.limit) : ''}`, 'note'); break;
   }
 }
@@ -1806,6 +1839,71 @@ const TOOLSET_INFO = {
   database: {name: '資料庫', desc: '查詢已儲存的資料庫連線；寫入每次都要核准', icon: 'database'},
   work: {name: '子代理與背景工作', desc: '分派子代理並行處理、執行固定流程、建立排程工作（建立排程需要你確認）', icon: 'clock'},
 };
+// ---------------- 設定 → 品質: quality rules and evaluations ----------------
+const QK = {forbid: '不可出現', require: '必須包含'};
+async function loadQuality(){
+  const [r, e] = await Promise.all([api('/api/rules').catch(() => ({rules: []})), api('/api/evals').catch(() => null)]);
+  const rules = r.rules || [];
+  $('#qRules').innerHTML = rules.length ? rules.map(x => `<div class="srow" data-rid="${esc(x.id)}"><div class="sl"><b>${esc(x.title)}</b>
+      <span class="sd">${QK[x.kind] || x.kind} <code>${esc(x.pattern)}</code> · ${esc((x.files || []).join(', '))}${x.hits ? ` · 抓到 ${x.hits} 次` : ''}${x.source?.type === 'feedback' ? ' · 來自你的回饋' : x.source?.type === 'agent' ? ' · SinoBee 提出' : ''}</span></div>
+      <div class="sc" style="display:flex;gap:8px;align-items:center;flex-direction:row"><input type="checkbox" class="sw" role="switch" ${x.enabled !== false ? 'checked' : ''} aria-label="啟用規則 ${esc(x.title)}">
+      <button class="btn icon sm" type="button" data-icon="trash" data-del aria-label="刪除規則"></button></div></div>`).join('')
+    : '<div class="sd" style="padding:6px 0">還沒有規則。對結果按 👎 並說明哪裡錯，SinoBee 會在能機械檢查時自動建立。</div>';
+  paintIcons($('#qRules'));
+  $('#qRules').querySelectorAll('[data-rid]').forEach(row => {
+    const id = row.dataset.rid;
+    row.querySelector('input.sw').onchange = ev => jreq(`/api/rules/${encodeURIComponent(id)}`, {enabled: ev.target.checked}, 'PATCH');
+    row.querySelector('[data-del]').onclick = async () => { if (!confirm('刪除這條品質規則？')) return; await jreq(`/api/rules/${encodeURIComponent(id)}`, undefined, 'DELETE'); loadQuality(); };
+  });
+  if (!e) return;
+  const sel = $('#qSuite'), cur = sel.value;
+  sel.innerHTML = e.suites.map(x => `<option value="${esc(x.name)}" ${x.tasks ? '' : 'disabled'}>${esc(x.title)}（${x.tasks} 題）</option>`).join('');
+  if (cur) sel.value = cur;
+  $('#qRun').disabled = e.running; $('#qStop').hidden = !e.running;
+  $('#qMsg').textContent = e.running ? '評測進行中…' : '';
+  const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
+  $('#qRuns tbody').innerHTML = e.runs.map(x => { const t = x.totals || {};
+    const st = {running: `進行中 ${x.progress?.done ?? 0}/${x.progress?.total ?? ''}`, done: '完成', error: '錯誤', stopped: '已停止'}[x.status] || x.status;
+    return `<tr data-run="${esc(x.id)}" style="cursor:pointer"><td>${new Date((x.started || 0) * 1000).toLocaleString()}</td><td>${esc(x.suite)}</td>
+      <td>${esc(st)}${x.regressions?.length ? ` <span class="badge env">退步 ${x.regressions.length}</span>` : ''}</td><td>${pct(t.pass_at_k)}</td><td>${pct(t.pass_hat_k)}</td><td>${fmtCost(t.cost_usd || 0)}</td></tr>`; }).join('')
+    || '<tr><td colspan="6" class="sd">還沒有評測紀錄</td></tr>';
+  $('#qRuns tbody').querySelectorAll('[data-run]').forEach(tr => tr.onclick = () => showEvalRun(tr.dataset.run));
+  $('#qRegs').innerHTML = e.regressions.length ? '<div class="sd" style="margin-top:10px">回歸測試（從你的 👎 回饋產生）</div>' + e.regressions.map(x =>
+      `<div class="srow" data-reg="${esc(x.id)}"><div class="sl"><span class="sd">${esc(x.prompt.slice(0, 140))}</span></div><div class="sc"><button class="btn icon sm" type="button" data-icon="trash" aria-label="刪除回歸測試"></button></div></div>`).join('') : '';
+  paintIcons($('#qRegs'));
+  $('#qRegs').querySelectorAll('[data-reg]').forEach(row => row.querySelector('button').onclick = async () => {
+    await jreq(`/api/evals/regressions/${encodeURIComponent(row.dataset.reg)}`, undefined, 'DELETE'); loadQuality(); });
+}
+async function showEvalRun(id){
+  const d = await api(`/api/evals/runs/${encodeURIComponent(id)}`); const t = d.totals || {};
+  const lines = [`${d.suite} · ${d.model || ''} · ${d.status}`, `pass@k ${Math.round((t.pass_at_k || 0) * 100)}%  pass^k ${Math.round((t.pass_hat_k || 0) * 100)}%  費用 $${(t.cost_usd || 0).toFixed(4)}  平均 ${t.avg_steps || 0} 步`, ''];
+  for (const task of d.tasks || []) {
+    lines.push(`${task.pass_hat_k ? '✓' : task.pass_at_k ? '~' : '✕'} ${task.id}`);
+    for (const tr of task.trials) if (!tr.passed) lines.push(`    第 ${tr.trial} 次：` + (tr.error || tr.grades.filter(g => !g.ok).map(g => `${g.type}: ${g.detail}`).join('；')).slice(0, 400));
+  }
+  if (d.regressions?.length) lines.push('', '退步（上次通過）：' + d.regressions.join(', '));
+  if (d.fixed?.length) lines.push('修好了：' + d.fixed.join(', '));
+  $('#vTitle').textContent = '評測結果 ' + d.id; $('#vBody').textContent = lines.join('\n'); $('#viewer').classList.add('open');
+}
+$('#qRun').onclick = async () => { const k = +$('#qK').value || undefined;
+  const {ok, j} = await jreq('/api/evals/run', {suite: $('#qSuite').value, k});
+  $('#qMsg').textContent = ok ? '評測已開始，完成後這裡會更新' : (j.detail || '無法開始'); loadQuality(); };
+$('#qStop').onclick = async () => { await jreq('/api/evals/stop', {}); setTimeout(loadQuality, 500); };
+$('#qrAdd').onclick = async () => {
+  const files = $('#qrFiles').value.split(',').map(x => x.trim()).filter(Boolean);
+  const {ok, j} = await jreq('/api/rules', {title: $('#qrTitle').value, kind: $('#qrKind').value, pattern: $('#qrPattern').value, files: files.length ? files : undefined});
+  $('#qrMsg').textContent = ok ? '已新增' : (j.detail || '無法新增');
+  if (ok) { ['#qrTitle', '#qrPattern', '#qrFiles'].forEach(s => $(s).value = ''); loadQuality(); }
+};
+async function restoreTurn(btn, snap){
+  if (!confirm(`把這一輪修改過的 ${snap.files} 個檔案還原成修改前的樣子？（這一輪新建的檔案會被移除）`)) return;
+  btn.disabled = true;
+  const {ok, j} = await jreq(`/api/sessions/${encodeURIComponent(snap.session)}/snapshots/${encodeURIComponent(snap.key)}/restore`, {});
+  if (!ok) { btn.disabled = false; return add('✕ 無法復原：' + esc(j.detail || ''), 'note'); }
+  btn.textContent = '已復原';
+  const n = (j.restored || []).length, m = (j.removed || []).length, f = j.failed || [];
+  add(`↺ 已復原 ${n} 個檔案${m ? `、移除 ${m} 個新建的檔案` : ''}${f.length ? `；${f.length} 個無法復原：${f.map(x => esc(x.path.split('/').pop()) + '（' + esc(x.why) + '）').join('、')}` : ''}`, 'note');
+}
 function showPane(name){
   document.querySelectorAll('#setNav button').forEach(b => b.classList.toggle('on', b.dataset.pane === name));
   document.querySelectorAll('#settings .pane').forEach(p => p.classList.toggle('on', p.dataset.pane === name));
@@ -1823,7 +1921,7 @@ let SET_DIRTY = false;
 function setDirty(on){ SET_DIRTY = on; const d = $('#setDirty'); d.textContent = on ? '● 有尚未儲存的變更' : ''; d.classList.toggle('on', on); }
 ['input', 'change'].forEach(ev => $('#settings .setpanes').addEventListener(ev, e => {
   // the account pane and local-model actions apply immediately; everything else waits for 儲存
-  if (e.target.closest('[data-pane="account"], #localPanel .lfilter, #lModels, #lCustom, #provList, #provMoreList, #localWrap .adv')) return;
+  if (e.target.closest('[data-pane="account"], [data-pane="quality"], #localPanel .lfilter, #lModels, #lCustom, #provList, #provMoreList, #localWrap .adv')) return;
   setDirty(true); $('#setSaved').textContent = ''; }));
 function closeSettings(){
   if (SET_DIRTY && !confirm('有尚未儲存的變更，確定要關閉嗎？')) return;
@@ -2076,7 +2174,7 @@ async function renderVaultBox(){
     if (!r.ok) { alert((await r.json()).detail); return; } renderVaultBox(); };
 }
 async function openSettings(firstRun = false, pane = null){
-  SET = await api('/api/settings'); renderSettings(); loadAccount(true); loadCatalog();
+  SET = await api('/api/settings'); renderSettings(); loadAccount(true); loadCatalog(); loadQuality();
   if (pane || firstRun || SET.needs_setup) showPane(pane || 'model'); $('#setSaved').textContent = ''; $('#testResult').textContent = '';
   $('#settings').classList.add('open');
 }
