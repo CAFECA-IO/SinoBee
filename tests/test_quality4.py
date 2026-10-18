@@ -121,8 +121,10 @@ def test_episode_summaries_lose_self_praise_and_are_labelled_when_recalled():
     from sinobee.memory.store import Memory
     s = ("The agent successfully utilized the 'anatomy' skill and generated a visually enhanced HTML report, "
          "which fully meets the delivery standard.")
-    assert neutral(s) == "The agent utilized the 'anatomy' skill and generated a HTML report."
+    assert neutral(s) == "The agent utilized the 'anatomy' skill and generated an HTML report."
     assert neutral("審查完成，完全符合交付標準。代理成功地建立了報告") == "審查完成。代理建立了報告"
+    assert neutral("was generated and reviewed, showcasing advanced technical analysis and modern web design.") == \
+        "was generated and reviewed, showcasing technical analysis."
     m = Memory("m1", "long", "episode", s, ["episode"], 0.3, 1.0, time.time(), time.time(), time.time(), 0)
     block = build_context_block(recalled=[m], skills_index="", working={}, core_changes=[])
     assert "successfully" not in block and "a lead, not a result - re-verify" in block

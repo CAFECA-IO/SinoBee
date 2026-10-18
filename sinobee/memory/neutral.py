@@ -23,4 +23,6 @@ def neutral(text: str) -> str:
     out = PRAISE.sub("", out)
     out = re.sub(r"\s{2,}", " ", out)
     out = re.sub(r"\s+([,.;:，。；])", r"\1", out)
+    out = re.sub(r"\s*\b(?:and|or)\s*(?=[.,;。，；]|$)", "", out)        # "showcasing X and [praise]." -> "showcasing X."
+    out = re.sub(r"\ba ([aeiouAEIOU]|HTML\b)", r"an \1", out)
     return out.strip()
