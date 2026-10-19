@@ -290,12 +290,66 @@ FEEDBACK_TAGS = {"wrong": "答案不正確", "incomplete": "沒有完成", "slow
                  "format": "格式不好", "misunderstood": "誤解需求", "unsafe": "做了不該做的事", "great": "很好"}
 
 
+def undo_feedback(rt, turn: dict, previous: dict) -> dict:
+    """The user changed their rating: take back what was counted and learned from the earlier one, so a mis-click
+    on 👍 does not leave a skill made from a bad result (or a 👎 that is withdrawn does not leave a rule behind)."""
+    undone: dict = {"skills_retracted": [], "memories_archived": [], "skill_demoted": None, "rule_disabled": None,
+                    "eval_removed": None}
+    was_positive = int(previous.get("rating") or 0) > 0
+    for name in turn.get("skills") or []:
+        try:
+            rt.skills.retract(name, was_positive)
+            undone["skills_retracted"].append(name)
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        rep = json.loads(previous.get("learn_report") or "{}") if isinstance(previous.get("learn_report"), str) \
+            else (previous.get("learn_report") or {})
+    except ValueError:
+        rep = {}
+    for m in rep.get("memories") or []:
+        mid = m.get("id") if isinstance(m, dict) else None
+        if mid and m.get("status") == "saved":
+            try:
+                rt.memory.forget(mid)           # archived (soft), restorable from the memory page
+                undone["memories_archived"].append(mid)
+            except Exception:  # noqa: BLE001
+                pass
+    sk = rep.get("skill") or {}
+    if was_positive and isinstance(sk, dict) and sk.get("status") in ("created", "rewritten") and sk.get("name"):
+        try:   # a skill learned from a result the user now dislikes: back to experimental, flagged for revision
+            rt.skills.set_status(sk["name"], "candidate")
+            rt.skills.feedback(sk["name"], False, "the 👍 it was learned from was changed to 👎")
+            undone["skill_demoted"] = sk["name"]
+        except Exception:  # noqa: BLE001
+            pass
+    if not was_positive:
+        rule = rep.get("rule") or {}
+        if isinstance(rule, dict) and rule.get("id"):
+            try:
+                from ..agent import rules
+                rules.update(rt.config.home, rule["id"], enabled=False)
+                undone["rule_disabled"] = rule["id"]
+            except Exception:  # noqa: BLE001
+                pass
+        if rep.get("eval"):
+            try:
+                from ..evals import remove_regression
+                remove_regression(rt.config.home, rep["eval"])
+                undone["eval_removed"] = rep["eval"]
+            except Exception:  # noqa: BLE001
+                pass
+    return undone
+
+
 async def learn_from_feedback(rt, feedback_id: int, turn: dict, rating: int, tags: list[str], comment: str,
-                              emit=None, rate_skills: bool = True) -> dict:
+                              emit=None, rate_skills: bool = True, previous: dict | None = None) -> dict:
     """The user's explicit rating is ground truth: update skill outcomes, then let the reflector turn the
     feedback into lessons (memories), skill fixes or - for praised multi-step work - a new skill."""
     report: dict = {"feedback_id": feedback_id, "skills_rated": []}
     positive = rating > 0
+    if previous and (int(previous.get("rating") or 0) > 0) != positive:
+        report["undone"] = undo_feedback(rt, turn, previous)
     tag_txt = ", ".join(FEEDBACK_TAGS.get(t, t) for t in tags)
     note = f"user {'👍' if positive else '👎'}" + (f" [{tag_txt}]" if tag_txt else "") + (f" {comment}" if comment else "")
     for name in (turn.get("skills") or []) if rate_skills else []:

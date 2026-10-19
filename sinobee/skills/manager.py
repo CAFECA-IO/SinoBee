@@ -448,6 +448,20 @@ class SkillManager:
             db.commit()
         return self.stats(name)
 
+    def retract(self, name: str, success: bool) -> None:
+        """Take back one rating (the user changed 👍 to 👎 or back): the outcome counts stay true."""
+        if not self.store or name not in self.skills:
+            return
+        col = "successes" if success else "failures"
+        with self.store._lock:
+            self.store.db.execute(f"UPDATE skill_stats SET {col}=MAX(0, {col}-1) WHERE name=?", (name,))
+            r = self.store.db.execute("SELECT successes, failures FROM skill_stats WHERE name=?", (name,)).fetchone()
+            if r:
+                rated = r["successes"] + r["failures"]
+                flag = int(rated >= 2 and (r["successes"] / rated if rated else 1) < self.revision_threshold)
+                self.store.db.execute("UPDATE skill_stats SET needs_revision=? WHERE name=?", (flag, name))
+            self.store.db.commit()
+
     # ------------------------------------------------------------------ catalog & activation
     def visible(self, available_tools: set[str] | None = None) -> list[Skill]:
         plat = _current_platform()

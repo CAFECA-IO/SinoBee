@@ -140,13 +140,16 @@ main{position:relative}
 .chip img{width:22px;height:22px;object-fit:cover;border-radius:4px}.chip button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 2px}
 #attachBtn{flex:none}
 main.drag #chat{outline:2px dashed var(--accent);outline-offset:-8px}
-.fb{display:inline-flex;align-items:center;gap:6px;margin-left:10px;color:var(--muted)}
+.fb{display:inline-flex;align-items:center;gap:6px;margin-left:14px;color:var(--muted);vertical-align:middle}
+.fb .lab{margin-right:2px}.result.done{line-height:2}.result.done .fb{margin-left:16px}
 .fb button{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:999px;width:30px;height:24px;display:inline-grid;place-items:center;padding:0;cursor:pointer}
 .fb button svg{width:14px;height:14px}.fb button:hover{color:var(--accent);border-color:var(--accent2)}.fb .done{display:inline-flex;align-items:center;gap:5px}.fb .done svg{width:14px;height:14px;color:var(--accent)}
 .codebox .copy svg{width:14px;height:14px}.chip button svg{width:12px;height:12px}
-.fb button.on{border-color:var(--accent);background:var(--user)}
+.fb button.on{border-color:var(--accent);background:var(--user);color:var(--accent)}
+.fb button.on.bad{border-color:var(--err);color:var(--err)}
 .fbpanel{margin:6px 0 14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);font-size:13px}
 .fbpanel .tags{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.fbpanel .row{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}.fbpanel textarea{margin-top:6px}
 .fbpanel .tags button{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:3px 10px;cursor:pointer;font-size:12px;color:var(--ink)}
 .fbpanel .tags button.on{border-color:var(--err);color:var(--err)}
 .fbpanel textarea{width:100%;min-height:54px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;background:var(--bg);color:var(--ink)}
@@ -1243,9 +1246,13 @@ function connect(){
   ws.onmessage = e => handle(JSON.parse(e.data));
 }
 function setRunning(list){ RUNNING = {}; for (const r of list || []) RUNNING[r.session_id] = r; setBusy(); if (tab === 'sessions') loadSide(); }
+function fmtDur(s){
+  s = +s || 0;
+  return s >= 3600 ? `${Math.floor(s / 3600)} 小時 ${Math.round(s % 3600 / 60)} 分` : s >= 60 ? `${Math.floor(s / 60)} 分 ${Math.round(s % 60)} 秒` : `${Math.round(s * 10) / 10} 秒`;
+}
 function resultCard(ev){
   const u = ev.usage || {};
-  const meta = [ev.steps ? `${ev.steps} 步` : '', ev.duration_s != null ? `${ev.duration_s} 秒` : '',
+  const meta = [ev.steps ? `${ev.steps} 步` : '', ev.duration_s != null ? fmtDur(ev.duration_s) : '',
     u.calls ? `${fmtTok((u.input_tokens || 0) + (u.output_tokens || 0))} tokens` : '',
     u.quota_6h_pct != null ? `<span class="qshare" title="這次回答用掉 SinoBee.ai 訂閱 6 小時額度的比例">占 6 小時額度 ${fmtPct(u.quota_6h_pct)}</span>` : '',
     u.calls && (u.cost_usd || u.quota_6h_pct == null) ? fmtCost(u.cost_usd) + (u.unpriced ? '（部分模型未設定費率）' : '') : ''].filter(Boolean).join(' · ');
@@ -1272,19 +1279,26 @@ const DANGER_ZH = {'recursive delete of a broad path': '大範圍遞迴刪除（
 const FB_TAGS = [['wrong', '答案不正確'], ['incomplete', '沒有完成'], ['misunderstood', '誤解需求'], ['format', '格式不好'],
                  ['slow', '太慢'], ['expensive', '太貴'], ['unsafe', '做了不該做的事']];
 function attachFeedback(card, turnId, rating, comment){
+  // The rating can always be changed: the chosen thumb stays highlighted and the other one stays clickable
+  // (a mis-click on 👍 for a bad result is fixed by pressing 👎); the pencil adds or edits the comment.
   const bar = document.createElement('span'); bar.className = 'fb';
-  const paint = r => bar.innerHTML = r ? `<span class="done">${ic(r > 0 ? 'thumbUp' : 'thumbDown')}${r > 0 ? '你覺得有幫助' : '已記錄你的意見'}${comment ? '（含說明）' : ''}</span><button type="button" data-a="edit" aria-label="補充說明" title="補充說明">${ic('pencil')}</button>`
-    : `這次結果如何？<button type="button" data-r="1" aria-label="有幫助" title="有幫助">${ic('thumbUp')}</button><button type="button" data-r="-1" aria-label="不滿意" title="不滿意">${ic('thumbDown')}</button>`;
-  const wire = () => bar.querySelectorAll('button').forEach(b => b.onclick = () => {
-    if (b.dataset.a === 'edit') return openFbPanel(card, turnId, rating || 1, r => { rating = r; comment = '1'; paint(rating); wire(); });
-    const r = +b.dataset.r;
-    if (r > 0) { sendFeedback(turnId, 1, [], '').then(() => { rating = 1; paint(1); wire(); }); }
-    else openFbPanel(card, turnId, -1, rr => { rating = rr; paint(rr); wire(); });
-  });
-  paint(rating); wire();
-  (card.querySelector('.hint')?.parentElement === card ? card : card).appendChild(bar);
+  const paint = () => {
+    const lab = rating > 0 ? '你覺得有幫助' : rating < 0 ? '已記錄：不滿意' : '這次結果如何？';
+    bar.innerHTML = `<span class="lab">${lab}${rating && comment ? '（含說明）' : ''}</span>`
+      + `<button type="button" data-r="1" class="${rating > 0 ? 'on' : ''}" aria-pressed="${rating > 0}" aria-label="有幫助" title="${rating > 0 ? '有幫助（已選）' : rating < 0 ? '改成有幫助' : '有幫助'}">${ic('thumbUp')}</button>`
+      + `<button type="button" data-r="-1" class="${rating < 0 ? 'on bad' : ''}" aria-pressed="${rating < 0}" aria-label="不滿意" title="${rating < 0 ? '不滿意（已選）' : rating > 0 ? '改成不滿意' : '不滿意'}">${ic('thumbDown')}</button>`
+      + (rating ? `<button type="button" data-a="edit" aria-label="補充說明" title="補充說明">${ic('pencil')}</button>` : '');
+    bar.querySelectorAll('button').forEach(b => b.onclick = () => {
+      const r = +b.dataset.r;
+      if (b.dataset.a === 'edit' || (r && r === rating)) return openFbPanel(card, turnId, rating, () => { comment = '1'; paint(); });
+      if (r > 0) return sendFeedback(turnId, 1, [], '', rating < 0).then(ok => { if (ok) { rating = 1; paint(); } });
+      openFbPanel(card, turnId, -1, () => { rating = -1; paint(); }, rating > 0);
+    });
+  };
+  paint();
+  card.appendChild(bar);
 }
-function openFbPanel(card, turnId, rating, done){
+function openFbPanel(card, turnId, rating, done, changed = false){
   card.nextElementSibling?.classList.contains('fbpanel') && card.nextElementSibling.remove();
   const p = document.createElement('div'); p.className = 'fbpanel'; const chosen = new Set();
   p.innerHTML = (rating < 0 ? '哪裡不好？（可複選）<div class="tags">' + FB_TAGS.map(([k, l]) => `<button type="button" data-t="${k}">${l}</button>`).join('') + '</div>' : '想補充什麼嗎？')
@@ -1292,12 +1306,14 @@ function openFbPanel(card, turnId, rating, done){
     + '<div class="row" style="margin-top:6px"><button class="btn sm" type="button" data-a="cancel">取消</button><button class="btn sm primary" type="button" data-a="send">送出回饋</button></div>';
   p.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { b.classList.toggle('on'); chosen.has(b.dataset.t) ? chosen.delete(b.dataset.t) : chosen.add(b.dataset.t); });
   p.querySelector('[data-a=cancel]').onclick = () => p.remove();
-  p.querySelector('[data-a=send]').onclick = async () => { await sendFeedback(turnId, rating, [...chosen], p.querySelector('textarea').value.trim()); p.remove(); done(rating); };
+  p.querySelector('[data-a=send]').onclick = async () => { if (!await sendFeedback(turnId, rating, [...chosen], p.querySelector('textarea').value.trim(), changed)) return; p.remove(); done(rating); };
   card.after(p); p.querySelector('textarea').focus();
 }
-async function sendFeedback(turnId, rating, tags, comment){
-  try { await post('/api/feedback', {turn_id: turnId, rating, tags, comment}); add('ⓘ 已記錄回饋，SinoBee 會在背景從中學習。', 'note'); }
-  catch {}
+async function sendFeedback(turnId, rating, tags, comment, changed = false){
+  try { await post('/api/feedback', {turn_id: turnId, rating, tags, comment});
+    add(changed ? 'ⓘ 已改成' + (rating > 0 ? '「有幫助」' : '「不滿意」') + '，先前依舊評分學到的內容會一併撤回，SinoBee 會在背景重新學習。'
+      : 'ⓘ 已記錄回饋，SinoBee 會在背景從中學習。', 'note'); return true; }
+  catch { return false; }
 }
 // ---------------- acceptance checklist: what "done" means for this task, kept in view while it runs ----------------
 function cklParse(t){
@@ -1471,6 +1487,12 @@ function handle(ev, replay = false){
       if (ev.skills_rated?.length) parts.push(`更新技能成效：${ev.skills_rated.join('、')}`);
       if (ev.memories?.length) parts.push(`記下 ${ev.memories.length} 則經驗`);
       if (ev.skill) parts.push(`技能 ${ev.skill.name || ''} ${ev.skill.status || ''}`);
+      if (ev.undone) { const u = ev.undone, n = [];
+        if (u.memories_archived?.length) n.push(`封存 ${u.memories_archived.length} 則先前記下的經驗`);
+        if (u.skill_demoted) n.push(`技能 ${esc(u.skill_demoted)} 改回試用並標示待修`);
+        if (u.rule_disabled) n.push('停用先前建立的品質規則');
+        if (u.eval_removed) n.push('移除先前建立的回歸測試');
+        if (n.length) parts.push('撤回：' + n.join('、')); }
       if (ev.rule) parts.push(`新增品質規則「${esc(ev.rule.title)}」，以後每個任務都會檢查`);
       if (ev.eval) parts.push('建立一題回歸測試');
       if (parts.length) add('✨ 從你的回饋學到：' + parts.join('、'), 'note learn');
@@ -1673,7 +1695,8 @@ async function openSession(s){
     const card = document.createElement('div');
     const ok = t.status === 'done';
     card.className = 'result ' + (ok ? 'done' : 'incomplete');
-    card.innerHTML = ok ? `<b>✓ 完成</b> · ${t.duration_s ?? '?'} 秒${t.cost_usd ? ' · ' + fmtCost(t.cost_usd) : ''}` : `<b>△ 這一輪狀態：${esc(t.status)}</b>`;
+    card.innerHTML = ok ? `<b>✓ 完成</b> · ${t.duration_s != null ? fmtDur(t.duration_s) : '?'}${t.cost_usd ? ' · ' + fmtCost(t.cost_usd) : ''}`
+      : `<b>${t.status === 'failed' ? '✕ 任務失敗' : '△ 這一輪狀態：' + esc(t.status)}</b>`;
     anchor.after(card);
     attachFeedback(card, t.id, t.rating, t.fb_comment);
   }

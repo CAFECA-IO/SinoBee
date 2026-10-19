@@ -147,6 +147,34 @@ def test_feedback_api_upsert(home, provider):
     assert r.status_code == 200 and json.loads(r.text.splitlines()[0])["comment"] == "很好，以後都這樣"
 
 
+async def test_changing_a_thumbs_up_to_down_takes_back_what_it_taught(config, provider):
+    from sinobee.agent import rules
+    from sinobee.evals import add_regression, regressions
+    from sinobee.learning.reflector import undo_feedback
+    rt = Runtime(config, provider=provider)
+    rt.memory.ensure_session("s1")
+    rt.memory.append_messages("s1", [Message("user", "查一下"), Message("assistant", "答案")])
+    tid = rt.memory.record_turn("s1", 0, 1, "done", "test/m", ["web-research"], 3, 0.0, 1.0)
+    turn = rt.memory.turn(tid)
+    # what the 👍 taught: a success for the skill, a memory, a new skill made from this result
+    rt.skills.feedback("web-research", True)
+    mem = rt.memory.save("這種做法很好")
+    rt.skills.set_status("web-research", "active")
+    prev = {"rating": 1, "learn_report": json.dumps({"memories": [{**mem}],
+                                                     "skill": {"status": "created", "name": "web-research"}})}
+    undone = undo_feedback(rt, turn, prev)
+    st = rt.skills.stats("web-research")
+    assert st["successes"] == 0 and st["status"] == "candidate" and st["failures"] == 1
+    assert undone["memories_archived"] == [mem["id"]] and rt.memory.get(mem["id"]).tier == "archive"
+    assert undone["skill_demoted"] == "web-research"
+    # what a 👎 taught: a quality rule and a regression eval - withdrawn when it becomes 👍
+    r = rules.add(config.home, {"title": "x", "pattern": "TODO"})
+    ev = add_regression(config.home, {"prompt": "查一下"})
+    undone = undo_feedback(rt, turn, {"rating": -1, "learn_report": json.dumps({"rule": r, "eval": ev["id"]})})
+    assert rules.load(config.home)[0]["enabled"] is False and regressions(config.home) == []
+    assert undone["rule_disabled"] == r["id"] and undone["eval_removed"] == ev["id"]
+
+
 def test_mermaid_source_survives_sanitizer():
     # DOMPurify drops attribute values containing "-->" (mXSS guard); mermaid arrows must be URI-encoded
     from pathlib import Path

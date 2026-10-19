@@ -123,7 +123,8 @@ def register_feedback(app: FastAPI, rt_getter, broadcast) -> None:
         else:
             fid = rt.memory.add_feedback(turn["id"], turn["session_id"], rating, tags, comment)
             rate_skills = True
-        rt.spawn(learn_from_feedback(rt, fid, turn, rating, tags, comment, emit=broadcast, rate_skills=rate_skills))
+        rt.spawn(learn_from_feedback(rt, fid, turn, rating, tags, comment, emit=broadcast, rate_skills=rate_skills,
+                                     previous=prev if prev and prev["rating"] != rating else None))
         return {"feedback_id": fid, "status": "recorded"}
 
     @app.get("/api/feedback/stats")
