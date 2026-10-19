@@ -158,3 +158,29 @@ def test_eligibility_explains_why_not(home, config):
     assert hub.recovery.eligible(hub.store.run(old)) == (False, "中斷超過 24 小時，不會自動續跑")
     fresh = chat_run(rt, hub, "s14")
     assert hub.recovery.eligible(hub.store.run(fresh)) == (True, "")
+
+
+def test_gemini_latest_aliases_have_the_long_context_window():
+    from sinobee.agent.context import known_window
+    assert known_window("gemini/gemini-pro-latest") == 1_048_576        # was 32k: compaction every few steps
+    assert known_window("gemini/gemini-flash-latest") == 1_048_576
+    assert known_window("gemini/gemini-2.5-pro") == 1_048_576
+    assert known_window("gemini/gemini-pro") == 32_768
+
+
+def test_last_turn_without_a_record_is_described_by_its_run(home, config):
+    from fastapi.testclient import TestClient
+    from sinobee.server import create_app
+    rt = Runtime(config, provider=ScriptedProvider())
+    hub = get_hub(rt)
+    with TestClient(create_app(rt)) as c:
+        rid = chat_run(rt, hub, "s20", steps=[{"tool": "shell", "brief": "node build.mjs", "ok": True}] * 3)
+        st = dict(hub.store.run(rid)["state"]); st["artifacts"] = [{"path": "report.html", "name": "report.html"}]
+        hub.store.update_run(rid, state=st)
+        hub.dismiss(rid)
+        r = c.get("/api/sessions/s20/interrupted").json()
+        assert r["interrupted"] and r["status"] == "cancelled" and r["user_stopped"] and r["steps"] == 3
+        assert r["artifacts"][0]["name"] == "report.html"
+        st = dict(hub.store.run(rid)["state"]); st["turn_id"] = 5                       # a turn record exists
+        hub.store.update_run(rid, state=st)
+        assert c.get("/api/sessions/s20/interrupted").json() == {"interrupted": False}

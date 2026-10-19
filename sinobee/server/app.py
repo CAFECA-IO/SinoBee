@@ -109,13 +109,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         """The conversation's newest turn, when it was interrupted (restart / crash) and has not finished since."""
         from ..work.hub import get_hub
         runs = [r for r in get_hub(rt()).store.runs(limit=300) if r["kind"] == "chat" and r.get("session_id") == sid]
-        if not runs or runs[0]["status"] != "interrupted":
+        r = runs[0] if runs else None
+        st = (r or {}).get("state") or {}
+        # the newest turn ended without a turn record (interrupted, dismissed, crashed): its state comes from the run
+        if not r or st.get("turn_id") or r["status"] not in ("interrupted", "cancelled", "failed"):
             return {"interrupted": False}
-        r = runs[0]
-        ok, why = get_hub(rt()).recovery.eligible(r)
-        return {"interrupted": True, "run_id": r["id"], "error": r.get("error") or "",
-                "auto_resume": (r.get("state") or {}).get("auto_resume"), "at": r.get("created_at"),
-                "will_resume": ok, "why_not": why}
+        ok, why = get_hub(rt()).recovery.eligible(r) if r["status"] == "interrupted" else (False, "")
+        return {"interrupted": True, "status": r["status"], "run_id": r["id"], "error": r.get("error") or "",
+                "auto_resume": st.get("auto_resume"), "user_stopped": bool(st.get("user_stopped")),
+                "at": r.get("created_at"), "will_resume": ok, "why_not": why,
+                "steps": len(st.get("steps") or []), "artifacts": (st.get("artifacts") or [])[-12:]}
 
     @app.get("/api/sessions/{sid}/artifacts")
     async def session_artifacts(sid: str):

@@ -73,8 +73,8 @@ CONTEXT_WINDOWS: list[tuple[str, int]] = [
     (r"gpt-4(?!\.|o|-turbo)", 8_192),
     (r"gpt-3\.5", 16_385),
     (r"gpt-oss", 131_072),
-    (r"gemini-(1\.5|2|3)", 1_048_576),
-    (r"gemini", 32_768),
+    (r"gemini-1\.0|gemini-pro$|gemini-pro-vision", 32_768),   # the 2023 Gemini 1.0 names
+    (r"gemini", 1_048_576),        # 1.5 and later, and the -latest aliases (gemini-pro-latest, gemini-flash-latest)
     (r"grok-4", 256_000),
     (r"grok", 131_072),
     (r"deepseek", 128_000),

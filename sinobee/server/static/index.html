@@ -54,6 +54,12 @@ header .title{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;whit
 .btn:hover{border-color:var(--accent2)}.btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.primary{background:linear-gradient(135deg,#2fb3a0,#7fe8b6);border-color:transparent;color:var(--accent-ink);font-weight:650}
 .btn.primary:hover{filter:brightness(1.07)}.btn.danger{color:var(--err)}
+.btn.danger.solid{background:var(--err);border-color:var(--err);color:#fff}.btn.danger.solid:hover{filter:brightness(1.08)}
+.modal.uidlg{z-index:300;animation:uidIn .12s ease-out}.uidlg .card{max-width:440px;padding:20px 22px 16px}
+.uidlg h3{margin:0 0 8px;font-size:16px}.uidlg .uidmsg{font-size:14px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto}
+.uidlg .uidin{width:100%;margin-top:12px;box-sizing:border-box}.uidlg .row{margin-top:18px}
+@keyframes uidIn{from{opacity:0}to{opacity:1}}
+.result:not(.done) .fb{margin-left:0;margin-top:8px}
 .btn.icon{width:36px;height:36px;padding:0;display:inline-grid;place-items:center;position:relative;flex:none}
 .btn.icon.sm{width:28px;height:28px;border-radius:8px}.btn.icon svg{width:18px;height:18px}.btn.icon.sm svg{width:15px;height:15px}
 .btn.icon.lg{width:46px;height:46px;border-radius:12px}.btn.icon.lg svg{width:21px;height:21px}
@@ -233,6 +239,7 @@ details.tool .dur{color:var(--muted);font-size:12px;margin-left:6px}
 .result.done b{color:var(--ok)}
 .result.error,.result.incomplete,.result.blocked,.result.failed{background:var(--user);border-color:var(--warn)}
 .result.failed b{color:var(--err)}.result .failrep{display:block;margin-top:6px;font-size:12px;color:var(--muted)}
+.result .rmeta{color:var(--muted);margin-top:4px;font-size:12px}
 .result .intr-act{display:flex;gap:8px;margin-top:8px}.result .intr-act:empty{display:none}
 .note.sys details summary{cursor:pointer;color:var(--muted)}.note.sys details summary b{color:var(--ink);font-weight:600}
 .note.sys details .md{margin-top:6px;padding:8px 12px;border-left:3px solid var(--line);font-size:13px}
@@ -1347,6 +1354,36 @@ function resultCard(ev){
   if (ev.turn_id && st !== 'error') attachFeedback(c, ev.turn_id, null);
   return c;
 }
+// ---------------- dialogs: confirm / alert / prompt in SinoBee's own style (no browser pop-ups) ----------------
+function uiDialog({title = '', message = '', ok = '確定', cancel = '取消', danger = false, input = null}){
+  return new Promise(resolve => {
+    const prev = document.activeElement;
+    const m = document.createElement('div'); m.className = 'modal open uidlg'; m.setAttribute('role', 'presentation');
+    m.innerHTML = `<div class="card" role="${cancel ? 'alertdialog' : 'dialog'}" aria-modal="true" aria-labelledby="uidT" aria-describedby="uidM">
+      ${title ? `<h3 id="uidT">${esc(title)}</h3>` : ''}<div class="uidmsg" id="uidM">${esc(message)}</div>
+      ${input ? `<input class="inp uidin" type="${input.password ? 'password' : 'text'}" autocomplete="off" spellcheck="false">` : ''}
+      <div class="row">${cancel ? `<button class="btn" type="button" data-v="0">${esc(cancel)}</button>` : ''}<button class="btn ${danger ? 'danger solid' : 'primary'}" type="button" data-v="1">${esc(ok)}</button></div></div>`;
+    const inp = m.querySelector('.uidin');
+    if (inp) { inp.value = input.value || ''; inp.placeholder = input.placeholder || ''; }
+    const done = v => { m.remove(); document.removeEventListener('keydown', key, true); try { prev?.focus(); } catch {} resolve(v); };
+    const val = yes => input ? (yes ? inp.value : null) : (cancel ? yes : undefined);
+    const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(val(false)); }
+      else if (e.key === 'Enter' && !e.isComposing) {       // Enter answers with the focused button (cancel is focused for destructive actions)
+        const f = document.activeElement; e.preventDefault(); e.stopPropagation();
+        done(val(f?.dataset?.v ? f.dataset.v === '1' : true)); } };
+    m.querySelectorAll('[data-v]').forEach(b => b.onclick = () => done(val(b.dataset.v === '1')));
+    m.addEventListener('mousedown', e => { if (e.target === m) done(val(false)); });
+    document.addEventListener('keydown', key, true);
+    document.body.appendChild(m);
+    setTimeout(() => (inp || m.querySelector(danger && cancel ? '[data-v="0"]' : '[data-v="1"]')).focus(), 20);
+  });
+}
+const DANGER_RE = /刪除|撤回|清除|登出|封存|移除|修改資料庫|覆蓋/;
+function uiConfirm(message, opt = {}){ const danger = opt.danger ?? DANGER_RE.test(message);
+  return uiDialog({message, title: opt.title || '', ok: opt.ok || (danger ? (message.match(DANGER_RE)?.[0] || '確定') : '確定'), cancel: opt.cancel || '取消', danger}); }
+function uiAlert(message, opt = {}){ return uiDialog({message: String(message ?? ''), title: opt.title || '', ok: opt.ok || '知道了', cancel: null}); }
+function uiPrompt(message, value = '', opt = {}){ return uiDialog({message, title: opt.title || '', ok: opt.ok || '確定', cancel: '取消',
+  input: {value, placeholder: opt.placeholder || '', password: !!opt.password}}); }
 // ---------------- task feedback (👍 / 👎) -> background self-learning ----------------
 const DANGER_ZH = {'recursive delete of a broad path': '大範圍遞迴刪除（無法復原）', 'recursive delete': '遞迴刪除資料夾（無法復原）',
   'privilege escalation': '取得系統管理員權限', 'disk-level operation': '磁碟層級操作', 'fork bomb': '可能癱瘓系統的指令', 'power control': '關機或重新開機',
@@ -1793,13 +1830,20 @@ async function openSession(s){
   for (const t of Array.isArray(turns) ? turns : []) {
     const els = [...chat.querySelectorAll('[data-idx]')].filter(e => +e.dataset.idx <= t.end_idx);
     const anchor = els[els.length - 1]; if (!anchor) continue;
-    const card = document.createElement('div');
     const ok = t.status === 'done';
-    card.className = 'result ' + (ok ? 'done' : 'incomplete');
-    card.innerHTML = ok ? `<b>✓ 完成</b> · ${t.duration_s != null ? fmtDur(t.duration_s) : '?'}${t.cost_usd ? ' · ' + fmtCost(t.cost_usd) : ''}`
-      : `<b>${t.status === 'failed' ? '✕ 任務失敗' : '△ 這一輪狀態：' + esc(t.status)}</b>`;
+    const meta = [t.duration_s != null ? fmtDur(t.duration_s) : '', t.cost_usd ? fmtCost(t.cost_usd) : ''].filter(Boolean).join(' · ');
+    if (!ok && anchor.classList.contains('result')) {
+      // the turn already ended with its own error card (from the conversation record): one card, not two
+      if (meta && !anchor.querySelector('.rmeta')) anchor.insertAdjacentHTML('beforeend', `<div class="rmeta">${meta}</div>`);
+      if (t.status !== 'error') attachFeedback(anchor, t.id, t.rating, t.fb_comment);
+      continue;
+    }
+    const card = document.createElement('div');
+    const head = {incomplete: '△ 任務未完成', error: '✕ 任務中斷', failed: '✕ 任務失敗', stopped: '■ 已停止', blocked: '⏸ 已暫停'}[t.status] || '△ 這一輪狀態：' + esc(t.status);
+    card.className = 'result ' + (ok ? 'done' : t.status === 'stopped' ? 'stopped' : 'incomplete');
+    card.innerHTML = ok ? `<b>✓ 完成</b>${meta ? ' · ' + meta : ''}` : `<b>${head}</b>${meta ? `<div class="rmeta">${meta}</div>` : ''}`;
     anchor.after(card);
-    attachFeedback(card, t.id, t.rating, t.fb_comment);
+    if (t.status !== 'error') attachFeedback(card, t.id, t.rating, t.fb_comment);
   }
   if (!RUNNING[s.id]) document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
   setBusy();
@@ -1834,7 +1878,7 @@ async function fillMemory(side){
     d.querySelectorAll('.memact button').forEach(b => b.onclick = async e => {
       e.stopPropagation();
       if (b.dataset.a === 'pin') await post('/api/memories/' + m.id, {pinned: !m.pinned}, 'PATCH');
-      else if (confirm((m.pinned ? '這是永久記憶，確定封存？\n' : '封存這則記憶？\n') + m.content))
+      else if (await uiConfirm((m.pinned ? '這是永久記憶，確定封存？\n' : '封存這則記憶？\n') + m.content))
         await api('/api/memories/' + m.id + (m.pinned ? '?force=true' : ''), {method: 'DELETE'});
       loadSide();
     });
@@ -1863,9 +1907,9 @@ async function fillSide(side){
       ${pj.dir ? (pj.trusted ? '<span class="tb t-project">已信任</span>' : `<button class="btn icon sm" id="trustProj" aria-label="信任此專案">${ic('shield')}</button>`) : ''}</div>
       <div style="display:flex;gap:6px;margin-top:6px"><button class="btn icon sm" id="skInstall" aria-label="安裝技能">${ic('download')}</button><button class="btn icon sm" id="skLearnHelp" aria-label="如何學習技能？">${ic('help')}</button></div>`;
     side.appendChild(head);
-    head.querySelector('#trustProj')?.addEventListener('click', async () => { if (confirm('信任此專案後，其 .sinobee/skills 與 .agents/skills 中的技能會載入給 agent 使用。之後新增或變更的技能需再次核准。確定？')) { await post('/api/skills/project/trust', {trusted: true}); loadSide(); } });
+    head.querySelector('#trustProj')?.addEventListener('click', async () => { if (await uiConfirm('信任此專案後，其 .sinobee/skills 與 .agents/skills 中的技能會載入給 agent 使用。之後新增或變更的技能需再次核准。確定？')) { await post('/api/skills/project/trust', {trusted: true}); loadSide(); } });
     head.querySelector('#skInstall').onclick = installSkill;
-    head.querySelector('#skLearnHelp').onclick = () => alert('讓 SinoBee 學會新技能：\n• 對話中說「記住這個做法」或「做成技能」\n• 輸入 /learn <網址、資料夾或描述>\n• 在對話頁按「從此對話學習技能」\n• SinoBee 也會在完成多步驟、重複出現的任務後自動建立（experimental）\n\n使用 /技能名稱 可直接啟用某個技能。');
+    head.querySelector('#skLearnHelp').onclick = () => uiAlert('讓 SinoBee 學會新技能：\n• 對話中說「記住這個做法」或「做成技能」\n• 輸入 /learn <網址、資料夾或描述>\n• 在對話頁按「從此對話學習技能」\n• SinoBee 也會在完成多步驟、重複出現的任務後自動建立（experimental）\n\n使用 /技能名稱 可直接啟用某個技能。');
     for (const p of data.pending || []) {
       const d = document.createElement('div'); d.className = 'item pend';
       d.innerHTML = `💡 建議新技能：<b>${esc(p.payload.name)}</b><small>${p.kind === 'skill_patch' ? '修補既有技能' : '由 SinoBee 從任務中學到'}</small>
@@ -1904,7 +1948,7 @@ async function refreshStatus(full = true){
   loadSide();
 }
 // ---------------- skills ----------------
-const post = (p, body, method = 'POST') => fetch(p + (p.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token), {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then(async r => { const j = await r.json(); if (!r.ok) { alert(j.detail || '失敗'); throw new Error(j.detail); } return j; });
+const post = (p, body, method = 'POST') => fetch(p + (p.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token), {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then(async r => { const j = await r.json(); if (!r.ok) { uiAlert(j.detail || '失敗'); throw new Error(j.detail); } return j; });
 const TRUST_HELP = {builtin: 'SinoBee 內建，內容與發行版一致', verified: 'sinobee.ai 驗證發布者、已審核、簽章正確', local: '你撰寫或核准的技能', project: '已信任專案中的技能',
   agent: 'SinoBee 自動生成，尚未經你核准；腳本執行需核准', community: '未經審核的外部來源或已被修改；腳本執行需核准', untrusted: '未信任，agent 看不到', blocked: '安全掃描未通過或已被撤銷，已封鎖'};
 async function openSkill(s){
@@ -1934,17 +1978,17 @@ async function openSkill(s){
     if (a === 'disable') await post(`/api/skills/${n}/disable`, {disabled: !r.disabled});
     if (a === 'export') { location.href = `/api/skills/${n}/export?token=${encodeURIComponent(token)}`; return; }
     if (a === 'rollback') await post(`/api/skills/${n}/rollback`, {});
-    if (a === 'delete') { if (!confirm(`刪除技能 ${r.name}？（可從歷史備份還原）`)) return; await post(`/api/skills/${n}`, {}, 'DELETE'); }
+    if (a === 'delete') { if (!await uiConfirm(`刪除技能 ${r.name}？（可從歷史備份還原）`)) return; await post(`/api/skills/${n}`, {}, 'DELETE'); }
     $('#skillModal').classList.remove('open'); loadSide();
   });
   $('#skillModal').classList.add('open');
 }
 async function installSkill(){
-  const ref = prompt('安裝技能來源：\n• hub:發布者/名稱[@版本]（sinobee.ai）\n• github:owner/repo/路徑[@ref]\n• https://…/SKILL.md 或 .tar.gz / .zip\n• 伺服器上的資料夾路徑');
+  const ref = await uiPrompt('安裝技能來源：\n• hub:發布者/名稱[@版本]（sinobee.ai）\n• github:owner/repo/路徑[@ref]\n• https://…/SKILL.md 或 .tar.gz / .zip\n• 伺服器上的資料夾路徑');
   if (!ref) return;
-  const scope = confirm('安裝到目前專案（.sinobee/skills）？\n按「取消」則安裝到全域（~/.sinobee/skills）') ? 'project' : 'global';
+  const scope = (await uiConfirm('要把技能安裝在哪裡？\n專案：只在目前專案（.sinobee/skills）使用\n全域：所有專案都能用（~/.sinobee/skills）', {ok: '安裝到專案', cancel: '安裝到全域'})) ? 'project' : 'global';
   const r = await post('/api/skills/install', {ref, scope});
-  alert(`已安裝 ${r.name}（信任：${r.trust}）${r.warning ? '\n⚠︎ ' + r.warning : ''}`); loadSide();
+  uiAlert(`已安裝 ${r.name}（信任：${r.trust}）${r.warning ? '\n⚠︎ ' + r.warning : ''}`); loadSide();
 }
 $('#learnBtn').onclick = async () => {
   if (!sessionId) return;
@@ -1991,7 +2035,7 @@ async function loadFailures(){
     const id = row.dataset.fid;
     if (b.dataset.a === 'view') return showFailure(id);
     if (b.dataset.a === 'reg') { await jreq(`/api/failures/${encodeURIComponent(id)}/regression`, {}); return loadQuality(); }
-    if (b.dataset.a === 'del' && confirm('刪除這份失敗報告？')) { await jreq(`/api/failures/${encodeURIComponent(id)}`, undefined, 'DELETE'); loadFailures(); }
+    if (b.dataset.a === 'del' && await uiConfirm('刪除這份失敗報告？')) { await jreq(`/api/failures/${encodeURIComponent(id)}`, undefined, 'DELETE'); loadFailures(); }
   }));
 }
 async function showFailure(id){
@@ -2028,7 +2072,7 @@ async function loadQuality(){
   $('#qRules').querySelectorAll('[data-rid]').forEach(row => {
     const id = row.dataset.rid;
     row.querySelector('input.sw').onchange = ev => jreq(`/api/rules/${encodeURIComponent(id)}`, {enabled: ev.target.checked}, 'PATCH');
-    row.querySelector('[data-del]').onclick = async () => { if (!confirm('刪除這條品質規則？')) return; await jreq(`/api/rules/${encodeURIComponent(id)}`, undefined, 'DELETE'); loadQuality(); };
+    row.querySelector('[data-del]').onclick = async () => { if (!await uiConfirm('刪除這條品質規則？')) return; await jreq(`/api/rules/${encodeURIComponent(id)}`, undefined, 'DELETE'); loadQuality(); };
   });
   if (!e) return;
   const sel = $('#qSuite'), cur = sel.value;
@@ -2071,7 +2115,7 @@ $('#qrAdd').onclick = async () => {
   if (ok) { ['#qrTitle', '#qrPattern', '#qrFiles'].forEach(s => $(s).value = ''); loadQuality(); }
 };
 async function restoreTurn(btn, snap){
-  if (!confirm(`把這一輪修改過的 ${snap.files} 個檔案還原成修改前的樣子？（這一輪新建的檔案會被移除）`)) return;
+  if (!await uiConfirm(`把這一輪修改過的 ${snap.files} 個檔案還原成修改前的樣子？（這一輪新建的檔案會被移除）`)) return;
   btn.disabled = true;
   const {ok, j} = await jreq(`/api/sessions/${encodeURIComponent(snap.session)}/snapshots/${encodeURIComponent(snap.key)}/restore`, {});
   if (!ok) { btn.disabled = false; return add('✕ 無法復原：' + esc(j.detail || ''), 'note'); }
@@ -2098,8 +2142,8 @@ function setDirty(on){ SET_DIRTY = on; const d = $('#setDirty'); d.textContent =
   // the account pane and local-model actions apply immediately; everything else waits for 儲存
   if (e.target.closest('[data-pane="account"], [data-pane="quality"], #localPanel .lfilter, #lModels, #lCustom, #provList, #provMoreList, #localWrap .adv')) return;
   setDirty(true); $('#setSaved').textContent = ''; }));
-function closeSettings(){
-  if (SET_DIRTY && !confirm('有尚未儲存的變更，確定要關閉嗎？')) return;
+async function closeSettings(){
+  if (SET_DIRTY && !await uiConfirm('有尚未儲存的變更，關閉後這些變更會遺失。', {ok: '不儲存並關閉', cancel: '繼續編輯', danger: true})) return;
   $('#settings').classList.remove('open'); clearInterval(lPoll); lPoll = null; setDirty(false);
 }
 function lockNotes(){
@@ -2204,8 +2248,8 @@ function renderRoles(){
     inp.onchange = () => { $(role.id).value = inp.value.trim(); renderRoles(); };
   });
   $('#roleRows').querySelectorAll('[data-fb]').forEach(b => b.onclick = () => { fb.splice(+b.dataset.fb, 1); $('#mFallbacks').value = fb.join(', '); setDirty(true); renderRoles(); });
-  const add = $('#fbAdd'); add.onchange = () => { let v = add.value;
-    if (v === '__custom') v = (prompt('備援模型（供應商/模型）', '') || '').trim();
+  const add = $('#fbAdd'); add.onchange = async () => { let v = add.value;
+    if (v === '__custom') v = (await uiPrompt('備援模型（供應商/模型）', '') || '').trim();
     if (v && !fb.includes(v)) { fb.push(v); $('#mFallbacks').value = fb.join(', '); setDirty(true); } renderRoles(); };
   const ready = readyProviders().map(p => p.label), missing = (CAT?.providers || []).filter(p => p.popular && p.status === 'no_key').map(p => p.label);
   const hint = !CAT ? '正在載入各供應商的模型清單…' : !ready.length ? '還沒有可用的供應商：在下方填入 API 金鑰並按「連線」，或開啟 Ollama 使用本機模型。'
@@ -2253,7 +2297,7 @@ async function provAction(card, act, btn){
   if (act === 'retry') { btn.disabled = true; await loadCatalog(true, [name]); return; }
   const key = act === 'clear' ? '' : (card.querySelector('input')?.value || '').trim();
   if (act === 'connect' && !key) { msg.textContent = '請先貼上金鑰'; return; }
-  if (act === 'clear' && !confirm('清除這個供應商的金鑰？使用它的模型將無法運作。')) return;
+  if (act === 'clear' && !await uiConfirm('清除這個供應商的金鑰？使用它的模型將無法運作。')) return;
   btn.disabled = true; msg.textContent = act === 'clear' ? '清除中…' : '儲存並驗證中…';
   const r = await fetch(`/api/providers/${encodeURIComponent(name)}/key?token=` + encodeURIComponent(token), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key})});
   const j = await r.json().catch(() => ({}));
@@ -2305,7 +2349,7 @@ function renderAccount(){
       if (CAT && !readyProviders().some(p => p.name === 'sinobee')) loadCatalog(true, ['sinobee']);
       if (SB_PENDING) { SB_PENDING = false; useSubscription(); } });
     else paintSubPane();
-    $('#acctLogout').onclick = async () => { if (!confirm('登出 sinobee.ai？這台電腦的權杖會被刪除。')) return;
+    $('#acctLogout').onclick = async () => { if (!await uiConfirm('登出 sinobee.ai？這台電腦的權杖會被刪除。')) return;
       await api('/api/account/logout', {method: 'POST'}); loadAccount(); loadQuota(true); if (CAT) loadCatalog(true, ['sinobee']); };
     return;
   }
@@ -2328,7 +2372,7 @@ function renderAccount(){
   $('#acctLogin').onclick = async () => { $('#acctLogin').disabled = true;
     const r = await fetch('/api/account/login?token=' + encodeURIComponent(token), {method: 'POST'});
     const j = await r.json().catch(() => ({}));
-    if (!r.ok){ $('#acctLogin').disabled = false; alert(j.detail || '無法連線到 sinobee.ai'); return; }
+    if (!r.ok){ $('#acctLogin').disabled = false; uiAlert(j.detail || '無法連線到 sinobee.ai'); return; }
     if (j.verification_uri_complete) window.open(j.verification_uri_complete, '_blank', 'noopener');
     loadAccount(); };
 }
@@ -2344,10 +2388,10 @@ async function renderVaultBox(){
       : `<div style="display:flex;gap:8px"><input type="password" id="vaultPw" class="inp" placeholder="保險箱密語" style="flex:1"><button class="btn" type="button" id="vaultUnlock">解鎖</button></div>`}</div>`;
   box.querySelectorAll('[data-dev]').forEach(b => b.onclick = async () => { b.disabled = true;
     const r = await fetch('/api/vault/devices/' + encodeURIComponent(b.dataset.dev) + '/approve?token=' + encodeURIComponent(token), {method: 'POST'});
-    if (!r.ok) alert((await r.json()).detail); renderVaultBox(); });
+    if (!r.ok) uiAlert((await r.json()).detail); renderVaultBox(); });
   if ($('#vaultUnlock')) $('#vaultUnlock').onclick = async () => {
     const r = await fetch('/api/vault/unlock?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({passphrase: $('#vaultPw').value})});
-    if (!r.ok) { alert((await r.json()).detail); return; } renderVaultBox(); };
+    if (!r.ok) { uiAlert((await r.json()).detail); return; } renderVaultBox(); };
 }
 async function openSettings(firstRun = false, pane = null){
   SET = await api('/api/settings'); renderSettings(); loadAccount(true); loadCatalog(); loadQuality();
@@ -2522,7 +2566,7 @@ async function useSubscription(btn){
   const q = await loadQuota(true);
   if (q.status === 'no_scope') { showPane('account'); return; }
   if (q.status === 'no_subscription') { window.open(q.subscribe_url, '_blank', 'noopener'); showPane('account'); return; }
-  if (q.status !== 'ok') { alert(q.error || '暫時無法連線到 sinobee.ai'); return; }
+  if (q.status !== 'ok') { uiAlert(q.error || '暫時無法連線到 sinobee.ai'); return; }
   if (btn) btn.disabled = true;
   await loadCatalog(true, ['sinobee']);
   const sbp = (CAT?.providers || []).find(p => p.name === 'sinobee');
@@ -2702,14 +2746,14 @@ async function localAct(act, id, kind, el){
   try {
     if (act === 'pull' || act === 'pulluse') {
       const m = allLocal().find(x => x.id === id);
-      if (m && m.fit.level === 'no' && !confirm(`${m.title} 可能無法在這台電腦順利執行（${m.fit.label}）。仍要下載嗎？`)) return;
+      if (m && m.fit.level === 'no' && !await uiConfirm(`${m.title} 可能無法在這台電腦順利執行（${m.fit.label}）。仍要下載嗎？`)) return;
       if (act === 'pulluse') AUTO_USE.add(id + '|' + (kind || 'chat'));
       await post('/api/local/pull', {name: id});
     }
     if (act === 'cancel') await post('/api/local/pull/' + encodeURIComponent(id), {}, 'DELETE');
     if (act === 'load') await post('/api/local/load', {name: id, embedding: kind === 'embedding'});
     if (act === 'unload') await post('/api/local/unload', {name: id});
-    if (act === 'delete') { if (!confirm(`刪除 ${id} 的模型檔案？之後需要重新下載。`)) return; await post('/api/local/delete', {name: id}); }
+    if (act === 'delete') { if (!await uiConfirm(`刪除 ${id} 的模型檔案？之後需要重新下載。`)) return; await post('/api/local/delete', {name: id}); }
     if (act === 'use') await useLocal(id, kind);
   } catch {} finally { if (el) el.disabled = false; }
   await loadLocal(true);
@@ -2822,13 +2866,13 @@ function dfFp(fp, fresh = false){
   el.innerHTML = `${ic('shield')} 跳板機主機金鑰 <code>${esc(fp)}</code>${fresh ? '（儲存後會記住）' : '（已記住）'}`
     + (DB.editing?.ssh_fingerprint && !fresh ? ` <button class="btn sm" type="button" id="dfRetrust">重新信任</button>` : '');
   const b = $('#dfRetrust'); if (b) b.onclick = async () => {
-    if (!confirm('只有在你確認跳板機是重建或更換過金鑰時才這樣做。要清除已記住的指紋嗎？')) return;
+    if (!await uiConfirm('只有在你確認跳板機是重建或更換過金鑰時才這樣做。要清除已記住的指紋嗎？')) return;
     const r = await post('/api/db/' + encodeURIComponent(DB.editing.id) + '/retrust', {}); DB.editing = r.connection; dfFp(''); };
 }
 ['#dfSsh', '#dfSshAuth', '#dfCa'].forEach(x => $(x).addEventListener('change', () => { dfSshUi(); if (x === '#dfSsh') dfFp(DB.editing?.ssh_fingerprint || DB.testFp || ''); }));
 $('#dfSshFile').onclick = () => $('#dfSshFileIn').click();
 $('#dfSshFileIn').onchange = async () => { const f = $('#dfSshFileIn').files[0]; if (!f) return;
-  if (f.size > 64 * 1024) { alert('這個檔案太大，不像是 SSH 私鑰'); return; }
+  if (f.size > 64 * 1024) { uiAlert('這個檔案太大，不像是 SSH 私鑰'); return; }
   $('#dfSshKey').value = (await f.text()).trim(); $('#dfSshFileIn').value = ''; dfStatus(`已讀入 ${f.name}`); };
 $('#dfHost').addEventListener('change', () => { const h = $('#dfHost').value.trim();
   if (/\.rds\.amazonaws\.com$/i.test(h) && !$('#dfCa').value) { $('#dfCa').value = 'aws-rds'; if ($('#dfSsl').value === 'prefer') $('#dfSsl').value = 'require'; dfSshUi();
@@ -2859,7 +2903,7 @@ $('#dfTest').onclick = async () => {
   finally { dfBusy(false); }
 };
 $('#dfCancel').onclick = dfClose;
-$('#dfDelete').onclick = async () => { if (!DB.editing || !confirm(`刪除連線「${DB.editing.name}」？密碼與查詢紀錄也會一併刪除。`)) return;
+$('#dfDelete').onclick = async () => { if (!DB.editing || !await uiConfirm(`刪除連線「${DB.editing.name}」？密碼與查詢紀錄也會一併刪除。`)) return;
   await post('/api/db/connections/' + encodeURIComponent(DB.editing.id), {}, 'DELETE'); $('#dbForm').classList.remove('open'); $('#dbBrowser').classList.remove('open'); if (tab === 'data') loadSide(); };
 $('#dfSave').onclick = async () => {
   if (!dfValidate()) return;
@@ -3039,7 +3083,7 @@ async function migStart(){
   if (!picked.length) { migMsg('請至少選一個資料表', 'err-t'); return; }
   const where = p.target.type === 'connection' ? `資料庫「${p.target.label}」` : `檔案 ${p.target.path}`;
   const drop = p.conflicts.filter(x => picked.includes(x));
-  if (!confirm(`要把 ${picked.length} 個資料表寫入${where}？${drop.length && MIG.opts.replace ? `\n\n會先刪除目的地的 ${drop.length} 個同名資料表。` : ''}`)) return;
+  if (!await uiConfirm(`要把 ${picked.length} 個資料表寫入${where}？${drop.length && MIG.opts.replace ? `\n\n會先刪除目的地的 ${drop.length} 個同名資料表。` : ''}`)) return;
   const tables = picked.length === p.tables.length ? null : picked;
   const {ok, j} = await jreq('/api/db/migrations', {source: MIG.src.id, target: MIG.target, confirm: true,
     options: {tables, views: MIG.opts.views, if_exists: MIG.opts.replace ? 'replace' : 'fail', skip_bad_rows: MIG.opts.skip, schema: MIG.opts.schema}});
@@ -3233,7 +3277,7 @@ $('#shGo').onclick = async () => {
     until_turn: o.until_turn, query_rows: o.query_rows, mask_hosts: o.mask_hosts, extra_mask: o.extra_mask,
     accounts: SH.vis === 'LOGIN' ? (SH.acc || '').split(/[\s,]+/).filter(Boolean) : [], expires_days: +SH.exp || null})});
   const j = await r.json().catch(() => ({}));
-  if (!r.ok){ $('#shState').textContent = ''; $('#shGo').disabled = false; alert(j.detail || '分享失敗'); return; }
+  if (!r.ok){ $('#shState').textContent = ''; $('#shGo').disabled = false; uiAlert(j.detail || '分享失敗'); return; }
   $('#shState').textContent = '';
   $('#shGo').hidden = true;
   const vis = SH_VIS.find(x => x[0] === j.visibility) || SH_VIS[0], exp = SH_EXP.find(x => x[0] === SH.exp) || SH_EXP[1];
@@ -3294,40 +3338,40 @@ async function renderMyShares(){
   box.querySelectorAll('.msh-more').forEach(d => d.addEventListener('toggle', () => { if (d.open) box.querySelectorAll('.msh-more[open]').forEach(o => { if (o !== d) o.open = false; }); }));
   const q = box.querySelector('.msh-q'); if (q) q.oninput = () => { MSH.q = q.value; clearTimeout(MSH.t); MSH.t = setTimeout(() => { renderMyShares().then(() => { const n = $('#mySharesBox .msh-q'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 250); };
   const patch = async (id, body) => { const r = await fetch('/api/share/' + encodeURIComponent(id) + '?token=' + encodeURIComponent(token), {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-    if (!r.ok) alert((await r.json().catch(() => ({}))).detail || '更新失敗'); renderMyShares(); };
+    if (!r.ok) uiAlert((await r.json().catch(() => ({}))).detail || '更新失敗'); renderMyShares(); };
   box.querySelectorAll('.msh-item').forEach(row => { const id = row.dataset.id;
     row.querySelector('[data-copy]').onclick = async e => { const b = e.currentTarget;
-      try { await navigator.clipboard.writeText(b.dataset.copy); b.querySelector('span').textContent = '已複製'; setTimeout(() => b.querySelector('span').textContent = '複製連結', 1500); } catch { prompt('複製這個連結：', b.dataset.copy); } };
+      try { await navigator.clipboard.writeText(b.dataset.copy); b.querySelector('span').textContent = '已複製'; setTimeout(() => b.querySelector('span').textContent = '複製連結', 1500); } catch { await uiPrompt('複製這個連結：', b.dataset.copy); } };
     row.querySelector('[data-vis]').onchange = e => patch(id, {visibility: e.target.value});
     row.querySelector('[data-exp]').onchange = e => { if (e.target.value !== '') patch(id, {expiresInDays: +e.target.value || null}); };
-    row.querySelector('[data-rev]').onclick = async () => { if (!confirm('撤回這個分享？連結會立即失效，看過的人也無法再開啟。')) return;
+    row.querySelector('[data-rev]').onclick = async () => { if (!await uiConfirm('撤回這個分享？連結會立即失效，看過的人也無法再開啟。')) return;
       const r = await fetch('/api/share/' + encodeURIComponent(id) + '?token=' + encodeURIComponent(token), {method: 'DELETE'});
-      if (!r.ok) alert((await r.json().catch(() => ({}))).detail || '撤回失敗'); renderMyShares(); markShared(); };
+      if (!r.ok) uiAlert((await r.json().catch(() => ({}))).detail || '撤回失敗'); renderMyShares(); markShared(); };
   });
   paintIcons(box);
 }
 async function importFromUrl(){
   const u = new URLSearchParams(location.search).get('import'); if (!u) return;
   history.replaceState(null, '', location.pathname + (new URLSearchParams(location.search).get('token') ? '?token=' + encodeURIComponent(token) : ''));
-  if (!confirm(`把這個分享匯入成新的對話？\n\n${u}`)) return;
+  if (!await uiConfirm(`把這個分享匯入成新的對話？\n\n${u}`)) return;
   const r = await fetch('/api/share/import?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url: u})});
-  const j = await r.json(); if (!r.ok) { alert(j.detail || '匯入失敗'); return; }
+  const j = await r.json(); if (!r.ok) { uiAlert(j.detail || '匯入失敗'); return; }
   tab = 'sessions'; await loadSide();
   const s = (await api('/api/sessions')).find(x => x.id === j.session_id); if (s) openSession(s);
 }
 setTimeout(importFromUrl, 300);
 async function installTool(){
-  const ref = prompt('從 SinoBee.ai 安裝工具（<publisher>/<name>）：'); if (!ref) return;
+  const ref = await uiPrompt('從 SinoBee.ai 安裝工具（<publisher>/<name>）：'); if (!ref) return;
   let r = await fetch('/api/hub/tools/install?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ref: ref.trim()})});
   let j = await r.json().catch(() => ({}));
   if (!r.ok && /保險箱/.test(j.detail || '')){
-    const pw = prompt('這個私人工具的連線資料在你的保險箱裡，請輸入保險箱密語：'); if (!pw) return;
+    const pw = await uiPrompt('這個私人工具的連線資料在你的保險箱裡，請輸入保險箱密語：'); if (!pw) return;
     const u = await fetch('/api/vault/unlock?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({passphrase: pw})});
-    if (!u.ok) { alert((await u.json()).detail); return; }
+    if (!u.ok) { uiAlert((await u.json()).detail); return; }
     r = await fetch('/api/hub/tools/install?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ref: ref.trim()})});
     j = await r.json().catch(() => ({}));
   }
-  if (!r.ok) { alert(j.detail || '安裝失敗'); return; }
+  if (!r.ok) { uiAlert(j.detail || '安裝失敗'); return; }
   if (tab === 'data') loadSide();
   if (j.needs_credentials){ const rr = await api('/api/db/connections'); const c = (rr.connections || []).find(x => x.id === j.connection); if (c) openDbForm(c); }
   else openDb(j.connection);
@@ -3410,14 +3454,14 @@ function renderSql(){
   $('#sqlText').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runSql(); } };
   $('#sqlRun').onclick = runSql; $('#sqlCancel').onclick = () => dbPost('cancel', {}); loadHist(); loadSaved();
   $('#sqlSave').onclick = async () => { const sql = $('#sqlText').value.trim(); if (!sql) return;
-    const title = prompt('儲存查詢的名稱：', sql.replace(/\s+/g, ' ').slice(0, 40)); if (!title) return;
+    const title = await uiPrompt('儲存查詢的名稱：', sql.replace(/\s+/g, ' ').slice(0, 40)); if (!title) return;
     const r = await fetch(`/api/db/${encodeURIComponent(DB.cur.id)}/queries?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title, sql})});
-    const j = await r.json(); if (!r.ok) { alert(j.detail); return; } loadSaved(); };
+    const j = await r.json(); if (!r.ok) { uiAlert(j.detail); return; } loadSaved(); };
 }
 async function loadSaved(){ const r = await api(`/api/db/${encodeURIComponent(DB.cur.id)}/queries`); const qs = r.queries || [];
   $('#sqlSaved').innerHTML = qs.length ? '<small style="color:var(--muted)">已儲存的查詢</small>' + qs.map((q, i) => `<div data-i="${i}" title="${esc(q.sql)}">★ ${esc(q.title)} <span class="sqdel" data-t="${esc(q.title)}" title="刪除" style="float:right;opacity:.6">✕</span></div>`).join('') : '';
   $('#sqlSaved').querySelectorAll('div').forEach(d => d.onclick = async e => {
-    if (e.target.classList.contains('sqdel')) { if (!confirm('刪除這個儲存的查詢？')) return;
+    if (e.target.classList.contains('sqdel')) { if (!await uiConfirm('刪除這個儲存的查詢？')) return;
       await fetch(`/api/db/${encodeURIComponent(DB.cur.id)}/queries?token=${encodeURIComponent(token)}&title=${encodeURIComponent(e.target.dataset.t)}`, {method: 'DELETE'}); loadSaved(); return; }
     $('#sqlText').value = qs[+d.dataset.i].sql; DB.sqlDraft = $('#sqlText').value; }); }
 async function loadHist(){ const r = await api(`/api/db/${encodeURIComponent(DB.cur.id)}/history`);
@@ -3430,7 +3474,7 @@ async function runSql(){
     if (v.kind === 'invalid') throw new Error(v.reason);
     if (v.kind === 'write') {
       if (!v.allow_write) throw new Error(`這個連線是唯讀的：${v.reason}。如需寫入，請編輯連線並開啟「允許寫入」。`);
-      if (!confirm(`這個語句會修改資料庫：\n\n${sql.slice(0, 600)}\n\n確定要執行嗎？`)) return; confirmWrite = true;
+      if (!await uiConfirm(`這個語句會修改資料庫：\n\n${sql.slice(0, 600)}\n\n確定要執行嗎？`)) return; confirmWrite = true;
     }
     $('#sqlOut').innerHTML = '<div class="dbmsg"><div class="spin" style="margin:auto"></div><br>執行中…</div>'; $('#sqlFoot').textContent = '';
     const r = await dbPost('query', {sql, confirm_write: confirmWrite}); DB.last = r;
@@ -3549,7 +3593,7 @@ const wkWhen = t => { if (!t) return ''; const d = new Date(t * 1000), now = new
   return (sameDay ? '今天 ' : d.toLocaleDateString([], {month: 'numeric', day: 'numeric'}) + ' ') + hm; };
 const wkDur = (a, b) => { if (!a || !b) return ''; const s = Math.round(b - a); return s < 60 ? `${s} 秒` : s < 3600 ? `${Math.round(s / 60)} 分鐘` : `${(s / 3600).toFixed(1)} 小時`; };
 async function wkLoad(){ WK.data = await api('/api/work?history=60'); return WK.data; }
-async function wkJ(path, body, method = 'POST'){ const {ok, j} = await jreq(path, body, method); if (!ok) { alert(j.detail || '失敗'); throw new Error(j.detail); } return j; }
+async function wkJ(path, body, method = 'POST'){ const {ok, j} = await jreq(path, body, method); if (!ok) { uiAlert(j.detail || '失敗'); throw new Error(j.detail); } return j; }
 
 // sidebar tab
 async function fillWork(side){
@@ -3610,7 +3654,7 @@ async function wkAct(act, id, el){
   if (act === 'run-job') { const r = await wkJ(`/api/work/jobs/${id}/run`, {}); return openWork('run', r.id); }
   if (act === 'toggle-job') { await wkJ(`/api/work/jobs/${id}`, {enabled: el.checked}, 'PATCH'); return wkRender(true); }
   if (act === 'edit-job') { const j = await api('/api/work/jobs/' + id); return openJobForm(j); }
-  if (act === 'del-job') { if (!confirm('刪除這個工作？它的長期黑板也會一併刪除，過去的執行紀錄會保留。')) return; await wkJ(`/api/work/jobs/${id}`, undefined, 'DELETE'); return openWork('jobs'); }
+  if (act === 'del-job') { if (!await uiConfirm('刪除這個工作？它的長期黑板也會一併刪除，過去的執行紀錄會保留。')) return; await wkJ(`/api/work/jobs/${id}`, undefined, 'DELETE'); return openWork('jobs'); }
   if (act === 'stop-run') { await wkJ(`/api/work/runs/${id}/stop`, {}); return wkRender(true); }
   if (act === 'resume-run') { const r = await wkJ(`/api/work/runs/${id}/resume`, {}); return openWork('run', r.id); }
   if (act === 'wf-run') return openJobForm(null, {kind: 'workflow', workflow: id, schedule: {type: 'manual'}, run_now: true});
@@ -3775,7 +3819,7 @@ function jfWhat(v){
     btn.disabled = true; btn.textContent = '上傳中…';
     try { const r = await fetch('/api/upload?token=' + encodeURIComponent(token), {method: 'POST', body: fd}); const j = await r.json();
       if (!r.ok) throw new Error(j.detail || '上傳失敗'); $(`#jfIn [data-in="${f.dataset.up}"]`).value = j[0].path; }
-    catch (err) { alert(err.message); } finally { btn.disabled = false; btn.textContent = '上傳'; } };
+    catch (err) { uiAlert(err.message); } finally { btn.disabled = false; btn.textContent = '上傳'; } };
 }
 function jfWhen(){
   document.querySelectorAll('#jfSched button').forEach(b => b.classList.toggle('on', b.dataset.v === JF.sched.type));
@@ -3831,18 +3875,30 @@ function resumeNote(text){
 }
 function interruptedCard(r){
   const c = add('', 'result incomplete intr'); c.dataset.run = r.run_id; c.dataset.sid = sessionId; c._r = r;
+  if (r.artifacts?.length) setTimeout(() => paintIcons(c), 0);
   paintInterrupted(c); return c;
 }
 function paintInterrupted(c){
-  const r = c._r, ar = r.auto_resume || {}, live = RUNNING[c.dataset.sid];
-  const state = live ? '↻ 正在續跑…' : r.dismissed ? '已取消，不會再續跑' : ar.resumed ? '已續跑' : r.will_resume ? 'SinoBee 會在一分鐘內檢查並自動續跑' : esc(r.why_not || '不會自動續跑');
-  c.innerHTML = `<b>△ 任務中斷：${esc(r.error || '執行到一半停止了')}</b><div class="hint">${state}</div><div class="intr-act"></div>`;
+  const r = c._r, ar = r.auto_resume || {}, live = RUNNING[c.dataset.sid], st = r.status || 'interrupted';
+  const steps = r.steps ? `（做了 ${r.steps} 步）` : '';
+  let head, state;
+  if (live) { head = `△ 任務中斷${steps}`; state = '↻ 正在續跑…'; }
+  else if (st === 'cancelled' || r.dismissed) {
+    head = `■ 這一輪已停止${steps}`;
+    state = ar.reason === '你選擇不續跑' || r.dismissed ? '你選擇了不續跑。想做完的話可以按「繼續」。' : r.user_stopped ? '你按了停止。想做完的話可以按「繼續」。' : esc(r.error || '');
+  } else if (st === 'failed') { head = `✕ 這一輪失敗${steps}`; state = esc(r.error || '執行時發生錯誤'); }
+  else { head = `△ 任務中斷${steps}：${esc(r.error || '執行到一半停止了')}`;
+    state = ar.resumed ? '已續跑' : r.will_resume ? 'SinoBee 會在一分鐘內檢查並自動續跑' : esc(r.why_not || '不會自動續跑'); }
+  c.className = 'result intr ' + (st === 'cancelled' || r.dismissed ? 'stopped' : 'incomplete');
+  c.innerHTML = `<b>${head}</b><div class="hint">${state}</div>` + (r.artifacts?.length && !live ? artStrip(r.artifacts, '這一輪已產出') : '') + '<div class="intr-act"></div>';
   const act = c.querySelector('.intr-act'), btn = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button';
     b.className = 'btn sm ' + cls; b.textContent = label; b.onclick = async () => { b.disabled = true; try { await fn(); } catch { b.disabled = false; } }; act.appendChild(b); };
+  const resume = async () => { await post(`/api/work/runs/${encodeURIComponent(r.run_id)}/resume`, {}); r.auto_resume = {resumed: true}; r.status = 'interrupted'; r.dismissed = false; paintInterrupted(c); };
   if (live) btn('停止', 'danger', async () => { ws.send(JSON.stringify({type: 'cancel', session_id: c.dataset.sid})); });
-  else if (!ar.resumed && !r.dismissed) {
-    btn('立即繼續', 'primary', async () => { await post(`/api/work/runs/${encodeURIComponent(r.run_id)}/resume`, {}); r.auto_resume = {resumed: true}; paintInterrupted(c); });
-    btn('不要續跑', '', async () => { await post(`/api/work/runs/${encodeURIComponent(r.run_id)}/dismiss`, {}); r.dismissed = true; paintInterrupted(c); });
+  else if (st === 'cancelled' || st === 'failed' || r.dismissed) btn('繼續', 'primary', resume);
+  else if (!ar.resumed) {
+    btn('立即繼續', 'primary', resume);
+    btn('不要續跑', '', async () => { await post(`/api/work/runs/${encodeURIComponent(r.run_id)}/dismiss`, {}); r.dismissed = true; r.status = 'cancelled'; paintInterrupted(c); });
   }
 }
 function refreshInterrupted(){ document.querySelectorAll('#chat .result.intr').forEach(c => c._r && paintInterrupted(c)); }
