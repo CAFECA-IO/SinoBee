@@ -2533,6 +2533,9 @@ function renderAccount(){
       await api('/api/account/logout', {method: 'POST'}); loadAccount(); loadQuota(true); if (CAT) loadCatalog(true, ['sinobee']); };
     return;
   }
+  // signed out (here, in another window, or the sign-in was revoked): the plan shown so far is no longer this
+  // computer's - drop it at once and ask the server again, so no stale "Ultra" stays on screen
+  if (QUOTA && QUOTA.status !== 'signed_out') { QUOTA = {status: 'signed_out', in_use: QUOTA.in_use}; paintQuota(); loadQuota(true); }
   if (lg && lg.status === 'pending'){
     el.innerHTML = `<div class="lcard"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
       <div style="font-family:ui-monospace,Menlo,monospace;font-size:26px;letter-spacing:4px;font-weight:700">${esc(lg.user_code)}</div>

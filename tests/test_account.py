@@ -171,3 +171,84 @@ def test_signed_requests_and_refresh(config, monkeypatch):
     # multipart bodies are signed over the exact bytes sent
     account.send(config, "POST", "https://sinobee.ai/api/v1/shares", files={"files": ("a.txt", b"hello")}, data={"share": "{}"})
     assert b"hello" in seen[-1][3]
+
+
+def test_concurrent_refreshes_spend_the_refresh_token_once(config, monkeypatch):
+    """A refresh token is single use: sinobee.ai signs the whole device out when one is used twice. Several calls
+    that see the expiring token at the same time (the GUI's quota poll, the agent's model calls, background work)
+    must refresh once and all use the new pair - before, a race here signed the user out."""
+    import threading
+    import time as _t
+    used, lock = [], threading.Lock()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/api/v1/device/token":
+            rt = json.loads(req.content)["refresh_token"]
+            with lock:
+                reused = rt in used
+                used.append(rt)
+            _t.sleep(0.05)                                   # the server takes a moment: the others pile up
+            if reused:
+                return httpx.Response(401, json={"error": "refresh token reused — all sessions signed out"})
+            n = len(used)
+            return httpx.Response(200, json={"access_token": f"sbh_{n:040d}", "refresh_token": f"sbr_{n:040d}",
+                                             "expires_in": 900})
+        return httpx.Response(200, json={"ok": True})
+
+    real = httpx.Client
+
+    def call(method, url, **kw):
+        kw.pop("timeout", None)
+        with real(transport=httpx.MockTransport(handler)) as c:
+            return c.request(method, url, **kw)
+    monkeypatch.setattr(account.httpx, "request", call)
+    monkeypatch.setattr(account.httpx, "post", lambda url, **kw: call("POST", url, **kw))
+    account.signing_public_key(config)                       # this install signs (has its device key)
+    account.save(config, {"access_token": "sbh_" + "a" * 40, "refresh_token": "sbr_" + "r" * 40, "expires_in": 900,
+                          "scope": "llm vault:rw"})
+    info = json.loads(config.secrets.get_secret(account.ACCOUNT))
+    info["expires_at"] = 0
+    config.secrets.set_secret(account.ACCOUNT, json.dumps(info))
+    errors = []
+
+    def one():
+        try:
+            assert account.send(config, "GET", "https://sinobee.ai/api/v1/me").status_code == 200
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+    threads = [threading.Thread(target=one) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    assert used == ["sbr_" + "r" * 40], used                 # one refresh, never a reuse
+    assert account.token(config) == f"sbh_{1:040d}" and account.account(config) is not None
+
+
+def test_whoami_renews_an_expired_access_token_before_giving_up(config, monkeypatch):
+    calls = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(req.url.path)
+        if req.url.path == "/api/v1/device/token":
+            return httpx.Response(200, json={"access_token": "sbh_" + "n" * 40, "refresh_token": "sbr_" + "s" * 40,
+                                             "expires_in": 900})
+        ok = req.headers.get("authorization") == "Bearer sbh_" + "n" * 40
+        return httpx.Response(200, json={"account": "0xabc", "handle": "bee", "scopes": ["llm"]}) if ok else \
+            httpx.Response(401, json={"error": "expired"})
+
+    real = httpx.Client
+
+    def call(method, url, **kw):
+        kw.pop("timeout", None)
+        with real(transport=httpx.MockTransport(handler)) as c:
+            return c.request(method, url, **kw)
+    monkeypatch.setattr(account.httpx, "request", call)
+    monkeypatch.setattr(account.httpx, "post", lambda url, **kw: call("POST", url, **kw))
+    account.signing_public_key(config)
+    account.save(config, {"access_token": "sbh_" + "a" * 40, "refresh_token": "sbr_" + "r" * 40, "expires_in": 900,
+                          "scope": "llm"})
+    me = account.whoami(config)                    # the stored access token is rejected (the laptop slept)
+    assert me and me["handle"] == "bee" and calls == ["/api/v1/me", "/api/v1/device/token", "/api/v1/me"]
+    assert account.token(config) == "sbh_" + "n" * 40

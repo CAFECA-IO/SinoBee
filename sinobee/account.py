@@ -14,7 +14,10 @@ from __future__ import annotations
 import json
 import platform
 import socket
+import threading
 import time
+from contextlib import contextmanager
+from pathlib import Path
 
 import httpx
 
@@ -201,9 +204,51 @@ def _update_tokens(config, body: dict) -> None:
     config.secrets.set_secret(ACCOUNT, json.dumps(info))
 
 
-def refresh(config) -> bool:
-    """Swap the refresh token for a new access + refresh token (signed). False when signed out / not possible."""
-    rt = config.secrets.get_secret(REFRESH)
+_REFRESH_LOCK = threading.Lock()
+
+
+@contextmanager
+def _refresh_guard(config):
+    """One refresh at a time - across threads and across SinoBee processes (server, CLI). A refresh token is single
+    use: sinobee.ai treats a second use as theft and signs every session of the device out, so two calls that both
+    saw an expiring token must not both spend it."""
+    with _REFRESH_LOCK:
+        fh = None
+        try:
+            import fcntl
+            path = Path(config.home) / ".refresh.lock"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fh = open(path, "a+")
+            fcntl.flock(fh, fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            fh = None                      # Windows / read-only home: the thread lock still covers this process
+        try:
+            yield
+        finally:
+            if fh is not None:
+                try:
+                    import fcntl
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+                finally:
+                    fh.close()
+
+
+def refresh(config, *, force: bool = False) -> bool:
+    """Swap the refresh token for a new access + refresh token (signed). False when signed out / not possible.
+    Serialised (_refresh_guard); a caller that waited finds the token already renewed and does not spend the new
+    refresh token again."""
+    before = config.secrets.get_secret(REFRESH)
+    with _refresh_guard(config):
+        rt = config.secrets.get_secret(REFRESH)
+        if rt and rt != before:
+            return True                    # another thread / process refreshed while this one waited
+        acc = account(config) or {}
+        if not force and acc.get("expires_at") is not None and acc["expires_at"] - time.time() >= 60:
+            return True                    # still fresh (renewed by someone else, the pair read before it)
+        return _refresh_locked(config, rt)
+
+
+def _refresh_locked(config, rt: str | None) -> bool:
     if not rt or _signing_key(config) is None:
         return False
     url = f"{base_url(config)}/api/v1/device/token"
@@ -253,6 +298,12 @@ def whoami(config, remote: bool = True) -> dict | None:
         r = send(config, "GET", f"{base_url(config)}/api/v1/me", timeout=15)
     except (httpx.HTTPError, AccountError):
         return {**(account(config) or {}), "offline": True}
+    if r.status_code == 401 and refresh(config, force=True):
+        # an access token that expired while this computer slept: renew it before deciding the sign-in is gone
+        try:
+            r = send(config, "GET", f"{base_url(config)}/api/v1/me", timeout=15)
+        except (httpx.HTTPError, AccountError):
+            return {**(account(config) or {}), "offline": True}
     if r.status_code == 401:
         logout(config)
         return None
