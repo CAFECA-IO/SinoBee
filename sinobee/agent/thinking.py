@@ -35,10 +35,56 @@ Write, in the user's language:
 - risks: the traps most likely to make the result wrong (e.g. numbers that must come from the source, a format the
   user asked for)
 - ask_user: a question only the user can answer and without which the work would likely be wasted, else null
+- task_type: research | coding | document | data | media | other
+- milestones: ONLY for a large task (3 or more distinct stages, or roughly 40+ steps of work) - otherwise [].
+  2-8 milestones, each {{"id": "m1", "title": "...", "goal": "...", "acceptance": ["checkable outcome", ...],
+  "depends_on": ["m..."], "outputs": ["file or fact it produces"], "parallel": true|false,
+  "role": "researcher|analyst|writer|general", "estimate_steps": 10}}. The agent works on one milestone at a time
+  and its context is cleared between milestones (only each milestone's summary, outputs and the facts carry on),
+  so cut where a stage hands over a clear result. parallel=true ONLY when the milestone needs nothing from the
+  others and its output can be produced separately - it is then given to a sub-agent with that role; a writer of
+  the final deliverable is never parallel. The LAST milestone integrates: assembles the outputs and checks the
+  whole result against the request.
+- facts: values every part must use the same way (units, names, key numbers or specs decided up front), as
+  {{"name": "value"}}; {{}} when there are none
 Keep it short; do not do the task.
 Reply with JSON only:
 {{"understanding": "...", "approach": "...", "steps": ["..."], "checklist": [{{"text": "...", "check": "..."}}],
-  "risks": ["..."], "ask_user": null}}"""
+  "risks": ["..."], "ask_user": null, "task_type": "other", "milestones": [], "facts": {{}}}}"""
+
+REPLAN = """You are the THINKING model of an AI agent. The task below runs as milestones and the plan must change.
+
+USER REQUEST:
+{request}
+
+PLAN NOW (finished milestones are fixed and stay as they are):
+{plan}
+
+SHARED FACTS:
+{facts}
+
+WHY IT CHANGES: {why}
+{feedback}
+Write the milestones that are NOT finished yet, as they should be from now on (new ids for new milestones; keep the
+id of a milestone you keep). A running sub-agent ([~]) keeps running unless you list its id in "cancel" - cancel only
+the ones the change makes wrong. Update facts the change affects. Same milestone format as the plan; the last
+milestone integrates. Reply with JSON only:
+{{"milestones": [{{"id": "...", "title": "...", "goal": "...", "acceptance": ["..."], "depends_on": ["..."],
+  "outputs": ["..."], "parallel": false, "role": "general", "estimate_steps": 10}}], "cancel": [],
+  "facts": {{"name": "value"}}, "note": "<one sentence for the user, user's language>"}}"""
+
+FACT_CONFLICT = """Two parts of one task disagree on a value that every part must use the same way.
+
+USER REQUEST:
+{request}
+
+FACT: {key}
+VALUE IN THE SHARED TABLE: {shared}
+VALUE A SUB-AGENT REPORTS ({who}, working on: {goal}): {proposed}
+
+Decide which value is right for the task (or the correct one if both are wrong). Reply with JSON only:
+{{"value": "...", "reason": "<one sentence, user's language>", "redo": false}}
+redo=true only when work already done with the losing value must be redone."""
 
 CONSULT = """[SinoBee - THINKING model] You are the thinking model supervising the EXECUTION model whose work is
 above. It is stuck: {why}. You do not call tools. Read the whole conversation and every tool result, then reply in
@@ -99,7 +145,9 @@ def parse_plan(text: str) -> dict | None:
     if not steps and not data.get("approach"):
         return None
     ask = data.get("ask_user")
-    return {"understanding": str(data.get("understanding") or "").strip()[:600],
+    from .milestones import parse as parse_milestones
+    ms = parse_milestones(data)
+    return {"milestones": ms, "understanding": str(data.get("understanding") or "").strip()[:600],
             "approach": str(data.get("approach") or "").strip()[:1200], "steps": steps, "checklist": items[:8],
             "risks": [str(r).strip()[:300] for r in data.get("risks") or [] if str(r).strip()][:6],
             "ask_user": str(ask).strip()[:400] if ask and str(ask).strip().lower() not in ("null", "none") else None}
@@ -115,10 +163,12 @@ def render_plan(plan: dict, model_label: str) -> str:
         lines.append("步驟：\n" + "\n".join(f"{i}. {s}" for i, s in enumerate(plan["steps"], 1)))
     if plan.get("risks"):
         lines.append("注意：\n" + "\n".join(f"- {r}" for r in plan["risks"]))
-    if plan.get("ask_user"):
+    if plan.get("ask_user") and not plan.get("milestones"):     # a milestone plan asks while it is confirmed
         lines.append(f"開始前先用 ask_user 問使用者：{plan['ask_user']}")
     if plan.get("checklist"):
         lines.append("驗收清單已依計畫建立（task_checklist），完成每一項都要附證據。")
+    if plan.get("milestones"):
+        lines.append("這個任務分成里程碑執行（見每一步附上的 <milestones>）：一次只做目前的里程碑，完成後呼叫 milestone(action='done')。")
     return "\n".join(lines)
 
 
@@ -135,6 +185,10 @@ def parse_decision(text: str) -> tuple[str, str, str]:
             advice = "\n".join(lines[:i]).strip()
             return advice, m.group(1).lower(), (m.group(2) or "").strip()
     return text, "continue", ""
+
+
+def parse_json(text: str) -> dict:
+    return _json(text)
 
 
 def parse_diagnosis(text: str) -> dict | None:

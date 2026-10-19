@@ -767,7 +767,7 @@ class Agent:
         agent), an error_info dict (still not acceptable after the allowed rounds), or None (accepted / skipped)."""
         from . import review
         if "quality" not in stats:
-            level, why = review.quality_level(self.config, self.history[turn_start:], stats,
+            level, why = review.quality_level(self.config, self._turn_messages(turn_start), stats,
                                               self._complex_task(stats.get("explicit_skills")))
             if self.depth > 0:                # sub-agents: their coordinator (and its reviewer) judges the result
                 level, why = "fast", "子代理"
@@ -839,7 +839,7 @@ class Agent:
             except Exception:  # noqa: BLE001
                 shots = {}
         items = checklist_tools.get(self.ctx)
-        turn = self.history[stats.get("turn_start", 0):]
+        turn = self._turn_messages(stats.get("turn_start", 0))
         log_text = review.work_log(turn)
         unbacked = review.unbacked_claims(final_text, turn)
         reviewer = ""
@@ -977,6 +977,23 @@ class Agent:
             await self._guarded("規劃", self._plan(query, context_block, stats), stats)
         self._progress.set_checklist(checklist_tools.get(self.ctx))
         stats["compactions"] = 0
+        # a large task runs as milestones (agent/milestones.py): from the plan, or an unfinished plan resumed
+        self._msr = None
+        if self.depth == 0:
+            from . import milestones as ms_mod
+            from .milestone_runner import MilestoneRunner
+            plan_ms = (stats.get("plan") or {}).get("milestones")
+            if plan_ms:
+                plan_ms["ask_user"] = (stats.get("plan") or {}).get("ask_user")
+                self._msr = MilestoneRunner(self, ms_mod.Plan(plan_ms), query)
+                await self._guarded("里程碑", self._msr.begin(stats), stats)
+            elif not stats.get("plan") and self._resumes_milestones(query):
+                self._msr = MilestoneRunner.resume(self, query)
+                if self._msr:
+                    await self._guarded("里程碑", self._msr.begin(stats, resumed=True), stats)
+            if self._msr:
+                tool_specs = self._tool_specs()
+                self._progress.set_checklist(checklist_tools.get(self.ctx))
         self._turn_started = started
         self._snap = None
         if self.depth == 0:
@@ -1006,6 +1023,9 @@ class Agent:
                 self.history.append(Message("assistant", f"[上一次嘗試被安全閥停止：已執行 {iteration} 步]"))
                 break
             steps = iteration + 1
+            stats["step"] = steps
+            if self._msr and not self._cancel:
+                await self._guarded("里程碑", self._msr.before_step(steps, stats), stats)
             if self._cancel:
                 final_text = "（已依你的要求停止）"
                 status = "stopped"
@@ -1051,18 +1071,20 @@ class Agent:
             # between requests (context, checklist, active skill notes, nudges) goes in one tail message that is
             # rebuilt every time and never stored - at the end, where the model attends most during long tasks.
             request = [self.system] + self.history
-            tail = [context_block, self._active_skill_notes(), self._checklist_tail(stats, steps)]
+            tail = [context_block, self._active_skill_notes(), self._checklist_tail(stats, steps),
+                    self._msr.panel() if self._msr else ""]
             if nudge:
                 tail.append(EMPTY_NUDGE)
                 nudge = False
             request.append(Message("user", [TextPart("\n\n".join(t for t in tail if t), volatile=True)]))
             hs = self._progress.health_steps
-            if hs and steps > 1 and (steps - 1) % hs == 0:
+            ref = steps - (self._msr.step0 if self._msr else 0)      # counted per milestone
+            if hs and ref > 1 and (ref - 1) % hs == 0:
                 items = checklist_tools.get(self.ctx)
                 if items and checklist_tools.open_items(items):
-                    self._request_consult(f"已執行 {steps - 1} 步仍未通過驗收", stats, "health_steps",
-                                          f"已執行 {steps - 1} 步，驗收清單尚未完成（健康水位每 {hs} 步檢查一次），"
-                                          "檢視是否需要原地拆分")
+                    self._request_consult(f"已執行 {ref - 1} 步仍未通過驗收", stats, "health_steps",
+                                          f"{'目前里程碑' if self._msr else '這個回合'}已執行 {ref - 1} 步，驗收清單尚未完成"
+                                          f"（健康水位每 {hs} 步檢查一次），檢視是否需要原地拆分")
                 elif not items and not self._progress.produced_within(hs):
                     self._request_consult(f"已執行 {steps - 1} 步沒有任何產出", stats, "health_steps",
                                           f"已執行 {steps - 1} 步，沒有驗收清單，最近 {hs} 步也沒有寫出任何檔案"
@@ -1130,6 +1152,12 @@ class Agent:
                 self._emit("assistant", {"text": msg.text(), "final": not msg.tool_calls})
             if not msg.tool_calls:
                 final_text = msg.text()
+                if self._msr:
+                    note = await self._guarded("里程碑", self._msr.on_final(stats), stats)
+                    if note:
+                        self.history.append(Message("user", note))
+                        self._persist()
+                        continue
                 gate = None if stats.get("consecutive_errors") else await self._guarded("成果檢查", self._quality_gate(stats, query, final_text), stats)
                 if gate:
                     kind, text = gate
@@ -1160,6 +1188,8 @@ class Agent:
                 result_msg = await self._execute(call, stats)
                 self.history.append(result_msg)
             verdict = self._observe_step(steps, stats)
+            if self._msr:
+                await self._guarded("里程碑", self._msr.after_step(steps, stats), stats)
             self._persist()
             limit = int(self.config.get("agent.max_consecutive_errors", 6))
             hard = stats.get("consecutive_errors", 0) >= limit or stats.get("repeats", 0) >= 3
@@ -1211,6 +1241,13 @@ class Agent:
                                                              if stats.get("last_error") else detail))
                 self.history.append(Message("assistant", f"[上一次嘗試失敗：{why}。{stats.get('last_error', '')[:300] or detail[:300]}]"))
                 break
+        if self._msr and stats.get("ms_incomplete") and status == "done":
+            status = "incomplete"
+            error_info = {"summary": f"還有 {len(stats['ms_incomplete'])} 個里程碑沒有完成",
+                          "detail": "、".join(stats["ms_incomplete"]),
+                          "hint": "回覆「繼續」會從第一個未完成的里程碑接著做。"}
+        if self._msr:
+            self._msr.end(status)
         if hit_limit:
             status = "incomplete"
             error_info = {"summary": f"已達這個子任務指定的步驟上限（{max_iter} 步）",
@@ -1224,7 +1261,7 @@ class Agent:
         stats["status"] = status
         self.last_status = {"status": status, "error": error_info}
         turn_skills = list(explicit)
-        for m in self.history[turn_start:]:
+        for m in self._turn_messages(turn_start):
             for c in m.tool_calls:
                 if c.name in ("skill_view", "skill_run") and c.arguments.get("name") and \
                         c.arguments["name"] not in turn_skills:
@@ -1255,6 +1292,7 @@ class Agent:
         self._emit("turn_end", {"text": final_text, "status": status, "error": error_info, "steps": steps,
                                 "snapshot": snap, "failure": failure, "plan": bool(stats.get("plan")),
                                 "consults": len(stats.get("consult_log") or []),
+                                "milestones": self._msr.plan.card({}, status)["milestones"] if self._msr else None,
                                 "thinking_skipped": stats.get("thinking_skipped") or [],
                                 "turn_id": turn_id, "skills": turn_skills,
                                 "duration_s": round(time.time() - started, 1), "usage": turn_usage,
@@ -1404,6 +1442,8 @@ class Agent:
         visible = sorted(s.name for s in self.rt.skills.visible(self.tool_names))
         specs = []
         for t in self.tools:
+            if t.name == "milestone" and not getattr(self, "_msr", None):
+                continue                      # only for a task that runs as milestones
             sp = t.spec()
             if t.name in SKILL_ARG_TOOLS:
                 if not visible:
@@ -1444,6 +1484,26 @@ class Agent:
         body = rest or f"Use the {', '.join(names)} skill(s)."
         return [TextPart("\n\n".join(blocks)), TextPart(f"[User explicitly activated: {', '.join(names)}]"),
                 TextPart(body)], names, False
+
+    def _turn_messages(self, turn_start: int) -> list:
+        """This turn's messages, including those of finished milestones that left the model context."""
+        msr = getattr(self, "_msr", None)
+        return (list(msr.archive) if msr else []) + self.history[turn_start:]
+
+    def milestone_feedback(self, text: str, mode: str = "boundary") -> bool:
+        """A correction to the milestone plan while the task runs: "boundary" (at the next milestone) or "now"."""
+        msr = getattr(self, "_msr", None)
+        if msr is None:
+            return False
+        msr.feedback(text, mode)
+        self._emit("steer_applied", {"text": text, "milestone_mode": mode})
+        return True
+
+    def _resumes_milestones(self, query: str) -> bool:
+        """Carry on an unfinished milestone plan: a resume, or the turn restored its open milestone checklist."""
+        if query.lstrip().startswith(("[自動續跑]", "[續跑]")) or query.strip() in ("繼續", "继续", "continue"):
+            return True
+        return any(i.get("milestone") for i in checklist_tools.open_items(checklist_tools.get(self.ctx)))
 
     def _checklist_done(self) -> bool:
         items = checklist_tools.get(self.ctx)
@@ -1602,6 +1662,6 @@ class Agent:
         if not signal:
             return
         from ..learning.reflector import reflect
-        turn = self.history[turn_start:]
+        turn = self._turn_messages(turn_start)
         self._emit("status", {"message": "reflecting (learning in background)"})
         self.rt.spawn(reflect(self.rt, self.session_id, turn, stats, sorted(unrated), emit=self._emit))

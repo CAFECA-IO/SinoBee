@@ -58,6 +58,10 @@ header .title{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;whit
 .modal.uidlg{z-index:300;animation:uidIn .12s ease-out}.uidlg .card{max-width:440px;padding:20px 22px 16px}
 .uidlg h3{margin:0 0 8px;font-size:16px}.uidlg .uidmsg{font-size:14px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto}
 .uidlg .uidin{width:100%;margin-top:12px;box-sizing:border-box}.uidlg .row{margin-top:18px}
+.uichoices{display:flex;flex-direction:column;gap:8px;margin-top:14px}.uichoices .btn{display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:10px 12px;height:auto;white-space:normal}.uichoices .btn small{font-weight:400;opacity:.8;margin-top:2px}
+.mscard .mshead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.mscard .mslist{list-style:none;padding:0;margin:8px 0}.mscard .mslist li{display:flex;gap:8px;padding:5px 0;border-top:1px solid var(--line)}
+.mscard .msic{width:18px;flex:none;text-align:center;color:var(--muted)}.mscard .ms-doing .msic{color:var(--accent)}.mscard .ms-done .msic{color:var(--ok,#2a9d5c)}.mscard .ms-delegated .msic{color:var(--accent)}
+.mscard .mstag{font-size:11px;padding:1px 6px;border-radius:8px;background:var(--chip,rgba(127,127,127,.15))}.mscard .mslist li>div{min-width:0;overflow-wrap:anywhere}
 @keyframes uidIn{from{opacity:0}to{opacity:1}}
 .result:not(.done) .fb{margin-left:0;margin-top:8px}
 .btn.icon{width:36px;height:36px;padding:0;display:inline-grid;place-items:center;position:relative;flex:none}
@@ -1298,6 +1302,44 @@ function fmtSize(n){ return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >
 function clearEmpty(){const e = $('#chat .empty'); if (e) e.remove();}
 const CTL_EVENT = {consult_requested: '請教思維模型', consult: '思維模型回覆', consult_skipped: '未請教思維模型', stop: '停止任務'};
 const CTL_DECISION = {continue: '繼續', stop: '停止', replan: '重新規劃', no_answer: '沒有回覆', max: '諮詢次數已用完', pending: '已排定', too_soon: '距上次太近', failed: '任務失敗'};
+// ---------------- milestones (a large task runs milestone by milestone) ----------------
+const MS_ST = {todo: ['○', '待辦'], doing: ['▶', '進行中'], done: ['✓', '完成'], delegated: ['⇉', '子代理執行中'], failed: ['!', '失敗'], dropped: ['–', '略過']};
+const MS_PHASE = {proposed: '等你確認', running: '執行中', done: '已完成', saved: '已保存', stopped: '已停止', failed: '未完成', incomplete: '未完成', error: '中斷'};
+const MS_ROLE = {researcher: '研究員', analyst: '資料分析師', writer: '撰稿員', general: '通用助手'};
+let msEl = null;
+function msHtml(p, sid){
+  const list = (p.milestones || []).map(m => { const [ic, lab] = MS_ST[m.status] || MS_ST.todo;
+    return `<li class="ms-${esc(m.status)}"><span class="msic" title="${esc(lab)}">${ic}</span><div><b>${esc(m.id)} ${esc(m.title)}</b>`
+      + (m.parallel ? ` <span class="mstag">子代理・${esc(MS_ROLE[m.role] || m.role)}</span>` : '')
+      + ((m.depends_on || []).length ? ` <small class="sd">接在 ${m.depends_on.map(esc).join('、')} 之後</small>` : '')
+      + `<small class="sd" style="display:block">${esc(m.goal || '')}</small>`
+      + (m.summary ? `<details><summary class="sd">摘要</summary><div class="sd">${esc(m.summary)}</div>${(m.result_outputs || []).length ? `<div class="sd">產出：${m.result_outputs.map(esc).join('、')}</div>` : ''}</details>` : '')
+      + `</div></li>`; }).join('');
+  const facts = Object.entries(p.facts || {});
+  const fb = (p.feedback || []).map(f => `<div class="sd">待套用的修正（${f.mode === 'now' ? '立即' : '下個交界'}）：${esc(f.text)}</div>`).join('');
+  return `<div class="mshead"><b>里程碑計畫</b><span class="sd">${p.done}/${p.total} 完成・${esc(MS_PHASE[p.phase] || p.phase)}${p.revision > 1 ? `・第 ${p.revision} 版` : ''}</span><span style="flex:1"></span>`
+    + (p.phase === 'running' ? `<button class="btn sm" type="button" data-msfix="${esc(sid)}">修正計畫</button>` : '') + `</div>`
+    + `<ol class="mslist">${list}</ol>`
+    + (facts.length ? `<details><summary class="sd">共享事實（${facts.length}）</summary>${facts.map(([k, v]) => `<div class="sd"><b>${esc(k)}</b>：${esc(v)}</div>`).join('')}</details>` : '')
+    + fb;
+}
+function msBind(el, sid){
+  el.querySelector('[data-msfix]')?.addEventListener('click', async () => {
+    const text = await uiPrompt('要怎麼修正這個計畫？', '', {title: '修正里程碑計畫', placeholder: '例如：第二部分改成比較三家廠商'});
+    if (!text || !text.trim()) return;
+    const mode = await uiChoice({title: '何時套用？', message: text.trim(), options: [
+      {value: 'boundary', label: '下個交界生效', desc: '不打斷目前的工作，下一個里程碑開始前重新規劃', primary: true},
+      {value: 'now', label: '立即中斷並重劃', desc: '方向已經偏離時用：停止目前的里程碑，已完成的保留'}]});
+    if (!mode) return;
+    try { await jreq(`/api/sessions/${encodeURIComponent(sid)}/milestones/feedback`, {text: text.trim(), mode}); add('ⓘ ' + (mode === 'now' ? '已要求立即中斷並重新規劃：' : '修正會在下一個里程碑開始前套用：') + esc(text.trim()), 'note'); }
+    catch (e) { uiAlert('無法送出修正：' + (e.message || e)); }
+  });
+}
+function msShow(p){
+  if (!msEl || !msEl.isConnected) msEl = add('', 'note mscard');
+  msEl.innerHTML = msHtml(p, sessionId); msBind(msEl, sessionId);
+  if (p.phase === 'done' || p.phase === 'stopped') msEl = null;
+}
 function controlNote(e){
   const th = Object.entries(e.thresholds || {}).map(([k, v]) => `${esc(k)}=${esc(v)}`).join('、');
   return `<b>${e.event === 'stop' ? '⏹' : '⚙'} 第 ${esc(e.step)} 步・${esc(CTL_EVENT[e.event] || e.event)}：${esc(e.label || e.trigger)}</b>`
@@ -1386,6 +1428,23 @@ function uiDialog({title = '', message = '', ok = '確定', cancel = '取消', d
     document.addEventListener('keydown', key, true);
     document.body.appendChild(m);
     setTimeout(() => (inp || m.querySelector(danger && cancel ? '[data-v="0"]' : '[data-v="1"]')).focus(), 20);
+  });
+}
+// a choice between several actions (Esc / backdrop = none of them)
+function uiChoice({title = '', message = '', options = []}){
+  return new Promise(resolve => {
+    const prev = document.activeElement;
+    const m = document.createElement('div'); m.className = 'modal open uidlg'; m.setAttribute('role', 'presentation');
+    m.innerHTML = `<div class="card" role="dialog" aria-modal="true" aria-labelledby="uicT">${title ? `<h3 id="uicT">${esc(title)}</h3>` : ''}
+      <div class="uidmsg">${esc(message)}</div><div class="uichoices">${options.map((o, i) => `<button class="btn ${o.primary ? 'primary' : ''}" type="button" data-i="${i}"><b>${esc(o.label)}</b>${o.desc ? `<small>${esc(o.desc)}</small>` : ''}</button>`).join('')}</div>
+      <div class="row"><button class="btn" type="button" data-i="-1">取消</button></div></div>`;
+    const done = v => { m.remove(); document.removeEventListener('keydown', key, true); try { prev?.focus(); } catch {} resolve(v); };
+    const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(null); } };
+    m.querySelectorAll('[data-i]').forEach(b => b.onclick = () => done(+b.dataset.i < 0 ? null : options[+b.dataset.i].value));
+    m.addEventListener('mousedown', e => { if (e.target === m) done(null); });
+    document.addEventListener('keydown', key, true);
+    document.body.appendChild(m);
+    setTimeout(() => m.querySelector('.uichoices button')?.focus(), 20);
   });
 }
 const DANGER_RE = /刪除|撤回|清除|登出|封存|移除|修改資料庫|覆蓋/;
@@ -1604,7 +1663,9 @@ function handle(ev, replay = false){
       if (ev.feedback?.length) parts.push(`技能評分 ${ev.feedback.length}`);
       if (parts.length) add('✨ 背景學習：' + parts.join('、'), 'note learn');
       loadSide(); refreshStatus(false); break; }
-    case 'control': add(controlNote(ev), 'note ctl'); break;
+    case 'control': if (ev.event === 'milestone' && !/milestone_(interrupted|replanned|taken_over)|fact_conflict/.test(ev.trigger)) break;
+      add(controlNote(ev), 'note ctl'); break;
+    case 'milestones': msShow(ev); break;
     case 'status': if (ev.control) break; if (/空白回覆|停止|activated|pre-approved|思維模型|完成檢查|成果檢查|驗收清單|驗收審查|獨立審查|品質等級|請教|流程「/.test(ev.message || '')) add('ⓘ ' + esc(ev.message), 'note'); break;
     case 'checklist': cklShow(ev.items || []); break;
     case 'plan': add(`<b>思維模型的計畫</b>${ev.model ? `<small>${esc(ev.model)}</small>` : ''}${ev.understanding ? `<div>${esc(ev.understanding)}</div>` : ''}`
@@ -1838,6 +1899,7 @@ async function openSession(s){
   REPLAY = false; if (replayLast && RUNNING[s.id]) { replayLast.live = true; }
   for (const a of Array.isArray(arts) ? arts : []) showArtifacts(a.id, a.files);
   if (!RUNNING[s.id]) api('/api/sessions/' + s.id + '/interrupted').then(r => { if (r?.interrupted && sessionId === s.id) interruptedCard(r); }).catch(() => {});
+  api('/api/sessions/' + s.id + '/milestones').then(r => { if (r?.plan && sessionId === s.id && (r.running || r.plan.done < r.plan.total)) { msEl = null; msShow({...r.plan, phase: r.running ? 'running' : r.plan.phase}); } }).catch(() => {});
   for (const t of Array.isArray(turns) ? turns : []) {
     const els = [...chat.querySelectorAll('[data-idx]')].filter(e => +e.dataset.idx <= t.end_idx);
     const anchor = els[els.length - 1]; if (!anchor) continue;
@@ -3772,6 +3834,7 @@ async function wkRun(rid){
   const chatPart = cs ? `
     ${cs.input ? `<div class="migsec"><h4>要求</h4><div class="md">${md(cs.input)}</div></div>` : ''}
     ${(cs.steers || []).length ? `<div class="migsec"><h4>執行中補充 <small class="sd">${cs.steers.length}</small></h4>${cs.steers.map(x => `<div class="wkstep"><span class="sd">${wkWhen(x.t)}</span> ${esc(x.text)}</div>`).join('')}</div>` : ''}
+    ${cs.milestones ? `<div class="migsec mscard">${msHtml({...cs.milestones, phase: cs.milestones.phase === 'running' && !active ? 'saved' : cs.milestones.phase}, r.session_id || '')}</div>` : ''}
     ${(cs.control || []).length ? `<div class="migsec"><h4>執行控制 <small class="sd">${cs.control.length} 次</small></h4>${cs.control.map(x => `<div class="wkstep" style="display:block">${controlNote(x)}</div>`).join('')}</div>` : ''}
     ${(cs.events || []).length ? `<div class="migsec"><h4>檢查與模型</h4>${cs.events.map(x => `<div class="wkstep"><span class="sd">${wkWhen(x.t)}</span> ${esc(x.text)}</div>`).join('')}</div>` : ''}
     <div class="migsec"><h4>步驟 <small class="sd">${(cs.steps || []).length} 步${cs.model ? ' · ' + esc(cs.model) : ''}</small></h4>${(cs.steps || []).map(x =>

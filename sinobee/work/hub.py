@@ -555,8 +555,9 @@ class WorkHub:
     # ------------------------------------------------------------------ blackboard helpers
     def board_brief(self, scope: str, limit: int = 15) -> str:
         rows = self.store.board_read(scope, limit=limit)
-        rows = [r for r in rows if r["kind"] != "node_output" and r["key"] != "checklist"] or \
-            [r for r in rows[-5:] if r["key"] != "checklist"]       # the checklist has its own place in the tail
+        own = ("checklist", "milestones")      # the checklist, the milestone plan and the facts have their own place
+        rows = [r for r in rows if r["kind"] not in ("node_output", "fact") and r["key"] not in own] or \
+            [r for r in rows[-5:] if r["key"] not in own and r["kind"] != "fact"]
         if not rows:
             return ""
         lines = []

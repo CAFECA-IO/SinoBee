@@ -85,7 +85,8 @@ def build(agent, *, status: str, error_info: dict | None, final_text: str, query
         "progress": (stats.get("progress_trace") or [])[-80:],
         "thresholds": agent._progress.thresholds() if getattr(agent, "_progress", None) else {},
         "usage": usage, "duration_s": duration,
-        "work_log": work_log(agent.history[turn_start:], secrets),
+        "work_log": work_log(agent._turn_messages(turn_start) if hasattr(agent, "_turn_messages") else agent.history[turn_start:], secrets),
+        "milestones": agent._msr.plan.card({}, status) if getattr(agent, "_msr", None) else None,
         "diagnosis": None,
     }
 

@@ -103,12 +103,23 @@ class Recovery:
         self.hub.notify("run", {"run_id": run["id"]})
 
     def _checklist(self, sid: str) -> str:
+        out = []
         try:
             rows = self.store.board_read(f"session:{sid}", kinds=["plan"], key="checklist", limit=1)
             items = json.loads(rows[-1]["content"]) if rows else []
-            return "\n".join(f"[{i.get('status')}] {i.get('text')}" for i in items) or "(none)"
+            out = [f"[{i.get('status')}] {i.get('text')}" for i in items]
         except Exception:  # noqa: BLE001
-            return "(none)"
+            pass
+        try:                         # a task that runs as milestones resumes at its first unfinished milestone
+            from ..agent import milestones as M
+            plan = M.load(self.store, f"session:{sid}")
+            if plan and not plan.finished():
+                out.append("MILESTONES (the resumed turn continues at the first one not done):")
+                out += [f"[{m['status']}] {m['id']} {m['title']}" + (f" - {m['summary'][:200]}" if m.get("summary") else "")
+                        for m in plan.milestones]
+        except Exception:  # noqa: BLE001
+            pass
+        return "\n".join(out) or "(none)"
 
     def _last_answer(self, sid: str) -> str:
         try:

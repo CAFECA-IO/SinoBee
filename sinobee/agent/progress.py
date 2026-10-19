@@ -528,6 +528,15 @@ class Tracker:
         """Whether any of the last n steps changed a file or made strong progress."""
         return any(t["strong"] or t["file_only"] for t in self.trace[-n:])
 
+    def new_milestone(self, step: int) -> None:
+        """A milestone starts with a fresh context: the streaks, the stall window and the waits start over."""
+        self.no_progress = 0
+        self.file_only = 0
+        self.streak_kinds = []
+        self.waits = 0
+        self.advised_at = step
+        self.last_progress_step = step
+
     def advised(self, step: int) -> None:
         """The thinking model just advised: the advice gets K fresh steps and a fresh stall window."""
         self.no_progress = 0
@@ -544,6 +553,16 @@ TRIGGERS = {
     "repeated_error": "相同錯誤連續出現",
     "exploration_stall": "反覆探索、沒有產出",
     "long_wait": "等待工作完成過久",
+    "milestone_started": "里程碑計畫開始",
+    "milestone_confirmed": "使用者確認里程碑計畫",
+    "milestone_corrected": "使用者修正里程碑計畫",
+    "milestone_delegated": "里程碑交給子代理",
+    "milestone_done": "里程碑完成",
+    "milestone_dropped": "里程碑略過",
+    "milestone_taken_over": "子代理未完成，主代理接手",
+    "milestone_interrupted": "立即中斷並重劃",
+    "milestone_replanned": "里程碑重新規劃",
+    "fact_conflict": "共享事實衝突",
     "consecutive_errors": "工具連續失敗",
     "repeated_failed_call": "重複執行已失敗的操作",
     "health_steps": "里程碑健康水位：步數",
@@ -603,6 +622,6 @@ def entry(event: str, trigger: str, step: int, detail: str, tracker: Tracker | N
 def describe(e: dict) -> str:
     """One line for people: what happened, why, with the numbers."""
     what = {"consult_requested": "請教思維模型", "consult": "思維模型回覆", "consult_skipped": "未請教思維模型",
-            "stop": "停止任務", "health_check": "健康檢查"}.get(e.get("event"), e.get("event"))
+            "stop": "停止任務", "health_check": "健康檢查", "milestone": "里程碑"}.get(e.get("event"), e.get("event"))
     tail = f"→ {e['decision']}" if e.get("decision") else ""
     return f"[第 {e.get('step')} 步] {what}：{e.get('label')} — {e.get('detail')} {tail}".strip()

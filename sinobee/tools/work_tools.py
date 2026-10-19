@@ -7,7 +7,7 @@ import time
 
 from .registry import ToolContext, tool
 
-BOARD_KINDS = ["goal", "plan", "finding", "decision", "issue", "question", "artifact", "note"]
+BOARD_KINDS = ["goal", "plan", "finding", "decision", "issue", "question", "artifact", "note", "fact"]
 
 
 def _hub(ctx: ToolContext):
@@ -31,8 +31,10 @@ def _author(ctx: ToolContext) -> str:
 @tool("board_write", "work",
       "Write to the shared blackboard of the current work (seen by you, your sub-agents and later runs of the same "
       "job). kinds: goal, plan (one item per entry; status todo/doing/done), finding (a fact with its source), "
-      "decision, issue, question, artifact (a file you produced), note (state to carry to the next run; use a key). "
-      "An entry with the same kind+key is replaced.",
+      "decision, issue, question, artifact (a file you produced), note (state to carry to the next run; use a key), "
+      "fact (a value every part of the task must use the same way - unit, name, key number; key = its name). "
+      "An entry with the same kind+key is replaced. A sub-agent's facts go to its own staging area; the "
+      "coordinator merges them (a conflicting value is decided by the thinking model).",
       {"properties": {"kind": {"type": "string", "enum": BOARD_KINDS}, "content": {"type": "string"},
                       "key": {"type": "string", "description": "optional stable name, e.g. 'last_order_id'"},
                       "status": {"type": "string", "description": "for plan items: todo | doing | done | dropped"}},
@@ -42,6 +44,15 @@ async def board_write(ctx: ToolContext, kind: str, content: str, key: str | None
         return f"unknown kind {kind}; use one of {', '.join(BOARD_KINDS)}"
     if kind == "plan" and not status:
         status = "todo"
+    if kind == "fact":
+        if not key:
+            return "ERROR: a fact needs key=<its name>"
+        if ctx.state.get("depth"):         # sub-agents propose; the coordinator merges at the end
+            agent = ctx.state.get("agent")
+            key = f"stage:{getattr(agent, 'session_id', '') or ctx.session_id}:{key}"
+            e = _hub(ctx).store.board_write(_scope(ctx), kind, content[:2000], key=key, author=_author(ctx))
+            return {"id": e["id"], "kind": kind, "key": key,
+                    "note": "staged: the coordinator merges it when your subtask finishes"}
     e = _hub(ctx).store.board_write(_scope(ctx), kind, content[:8000], key=key or None, author=_author(ctx),
                                     status=status)
     _hub(ctx).notify("board", {"scope": _scope(ctx)})

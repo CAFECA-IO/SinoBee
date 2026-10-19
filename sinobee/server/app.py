@@ -104,6 +104,34 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     async def session(sid: str):
         return [m.to_dict() for m in rt().memory.load_messages(sid)]
 
+    @app.get("/api/sessions/{sid}/milestones")
+    async def session_milestones(sid: str):
+        """The conversation's milestone plan (agent/milestones.py), if its task runs as milestones."""
+        from ..agent import milestones as M
+        from ..work.hub import get_hub
+        store = get_hub(rt()).store
+        plan = M.load(store, f"session:{sid}")
+        if not plan:
+            return {"plan": None}
+        agent = state["agents"].get(sid)
+        running = bool(agent is not None and getattr(agent, "_msr", None) and sid in state.get("running", {}))
+        return {"plan": plan.card(M.facts(store, f"session:{sid}"), "running" if running else "saved"),
+                "running": running}
+
+    @app.post("/api/sessions/{sid}/milestones/feedback")
+    async def session_milestone_feedback(sid: str, body: dict):
+        """A correction to the plan while the task runs: mode "boundary" (next milestone) or "now" (interrupt and
+        re-plan; finished milestones are kept, only affected sub-agents stop, the task is not user-stopped)."""
+        text = str(body.get("text") or "").strip()
+        if not text:
+            raise HTTPException(400, "text is required")
+        agent = state["agents"].get(sid)
+        if agent is None or sid not in state.get("running", {}) or \
+                not agent.milestone_feedback(text, "now" if body.get("mode") == "now" else "boundary"):
+            raise HTTPException(409, "this conversation has no running milestone task")
+        broadcast("steer", {"session_id": sid, "text": text, "milestone_mode": body.get("mode") or "boundary"})
+        return {"ok": True}
+
     @app.get("/api/sessions/{sid}/interrupted")
     async def session_interrupted(sid: str):
         """The conversation's newest turn, when it was interrupted (restart / crash) and has not finished since."""
