@@ -26,7 +26,7 @@ from pathlib import Path
 
 SUITES_DIR = Path(__file__).resolve().parent / "suites"
 GRADER_TYPES = ("file_exists", "file_regex", "file_not_regex", "answer_regex", "answer_not_regex", "qa_clean",
-                "status", "command", "tool_used", "rule", "llm")
+                "status", "command", "tool_used", "rule", "llm", "efficiency")
 MAX_REGRESSIONS = 200
 
 

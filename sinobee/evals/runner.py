@@ -24,7 +24,8 @@ from pathlib import Path
 
 from ..config import Config
 from . import EvalError, bench_meta, evals_dir, load
-from .graders import Trial, grade
+from . import sfs
+from .graders import Trial, grade_full
 
 log = logging.getLogger("sinobee.evals")
 
@@ -101,6 +102,13 @@ def solo(model: str) -> dict:
             "model.reviewer": None, "model.auxiliary": model}
 
 
+def combo(thinking: str, execution: str) -> dict:
+    """Settings for a skill evaluation's model combination: the thinking model plans, advises and reviews, the
+    execution model runs every step (and the auxiliary work), nothing else joins in."""
+    return {"model.default": execution, "model.fallbacks": [], "model.thinking": thinking, "model.escalate": None,
+            "model.reviewer": thinking, "model.auxiliary": execution}
+
+
 def judge_provider(rt, spec: str | None, usage: dict):
     """The model that grades llm rubrics: `spec` alone (no fallbacks), else the user's reviewer / thinking model.
     Its tokens are counted in `usage` (they are not part of the contestant's cost)."""
@@ -122,8 +130,74 @@ def judge_provider(rt, spec: str | None, usage: dict):
     return chain
 
 
+TEXT_OUT = {".md", ".txt", ".html", ".htm", ".json", ".csv", ".py", ".js", ".ts", ".css", ".svg", ".yaml", ".yml"}
+IMG_OUT = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
+def _save_outputs(ws: Path, files: list[Path], globs: list[str] | None, dest: Path) -> list[dict]:
+    """Keep what the trial produced (the report shows it, and creativity comparisons read it): the suite's
+    `bench.outputs` globs, else the files the agent changed; text up to 300 KB, images up to 3 MB, 12 files."""
+    picked: list[Path] = []
+    if globs:
+        for pat in globs:
+            picked += [p for p in sorted(ws.glob(pat)) if p.is_file() and p not in picked]
+    else:
+        picked = [p for p in files if p.is_file()]
+    out = []
+    for p in picked:
+        ext, size = p.suffix.lower(), p.stat().st_size
+        if not ((ext in TEXT_OUT and size <= 300_000) or (ext in IMG_OUT and size <= 3_000_000)):
+            continue
+        rel = p.relative_to(ws)
+        (dest / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(p, dest / rel)
+        out.append({"path": str(rel), "bytes": size, "kind": "image" if ext in IMG_OUT else "text"})
+        if len(out) >= 12:
+            break
+    return out
+
+
+def _sig(spec: str | None) -> str:
+    return (spec or "").split("/", 1)[-1].lower()
+
+
+def _role_usage(child, thinking: str | None, execution: str | None) -> dict:
+    """Tokens and cost of the trial by role (from the child's usage rows): what the thinking model spent planning
+    and reviewing versus what the execution model spent working."""
+    out = {"thinking": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
+           "execution": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}}
+    th = _sig(thinking) if thinking and thinking != execution else ""
+    try:
+        rows = child.memory.db.execute("SELECT model, input_tokens, output_tokens, cost_usd FROM usage").fetchall()
+    except Exception:  # noqa: BLE001
+        return out
+    for r in rows:
+        m = str(r["model"] or "").lower()
+        role = "thinking" if th and (m == th or th.endswith(m) or m.endswith(th)) else "execution"
+        o = out[role]
+        o["input_tokens"] += int(r["input_tokens"] or 0)
+        o["output_tokens"] += int(r["output_tokens"] or 0)
+        o["cost_usd"] = round(o["cost_usd"] + float(r["cost_usd"] or 0), 6)
+    return out
+
+
+def _steps(home: Path, report_id: str | None) -> list[dict]:
+    """Each step's tokens, time, retries and whether it failed or produced something (from the run report)."""
+    if not report_id:
+        return []
+    from ..agent import runreport
+    try:
+        rep = runreport.get(home, report_id)
+    except KeyError:
+        return []
+    return [{"step": s.get("step"), "tokens": int(s.get("tokens") or 0), "wall_s": float(s.get("wall_s") or 0),
+             "retries": int(s.get("retries") or 0), "failed": bool(s.get("failed")), "produced": bool(s.get("produced"))}
+            for s in (rep.get("step_costs") or [])][:150]
+
+
 async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: str | None = None,
-                    judge=None) -> dict:
+                    judge=None, thinking: str | None = None, judge2=None, bench: dict | None = None,
+                    save_dir: Path | None = None) -> dict:
     from ..agent.loop import Agent
     tmp = Path(tempfile.mkdtemp(prefix="sinobee-eval-"))
     home, ws = tmp / "home", tmp / "workspace"
@@ -143,7 +217,7 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
         if task.get("toolsets"):
             overrides["permissions.toolsets"] = list(task["toolsets"])
         if model:
-            overrides.update(solo(model))
+            overrides.update(combo(thinking, model) if thinking and thinking != model else solo(model))
         cfg = EvalConfig(rt.config, home, ws, overrides)
         _setup(ws, (task.get("setup") or {}).get("files") or {})
         before = _scan(ws)
@@ -173,11 +247,24 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
         changed = [p for p, sig in after.items() if before.get(p) != sig]
         end = events["end"]
         judge = judge if judge is not None else rt.judge()
+        usage = end.get("usage") or {}
+        trace = _steps(home, end.get("run_report"))
         t = Trial(prompt=task["prompt"], workspace=ws, answer=answer or end.get("text", ""), status=status,
-                  tools=events["tools"], files=changed, base_home=rt.config.home, judge=judge)
+                  tools=events["tools"], files=changed, base_home=rt.config.home, judge=judge, judge2=judge2,
+                  tokens=int(usage.get("input_tokens") or 0) + int(usage.get("output_tokens") or 0),
+                  steps=int(end.get("steps") or 0), trace=trace)
         for g in task["graders"]:
-            ok, why = await grade(g, t)
-            out["grades"].append({"type": g["type"], "label": g.get("label") or g["type"], "ok": ok, "detail": why})
+            r = await grade_full(g, t)
+            out["grades"].append({"type": g["type"], "label": g.get("label") or g["type"], **r})
+        if bench is not None:
+            qs = [sfs.question(g) for g in task["graders"]]
+            out.update(sfs.trial_score([x["ok"] for x in out["grades"]], qs, sfs.weights(bench, qs),
+                                       float(bench.get("threshold") or 70)))
+            out["steps_trace"] = trace
+            out["roles"] = _role_usage(child, thinking, model)
+            if save_dir is not None:
+                out["outputs"] = _save_outputs(ws, changed, bench.get("outputs"),
+                                               save_dir / re.sub(r"[^\w.-]+", "-", task["id"]) / f"t{trial}")
         out.update(passed=all(x["ok"] for x in out["grades"]), status=status, steps=end.get("steps", 0),
                    tool_calls=len(events["tools"]), cost_usd=round((end.get("usage") or {}).get("cost_usd") or 0, 5),
                    input_tokens=int((end.get("usage") or {}).get("input_tokens") or 0),
@@ -246,14 +333,74 @@ def summarize(tasks: list[dict]) -> dict:
             "input_tokens": sum(t.get("input_tokens", 0) for t in trials),
             "output_tokens": sum(t.get("output_tokens", 0) for t in trials),
             "score": round(100 * sum(sum(g["ok"] for g in t["grades"]) / (len(t["grades"]) or 1) for t in trials)
-                           / (len(trials) or 1), 1)}
+                           / (len(trials) or 1), 1), **sfs_summary(tasks)}
+
+
+def trial_scores(tasks: list[dict]) -> list[float]:
+    """The score of trial i over the whole suite: the mean of each task's i-th trial (tasks weigh the same)."""
+    k = min((len(x["trials"]) for x in tasks), default=0)
+    return [round(sum(x["trials"][i].get("q", 0) for x in tasks) / len(tasks), 2) for i in range(k)] if tasks else []
+
+
+def sfs_summary(tasks: list[dict]) -> dict:
+    trials = [t for x in tasks for t in x["trials"]]
+    if not trials or any("q" not in t for t in trials):
+        return {}
+    out = {"sfs": sfs.fair(trial_scores(tasks)),
+           "qualified": sum(1 for t in trials if t.get("qualified")), "crit_fails": sum(1 for t in trials if t.get("crit_fail"))}
+    pairs = [(g["ok"], g["judge2_ok"]) for t in trials for g in t["grades"] if "judge2_ok" in g]
+    if pairs:
+        out["judge2_agree"] = [sum(1 for a, b in pairs if a == b), len(pairs)]
+    return out
+
+
+ANCHOR = """You grade a result against a rubric. Be strict: pass only when the result clearly satisfies it.
+RUBRIC: {rubric}
+RESULT:
+{content}
+Reply with JSON only: {{"pass": true|false, "reason": "<one sentence>"}}"""
+
+
+async def check_judge(judge, anchors: list[dict]) -> dict:
+    """Calibration: rubrics with a known answer, asked before the trials are graded. A judge that gets any wrong is
+    reported (sinobee.ai marks the evaluation), so a lenient or confused judge cannot pass unnoticed."""
+    from ..learning.reflector import parse_json
+    from ..types import Message
+    items = []
+    for a in anchors or []:
+        try:
+            resp = await judge.chat([Message("user", ANCHOR.format(rubric=str(a["rubric"])[:2000],
+                                                                   content=str(a["content"])[:8000]))],
+                                    None, temperature=0, max_tokens=300)
+            got = parse_json(resp.message.text()).get("pass")
+        except Exception as e:  # noqa: BLE001
+            got = None
+            log.warning("anchor check failed: %s", e)
+        items.append({"expect": bool(a.get("expect")), "got": got, "ok": got is not None and bool(got) == bool(a.get("expect"))})
+    return {"total": len(items), "correct": sum(1 for i in items if i["ok"]), "items": items}
+
+
+def _bench_task(task: dict) -> dict:
+    """In a published evaluation every llm rubric is voted on three times and must quote its evidence."""
+    graders = [{**g, "votes": g.get("votes", 3), "require_evidence": g.get("require_evidence", True)}
+               if g.get("type") == "llm" else g for g in task["graders"]]
+    return {**task, "graders": graders}
 
 
 async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[str] | None = None, emit=None,
-              keep: bool = False, model: str | None = None, judge: str | None = None) -> dict:
-    """model: the model under test, alone in every role (solo()); judge: the model that grades llm rubrics."""
+              keep: bool = False, model: str | None = None, judge: str | None = None, thinking: str | None = None,
+              judge2: str | None = None) -> dict:
+    """model: the model under test - alone in every role (solo()), or with `thinking` the execution model of a
+    combination (combo()); judge: the model that grades llm rubrics; judge2: a second judge (another family) whose
+    agreement is reported."""
+    if thinking and not model:
+        raise EvalError("a thinking model needs an execution model (-m)")
     home = rt.config.home
     suite, tasks = load(target, home=home, skills=rt.skills)
+    meta = bench_meta(target)
+    bench = meta.get("bench") if meta.get("bench") else None
+    if bench is not None:
+        tasks = [_bench_task(t) for t in tasks]
     if task_ids:
         tasks = [t for t in tasks if t["id"] in task_ids]
         if not tasks:
@@ -265,24 +412,40 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
     from .. import __version__
     judge_usage: dict = {}
     jprov = judge_provider(rt, judge, judge_usage)
+    j2prov = judge_provider(rt, judge2, judge_usage) if judge2 else None
+    execution = model or getattr(rt.provider, "label", "")
     doc = {"id": rid, "suite": suite, "status": "running", "started": time.time(), "k": k,
-           "model": model or getattr(rt.provider, "label", ""), "solo": bool(model),
-           "judge": judge or getattr(jprov, "label", "") or None, "judge_usage": judge_usage,
-           "sinobee_version": __version__, **bench_meta(target), "progress": {"done": 0, "total": len(tasks)}, "tasks": []}
+           "model": execution, "solo": bool(model) and (not thinking or thinking == model),
+           "thinking": thinking if thinking and thinking != model else (model or None), "execution": execution,
+           "judge": judge or getattr(jprov, "label", "") or None, "judge2": judge2, "judge_usage": judge_usage,
+           "sinobee_version": __version__, **meta, "progress": {"done": 0, "total": len(tasks)}, "tasks": []}
+    save_dir = None
+    if bench is not None:
+        doc["suite_hash"] = sfs.suite_hash(tasks, bench)
+        doc["input_hash"] = sfs.input_hash(tasks)
+        save_dir = evals_dir(home) / "results" / rid
 
     def save():
         path.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
 
     save()
     try:
+        if bench is not None and bench.get("anchors"):
+            doc["judge_check"] = await check_judge(jprov, bench["anchors"])
+            save()
         for task in tasks:
             n = int(k or task["trials"])
             if emit:
                 emit("eval_progress", {"id": rid, "task": task["id"], "done": doc["progress"]["done"],
                                        "total": len(tasks)})
-            trials = [await run_trial(rt, task, i + 1, keep=keep, model=model, judge=jprov) for i in range(n)]
+            trials = [await run_trial(rt, task, i + 1, keep=keep, model=model, judge=jprov, thinking=thinking,
+                                      judge2=j2prov, bench=bench, save_dir=save_dir) for i in range(n)]
+            entry = {}
+            if bench is not None:
+                qs = [sfs.question(g) for g in task["graders"]]
+                entry = {"questions": qs, "weights": sfs.weights(bench, qs)}
             doc["tasks"].append({"id": task["id"], "kind": task["kind"], "prompt": task["prompt"][:1500],
-                                 "title": task.get("title") or task["id"],
+                                 "title": task.get("title") or task["id"], **entry,
                                  "graders": [g.get("label") or g["type"] for g in task["graders"]],
                                  "pass_at_k": any(t["passed"] for t in trials),
                                  "pass_hat_k": all(t["passed"] for t in trials), "trials": trials})

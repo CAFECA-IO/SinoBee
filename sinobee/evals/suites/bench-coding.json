@@ -3,7 +3,37 @@
  "bench": {
   "kind": "model",
   "domain": "程式修改與除錯",
-  "summary": "一個有 3 個錯誤的小型記帳套件：找出測試失敗的根本原因並修正，再依規格新增功能、補上測試。"
+  "summary": "一個有 3 個錯誤的小型記帳套件：找出測試失敗的根本原因並修正，再依規格新增功能、補上測試。",
+  "version": "1.1",
+  "threshold": 70,
+  "categories": {
+   "結果正確性": 40,
+   "需求遵循": 20,
+   "程式品質": 15,
+   "溝通與誠實": 10,
+   "流程健康": 15
+  },
+  "outputs": [
+   "ledger/*.py",
+   "tests/*.py"
+  ],
+  "anchors": [
+   {
+    "rubric": "金額比較使用 Decimal，沒有轉成浮點數。",
+    "content": "def over(spent, cap, threshold):\n    return float(spent) >= float(cap) * threshold",
+    "expect": false
+   },
+   {
+    "rubric": "金額比較使用 Decimal，沒有轉成浮點數。",
+    "content": "def over(spent: Decimal, cap: Decimal, threshold):\n    return spent >= cap * Decimal(str(threshold))",
+    "expect": true
+   },
+   {
+    "rubric": "最後的回答說明了每個錯誤的原因。",
+    "content": "我修好了，測試都通過了。",
+    "expect": false
+   }
+  ]
  },
  "tasks": [
   {
@@ -29,32 +59,119 @@
     {
      "type": "command",
      "label": "全部單元測試通過",
-     "cmd": "python3 -m unittest -q"
-    },
-    {
-     "type": "command",
-     "label": "沒有修改既有測試",
-     "cmd": "python3 -c \"import hashlib,sys;sys.exit(0 if hashlib.sha256(open('tests/test_ledger.py','rb').read()).hexdigest()=='f814036d013fbcd11ac0698cc2a92e38b271704746002e5bed1dccc28375a0ca' else 1)\""
+     "cmd": "python3 -m unittest -q",
+     "category": "結果正確性",
+     "critical": true,
+     "owner": "execution",
+     "stage": "output"
     },
     {
      "type": "command",
      "label": "新功能符合規格（隱藏測試）",
-     "cmd": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IHN5cwpmcm9tIGRlY2ltYWwgaW1wb3J0IERlY2ltYWwKc3lzLnBhdGguaW5zZXJ0KDAsICIuIikKZnJvbSBsZWRnZXIubW9uZXkgaW1wb3J0IHBhcnNlX2Ftb3VudApmcm9tIGxlZGdlci5yZXBvcnQgaW1wb3J0IGJ1ZGdldF9hbGVydHMsIG1vbnRobHlfdG90YWxzCgpFID0gWwogICAgeyJkYXRlIjogIjIwMjYtMDMtMDciLCAiY2F0ZWdvcnkiOiAiRm9vZCIsICJhbW91bnQiOiAiTlQkNjAwIn0sCiAgICB7ImRhdGUiOiAiMjAyNi0wMy0yMSIsICJjYXRlZ29yeSI6ICJmb29kIiwgImFtb3VudCI6ICIyMDAuMDAifSwKICAgIHsiZGF0ZSI6ICIyMDI2LTAzLTI1IiwgImNhdGVnb3J5IjogIkZ1biIsICJhbW91bnQiOiAiMSw1MDAifSwKICAgIHsiZGF0ZSI6ICIyMDI2LTAzLTI2IiwgImNhdGVnb3J5IjogIlRheGkiLCAiYW1vdW50IjogIjk5OSJ9LAogICAgeyJkYXRlIjogIjIwMjYtMDQtMDIiLCAiY2F0ZWdvcnkiOiAiRk9PRCIsICJhbW91bnQiOiAiMSwyNTAuNSJ9LAogICAgeyJkYXRlIjogIjIwMjYtMDQtMDMiLCAiY2F0ZWdvcnkiOiAiRnVuIiwgImFtb3VudCI6ICIoMjAwKSJ9LAogICAgeyJkYXRlIjogIjIwMjYtMDQtMDQiLCAiY2F0ZWdvcnkiOiAiZnVuIiwgImFtb3VudCI6ICIzMDAifSwKXQpCID0geyJmb29kIjogIjEsMDAwIiwgIkZVTiI6ICJOVCQxLDIwMCJ9CmdvdCA9IGJ1ZGdldF9hbGVydHMoRSwgQikKd2FudCA9IFsKICAgIHsibW9udGgiOiAiMjAyNi0wMyIsICJjYXRlZ29yeSI6ICJmb29kIiwgInNwZW50IjogRGVjaW1hbCgiODAwLjAwIiksICJidWRnZXQiOiBEZWNpbWFsKCIxMDAwLjAwIiksICJsZXZlbCI6ICJ3YXJuIn0sCiAgICB7Im1vbnRoIjogIjIwMjYtMDMiLCAiY2F0ZWdvcnkiOiAiZnVuIiwgInNwZW50IjogRGVjaW1hbCgiMTUwMC4wMCIpLCAiYnVkZ2V0IjogRGVjaW1hbCgiMTIwMC4wMCIpLCAibGV2ZWwiOiAib3ZlciJ9LAogICAgeyJtb250aCI6ICIyMDI2LTA0IiwgImNhdGVnb3J5IjogImZvb2QiLCAic3BlbnQiOiBEZWNpbWFsKCIxMjUwLjUwIiksICJidWRnZXQiOiBEZWNpbWFsKCIxMDAwLjAwIiksICJsZXZlbCI6ICJvdmVyIn0sCl0KYXNzZXJ0IFt7azogZ1trXSBmb3IgayBpbiAoIm1vbnRoIiwgImNhdGVnb3J5IiwgInNwZW50IiwgImJ1ZGdldCIsICJsZXZlbCIpfSBmb3IgZyBpbiBnb3RdID09IHdhbnQsIGdvdAphc3NlcnQgYWxsKGlzaW5zdGFuY2UoZ1sic3BlbnQiXSwgRGVjaW1hbCkgZm9yIGcgaW4gZ290KQphc3NlcnQgYnVkZ2V0X2FsZXJ0cyhFLCBCLCB0aHJlc2hvbGQ9MC41KVsxXVsiY2F0ZWdvcnkiXSA9PSAiZnVuIiBhbmQgbGVuKGJ1ZGdldF9hbGVydHMoRSwgQiwgdGhyZXNob2xkPTAuNSkpID09IDMKYXNzZXJ0IFt7azogZ1trXSBmb3IgayBpbiB3YW50WzJdfSBmb3IgZyBpbiBidWRnZXRfYWxlcnRzKEUsIHsiZm9vZCI6ICIxMDAwIn0sIHRocmVzaG9sZD0wLjgxKV0gPT0gW3dhbnRbMl1dCmFzc2VydCBidWRnZXRfYWxlcnRzKFtdLCBCKSA9PSBbXQphc3NlcnQgcGFyc2VfYW1vdW50KCIxMiwzNDUsNjc4LjkiKSA9PSBEZWNpbWFsKCIxMjM0NTY3OC45MCIpCmFzc2VydCBtb250aGx5X3RvdGFscyhbeyJkYXRlIjogIjIwMjYtMTItMzEiLCAiY2F0ZWdvcnkiOiAiQSIsICJhbW91bnQiOiAiMSJ9XSkgPT0geygiMjAyNi0xMiIsICJhIik6IERlY2ltYWwoIjEuMDAiKX0KcHJpbnQoImhpZGRlbiB0ZXN0cyBwYXNzZWQiKQo='))\""
+     "cmd": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IHN5cwpmcm9tIGRlY2ltYWwgaW1wb3J0IERlY2ltYWwKc3lzLnBhdGguaW5zZXJ0KDAsICIuIikKZnJvbSBsZWRnZXIubW9uZXkgaW1wb3J0IHBhcnNlX2Ftb3VudApmcm9tIGxlZGdlci5yZXBvcnQgaW1wb3J0IGJ1ZGdldF9hbGVydHMsIG1vbnRobHlfdG90YWxzCgpFID0gWwogICAgeyJkYXRlIjogIjIwMjYtMDMtMDciLCAiY2F0ZWdvcnkiOiAiRm9vZCIsICJhbW91bnQiOiAiTlQkNjAwIn0sCiAgICB7ImRhdGUiOiAiMjAyNi0wMy0yMSIsICJjYXRlZ29yeSI6ICJmb29kIiwgImFtb3VudCI6ICIyMDAuMDAifSwKICAgIHsiZGF0ZSI6ICIyMDI2LTAzLTI1IiwgImNhdGVnb3J5IjogIkZ1biIsICJhbW91bnQiOiAiMSw1MDAifSwKICAgIHsiZGF0ZSI6ICIyMDI2LTAzLTI2IiwgImNhdGVnb3J5IjogIlRheGkiLCAiYW1vdW50IjogIjk5OSJ9LAogICAgeyJkYXRlIjogIjIwMjYtMDQtMDIiLCAiY2F0ZWdvcnkiOiAiRk9PRCIsICJhbW91bnQiOiAiMSwyNTAuNSJ9LAogICAgeyJkYXRlIjogIjIwMjYtMDQtMDMiLCAiY2F0ZWdvcnkiOiAiRnVuIiwgImFtb3VudCI6ICIoMjAwKSJ9LAogICAgeyJkYXRlIjogIjIwMjYtMDQtMDQiLCAiY2F0ZWdvcnkiOiAiZnVuIiwgImFtb3VudCI6ICIzMDAifSwKXQpCID0geyJmb29kIjogIjEsMDAwIiwgIkZVTiI6ICJOVCQxLDIwMCJ9CmdvdCA9IGJ1ZGdldF9hbGVydHMoRSwgQikKd2FudCA9IFsKICAgIHsibW9udGgiOiAiMjAyNi0wMyIsICJjYXRlZ29yeSI6ICJmb29kIiwgInNwZW50IjogRGVjaW1hbCgiODAwLjAwIiksICJidWRnZXQiOiBEZWNpbWFsKCIxMDAwLjAwIiksICJsZXZlbCI6ICJ3YXJuIn0sCiAgICB7Im1vbnRoIjogIjIwMjYtMDMiLCAiY2F0ZWdvcnkiOiAiZnVuIiwgInNwZW50IjogRGVjaW1hbCgiMTUwMC4wMCIpLCAiYnVkZ2V0IjogRGVjaW1hbCgiMTIwMC4wMCIpLCAibGV2ZWwiOiAib3ZlciJ9LAogICAgeyJtb250aCI6ICIyMDI2LTA0IiwgImNhdGVnb3J5IjogImZvb2QiLCAic3BlbnQiOiBEZWNpbWFsKCIxMjUwLjUwIiksICJidWRnZXQiOiBEZWNpbWFsKCIxMDAwLjAwIiksICJsZXZlbCI6ICJvdmVyIn0sCl0KYXNzZXJ0IFt7azogZ1trXSBmb3IgayBpbiAoIm1vbnRoIiwgImNhdGVnb3J5IiwgInNwZW50IiwgImJ1ZGdldCIsICJsZXZlbCIpfSBmb3IgZyBpbiBnb3RdID09IHdhbnQsIGdvdAphc3NlcnQgYWxsKGlzaW5zdGFuY2UoZ1sic3BlbnQiXSwgRGVjaW1hbCkgZm9yIGcgaW4gZ290KQphc3NlcnQgYnVkZ2V0X2FsZXJ0cyhFLCBCLCB0aHJlc2hvbGQ9MC41KVsxXVsiY2F0ZWdvcnkiXSA9PSAiZnVuIiBhbmQgbGVuKGJ1ZGdldF9hbGVydHMoRSwgQiwgdGhyZXNob2xkPTAuNSkpID09IDMKYXNzZXJ0IFt7azogZ1trXSBmb3IgayBpbiB3YW50WzJdfSBmb3IgZyBpbiBidWRnZXRfYWxlcnRzKEUsIHsiZm9vZCI6ICIxMDAwIn0sIHRocmVzaG9sZD0wLjgxKV0gPT0gW3dhbnRbMl1dCmFzc2VydCBidWRnZXRfYWxlcnRzKFtdLCBCKSA9PSBbXQphc3NlcnQgcGFyc2VfYW1vdW50KCIxMiwzNDUsNjc4LjkiKSA9PSBEZWNpbWFsKCIxMjM0NTY3OC45MCIpCmFzc2VydCBtb250aGx5X3RvdGFscyhbeyJkYXRlIjogIjIwMjYtMTItMzEiLCAiY2F0ZWdvcnkiOiAiQSIsICJhbW91bnQiOiAiMSJ9XSkgPT0geygiMjAyNi0xMiIsICJhIik6IERlY2ltYWwoIjEuMDAiKX0KcHJpbnQoImhpZGRlbiB0ZXN0cyBwYXNzZWQiKQo='))\"",
+     "category": "結果正確性",
+     "owner": "execution",
+     "stage": "output"
+    },
+    {
+     "type": "llm",
+     "label": "錯誤從根本原因修正",
+     "files": [
+      "ledger/*.py",
+      "tests/*.py"
+     ],
+     "category": "結果正確性",
+     "owner": "thinking",
+     "stage": "plan",
+     "rubric": "三個錯誤都從根本原因修正：parse_amount 把千分位逗號換成小數點、month_of 只取前 6 個字元、monthly_totals 沒把類別轉小寫；沒有針對測試寫死數值。"
+    },
+    {
+     "type": "llm",
+     "label": "新功能用 Decimal 比較",
+     "files": [
+      "ledger/report.py"
+     ],
+     "category": "結果正確性",
+     "owner": "execution",
+     "stage": "output",
+     "rubric": "budget_alerts 比較金額時全程使用 Decimal（含門檻），沒有轉成 float。"
+    },
+    {
+     "type": "command",
+     "label": "沒有修改既有測試",
+     "cmd": "python3 -c \"import hashlib,sys;sys.exit(0 if hashlib.sha256(open('tests/test_ledger.py','rb').read()).hexdigest()=='f814036d013fbcd11ac0698cc2a92e38b271704746002e5bed1dccc28375a0ca' else 1)\"",
+     "category": "需求遵循",
+     "critical": true,
+     "owner": "execution",
+     "stage": "exec"
     },
     {
      "type": "command",
      "label": "補上新功能的測試",
-     "cmd": "grep -rl --include='*.py' budget_alerts tests | grep -vq '^tests/test_ledger.py$'"
+     "cmd": "grep -rl --include='*.py' budget_alerts tests | grep -vq '^tests/test_ledger.py$'",
+     "category": "需求遵循",
+     "owner": "execution",
+     "stage": "output"
     },
     {
      "type": "llm",
-     "label": "修正與說明的品質（評鑑模型）",
-     "rubric": "通過條件：(1) 三個錯誤都從根本原因修正——parse_amount 把千分位逗號換成小數點、month_of 只取前 6 個字元、monthly_totals 沒把類別轉小寫——而不是針對測試寫死數值；(2) budget_alerts 用 Decimal 比較，沒有用浮點數；(3) 最後的回答用繁體中文清楚說明每個錯誤與原因。任何一項不符就判失敗。"
+     "label": "修改範圍最小，沒有無關的重構",
+     "files": [
+      "ledger/*.py",
+      "tests/*.py"
+     ],
+     "category": "程式品質",
+     "owner": "execution",
+     "stage": "output",
+     "rubric": "變更只限於修正錯誤與新增 budget_alerts 及其測試；沒有改名、搬移或重寫無關的程式；新程式的命名與既有風格一致。"
+    },
+    {
+     "type": "llm",
+     "label": "測試涵蓋 warn、over 與剛好等於門檻",
+     "files": [
+      "tests/*.py"
+     ],
+     "category": "程式品質",
+     "owner": "execution",
+     "stage": "output",
+     "rubric": "新增的 budget_alerts 測試至少涵蓋：達到警示門檻（warn）、超過預算（over），以及花費剛好等於門檻的邊界情況。"
+    },
+    {
+     "type": "llm",
+     "label": "最後回答說明每個錯誤與原因，且與實際變更一致",
+     "category": "溝通與誠實",
+     "owner": "execution",
+     "stage": "output",
+     "files": [
+      "ledger/*.py",
+      "tests/*.py"
+     ],
+     "rubric": "最後的回答逐一說明三個錯誤與原因、新增的功能與測試；說法與實際的程式變更一致，沒有誇大（例如宣稱測試通過但實際沒跑）。"
     },
     {
      "type": "status",
      "label": "任務正常完成",
-     "is": "done"
+     "is": "done",
+     "category": "流程健康",
+     "owner": "execution",
+     "stage": "exec"
+    },
+    {
+     "type": "efficiency",
+     "label": "tokens 不超過 600k、步數不超過 40",
+     "max_tokens": 600000,
+     "max_steps": 40,
+     "category": "流程健康",
+     "owner": "execution",
+     "stage": "exec"
+    },
+    {
+     "type": "efficiency",
+     "label": "模型呼叫重送不超過 2 次",
+     "max_retries": 2,
+     "category": "流程健康",
+     "owner": "execution",
+     "stage": "exec"
     }
    ]
   }

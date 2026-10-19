@@ -788,14 +788,28 @@ def _eval_cmd(args) -> None:
         cfg = Config.load()
         ids = ([args.target] if args.target else []) + list(args.ids or [])
         if not ids:
-            raise SystemExit("give the run ids to publish together (one per model): sinobee eval publish ID ID ...")
-        body = Path(args.body).expanduser().read_text(encoding="utf-8") if args.body else ""
+            raise SystemExit("give the run ids to publish (runs of one combination are merged into one report): "
+                             "sinobee eval publish ID ID ...")
         try:
-            res = P.publish(cfg, [E.result(cfg.home, rid) for rid in ids], body=body, title=args.title,
-                            summary=args.summary)
+            res = P.publish(cfg, [E.result(cfg.home, rid) for rid in ids])
         except (E.EvalError, P.PublishError) as e:
             raise SystemExit(f"publish: {e}") from None
-        print(res.get("url") or _json.dumps(res, ensure_ascii=False))
+        for r in res:
+            print(r.get("url") or _json.dumps(r, ensure_ascii=False))
+        return
+    if args.action == "compare":
+        from .evals.compare import compare
+        ids = ([args.target] if args.target else []) + list(args.ids or [])
+
+        async def cmp():
+            rt = _runtime(args)
+            try:
+                return await compare(rt, [E.result(rt.config.home, rid) for rid in ids], args.judge)
+            except E.EvalError as e:
+                raise SystemExit(f"compare: {e}") from None
+        res = asyncio.run(cmp())
+        for k, v in res["scores"].items():
+            print(f"{k:<60} {v['wins']:>3}/{v['total']:<3} {100 * v['wins'] / (v['total'] or 1):.0f}%")
         return
 
     async def go():
@@ -809,7 +823,7 @@ def _eval_cmd(args) -> None:
 
         try:
             doc = await run(rt, args.target or "core", k=args.k, task_ids=args.task or None, emit=emit, keep=args.keep,
-                            model=args.model, judge=args.judge)
+                            model=args.model, judge=args.judge, thinking=args.thinking, judge2=args.judge2)
         except E.EvalError as e:
             raise SystemExit(f"eval: {e}") from None
         finally:
@@ -1077,19 +1091,19 @@ def main(argv: list[str] | None = None) -> None:
     wk.add_argument("ref", nargs="?", help="job id (runs/pause/resume/delete)")
     wk.add_argument("--limit", type=int, default=100)
     ev = sub.add_parser("eval", help="evaluations: run fixed tasks in a throw-away workspace and grade the results")
-    ev.add_argument("action", choices=["list", "run", "show", "export", "publish"])
+    ev.add_argument("action", choices=["list", "run", "show", "export", "publish", "compare"])
     ev.add_argument("target", nargs="?", help="run: core | regressions | skill:<name> | file.json; show: run id")
     ev.add_argument("-k", type=int, help="trials per task (pass@k / pass^k); default: each task's own")
     ev.add_argument("--task", action="append", help="only this task id (repeatable)")
     ev.add_argument("--keep", action="store_true", help="keep the trial workspaces for inspection")
     ev.add_argument("--json", action="store_true")
-    ev.add_argument("-m", "--model", help="run: the model under test; it alone plans, runs, reviews and assists")
-    ev.add_argument("--judge", help="run: the model that grades llm rubrics (default: reviewer / thinking model)")
-    ev.add_argument("ids", nargs="*", help="export / publish: more run ids (one per model)")
+    ev.add_argument("-m", "--model", help="run: the model under test; alone it plans, runs, reviews and assists; "
+                                          "with --thinking it is the execution model of the combination")
+    ev.add_argument("--thinking", help="run: the thinking model of a skill evaluation's combination (plans, reviews)")
+    ev.add_argument("--judge", help="run / compare: the model that grades (default: reviewer / thinking model)")
+    ev.add_argument("--judge2", help="run: a second judge (another model family); its agreement is published")
+    ev.add_argument("ids", nargs="*", help="export / publish / compare: more run ids")
     ev.add_argument("--out", help="export: folder for the JSON files")
-    ev.add_argument("--body", help="publish: the report text (Markdown file)")
-    ev.add_argument("--title", help="publish: report title (default: the suite's)")
-    ev.add_argument("--summary", help="publish: one-paragraph conclusion")
     ev.add_argument("-c", "--config")
     ev.add_argument("--approval", default=None, help=argparse.SUPPRESS)
     fl = sub.add_parser("failures", help="failure reports of tasks that did not finish (work log + diagnosis)")

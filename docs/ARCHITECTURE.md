@@ -1371,3 +1371,59 @@ SinoBee 原本是「主模型 + 升級模型」：卡關、步驟太多或遇到
   - 側欄：受測模型、評鑑模型與評分 tokens、測試時間、SinoBee 版本、發布者。
   - 下方是分析本文。
 - **/benchmarks**：新增「SinoBee 實測報告」卡片，顯示最佳模型、分數與評鑑模型。
+
+## 32. 評鑑 v2：模型組合、SFS v1 評分、四個問題（2026-10-20）
+
+取代 §31 的發布格式：一份報告只測一個對象，發布到 sinobee.ai 的 `/benchmarks/evals`。
+- **技能評鑑**：受測對象是「思維模型 ＋ 執行模型」組合，`sinobee eval run <suite> -m <執行> --thinking <思維>`。
+  - `runner.combo()`：執行模型跑每一步與輔助工作，思維模型負責計畫、建議與審查（`model.reviewer`），備援清空。
+- **模型評鑑**：受測對象是單一模型（`-m` 不加 `--thinking`，`runner.solo()`）。
+
+### SinoBee
+- **SFS v1**（`evals/sfs.py`）：題組的 `bench` 區塊定義 `categories` 權重、`threshold`（70）、`outputs`、`anchors`；每個評分器是一題是非題，帶 `category`、`critical`、`owner`（skill／thinking／execution）、`stage`（plan／exec／review／output）。
+  - 試驗分 Q = Σ 類別權重 × 該類通過比例；關鍵題失敗封頂 40；Q ≥ 70 且無關鍵題失敗才算「合格」。
+  - 公平分 F = 試驗分平均 − 標準誤（試驗 i 的分數 = 各題第 i 次的平均）。
+- **評鑑模型**：
+  - 評鑑題組的 `llm` 題投 3 票取多數（溫度 0.4），必須附證據（`evidence`），沒附證據的「通過」算失敗。
+  - `--judge2`：第二評鑑（另一家族）每題問一次，記錄一致率。
+  - 錨題（`bench.anchors`）：已知答案的題目，跑試驗前先考評鑑模型，結果記在 `judge_check`。
+- **流程健康**：新評分器 `efficiency`（`max_tokens`、`max_steps`、`max_retries`、`max_failed`），讀試驗的 tokens、步數與每步花費。
+- **每次試驗另外記錄**：`q`、`crit_fail`、`qualified`、`steps_trace`（每步 tokens、時間、重送、失敗）、`roles`（思維／執行各自的 tokens 與費用）、`outputs`（成果檔存到 `evals/results/<run>/<task>/t<k>/`）。
+- **每次執行另外記錄**：`thinking`、`execution`、`judge2`、`suite_hash`（題目、檔案、評分器與 bench 設定）、`input_hash`、`judge_check`、`totals.sfs`。
+- **創造力**：`sinobee eval compare <run ids> --judge <model>`。
+  - 不同組合的合格成果兩兩配對（每題最多 3 對），評鑑模型盲評「哪一份有更多原創且有用的觀點」，左右對調各問一次。
+  - 勝場寫回每個執行的 `creativity`，比較結果存成 `results/compare-<id>.json`。
+- **發布**：`sinobee eval publish <run ids>` 依組合分組，同一組合的多次執行合併成一份報告（n 次試驗），各送一次 `POST /api/v1/evals`。
+  - 要求同題組、同題組雜湊、同評鑑模型；附第 1 次試驗的文字成果（最多 4 萬字）。
+- **題組**：`bench-youtube`、`bench-coding` 升到 1.1，加上分類權重、關鍵題、失分歸屬、流程健康題與錨題。
+- **試跑腳本** `scripts/bench-pilot.sh`：
+  - 依序跑完每個組合的第 1 次，再跑第 2 次，讓網路與 API 壅塞平均分攤。
+  - 跑完做創造力比較、匯出，並印出發布指令。
+
+### SinoBee.ai
+- **資料表 `BenchEval`**（migration `20261104000000_bench_evals`，PostgreSQL 與 SQLite）：一列一份報告，`id` 為流水號。
+  - 列表欄位（公平分、合格數、耗時中位數、每次合格成本、創造力）在發布時由試驗資料重算（`lib/bench-evals.ts`）。
+- **API**：`POST /api/v1/evals`（Bearer，`evals:write`）、`GET /api/v1/evals?kind=&subject=`、`GET /api/v1/evals/[id]`。
+- **四個問題**（`board()`）只比同主題、同題組版本、同評鑑模型、n ≥ 3、合格率 ≥ 2/3 的對象：
+  - 最快：合格試驗耗時中位數。
+  - 最省：總花費 ÷ 合格次數。
+  - 品質：F。
+  - 創造力：勝率。
+  - 速度、成本差距 < 10%，或品質、創造力差距 < 2 × 合併標準誤，標「統計並列」。
+  - 最平衡：四軸正規化後最弱一項最高。
+  - 性價比：品質距冠軍 5 分內最便宜。
+- **清單頁 `/benchmarks/evals?kind=skill|model&subject=…`**：
+  - 主題資訊。
+  - 四個問題的答案表。
+  - 思維 × 執行組合矩陣（只在技能評鑑）。
+  - 可排序、可設條件的排行；不符合條件的沉底並寫出原因。
+  - 報告表。
+- **報告頁 `/benchmarks/evals/[id]`**：
+  - 角色框與統計，總評與在主題中的名次。
+  - 成績側寫：分類長條與雷達。
+  - 輸入 ↔ 成果與評分證據。
+  - 是非題 × 試驗明細，含失分歸屬。
+  - 失分來自組合的哪一部分。
+  - 過程時間軸：計畫、執行（每步 tokens）、成果、評鑑。
+  - 每次試驗與公平分計算，以及測試條件。
+- **/benchmarks**：「SinoBee 實測評鑑」改為列出各主題，連到清單頁。舊的 `/benchmarks/studies/[id]` 保留給既有連結。

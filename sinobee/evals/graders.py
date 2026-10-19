@@ -21,6 +21,10 @@ class Trial:
     files: list[Path] = field(default_factory=list)       # files the agent made or changed
     base_home: Path | None = None                          # the real SinoBee home (quality rules live there)
     judge: object = None                                    # provider for llm grading
+    judge2: object = None                                   # optional second judge (another model family)
+    tokens: int = 0                                         # what the trial spent (input + output)
+    steps: int = 0
+    trace: list[dict] = field(default_factory=list)         # per-step cost: tokens, retries, failed
 
 
 def _flags(g: dict) -> int:
@@ -94,11 +98,31 @@ async def grade(g: dict, t: Trial) -> tuple[bool, str]:
             want = int(g.get("exit", 0))
             text = out.decode("utf-8", "replace").strip()
             return proc.returncode == want, f"exit {proc.returncode}: {text[-200:]}"
+        if kind == "efficiency":
+            retries = sum(int(s.get("retries") or 0) for s in t.trace)
+            failed = sum(1 for s in t.trace if s.get("failed"))
+            checks = [("tokens", t.tokens, g.get("max_tokens")), ("steps", t.steps, g.get("max_steps")),
+                      ("retries", retries, g.get("max_retries")), ("failed steps", failed, g.get("max_failed"))]
+            over = [f"{n} {v} > {lim}" for n, v, lim in checks if lim is not None and v > int(lim)]
+            seen = ", ".join(f"{n} {v}" for n, v, lim in checks if lim is not None)
+            return not over, ("; ".join(over) if over else seen)
         if kind == "llm":
             return await _llm(g, t)
     except (KeyError, re.error) as e:
         return False, f"bad grader {g}: {e}"
     return False, f"unknown grader {kind}"
+
+
+async def grade_full(g: dict, t: Trial) -> dict:
+    """A grader's verdict with what a published report shows: for an llm rubric also the votes, the evidence the
+    judge quoted and, with a second judge, whether it agreed."""
+    if g.get("type") == "llm":
+        try:
+            return await _llm_full(g, t)
+        except KeyError as e:
+            return {"ok": False, "detail": f"bad grader {g}: {e}"}
+    ok, why = await grade(g, t)
+    return {"ok": ok, "detail": why}
 
 
 JUDGE = """You grade the result of an AI agent's task against a rubric. Be strict: pass only when the result clearly
@@ -109,7 +133,8 @@ FILES THE AGENT PRODUCED (excerpts):
 {files}
 FINAL ANSWER:
 {answer}
-Reply with JSON only: {{"pass": true|false, "reason": "<one sentence>"}}"""
+Reply with JSON only: {{"pass": true|false, "reason": "<one sentence>", "evidence": "<a short quote from the files or
+answer that your verdict rests on>"}}"""
 
 
 def _judge_files(g: dict, t: Trial) -> list[Path]:
@@ -122,17 +147,54 @@ def _judge_files(g: dict, t: Trial) -> list[Path]:
     return [p for p in t.files if p.is_file()][:6]
 
 
-async def _llm(g: dict, t: Trial) -> tuple[bool, str]:
-    from ..agent.review import excerpts
+async def _ask(judge, prompt: str, temperature: float) -> dict:
     from ..learning.reflector import parse_json
     from ..types import Message
-    if t.judge is None:
-        return False, "no model to judge with"
-    prompt = JUDGE.format(rubric=g["rubric"][:2000], prompt=t.prompt[:3000],
-                          files=excerpts(_judge_files(g, t))[:14000] or "(none)",
-                          answer=(t.answer or "")[:5000])
-    resp = await t.judge.chat([Message("user", prompt)], None, temperature=0, max_tokens=400)
-    data = parse_json(resp.message.text())
+    resp = await judge.chat([Message("user", prompt)], None, temperature=temperature, max_tokens=500)
+    return parse_json(resp.message.text())
+
+
+def _verdict(data: dict, need_evidence: bool) -> tuple[bool | None, str, str]:
     if "pass" not in data:
-        return False, "judge gave no verdict"
-    return bool(data["pass"]), str(data.get("reason") or "")[:300]
+        return None, "judge gave no verdict", ""
+    ok, reason, ev = bool(data["pass"]), str(data.get("reason") or "")[:300], str(data.get("evidence") or "")[:300]
+    if ok and need_evidence and not ev.strip():
+        return False, "passed without quoting evidence (counted as a fail)", ""
+    return ok, reason, ev
+
+
+async def _llm_full(g: dict, t: Trial) -> dict:
+    """votes > 1: the judge is asked that many times (a little temperature so the votes are independent) and the
+    majority wins; a tie fails. require_evidence: a pass without a quote counts as a fail."""
+    if t.judge is None:
+        return {"ok": False, "detail": "no model to judge with"}
+    prompt = JUDGE.format(rubric=g["rubric"][:2000], prompt=t.prompt[:3000],
+                          files=excerpts_for(g, t) or "(none)", answer=(t.answer or "")[:5000])
+    n = max(1, min(int(g.get("votes") or 1), 5))
+    need = bool(g.get("require_evidence"))
+    votes = []
+    for _ in range(n):
+        votes.append(_verdict(await _ask(t.judge, prompt, 0.4 if n > 1 else 0), need))
+    yes = sum(1 for v in votes if v[0])
+    ok = yes * 2 > n
+    side = [v for v in votes if bool(v[0]) == ok and v[0] is not None] or votes
+    out = {"ok": ok, "detail": (f"{yes}/{n} 票：" if n > 1 else "") + side[0][1], "evidence": side[0][2]}
+    if n > 1:
+        out["votes"] = [yes, n]
+    if t.judge2 is not None:
+        try:
+            v2 = _verdict(await _ask(t.judge2, prompt, 0), need)
+            out["judge2_ok"] = bool(v2[0])
+        except Exception as e:  # noqa: BLE001 - a second opinion that fails must not fail the grade
+            out["judge2_error"] = str(e)[:120]
+    return out
+
+
+def excerpts_for(g: dict, t: Trial) -> str:
+    from ..agent.review import excerpts
+    return excerpts(_judge_files(g, t))[:14000]
+
+
+async def _llm(g: dict, t: Trial) -> tuple[bool, str]:
+    r = await _llm_full(g, t)
+    return r["ok"], r["detail"]
