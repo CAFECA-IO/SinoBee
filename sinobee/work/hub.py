@@ -337,6 +337,20 @@ class WorkHub:
         self.notify("approval", {"approval_id": aid, "decided": ok})
         return self.store.approval(aid)
 
+    def dismiss(self, rid: str) -> dict:
+        """The user does not want an interrupted run resumed: it is closed and the recovery check leaves it alone."""
+        run = self.store.run(rid)
+        if not run:
+            raise WorkError("找不到這次執行")
+        if run["status"] in ACTIVE:
+            raise WorkError("這次執行仍在進行中，請用停止")
+        st = dict(run.get("state") or {})
+        st["user_stopped"] = True
+        st["auto_resume"] = {"at": time.time(), "resumed": False, "reason": "你選擇不續跑"}
+        self.store.update_run(rid, status="cancelled", state=st, activity="")
+        self.notify("run", {"run_id": rid})
+        return self.store.run(rid)
+
     def resume(self, rid: str, brief: dict | None = None, auto: bool = False) -> dict:
         run = self.store.run(rid)
         if not run:

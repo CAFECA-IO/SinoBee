@@ -126,3 +126,35 @@ def test_interrupted_api(home, config):
         rid = chat_run(rt, hub, "s1")
         r = c.get("/api/sessions/s1/interrupted").json()
         assert r["interrupted"] and r["run_id"] == rid and "重新啟動" in r["error"]
+
+
+async def test_a_task_the_user_stopped_is_never_resumed(home, config):
+    rt, hub, calls, _ = setup(config, [BRIEF, BRIEF])
+    # stopped by the user while it ran: the run is closed as cancelled with user_stopped
+    from sinobee.agent import Agent
+    agent = Agent(rt, "s10", platform="web")
+    rt.memory.ensure_session("s10", "web")
+    from sinobee.work.chatrun import ChatRun
+    rec = ChatRun(agent, "做一份報告", "做一份報告")
+    rec.finish("stopped", "（已依你的要求停止）", None, 0)
+    run = hub.store.run(rec.rid)
+    assert run["status"] == "cancelled" and run["state"]["user_stopped"] is True
+    # an interrupted run marked as stopped by the user is skipped, and so is one the user dismissed
+    rid = chat_run(rt, hub, "s11")
+    st = dict(hub.store.run(rid)["state"]); st["user_stopped"] = True
+    hub.store.update_run(rid, state=st)
+    other = chat_run(rt, hub, "s12")
+    hub.dismiss(other)
+    assert hub.store.run(other)["status"] == "cancelled"
+    await hub.recovery.check()
+    assert not calls
+    ok, why = hub.recovery.eligible(hub.store.run(rid))
+    assert not ok and "停止" in why
+
+
+def test_eligibility_explains_why_not(home, config):
+    rt, hub, calls, _ = setup(config, [])
+    old = chat_run(rt, hub, "s13", age=3 * 86400)
+    assert hub.recovery.eligible(hub.store.run(old)) == (False, "中斷超過 24 小時，不會自動續跑")
+    fresh = chat_run(rt, hub, "s14")
+    assert hub.recovery.eligible(hub.store.run(fresh)) == (True, "")

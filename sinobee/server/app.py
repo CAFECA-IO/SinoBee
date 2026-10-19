@@ -112,8 +112,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         if not runs or runs[0]["status"] != "interrupted":
             return {"interrupted": False}
         r = runs[0]
+        ok, why = get_hub(rt()).recovery.eligible(r)
         return {"interrupted": True, "run_id": r["id"], "error": r.get("error") or "",
-                "auto_resume": (r.get("state") or {}).get("auto_resume"), "at": r.get("created_at")}
+                "auto_resume": (r.get("state") or {}).get("auto_resume"), "at": r.get("created_at"),
+                "will_resume": ok, "why_not": why}
 
     @app.get("/api/sessions/{sid}/artifacts")
     async def session_artifacts(sid: str):
@@ -340,13 +342,25 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 await agent.run(text)
             except asyncio.CancelledError:
                 agent._persist()
+                rec = getattr(agent, "_run_rec", None)
+                if rec:                        # force-stopped mid-step: record it as stopped by the user
+                    try:
+                        rec.finish("stopped", "（已強制停止）", None, 0)
+                    except Exception:  # noqa: BLE001
+                        log.exception("could not record the stopped run")
                 broadcast("turn_end", {"session_id": sid, "status": "stopped", "text": "（已強制停止）",
                                        "error": None, "usage": {}})
             except Exception as e:
                 log.exception("run failed")
                 from ..agent.errors import explain_error
-                broadcast("turn_end", {"session_id": sid, "status": "error", "text": "", "usage": {},
-                                       "error": explain_error(e)})
+                info = explain_error(e)
+                broadcast("turn_end", {"session_id": sid, "status": "error", "text": "", "usage": {}, "error": info})
+                rec = getattr(agent, "_run_rec", None)
+                if rec and rec.rid:            # a crash is a failure, not an interruption to resume
+                    try:
+                        rec.finish("error", "", info, 0)
+                    except Exception:  # noqa: BLE001
+                        log.exception("could not record the failed run")
             finally:
                 state["running"].pop(sid, None)
                 broadcast("run_state", {"running": run_snapshot()})

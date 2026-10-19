@@ -233,6 +233,9 @@ details.tool .dur{color:var(--muted);font-size:12px;margin-left:6px}
 .result.done b{color:var(--ok)}
 .result.error,.result.incomplete,.result.blocked,.result.failed{background:var(--user);border-color:var(--warn)}
 .result.failed b{color:var(--err)}.result .failrep{display:block;margin-top:6px;font-size:12px;color:var(--muted)}
+.result .intr-act{display:flex;gap:8px;margin-top:8px}.result .intr-act:empty{display:none}
+.note.sys details summary{cursor:pointer;color:var(--muted)}.note.sys details summary b{color:var(--ink);font-weight:600}
+.note.sys details .md{margin-top:6px;padding:8px 12px;border-left:3px solid var(--line);font-size:13px}
 .note.resume b{color:var(--accent)}.note.resume details{margin-top:4px}.note.resume pre{white-space:pre-wrap;font-size:12px;margin:4px 0 0}
 .note.plan ol{margin:6px 0 0;padding-left:20px}.note.plan li{margin:2px 0}.note.plan small{display:block;color:var(--muted)}
 .result.error b,.result.incomplete b,.result.blocked b{color:var(--err)}
@@ -1319,7 +1322,7 @@ function connect(){
   ws.onclose = () => { $('#status').textContent = '連線中斷，重新連線…'; setTimeout(connect, 2000); };
   ws.onmessage = e => handle(JSON.parse(e.data));
 }
-function setRunning(list){ RUNNING = {}; for (const r of list || []) RUNNING[r.session_id] = r; setBusy(); if (tab === 'sessions') loadSide(); }
+function setRunning(list){ RUNNING = {}; for (const r of list || []) RUNNING[r.session_id] = r; setBusy(); refreshInterrupted(); if (tab === 'sessions') loadSide(); }
 function fmtDur(s){
   s = +s || 0;
   return s >= 3600 ? `${Math.floor(s / 3600)} 小時 ${Math.round(s % 3600 / 60)} 分` : s >= 60 ? `${Math.floor(s / 60)} 分 ${Math.round(s % 60)} 秒` : `${Math.round(s * 10) / 10} 秒`;
@@ -1355,21 +1358,34 @@ const FB_TAGS = [['wrong', '答案不正確'], ['incomplete', '沒有完成'], [
 function attachFeedback(card, turnId, rating, comment){
   // The rating can always be changed: the chosen thumb stays highlighted and the other one stays clickable
   // (a mis-click on 👍 for a bad result is fixed by pressing 👎); the pencil adds or edits the comment.
+  // `saved` is what the server has; `rating` is what is shown (👎 shows at once while its reasons panel is open).
   const bar = document.createElement('span'); bar.className = 'fb';
+  let saved = rating || 0;
+  const panel = () => card.nextElementSibling?.classList.contains('fbpanel') ? card.nextElementSibling : null;
   const paint = () => {
-    const lab = rating > 0 ? '你覺得有幫助' : rating < 0 ? '已記錄：不滿意' : '這次結果如何？';
+    const lab = rating > 0 ? '你覺得有幫助' : rating < 0 ? (saved < 0 ? '已記錄：不滿意' : '不滿意：哪裡不好？') : '這次結果如何？';
     bar.innerHTML = `<span class="lab">${lab}${rating && comment ? '（含說明）' : ''}</span>`
       + `<button type="button" data-r="1" class="${rating > 0 ? 'on' : ''}" aria-pressed="${rating > 0}" aria-label="有幫助" title="${rating > 0 ? '有幫助（已選）' : rating < 0 ? '改成有幫助' : '有幫助'}">${ic('thumbUp')}</button>`
       + `<button type="button" data-r="-1" class="${rating < 0 ? 'on bad' : ''}" aria-pressed="${rating < 0}" aria-label="不滿意" title="${rating < 0 ? '不滿意（已選）' : rating > 0 ? '改成不滿意' : '不滿意'}">${ic('thumbDown')}</button>`
-      + (rating ? `<button type="button" data-a="edit" aria-label="補充說明" title="補充說明">${ic('pencil')}</button>` : '');
+      + (saved ? `<button type="button" data-a="edit" aria-label="補充說明" title="補充說明">${ic('pencil')}</button>` : '');
     bar.querySelectorAll('button').forEach(b => b.onclick = () => {
       const r = +b.dataset.r;
-      if (b.dataset.a === 'edit' || (r && r === rating)) return openFbPanel(card, turnId, rating, () => { comment = '1'; paint(); });
-      if (r > 0) return sendFeedback(turnId, 1, [], '', rating < 0).then(ok => { if (ok) { rating = 1; paint(); } });
+      // the pencil (or the chosen thumb) edits the comment of the rating the server has, with that rating's panel:
+      // reasons for 👎, a free note for 👍
+      if (b.dataset.a === 'edit' || (r && r === rating)) {
+        if (rating !== saved) return;               // a 👎 whose reasons panel is open: that panel is the editor
+        return openFbPanel(card, turnId, saved, () => { comment = '1'; paint(); });
+      }
+      if (r > 0) {       // switching to 👍: a 👎 reasons panel that is still open no longer applies
+        panel()?.remove();
+        if (saved > 0) { rating = 1; return paint(); }        // 👎 was never recorded: just go back
+        return sendFeedback(turnId, 1, [], '', saved < 0).then(ok => { if (ok) { rating = saved = 1; paint(); } });
+      }
       // 👎 is selected at once; the panel only adds the reasons. Closing it without reasons still records 👎.
       const before = rating; rating = -1; paint();
-      openFbPanel(card, turnId, -1, () => paint(), before > 0, async () => {
-        if (!await sendFeedback(turnId, -1, [], '', before > 0)) { rating = before; paint(); } });
+      openFbPanel(card, turnId, -1, () => { saved = -1; paint(); }, saved > 0, async () => {
+        if (await sendFeedback(turnId, -1, [], '', saved > 0)) saved = -1; else rating = before;
+        paint(); });
     });
   };
   paint();
@@ -1752,6 +1768,7 @@ async function openSession(s){
     const text = typeof m.content === 'string' ? m.content : (m.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n');
     if (m.role === 'user') procClose();
     if (m.role === 'user' && /^\[(自動)?續跑\]/.test(text)) resumeNote(text);
+    else if (m.role === 'user' && sysNote(text)) {}
     else if (m.role === 'user' && text.startsWith('[使用者在執行中補充指示]')) add(`<span class="steer-tag">執行中補充</span>` + md(text.replace('[使用者在執行中補充指示] ', '').split('\n（請把這個補充')[0]), 'msg user steer');
     else if (m.role === 'user') {
       const act = text.match(/\[User explicitly activated: ([^\]]+)\]\n?([\s\S]*)$/);
@@ -3813,12 +3830,30 @@ function resumeNote(text){
   add(`<b>↻ ${auto ? 'SinoBee 自動續跑中斷的任務' : '從中斷處續跑'}</b>` + (prog ? `<details><summary>進度整理</summary><pre>${esc(prog.replace(/^[^\n]*\n/, ''))}</pre></details>` : ''), 'note resume');
 }
 function interruptedCard(r){
-  const ar = r.auto_resume || {};
-  const st = ar.resumed ? '已續跑' : ar.reason ? `沒有自動續跑：${esc(ar.reason)}` : 'SinoBee 會在一分鐘內檢查並自動續跑';
-  const c = add(`<b>△ 任務中斷：${esc(r.error || '執行到一半停止了')}</b><div class="hint">${st}</div>`, 'result incomplete');
-  if (!ar.resumed) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm primary'; b.style.marginTop = '8px';
-    b.textContent = '立即繼續'; b.onclick = async () => { b.disabled = true; try { await post(`/api/work/runs/${encodeURIComponent(r.run_id)}/resume`, {}); b.textContent = '已開始續跑'; } catch { b.disabled = false; } };
-    c.appendChild(b); }
+  const c = add('', 'result incomplete intr'); c.dataset.run = r.run_id; c.dataset.sid = sessionId; c._r = r;
+  paintInterrupted(c); return c;
+}
+function paintInterrupted(c){
+  const r = c._r, ar = r.auto_resume || {}, live = RUNNING[c.dataset.sid];
+  const state = live ? '↻ 正在續跑…' : r.dismissed ? '已取消，不會再續跑' : ar.resumed ? '已續跑' : r.will_resume ? 'SinoBee 會在一分鐘內檢查並自動續跑' : esc(r.why_not || '不會自動續跑');
+  c.innerHTML = `<b>△ 任務中斷：${esc(r.error || '執行到一半停止了')}</b><div class="hint">${state}</div><div class="intr-act"></div>`;
+  const act = c.querySelector('.intr-act'), btn = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button';
+    b.className = 'btn sm ' + cls; b.textContent = label; b.onclick = async () => { b.disabled = true; try { await fn(); } catch { b.disabled = false; } }; act.appendChild(b); };
+  if (live) btn('停止', 'danger', async () => { ws.send(JSON.stringify({type: 'cancel', session_id: c.dataset.sid})); });
+  else if (!ar.resumed && !r.dismissed) {
+    btn('立即繼續', 'primary', async () => { await post(`/api/work/runs/${encodeURIComponent(r.run_id)}/resume`, {}); r.auto_resume = {resumed: true}; paintInterrupted(c); });
+    btn('不要續跑', '', async () => { await post(`/api/work/runs/${encodeURIComponent(r.run_id)}/dismiss`, {}); r.dismissed = true; paintInterrupted(c); });
+  }
+}
+function refreshInterrupted(){ document.querySelectorAll('#chat .result.intr').forEach(c => c._r && paintInterrupted(c)); }
+const SYS_NOTES = [['[思維模型的計畫]', '思維模型的計畫'], ['[思維模型的建議]', '思維模型的建議'], ['[較強模型的建議]', '較強模型的建議'],
+  ['[自動成果檢查]', '自動成果檢查：退回修正'], ['[自動驗收審查]', '驗收審查：退回修正'], ['[自動驗收]', '驗收清單未完成：退回'], ['[自動完成檢查]', '完成檢查：退回']];
+function sysNote(text){
+  const hit = SYS_NOTES.find(([p]) => text.startsWith(p)); if (!hit) return false;
+  const body = text.slice(hit[0].length).trim();
+  const first = body.split('\n')[0].replace(/^（|）$/g, '');
+  add(`<details class="sysnote"><summary><b>${esc(hit[1])}</b>${first && first.length < 80 ? ` <span>${esc(first)}</span>` : ''}</summary><div class="md">${md(body)}</div></details>`, 'note sys');
+  return true;
 }
 function onWorkEvent(ev){
   clearTimeout(WK_DEB); WK_DEB = setTimeout(() => {

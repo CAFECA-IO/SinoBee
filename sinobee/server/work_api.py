@@ -80,6 +80,10 @@ def register(app: FastAPI, rt_getter, chat_running) -> None:
         guard(hub().cancel, rid)
         return {"ok": True}
 
+    @app.post("/api/work/runs/{rid}/dismiss")
+    async def dismiss(rid: str):
+        return guard(hub().dismiss, rid)
+
     @app.post("/api/work/runs/{rid}/resume")
     async def resume(rid: str):
         return guard(hub().resume, rid)

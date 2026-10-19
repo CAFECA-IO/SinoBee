@@ -139,6 +139,28 @@ class Recovery:
             data = {"resume": True, "reason": "無法判斷進度，直接從中斷處續跑", "done": [], "remaining": [], "next": ""}
         return data
 
+    def eligible(self, run: dict, newest_at: float | None = None) -> tuple[bool, str]:
+        """Whether the check would resume this interrupted conversation turn, and why not (for the chat card)."""
+        cfg = self.hub.rt.config
+        st = run.get("state") or {}
+        if st.get("user_stopped"):
+            return False, "你已停止這個任務，不會自動續跑"
+        if st.get("auto_resume"):
+            ar = st["auto_resume"]
+            return False, "已續跑" if ar.get("resumed") else (ar.get("reason") or "不會自動續跑")
+        if not cfg.get("work.auto_resume", True):
+            return False, "自動續跑已關閉"
+        if time.time() - (run.get("created_at") or 0) > float(cfg.get("work.auto_resume_hours", 24)) * 3600:
+            return False, f"中斷超過 {cfg.get('work.auto_resume_hours', 24)} 小時，不會自動續跑"
+        if newest_at and (run.get("created_at") or 0) < newest_at:
+            return False, "之後已有新的對話，不會自動續跑"
+        sid = run.get("session_id") or ""
+        if self._platform(sid) != "web":
+            return False, "這段對話不是在網頁介面開始的"
+        if self._budget(sid) >= int(cfg.get("work.auto_resume_max", 2)):
+            return False, "今天已自動續跑過，請手動繼續"
+        return True, ""
+
     # ------------------------------------------------------------------ the check
     async def check(self) -> list[dict]:
         cfg = self.hub.rt.config
@@ -172,7 +194,8 @@ class Recovery:
             if r["kind"] == "chat" and r.get("session_id"):
                 newest[r["session_id"]] = max(newest.get(r["session_id"], 0), r.get("created_at") or 0)
         for r in runs:
-            if r["status"] != "interrupted" or (r.get("state") or {}).get("auto_resume"):
+            st = r.get("state") or {}
+            if r["status"] != "interrupted" or st.get("auto_resume") or st.get("user_stopped"):
                 continue
             if now - (r.get("created_at") or 0) > window:
                 continue

@@ -869,6 +869,7 @@ class Agent:
 
     async def _run(self, user_input: str | list, usage_scope) -> str:
         self._cancel = False
+        self._run_rec = None                   # this turn's run record (created right after turn_start)
         self.tools = REGISTRY.available(self.config)   # settings may have changed toolsets
         if self.tool_filter is not None:
             self.tools = [t for t in self.tools if self.tool_filter(t)]
@@ -895,6 +896,12 @@ class Agent:
                  "skill_gap": not best or best[0][1] < 1.0, "explicit_skills": explicit,
                  "best_skill": best[0][0].name if best and best[0][1] >= 1.0 and hasattr(best[0][0], "name") else None}
         self._emit("turn_start", {"session_id": self.session_id, "input": query})
+        # the run record exists from the first moment, so a turn that dies while it plans or recalls is still found
+        # (and resumed) by the recovery check instead of vanishing
+        from ..work.chatrun import ChatRun
+        self._run_rec = ChatRun(self, query, _title(query))
+        if self._run_rec.rid and not self.ctx.state.get("job_run"):
+            self.ctx.state["run_id"] = self._run_rec.rid
 
         context_block = await self._build_context(query)
         final_text = ""
@@ -921,10 +928,6 @@ class Agent:
         else:
             self._snap = _SNAPSHOT.get()
         stats["artifacts"] = []
-        from ..work.chatrun import ChatRun
-        self._run_rec = ChatRun(self, query, _title(query))
-        if self._run_rec.rid and not self.ctx.state.get("job_run"):
-            self.ctx.state["run_id"] = self._run_rec.rid
 
         def step_limit() -> int:
             # a multi-stage skill (sinobee-complexity: high) used in this turn gets the larger budget
