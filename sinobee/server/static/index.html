@@ -1683,7 +1683,7 @@ function handle(ev, replay = false){
     case 'plan': add(`<b>思維模型的計畫</b>${ev.model ? `<small>${esc(ev.model)}</small>` : ''}${ev.understanding ? `<div>${esc(ev.understanding)}</div>` : ''}`
       + (ev.steps?.length ? `<ol>${ev.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : '')
       + (ev.risks?.length ? `<small>注意：${ev.risks.map(esc).join('；')}</small>` : ''), 'note plan'); break;
-    case 'failure_diagnosed': if (ev.diagnosis?.summary) add(`ⓘ 失敗診斷（${esc(FAIL_CAT[ev.diagnosis.category] || ev.diagnosis.category || '')}）：${esc(ev.diagnosis.summary)}${ev.diagnosis.retry_advice ? `<small style="display:block;color:var(--muted)">${esc(ev.diagnosis.retry_advice)}</small>` : ''}`, 'note'); break;
+    case 'failure_diagnosed': if (ev.diagnosis?.summary) add(`ⓘ 失敗診斷（${esc(FAIL_CAT[ev.diagnosis.category] || ev.diagnosis.category || '')}${ev.diagnosis.model === 'rules' ? '・依紀錄判斷' : ''}）：${esc(ev.diagnosis.summary)}${ev.diagnosis.retry_advice ? `<small style="display:block;color:var(--muted)">${esc(ev.diagnosis.retry_advice)}</small>` : ''}`, 'note'); break;
     case 'qa': add(`<b>成果檢查發現 ${ev.issues.length} 個問題</b><ul>${ev.issues.slice(0, 8).map(i => `<li>${esc(i.name)}：${esc(i.problem)}${i.detail ? `<small>${esc(i.detail)}</small>` : ''}</li>`).join('')}</ul>`, 'note qacard'); break;
     case 'review': if (ev.verdict === 'revise') add(`<b>驗收審查：需要修正</b>${ev.summary ? `<div>${esc(ev.summary)}</div>` : ''}<ul>${(ev.problems || []).slice(0, 8).map(p => `<li>${esc(p.what)}${p.fix ? `<small>→ ${esc(p.fix)}</small>` : ''}</li>`).join('')}</ul>`, 'note qacard'); break;
     case 'turn_end': {
@@ -2106,7 +2106,7 @@ const TOOLSET_INFO = {
 };
 // ---------------- failure reports ----------------
 const FAIL_CAT = {execution_capability: '執行能力不足', skill_defect: '技能有誤', missing_tool: '缺少工具或權限', environment: '環境問題',
-  unclear_request: '需求不明確', external_blocker: '外部阻擋', system_bug: '系統錯誤', unknown: '未分類'};
+  unclear_request: '需求不明確', external_blocker: '外部阻擋', system_bug: '系統錯誤', provider_compat: '模型服務不相容', unknown: '未分類'};
 async function loadFailures(){
   const d = await api('/api/failures').catch(() => ({failures: []}));
   const rows = d.failures || [];

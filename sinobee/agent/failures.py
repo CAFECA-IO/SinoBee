@@ -170,25 +170,88 @@ def summary_text(r: dict, limit: int = 30000) -> str:
     return text if len(text) <= limit else text[:limit // 3] + "\n…(middle of the log cut)…\n" + text[-2 * limit // 3:]
 
 
+RULES = [
+    (r"(temperature|top_p|top_k|max_tokens|max_completion_tokens|tool_choice|parallel_tool_calls|reasoning_effort)"
+     r"\W{0,3}[^\n]{0,60}?(deprecated|not supported|unsupported|not allowed|no longer supported)|"
+     r"(unsupported|unknown|unrecognized) (parameter|argument|field)",
+     "provider_compat", "模型 {model} 不接受 SinoBee 送出的參數{param}，第一個模型呼叫就被拒絕",
+     {"target": "sinobee", "change": "供應商層對不接受的參數自動適應（providers/compat.py 已處理 temperature）；"
+                                     "其他參數需要在對應的 provider 依模型拿掉或改名"},
+     "重試一次：SinoBee 已記住這個模型的限制。若仍失敗，暫時換用其他模型並回報給開發者。"),
+    (r"SinoBee\.ai quota|HTTP 429|rate.?limit|RESOURCE_EXHAUSTED|insufficient_quota", "external_blocker",
+     "模型服務的額度或速率限制用完了", {"target": "settings", "change": "設定備援模型，或提高額度"},
+     "等額度恢復，或改用備援模型。"),
+    (r"HTTP 40[13]|invalid[_ ]api[_ ]key|unauthorized|sign-in expired", "environment",
+     "模型服務的金鑰或登入無效", {"target": "settings", "change": "重新設定金鑰或登入 SinoBee.ai"},
+     "到設定重新貼上金鑰或重新登入後再試。"),
+    (r"network error|ConnectError|timed out|Timeout|HTTP 50[234]", "environment", "連不到模型服務或服務暫時故障",
+     {"target": "settings", "change": "設定備援模型，網路不穩時自動切換"}, "確認網路與供應商狀態後重試。"),
+    (r"context.{0,20}(length|window)|maximum context|prompt is too long", "system_bug", "對話內容超過模型的上下文長度",
+     {"target": "sinobee", "change": "檢查這個模型的上下文上限設定與壓縮門檻"}, "開新對話，或把上下文上限設成模型實際值。"),
+]
+
+
+def rule_diagnosis(r: dict) -> dict:
+    """A diagnosis from the record alone, when no model can write one (e.g. the model itself is what failed)."""
+    reason = r.get("reason") or {}
+    text = "\n".join(str(x) for x in (reason.get("summary"), reason.get("detail"), r.get("last_error"),
+                                        r.get("final_answer")) if x)
+    kind = reason.get("kind")
+    models = r.get("models") or {}
+    for rx, cat, summary, imp, advice in RULES:
+        m = re.search(rx, text, re.I)
+        if m:
+            pm = re.search(r"(temperature|top_p|top_k|max_tokens|max_completion_tokens|tool_choice|"
+                           r"parallel_tool_calls|reasoning_effort)", text)
+            mm = re.search(r"([\w.-]+/[\w.:/-]+) HTTP", text)
+            return {"category": cat, "summary": summary.format(model=(mm.group(1) if mm else models.get("execution") or ""),
+                                                               param=f" {pm.group(1)}" if pm else ""),
+                    "failed_at": f"第 {r.get('steps') or 1} 步的模型呼叫", "evidence": [m.group(0)[:200]],
+                    "improvements": [imp], "retry_advice": advice}
+    by_kind = {"safety_valve": ("system_bug", "單一 Agent 達到 300 步安全閥，代表進度偵測或規劃有缺陷"),
+               "budget": ("external_blocker", "達到每個任務的花費上限，任務暫停"),
+               "capability": ("execution_capability", reason.get("summary") or "執行模型無法完成這個任務")}
+    if kind in by_kind:
+        cat, summary = by_kind[kind]
+        return {"category": cat, "summary": summary, "failed_at": "", "evidence": [str(reason.get("detail") or "")[:200]],
+                "improvements": [], "retry_advice": reason.get("hint") or ""}
+    return {"category": "unknown", "summary": reason.get("summary") or "（沒有模型可以診斷，紀錄中也找不到已知的原因）",
+            "failed_at": "", "evidence": [], "improvements": [], "retry_advice": reason.get("hint") or ""}
+
+
 async def diagnose(rt, home, rid: str, emit=None) -> dict | None:
-    """The thinking model's diagnosis, added to the saved report (runs in the background after the task)."""
+    """The thinking model's diagnosis, added to the saved report (runs in the background after the task). When
+    the thinking model cannot do it, the execution model tries; when no model can (the model itself is what
+    failed), a diagnosis from the record (rule_diagnosis) - never an empty "unknown"."""
     from ..types import Message
     from .thinking import DIAGNOSE, parse_diagnosis
     try:
         r = get(home, rid)
     except KeyError:
         return None
-    model = rt.thinker()
-    try:
-        resp = await model.chat([Message("user", DIAGNOSE.format(report=summary_text(r)))], None, temperature=0,
-                                max_tokens=1200)
-        dg = parse_diagnosis(resp.message.text())
-    except Exception as e:  # noqa: BLE001
-        log.info("failure diagnosis failed: %s", e)
-        dg = None
-    r["diagnosis"] = dg or {"category": "unknown", "summary": "（思維模型無法完成診斷）", "evidence": [],
-                            "improvements": [], "failed_at": "", "retry_advice": ""}
-    r["diagnosis"]["model"] = getattr(model, "label", "")
+    tried, dg, errors = set(), None, []
+    for model in (rt.thinker(), rt.provider):
+        label = getattr(model, "label", "")
+        if model is None or label in tried:
+            continue
+        tried.add(label)
+        try:
+            resp = await model.chat([Message("user", DIAGNOSE.format(report=summary_text(r)))], None, temperature=0,
+                                    max_tokens=1200)
+            dg = parse_diagnosis(resp.message.text())
+        except Exception as e:  # noqa: BLE001
+            log.info("failure diagnosis with %s failed: %s", label, e)
+            errors.append(f"{label}: {str(e)[:160]}")
+            dg = None
+        if dg:
+            dg["model"] = label
+            break
+    if not dg:
+        dg = rule_diagnosis(r)
+        dg["model"] = "rules"
+        if errors:
+            dg["note"] = "模型無法完成診斷（" + "；".join(errors) + "），以下依紀錄判斷"
+    r["diagnosis"] = dg
     save(home, r)
     if emit:
         emit("failure_diagnosed", {"id": rid, "session_id": r.get("session_id"), "diagnosis": r["diagnosis"]})

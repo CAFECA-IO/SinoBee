@@ -101,10 +101,15 @@ class Provider(ABC):
 
     async def chat(self, messages: list[Message], tools: list[ToolSpec] | None = None, *,
                    temperature: float | None = 0.3, max_tokens: int = 4096, retries: int = 4) -> ChatResponse:
+        from . import compat
         tools = tools or []
         delay = 1.5
         timeouts = 0
-        for attempt in range(retries + 1):
+        if temperature is not None and "temperature" in compat.dropped(self.label):
+            temperature = None            # learned earlier: this model does not accept it
+        adapted = False
+        attempt = 0
+        while True:
             try:
                 return await self._chat(messages, tools, temperature=temperature, max_tokens=max_tokens)
             except httpx.TimeoutException as e:
@@ -114,13 +119,21 @@ class Provider(ABC):
             except httpx.TransportError as e:
                 err = ProviderError(f"{self.label} network error: {e!r}", retryable=True)
             except ProviderError as e:
+                param = None if adapted else compat.rejected_param(e, {"temperature": temperature})
+                if param == "temperature":
+                    # the model rejects a parameter that only tunes the answer: learn it and send the same call
+                    # again without it, at once - this is not counted as a retry
+                    compat.learn(self.label, param, str(e))
+                    compat.note(self.label, param)
+                    temperature, adapted = None, True
+                    continue
                 err = e
-            if not err.retryable or attempt == retries:
+            if not err.retryable or attempt >= retries:
                 raise err
             sleep = delay * (2 ** attempt) + random.random()
             log.warning("%s failed (%s); retrying in %.1fs", self.label, err, sleep)
             await asyncio.sleep(sleep)
-        raise ProviderError("unreachable")
+            attempt += 1
 
     async def _auth_headers(self, method: str, url: str, body: bytes) -> dict:
         if not self.auth:
@@ -159,6 +172,13 @@ class Provider(ABC):
             if r.status_code >= 400:
                 raise relay_error(self.label, r.status_code, r.text[:2000])
             _note_quota(r.headers)
+            dropped = r.headers.get("x-sinobee-dropped-params")
+            if dropped:                  # the relay had to leave a parameter out: stop sending it from here too
+                from . import compat
+                for prm in dropped.split(","):
+                    if prm.strip() in compat.OPTIONAL and prm.strip() not in compat.dropped(self.label):
+                        compat.learn(self.label, prm.strip(), "the SinoBee.ai relay left it out (x-sinobee-dropped-params)")
+                        compat.note(self.label, prm.strip())
             return r.json()
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             r = await client.post(url, json=payload, headers={**headers, **self.extra_headers})

@@ -109,6 +109,18 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
     # ------------------------------------------------------------------ failure reports
     from ..agent import failures as F
 
+    @app.get("/api/model-caps")
+    async def model_caps():
+        """Parameters SinoBee learned that a model does not accept (providers/compat.py)."""
+        from ..providers import compat
+        return {"models": compat._load()}
+
+    @app.delete("/api/model-caps")
+    async def model_caps_forget(model: str | None = None):
+        from ..providers import compat
+        compat.forget(model)
+        return {"ok": True}
+
     @app.get("/api/control-log")
     async def control_log(session: str | None = None, trigger: str | None = None, event: str | None = None,
                           limit: int = 200):

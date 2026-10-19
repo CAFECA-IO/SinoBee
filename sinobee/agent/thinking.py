@@ -115,6 +115,8 @@ Categories:
   unclear_request       the request was ambiguous or contradictory and should have been clarified
   external_blocker      captcha, login, quota, paywall, outage - nothing the agent could fix
   system_bug            SinoBee itself misbehaved (crash, wrong guard, bad prompt)
+  provider_compat       the model service rejected what SinoBee sent (a parameter or format this model no longer
+                        accepts)
 Reply with JSON only:
 {{"category": "<one of the above>", "summary": "<what happened, 1-2 sentences, user's language>",
   "failed_at": "<the step or moment it went wrong>", "evidence": ["<quotes from the record>"],
@@ -198,7 +200,7 @@ def parse_diagnosis(text: str) -> dict | None:
     if not data.get("category") and not data.get("summary"):
         return None
     cats = ("execution_capability", "skill_defect", "missing_tool", "environment", "unclear_request",
-            "external_blocker", "system_bug")
+            "external_blocker", "system_bug", "provider_compat")
     cat = str(data.get("category") or "").strip()
     return {"category": cat if cat in cats else "unknown", "summary": str(data.get("summary") or "")[:600],
             "failed_at": str(data.get("failed_at") or "")[:400],

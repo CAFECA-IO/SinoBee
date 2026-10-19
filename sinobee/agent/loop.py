@@ -1127,6 +1127,8 @@ class Agent:
                 self.history.append(Message("assistant", f"[上一次嘗試失敗：{error_info['summary']}]"))
                 log.error("model call failed: %s", e)
                 break
+            for ce in current_scope.get().drain_compat_events():  # a call adapted to what the model accepts
+                self._event(f"模型 {ce['model']} 不接受參數 {ce['param']}：已自動改用相容的設定重送，之後不再送這個參數")
             for qe in current_scope.get().drain_quota_events():   # quota used up; a fallback model answered
                 self._emit("quota", {**qe, "stopped": False, "answered_by": resp.model})
             self.usage.add(resp.usage)

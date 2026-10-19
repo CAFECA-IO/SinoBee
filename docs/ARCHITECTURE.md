@@ -1080,3 +1080,64 @@ SinoBee 原本是「主模型 + 升級模型」：卡關、步驟太多或遇到
   - 選擇追加時，提高上限後跑完；
   - 無人看守時直接暫停。
 - **部分交付**：失敗的里程碑任務會交付已驗收的 m1 與產出，列出 m2、m3 待辦，並寫入失敗報告。
+
+## 25. 模型不接受的參數：自動適應（2026-10-19）
+
+**案例**：思維模型與執行模型都是 `sinobee/anthropic/claude-opus-5-5`。這個模型回覆「`temperature` is deprecated for this model」（HTTP 400），而 SinoBee 每次呼叫都會帶 temperature，結果：
+- 規劃被略過；
+- 第一步就中斷；
+- 失敗診斷也由同一個模型做，同樣失敗，顯示「未分類」。
+
+### 用戶端（`providers/compat.py`、`providers/base.py`）
+- `Provider.chat` 遇到 400／422，而且錯誤訊息說某個只影響取樣的參數（temperature、top_p、top_k）不被接受時，會拿掉它立即重送。這一次重送不計入重試次數。
+- 判斷用的是各家的錯誤寫法：「deprecated / not supported / Unsupported parameter / does not support / Extra inputs are not permitted」。只是數值不對的錯誤（例如超出範圍）不算。
+- 學到的結果記在 `$SINOBEE_HOME/model_caps.json`，之後（含重啟後）對這個模型都不再送這個參數。
+- 也會從 SinoBee.ai 中繼的回應標頭 `x-sinobee-dropped-params` 學到同樣的結果。
+- 對話中會顯示一則提示：「模型 X 不接受參數 temperature：已自動改用相容的設定重送」。
+- 可以用 `GET /api/model-caps` 查看學到的結果，用 `DELETE /api/model-caps?model=` 清除（例如供應商修好了 API 之後）。
+
+### 錯誤說明（`agent/errors.py`）
+- 參數被拒時，錯誤卡片顯示「這個模型不接受參數 temperature」，並說明 SinoBee 會自動處理。
+- 若仍出現這個錯誤，代表被拒的是其他參數（例如 max_tokens），卡片會請使用者回報或暫時換模型。
+
+### 失敗診斷（`agent/failures.py`）
+依序嘗試，直到有一個能完成診斷：
+1. 思維模型；
+2. 執行模型（與思維模型不同時）；
+3. 依紀錄判斷（`rule_diagnosis`），標示為「依紀錄判斷」，並註明哪個模型無法完成診斷。
+
+依紀錄判斷的規則：
+| 情況 | 判定 |
+|---|---|
+| 參數被拒 | `provider_compat`（模型服務不相容，新的類別） |
+| 額度、速率限制 | 外部阻擋 |
+| 金鑰或登入無效、網路或服務故障 | 環境問題 |
+| 上下文過長 | 系統錯誤 |
+| 依 `error.kind` | 安全閥（系統錯誤）、任務上限、能力不足 |
+
+不再出現空的「未分類」。
+
+### SinoBee.ai 中繼（`src/lib/llm/param-compat.ts`、`relay.ts`）
+- 上游回覆同樣的 400 時，中繼拿掉該參數，用同一筆額度預扣重送，只結算一次。
+- 中繼會記住這個模型（存活期間有效），之後的請求一開始就不送這個參數；串流也適用。
+- 回應帶上 `x-sinobee-dropped-params`，讓用戶端也停止送出。
+- 其他 400 照原樣傳回，不會重送。
+- 因此舊版 SinoBee 也不會因為新模型而失效。
+
+### 驗收
+- `tests/test_compat.py`（9 項）：
+  - 重送一次就成功，並寫入記錄檔；
+  - 重啟後第一次呼叫就不帶這個參數；
+  - 其他 400 不會被處理；
+  - 各家錯誤寫法都能辨識；
+  - 錯誤卡片的說明正確；
+  - 用 opus-5-5 的完整任務：規劃、執行、提示都正常；
+  - 模型無法診斷時改依紀錄判斷；
+  - 診斷改用執行模型；
+  - 從中繼標頭學到結果。
+- SinoBee.ai `tests/llm-relay.test.ts`：
+  - Anthropic 格式重送一次，額度只結算一次；
+  - 串流一開始就不送；
+  - OpenAI 格式的 top_p 也能處理；
+  - 其他 400 不重送。
+  - 全部 140 項通過。

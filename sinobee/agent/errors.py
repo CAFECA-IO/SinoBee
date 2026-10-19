@@ -31,6 +31,13 @@ RULES = [
     (r"model not configured|no model selected", "還沒有選擇模型", "到「設定」選擇主要模型並填入金鑰。"),
     (r"network error|ConnectError|Timeout|timed out|Name or service not known|HTTP 50[234]",
      "連不到模型服務（網路或供應商暫時故障）", "確認網路與供應商狀態後重試；可設定備援模型自動切換。"),
+    (r"HTTP 4(?:00|22).{0,200}?(?:(?:temperature|top_p|top_k|max_tokens|max_completion_tokens|tool_choice|"
+     r"parallel_tool_calls|reasoning_effort|stop_sequences|response_format)\W{0,3}[^\n]{0,60}?(?:deprecated|not supported|"
+     r"unsupported|not allowed|not permitted|no longer supported)|(?:unsupported|unknown|unrecognized) "
+     r"(?:parameter|argument|field))",
+     "這個模型不接受 SinoBee 送出的某個參數",
+     "SinoBee 會自動拿掉 temperature 這類不影響內容的參數並重送；若仍出現這個錯誤，代表是其他參數，"
+     "請把下方詳細內容回報給開發者，或暫時換用其他模型。"),
     (r"HTTP 400|INVALID_ARGUMENT|invalid_request", "模型服務拒絕了這次請求",
      "通常是模型與 SinoBee 的格式不相容；請把下方詳細內容回報給開發者，或先改用其他模型。"),
 ]
@@ -45,6 +52,11 @@ def explain_error(err: Exception | str) -> dict:
         summary, hint = "執行時發生未預期的錯誤", "可以重試一次；若持續發生，請把詳細內容回報給開發者。"
     m = re.match(r"^([\w.-]+/[\w.:/-]+)\s", detail)
     out = {"summary": summary, "hint": hint, "detail": detail[:3000], "model": m.group(1) if m else None}
+    pm = re.search(r"[`'\"]?(temperature|top_p|top_k|max_tokens|max_completion_tokens|tool_choice|parallel_tool_calls|"
+                   r"reasoning_effort|stop_sequences|response_format)[`'\"]?", detail) if summary.startswith("這個模型不接受") else None
+    if pm:
+        out["summary"] = f"這個模型不接受參數 {pm.group(1)}"
+        out["param"] = pm.group(1)
     window = getattr(err, "window", None)
     if window:   # SinoBee.ai quota stop: the GUI offers waiting, a fallback model or an upgrade
         out["quota"] = {"window": window, "retry_at": getattr(err, "retry_at", None)}

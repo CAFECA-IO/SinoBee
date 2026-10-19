@@ -23,6 +23,7 @@ class UsageScope:
     quota_6h_pct: float = 0.0                 # SinoBee.ai subscription: share of the 6-hour limit this scope used
     quota: dict | None = None                 # latest {"6h": used %, "168h": used %} reported by sinobee.ai
     quota_events: list = field(default_factory=list)  # quota stops / fallbacks to show in the GUI
+    compat_events: list = field(default_factory=list)  # calls adapted to what a model accepts (providers/compat.py)
 
     def as_dict(self) -> dict:
         return {"calls": self.calls, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
@@ -32,6 +33,10 @@ class UsageScope:
 
     def drain_quota_events(self) -> list:
         out, self.quota_events = self.quota_events, []
+        return out
+
+    def drain_compat_events(self) -> list:
+        out, self.compat_events = self.compat_events, []
         return out
 
 
