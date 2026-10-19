@@ -902,9 +902,9 @@ SinoBee 原本是「主模型 + 升級模型」：卡關、步驟太多或遇到
 | 新資訊 | 新的讀取、搜尋或指令輸出，而且沒有在改檔 |
 | 沒有進度 | 錯誤、重複讀取、寫入相同內容、檔案改回先前版本、測試結果沒變 |
 
-連續 K（15）步沒有進度 → 請教思維模型。循環不必等 K 步：同一組操作 3 次且沒有進度（`loop_repeat`）、A→B→A→B（`loop_alternating`）、檔案在 8 步內改回先前版本 2 次（`file_oscillation`）、連續 3 步相同錯誤（`repeated_error`）。健康水位：每 40 步驗收清單仍未完成、或回合內因自己的工作壓縮了上下文 → 請教（`health_steps`／`health_compaction`），只是檢查點。諮詢次數用完（`agent.consult_max`）仍沒有進度或仍循環 → `failed`（`advice_exhausted`）。單一 Agent 300 步 → 安全閥（`safety_valve`）。
+輸出顯示工作仍在進行的重複查詢（`"status": "working"`、處理中…）算等待，不算進度也不計入 K。瀏覽器與截圖的結果依頁面狀態判斷。連續 K（15）步沒有進度 → 請教思維模型。循環不必等 K 步：同一組操作 3 次且沒有進度（`loop_repeat`）、A→B→A→B（`loop_alternating`）、檔案在 8 步內改回先前版本 2 次（`file_oscillation`）、連續 3 步相同錯誤（`repeated_error`）、最近 20 步沒改任何檔案且一半以上是重複讀取（`exploration_stall`）、連續 30 次查詢都顯示仍在進行（`long_wait`）。健康水位：每 40 步驗收清單仍未完成、或回合內因自己的工作壓縮了上下文 → 請教（`health_steps`／`health_compaction`），只是檢查點。諮詢次數用完（`agent.consult_max`）仍沒有進度或仍循環 → `failed`（`advice_exhausted`）。單一 Agent 300 步 → 安全閥（`safety_valve`）。
 
-設定：`agent.progress.{k, n_code, n_document, n_other, health_steps, safety_max_steps, window}`。`agent.max_iterations`、`max_iterations_complex`、`consult_after_steps` 已移除；子代理與審查員仍可由呼叫端指定步數上限。
+設定：`agent.progress.{k, n_code, n_document, n_other, health_steps, safety_max_steps, window, stall_window, stall_ratio, wait_limit}`。同一段連續改檔涉及多種檔案時，N 取最近 8 步內最寬的一種（改程式又寫報告 → N=8）。`agent.max_iterations`、`max_iterations_complex`、`consult_after_steps` 已移除；子代理與審查員仍可由呼叫端指定步數上限。
 
 ### 檔案類型判定（`progress.classify`）
 1. 二進位內容 → other。`.example`／`.bak` 等後綴先去掉再判定。
@@ -921,6 +921,27 @@ SinoBee 原本是「主模型 + 升級模型」：卡關、步驟太多或遇到
   - `.DS_Store`、`.ruff_cache` 等二進位檔被當成文件；
   - Roadster 的 package report 頁面被當成文件，實際上 98% 是生成的 SVG，修改方式接近程式；
   - `.prisma`、`.env.example` 被判為無法判定。
+
+### 以真實紀錄壓測（2026-10-19，`agent/replay.py`）
+`sinobee progress-replay [--session …] [--last N] [--steps] [--k …]` 用已儲存的對話重放每一步（不呼叫模型），算出當時這套規則會怎麼判斷。對使用者全部紀錄（24 個有工具步驟的回合、534 步）重放後，發現下面這些問題，都已修正：
+
+| 發現 | 案例 | 修正 |
+|---|---|---|
+| 捲動頁面、截圖被當成重複讀取，觸發 A→B→A→B | Roadster 續跑回合第 29–34 步 | 瀏覽器與截圖的結果依頁面狀態判斷（捲動位置、網址、截圖內容），換了位置就是新資訊 |
+| 每次修改後重看檔案尾巴被當成循環 | 同回合第 2–6 步 | `loop_repeat` 只在重複之間完全沒有進度時成立 |
+| 一直在讀、沒有產出的回合抓不到：偶爾一次新的讀取就把 K 歸零 | Roadster 第一次回合：58 步，沒寫任何檔案，反覆 `skill_view anatomy`、`ls`、讀同一份 report.md | 新規則 `exploration_stall`：最近 20 步沒有改任何檔案，且一半以上是重複的讀取或指令 → 請教（第 39 步觸發）；沒有驗收清單的回合，40 步沒產出也做健康檢查 |
+| 輪詢執行中的工作被當成循環 | 影片生成：查詢狀態都回 `"status": "working"` | 輸出顯示仍在進行的重複查詢算「等待」：不算進度也不算 K；連續 30 次 → `long_wait` |
+| 同一步改程式又改報告時 N 被降成 3 | 合成案例 | 連續只改檔案的這一段，N 取最近 8 步內碰過的檔案類型中最寬的一種；很早以前改過一次程式，不會讓之後一直改字的文件繼續用 N=8 |
+
+重放結果：
+- 原本撞到 60 步上限的回合（YouTube Roadster 分析，60 步）不會被中斷，只在第 41 步做一次健康檢查。
+- 產出 v3 報告與動畫的 53 步續跑回合沒有任何請教。這些產出由腳本生成，其中的 HTML 有 98% 是 SVG，判定為 code。
+- 釷基熔鹽反應爐的 90 步回合，只在第 41 和 81 步做健康檢查。
+- 沒有任何回合接近 300 步安全閥。
+- 「連續 15 步無進度」從未觸發，最長的無進度連續段是 6 步。
+- 真正的卡關都有被抓到：
+  - 58 步的探索停滯；
+  - 同一個失敗的 `skill_run` 重複 3 次（真循環）。
 
 ### 執行控制紀錄
 每一次請教、略過請教（原因：次數用完／這步已排定／距上次不到 5 步）、思維模型的回覆，以及停止，都是一筆紀錄：

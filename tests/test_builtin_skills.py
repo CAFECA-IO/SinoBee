@@ -321,3 +321,23 @@ def test_visual_check_renders_document_pages(tmp_path):
     shots = visual._render_doc(docx)
     assert shots and shots[0]["label"] == "r.docx 第 1 頁" and shots[0]["image"][:4] == b"\x89PNG"
     assert zipfile.is_zipfile(docx)
+
+
+def test_word_check_outside_sinobee_reads_table_text(tmp_path, monkeypatch):
+    """Without SinoBee importable (the skill copied elsewhere) the check used to read paragraphs only, so a short
+    document whose content is mostly a table was reported as empty."""
+    import builtins
+    import importlib.util
+    docx = _docx(tmp_path)
+    spec_ = importlib.util.spec_from_file_location("wd_run", SK / "word-documents" / "scripts" / "run.py")
+    mod = importlib.util.module_from_spec(spec_)
+    spec_.loader.exec_module(mod)
+    real = builtins.__import__
+
+    def no_sinobee(name, *a, **kw):
+        if name.startswith("sinobee"):
+            raise ImportError(name)
+        return real(name, *a, **kw)
+    monkeypatch.setattr(builtins, "__import__", no_sinobee)
+    text = mod._text(docx)
+    assert "功率 | 2 MWt" in text and len("".join(text.split())) >= 20

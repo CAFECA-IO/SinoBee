@@ -577,9 +577,10 @@ class Agent:
         self._control(stats, "consult", trigger,
                       f"思維模型 {model.label}：{reason or advice.splitlines()[0][:160] if advice else reason}",
                       decision=decision)
-        if trigger in ("no_progress", "loop_repeat", "loop_alternating", "file_oscillation", "repeated_error") \
+        if trigger in ("no_progress", "loop_repeat", "loop_alternating", "file_oscillation", "repeated_error",
+                       "exploration_stall", "long_wait") \
                 and getattr(self, "_progress", None):
-            self._progress.no_progress = 0          # the advice gets K fresh steps
+            self._progress.advised(stats.get("step", 0))   # the advice gets K fresh steps
         if decision == "stop":
             stats["give_up"] = reason or "思維模型判斷執行模型無法完成這個任務"
         if advice:
@@ -1056,10 +1057,16 @@ class Agent:
                 nudge = False
             request.append(Message("user", [TextPart("\n\n".join(t for t in tail if t), volatile=True)]))
             hs = self._progress.health_steps
-            if hs and steps > 1 and (steps - 1) % hs == 0 and not self._checklist_done():
-                self._request_consult(f"已執行 {steps - 1} 步仍未通過驗收", stats, "health_steps",
-                                      f"已執行 {steps - 1} 步，驗收清單尚未完成（健康水位每 {hs} 步檢查一次），"
-                                      "檢視是否需要原地拆分")
+            if hs and steps > 1 and (steps - 1) % hs == 0:
+                items = checklist_tools.get(self.ctx)
+                if items and checklist_tools.open_items(items):
+                    self._request_consult(f"已執行 {steps - 1} 步仍未通過驗收", stats, "health_steps",
+                                          f"已執行 {steps - 1} 步，驗收清單尚未完成（健康水位每 {hs} 步檢查一次），"
+                                          "檢視是否需要原地拆分")
+                elif not items and not self._progress.produced_within(hs):
+                    self._request_consult(f"已執行 {steps - 1} 步沒有任何產出", stats, "health_steps",
+                                          f"已執行 {steps - 1} 步，沒有驗收清單，最近 {hs} 步也沒有寫出任何檔案"
+                                          f"（健康水位每 {hs} 步檢查一次）")
             self._emit("thinking", {"iteration": iteration, "step": steps, "model": self._prov.label})
             try:
                 resp = await self._step_chat(request, tool_specs, max_tokens, stats)
@@ -1498,7 +1505,8 @@ class Agent:
         image_b64 = next((p.data for p in result.content if isinstance(p, ImagePart)), None) if has_image else None
         calls = getattr(self, "_step_calls", None)
         if calls is not None:
-            calls.append((call.name, call.arguments or {}, preview, bool(result.is_error) and not denied))
+            seen_text = preview + (f"\n[image {hash(image_b64) & 0xffffffff:08x}]" if image_b64 else "")   # a new picture is new
+            calls.append((call.name, call.arguments or {}, seen_text, bool(result.is_error) and not denied))
         self._emit("tool_result", {"id": call.id, "name": call.name, "error": result.is_error, "duration_s": elapsed,
                                    "preview": preview[:3000], "image": image_b64})
         if rec:

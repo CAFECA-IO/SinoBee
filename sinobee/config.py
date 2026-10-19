@@ -47,6 +47,9 @@ DEFAULTS: dict[str, Any] = {
             "health_steps": 40,     # every this many steps with the checklist still open: thinking-model check
             "safety_max_steps": 300,  # safety valve per agent - reaching it is a system anomaly (config.yaml only)
             "window": 8,            # steps looked at for loops
+            "stall_window": 20,     # steps without any file change in which ...
+            "stall_ratio": 0.5,     # ... this share of repeated reads / commands is a stall (exploration_stall)
+            "wait_limit": 30,       # polls of a running job in a row (output says still running) before long_wait
         },
         "model_deadline": 240,          # s a thinking / review call may take; after that it is skipped and recorded
         "plan": "auto",                 # auto | always | off: the thinking model plans before the first step (auto:

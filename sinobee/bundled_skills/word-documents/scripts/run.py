@@ -310,9 +310,13 @@ def _text(path: Path) -> str:
     try:
         from sinobee.docread import extract
         return extract(path)
-    except Exception:  # noqa: BLE001 - running outside SinoBee
+    except Exception:  # noqa: BLE001 - running outside SinoBee: paragraphs and table cells, in document order
         doc = _load(path)
-        return "\n".join(p.text for p in doc.paragraphs)
+        lines = [p.text for p in doc.paragraphs]
+        for t in doc.tables:
+            for row in t.rows:
+                lines.append(" | ".join(c.text for c in row.cells))
+        return "\n".join(lines)
 
 
 def facts(path: Path) -> dict:

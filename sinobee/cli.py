@@ -823,6 +823,33 @@ def _control_log_cmd(args) -> None:
                 print("    " + line)
 
 
+def _replay_cmd(args) -> None:
+    """Replay stored turns through the progress rules: what K / N would have done on real work."""
+    import json as _json
+    from .agent import replay as R
+    from .config import Config
+    from .memory.store import MemoryStore
+    cfg = Config.load()
+    if args.k:
+        cfg.data["agent"].setdefault("progress", {})["k"] = args.k
+    mem = MemoryStore(cfg.db_path)
+    rows = R.replay_sessions(mem, cfg, session=args.session, last=args.last)
+    if args.json:
+        print(_json.dumps({"summary": R.summary(rows), "turns": [{k: v for k, v in r.items() if k != "trace"}
+                                                                 for r in rows]}, ensure_ascii=False, indent=1))
+        return
+    for r in rows:
+        stop = f"  ⏹ {r['stop']['trigger']} @ {r['stop']['step']}" if r["stop"] else ""
+        print(f"{r['session_id'][:12]}#{r['turn']:<3} {r['steps']:>4} 步  有進度 {r['progress_steps']:>4}  "
+              f"最長無進度 {r['max_no_progress']:>3}  請教 {len(r['decisions'])}{stop}  {r['request'][:50]!r}")
+        for d in r["decisions"]:
+            print(f"      第 {d['step']} 步 {d['trigger']}: {d['detail'][:120]}")
+        if args.steps:
+            for t in r["trace"]:
+                print(f"      #{t['step']:<4} {'✓' if t['progress'] else '·'} {t['why'][:160]}")
+    print("\n" + _json.dumps(R.summary(rows), ensure_ascii=False, indent=1))
+
+
 def _failures_cmd(args) -> None:
     """Failure reports: what a task that did not finish did, step by step, and the thinking model's diagnosis."""
     import json as _json
@@ -969,6 +996,12 @@ def main(argv: list[str] | None = None) -> None:
     cl.add_argument("--stats", action="store_true", help="counts per event and trigger")
     cl.add_argument("--evidence", dest="verbose_evidence", action="store_true", help="show thresholds and evidence")
     cl.add_argument("--json", action="store_true")
+    rp = sub.add_parser("progress-replay", help="replay stored turns through the progress rules (no model calls)")
+    rp.add_argument("--session")
+    rp.add_argument("--last", type=int, default=50)
+    rp.add_argument("--k", type=int, help="try another K")
+    rp.add_argument("--steps", action="store_true", help="every step's verdict")
+    rp.add_argument("--json", action="store_true")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -1008,6 +1041,8 @@ def main(argv: list[str] | None = None) -> None:
         _failures_cmd(args)
     elif args.cmd == "control-log":
         _control_log_cmd(args)
+    elif args.cmd == "progress-replay":
+        _replay_cmd(args)
 
 
 if __name__ == "__main__":

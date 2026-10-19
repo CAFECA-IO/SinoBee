@@ -35,7 +35,7 @@ from pathlib import Path, PurePath
 log = logging.getLogger("sinobee.control")
 
 DEFAULTS = {"k": 15, "n_code": 8, "n_document": 3, "n_other": 5, "health_steps": 40, "safety_max_steps": 300,
-            "window": 8}
+            "window": 8, "stall_window": 20, "stall_ratio": 0.5, "wait_limit": 30}
 
 # ------------------------------------------------------------------------------------------------ file types
 CODE_EXT = {
@@ -67,6 +67,9 @@ CODE_DIRS = {"src", "lib", "app", "apps", "components", "pages", "routes", "view
              "web", "ui", "widgets", "layouts", "partials", "includes", "assets", "node_modules", "site-packages"}
 DOC_DIRS = {"docs", "doc", "documentation", "report", "reports", "notes", "drafts", "articles", "posts", "content",
             "blog", "writing", "papers", "manuscript", "chapters", "outputs", "output", "deliverables"}
+POLL = re.compile(r'"status"\s*:\s*"(?:working|running|pending|queued|processing|in_progress|started|waiting)"|'
+                  r"\b(?:still (?:running|working|processing)|in progress|queued|pending|processing\.\.\.|waiting for)\b|"
+                  r"處理中|進行中|排隊中|生成中|渲染中|等待中", re.I)
 SHEBANG = re.compile(r"^#!\s*/\S+")
 TEMPLATE_MARK = re.compile(r"\{\{|\{%|<%|\bv-(?:if|for|bind|model)\b|\bng-[a-z]+=|\bx-data\b|@click|:class=")
 
@@ -264,6 +267,7 @@ def error_class(text: str) -> str:
     return first.strip()[:120]
 
 
+STATEFUL_TOOLS = {"browser", "screenshot", "screen_info"}
 READ_TOOLS = {"read_file", "list_dir", "search_files", "web_search", "web_fetch", "skill_view", "skill_search",
               "board_read", "memory_search", "session_search", "session_read", "db_list", "db_schema", "db_query",
               "screenshot", "screen_info", "usage_stats", "memory_stats", "job_list", "browser", "working_memory"}
@@ -289,13 +293,20 @@ class Tracker:
         self.health_steps = int(cfg["health_steps"])
         self.safety_max = int(cfg["safety_max_steps"])
         self.window = int(cfg["window"])
+        self.stall_window = int(cfg.get("stall_window", 20))
+        self.stall_ratio = float(cfg.get("stall_ratio", 0.5))
+        self.advised_at = 0                      # the step the thinking model last advised at
+        self.wait_limit = int(cfg.get("wait_limit", 30))
+        self.waits = 0                           # polls in a row that say the job is still running
         self.read_file = read_file or (lambda p: Path(p).read_text(encoding="utf-8", errors="replace")[:2_000_000])
         self.files: dict[str, dict] = {}        # path -> {kind, why, digest, history[digests], shape}
         self.seen_reads: set[str] = set()
         self.seen_runs: set[str] = set()
+        self.page_state = ""                     # digest of the last browser answer (scroll, URL, elements)
         self.test_sig: str | None = None
         self.checklist_sig: str | None = None
         self.file_only = 0                       # steps in a row with only file changes
+        self.streak_kinds: list[set] = []        # file kinds touched in each step of that streak
         self.no_progress = 0                     # steps in a row without progress
         self.last_progress_step = 0
         self.trace: list[dict] = []              # one entry per step
@@ -346,7 +357,7 @@ class Tracker:
     def observe(self, step: int, calls: list[tuple], checklist: list[dict] | None = None,
                 resolve=None) -> dict:
         """calls: [(name, arguments, result_text, is_error)]. Returns the step's verdict (also kept in trace)."""
-        strong, weak_files, info, nothing = [], [], [], []
+        strong, weak_files, info, nothing, waiting = [], [], [], [], []
         kinds = []
         err = None
         for name, args, text, is_error in calls:
@@ -387,7 +398,9 @@ class Tracker:
                     nothing.append(f"測試結果沒變（{ts}）")
                     continue
                 key = _sig([name, args, _digest(text or "")])
-                if key in self.seen_runs:
+                if key in self.seen_runs and POLL.search((text or "")[-3000:]):
+                    waiting.append(f"{name} 等待中（輸出顯示工作仍在進行）")
+                elif key in self.seen_runs:
                     nothing.append(f"{name} 重複執行，輸出相同")
                 else:
                     self.seen_runs.add(key)
@@ -396,7 +409,18 @@ class Tracker:
             if name in STRONG_TOOLS:
                 strong.append(STRONG_TOOLS[name])
                 continue
-            key = _sig([name, args])
+            if name in STATEFUL_TOOLS:
+                # the browser's answer depends on the page's state (scroll position, URL, what was clicked): the
+                # same call is new information when the page changed; a screenshot is as new as the page state
+                # before it (its text says only "Browser screenshot of <url>")
+                state = _digest(text or "")
+                if "screenshot" in json.dumps(args, ensure_ascii=False) or name == "screenshot":
+                    state = _sig([state, self.page_state])
+                else:
+                    self.page_state = state
+                key = _sig([name, args, state])
+            else:
+                key = _sig([name, args])
             if key in self.seen_reads:
                 nothing.append(f"{name} 重複讀取")
             else:
@@ -414,24 +438,41 @@ class Tracker:
         if strong:
             progress, why = True, "；".join(strong)
             self.file_only = 0
+            self.streak_kinds = []
         elif weak_files:
             self.file_only += 1
-            n = self.n.get(kind or "other", self.n["other"])
+            self.streak_kinds.append(set(kinds) or {"other"})
+            # the streak's N comes from the main output being edited: the most tolerant kind touched in the last
+            # n_code steps. A task that edits code and writes its report (in one step or alternating) keeps the code
+            # N=8; a stray code edit long ago does not keep relaxing a document that is only being reworded.
+            recent = set().union(*self.streak_kinds[-max(self.n.values()):])
+            kind = max(recent, key=lambda k: self.n.get(k, self.n["other"]))
+            n = self.n.get(kind, self.n["other"])
+            mixed = f"，本段涉及 {'+'.join(sorted(recent))}，取最寬的 {kind}" if len(recent) > 1 else ""
             progress = self.file_only <= n
-            why = (f"只有檔案修改 {self.file_only}/{n} 步（{kind}）：" + "；".join(weak_files)) if progress else \
-                (f"只有檔案修改已連續 {self.file_only} 步，超過 {kind} 的容忍 N={n}：" + "；".join(weak_files))
+            why = (f"只有檔案修改 {self.file_only}/{n} 步（{kind}{mixed}）：" + "；".join(weak_files)) if progress else \
+                (f"只有檔案修改已連續 {self.file_only} 步，超過 {kind} 的容忍 N={n}{mixed}：" + "；".join(weak_files))
         elif info and not err:
             progress, why = True, "；".join(info)
         else:
             progress, why = False, "；".join(nothing) or "沒有任何變化"
+        # polling a running job (a render, a build, a download) is waiting, not looping: it neither counts as
+        # progress nor toward K; a wait of wait_limit polls in a row asks the thinking model (long_wait)
+        wait = not progress and waiting and not nothing and not err
+        if wait:
+            why = "；".join(waiting)
+            self.waits += 1
+        else:
+            self.waits = 0
         if progress:
             self.no_progress = 0
             self.last_progress_step = step
-        else:
+        elif not wait:
             self.no_progress += 1
         step_sig = _sig(sorted([(n, a) for n, a, _, _ in calls], key=lambda x: x[0] + json.dumps(x[1], sort_keys=True, default=str)))
         self.step_sigs.append(step_sig)
         verdict = {"step": step, "progress": progress, "strong": bool(strong), "why": why[:400], "kind": kind,
+                   "waiting": wait,
                    "file_only": self.file_only, "no_progress": self.no_progress}
         self.trace.append(verdict)
         del self.trace[:-400]
@@ -443,15 +484,25 @@ class Tracker:
         recent = self.trace[-self.window:]
         sigs = self.step_sigs[-self.window:]
         cur = self.trace[-1]
+        if cur.get("waiting"):
+            if self.waits >= self.wait_limit:
+                return {"trigger": "long_wait",
+                        "detail": f"已連續 {self.waits} 次查詢工作狀態，輸出都顯示仍在進行（門檻 {self.wait_limit} 次）"}
+            return None
         if not cur["progress"] and sigs.count(sigs[-1]) >= 3:
             same = [t["step"] for t, s in zip(recent, sigs) if s == sigs[-1]]
-            return {"trigger": "loop_repeat",
-                    "detail": f"同一組操作在最近 {len(sigs)} 步內出現 {len(same)} 次（第 {', '.join(map(str, same))} 步），且沒有產生進度"}
+            between = [t for t in recent if same[-3] < t["step"] < same[-1]]
+            # only a loop when nothing moved in between: re-reading a file after each edit that changed it is
+            # checking, not looping (Roadster turn 4, steps 2-6)
+            if not any(t["progress"] for t in between):
+                return {"trigger": "loop_repeat",
+                        "detail": f"同一組操作在最近 {len(sigs)} 步內出現 {len(same)} 次（第 {', '.join(map(str, same))} 步），"
+                                  "期間沒有任何進度"}
         if len(sigs) >= 4 and sigs[-1] == sigs[-3] and sigs[-2] == sigs[-4] and sigs[-1] != sigs[-2] \
-                and not any(t["strong"] for t in recent[-4:]):
+                and not any(t["progress"] for t in recent[-4:]):
             steps = [t["step"] for t in recent[-4:]]
             return {"trigger": "loop_alternating",
-                    "detail": f"兩組操作交替重複 A→B→A→B（第 {', '.join(map(str, steps))} 步），期間沒有實質進度"}
+                    "detail": f"兩組操作交替重複 A→B→A→B（第 {', '.join(map(str, steps))} 步），每一步都沒有進度"}
         rv = [s for s in self.reverts if step - s < self.window]
         if len(rv) >= 2 and rv[-1] == step:
             return {"trigger": "file_oscillation",
@@ -459,7 +510,29 @@ class Tracker:
         errs = self.errors[-3:]
         if len(errs) == 3 and errs[0] and errs.count(errs[0]) == 3:
             return {"trigger": "repeated_error", "detail": f"連續 3 步出現相同的錯誤：{errs[0][:100]}"}
+        # exploring without producing: in the last stall_window steps (since the last advice) no file was changed and
+        # nothing strong happened, and most steps re-read what was already read. New reads in between keep
+        # resetting the K count, so this needs its own rule (the stalled Roadster turn: 58 steps, no file written,
+        # skill_view anatomy / ls / the same report read over and over)
+        w = self.stall_window
+        span = [t for t in self.trace[-w:] if t["step"] > self.advised_at]
+        if len(span) >= w and not cur["progress"] and not any(t["strong"] or t["file_only"] for t in span):
+            idle = sum(1 for t in span if not t["progress"])
+            if idle >= self.stall_ratio * w:
+                return {"trigger": "exploration_stall",
+                        "detail": f"最近 {w} 步（第 {span[0]['step']}–{span[-1]['step']} 步）沒有寫任何檔案，"
+                                  f"其中 {idle} 步是重複的讀取或指令（門檻 {int(self.stall_ratio * 100)}%）"}
         return None
+
+    def produced_within(self, n: int) -> bool:
+        """Whether any of the last n steps changed a file or made strong progress."""
+        return any(t["strong"] or t["file_only"] for t in self.trace[-n:])
+
+    def advised(self, step: int) -> None:
+        """The thinking model just advised: the advice gets K fresh steps and a fresh stall window."""
+        self.no_progress = 0
+        self.advised_at = step
+        self.waits = 0
 
 
 # ------------------------------------------------------------------------------------------------ control log
@@ -469,6 +542,8 @@ TRIGGERS = {
     "loop_alternating": "兩組操作交替重複",
     "file_oscillation": "檔案反覆改回先前版本",
     "repeated_error": "相同錯誤連續出現",
+    "exploration_stall": "反覆探索、沒有產出",
+    "long_wait": "等待工作完成過久",
     "consecutive_errors": "工具連續失敗",
     "repeated_failed_call": "重複執行已失敗的操作",
     "health_steps": "里程碑健康水位：步數",

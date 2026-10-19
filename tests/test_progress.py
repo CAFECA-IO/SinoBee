@@ -177,12 +177,27 @@ def test_loops_are_noticed_at_once(tmp_path):
         v = t.observe(i, [("read_file", {"path": "a.txt"}, "same", False)])
     assert v["loop"]["trigger"] == "loop_repeat" and "3 次" in v["loop"]["detail"]
 
+    t = tracker(tmp_path)                                  # two different failing commands, alternating
+    a = ("shell", {"command": "npm run build"}, "[exit 1] cwd=/w\nModule not found: x", True)
+    b = ("shell", {"command": "npm install x"}, "[exit 1] cwd=/w\nE404 not found", True)
+    out = [t.observe(i, [c]) for i, c in enumerate([a, b, a, b], 1)]
+    assert out[-1]["loop"]["trigger"] == "loop_alternating" and "A→B→A→B" in out[-1]["loop"]["detail"]
+    # re-reading a file after each edit that changed it is checking, not looping (Roadster turn 4, steps 2-6)
     t = tracker(tmp_path)
-    t.observe(1, [write(tmp_path, "x.py", "A")])
-    run = ("shell", {"command": "python x.py"}, "boom", False)
-    out = [t.observe(i, [write(tmp_path, "x.py", "B" if i % 2 else "A"), run]) for i in range(2, 8)]
-    loops = [v["loop"] for v in out if v["loop"]]
-    assert loops and loops[0]["trigger"] == "loop_alternating" and "A→B→A→B" in loops[0]["detail"]
+    tail = ("shell", {"command": "tail -n 10 build.mjs"}, "</html>\\`;", False)
+    seq = [[tail], [write(tmp_path, "build.mjs", "v1")], [tail], [write(tmp_path, "build.mjs", "v2")], [tail]]
+    assert not any(t.observe(i, c)["loop"] for i, c in enumerate(seq, 1))
+    # scrolling a page and taking screenshots is reading new parts of it, not a loop (Roadster turn 4, steps 29-34)
+    t = tracker(tmp_path)
+    shots = []
+    for i, y in enumerate([0, 0, 720, 720, 1440, 1440], 1):
+        if i % 2:
+            shots.append(t.observe(i, [("browser", {"action": "scroll", "direction": "down"}, f"Page: R\nScroll: {y}/9000", False)]))
+        else:
+            shots.append(t.observe(i, [("browser", {"action": "screenshot"}, "Browser screenshot of file:///r.html", False)]))
+    assert all(v["progress"] and not v["loop"] for v in shots)
+    v = t.observe(7, [("browser", {"action": "scroll", "direction": "down"}, "Page: R\nScroll: 1440/9000", False)])
+    assert not v["progress"]                               # at the bottom: nothing new
     t2 = tracker(tmp_path)
     t2.observe(1, [write(tmp_path, "y.py", "A")])
     seq = ["B", "A", "C", "A", "B"]                        # A comes back twice among other edits
@@ -331,3 +346,100 @@ def test_control_log_api_and_cli(home, config, capsys):
     main(["control-log", "--trigger", "loop_repeat", "--evidence"])
     out = capsys.readouterr().out
     assert "同一操作重複且沒有進度" in out and "detail 1" in out
+
+
+def test_code_and_report_in_one_task_keep_the_code_n(tmp_path):
+    """A task that fixes code and writes its report must not be judged by the document N=3."""
+    t = tracker(tmp_path)
+    t.observe(1, [write(tmp_path, "calc.py", "v0"), write(tmp_path, "REPORT.md", "# 報告\n\n" + "內容" * 300)])
+    both = [t.observe(i, [write(tmp_path, "calc.py", f"v{i}"), write(tmp_path, "REPORT.md", "# 報告\n\n" + "內容" * 300 + "改" * i)])
+            for i in range(2, 10)]
+    assert all(v["progress"] for v in both) and "code+document" in both[-1]["why"] and "N=8" not in both[-1]["why"]
+    assert "8/8" in both[-1]["why"]
+    t = tracker(tmp_path)                                  # alternating steps: .py, .md, .py, .md ...
+    t.observe(1, [write(tmp_path, "a.py", "v0")])
+    t.observe(2, [write(tmp_path, "a.md", "# A\n\n" + "字" * 400)])
+    alt = [t.observe(i, [write(tmp_path, "a.py", f"v{i}") if i % 2 else write(tmp_path, "a.md", "# A\n\n" + "字" * 400 + "改" * i)])
+           for i in range(3, 11)]
+    assert all(v["progress"] for v in alt)
+    t = tracker(tmp_path)                                  # one early code edit does not relax a reworded document forever
+    t.observe(1, [write(tmp_path, "b.md", "# B\n\n" + "字" * 400)])
+    t.observe(2, [write(tmp_path, "b.py", "x = 1")])
+    t.observe(3, [write(tmp_path, "b.py", "x = 2")])
+    doc = [t.observe(i, [write(tmp_path, "b.md", "# B\n\n" + "字" * 400 + "改" * i)]) for i in range(4, 14)]
+    stalled = [v for v in doc if not v["progress"]]
+    assert stalled and "document" in stalled[0]["why"] and "N=3" in stalled[0]["why"]
+
+
+async def test_replay_reproduces_the_live_decisions(home, config):
+    """The offline replay (stored transcript only) reaches the same consult as the live turn."""
+    from sinobee.agent import replay as R
+    config.data["agent"]["progress"] = {**P.DEFAULTS, "k": 4}
+    config.data["agent"]["consult_max"] = 1
+    config.data["agent"]["failure_diagnosis"] = False
+    base = "# 報告\n\n" + "內容" * 300
+    steps = [msg("", [("write_file", {"path": "report.md", "content": base})])]
+    steps += [msg("", [("write_file", {"path": "report.md", "content": base + "改" * i})]) for i in range(1, 30)]
+    rt, agent, events = run_agent(config, ScriptedProvider(steps), ScriptedProvider([msg("改章節\nDECISION: continue")]))
+    await agent.run("寫一份報告到 report.md")
+    live = [(d["step"], d["trigger"]) for k, d in events if k == "control" and d["event"] == "consult_requested"]
+    rows = R.replay_sessions(rt.memory, config, session=agent.session_id)
+    assert rows and [(d["step"], d["trigger"]) for d in rows[0]["decisions"]] == live
+    assert rows[0]["stop"]["trigger"] == "advice_exhausted"
+    s = R.summary(rows)
+    assert s["turns"] == 1 and s["consults"] == {"no_progress": 1} and s["near_safety_valve"] == []
+
+
+def test_exploring_without_producing_is_a_stall(tmp_path):
+    """The stalled Roadster turn: 58 steps, no file written, the same skill / folder / report read again and again
+    with a few new reads in between - those kept resetting the K count, so it needs its own rule."""
+    t = tracker(tmp_path)
+    reads = [("skill_view", {"name": "anatomy"}), ("shell", {"command": "ls -la"}),
+             ("read_file", {"path": "reports/youtube/report.md"}), ("working_memory", {"action": "view"})]
+    out = []
+    for i in range(1, 41):
+        name, args = reads[i % 4] if i % 5 else ("shell", {"command": f"ls dir{i}"})   # every 5th step is new
+        out.append(t.observe(i, [(name, args, "same output", False)]))
+    stall = next((v for v in out if v["loop"] and v["loop"]["trigger"] == "exploration_stall"), None)
+    assert stall and "沒有寫任何檔案" in stall["loop"]["detail"] and max(v["no_progress"] for v in out) < 15
+    t.advised(stall["step"])                                  # advice opens a fresh window
+    assert not t._loop(stall["step"] + 1) or t._loop(stall["step"] + 1)["trigger"] != "exploration_stall"
+    # research that keeps reading NEW sources is not a stall
+    r = tracker(tmp_path)
+    vs = [r.observe(i, [("web_fetch", {"url": f"https://example.com/{i}"}, f"page {i}", False)]) for i in range(1, 41)]
+    assert not any(v["loop"] for v in vs)
+
+
+def test_polling_a_running_job_is_waiting_not_a_loop(tmp_path):
+    """The video render: the same status command, output still "working" - neutral for K and loops; a very long
+    wait asks the thinking model (long_wait)."""
+    t = tracker(tmp_path, wait_limit=6)
+    poll = ("skill_run", {"name": "ai-video-production", "script": "scripts/status.py"},
+            '{\n "status": "working",\n "done": 3}', False)
+    out = [t.observe(i, [poll]) for i in range(1, 7)]
+    assert out[0]["progress"] and all(v["waiting"] for v in out[1:]) and t.no_progress == 0
+    assert not any(v["loop"] for v in out[:-1]) and out[-1]["loop"] is None
+    v = t.observe(7, [poll])
+    assert v["loop"]["trigger"] == "long_wait" and "6 次" in v["loop"]["detail"]
+    # the same command with an unchanged non-running output is a repeat, not a wait
+    r = tracker(tmp_path)
+    same = ("shell", {"command": "cat out.txt"}, "hello", False)
+    vs = [r.observe(i, [same]) for i in range(1, 4)]
+    assert not vs[-1]["waiting"] and vs[-1]["loop"]["trigger"] == "loop_repeat"
+
+
+async def test_an_agent_fixing_code_and_writing_its_report_is_not_stopped(home, config):
+    """End to end: every step edits calc.py AND rewords REPORT.md (no structural change). With K=4 a document-only
+    N=3 would stall it after step 4; the code N=8 must hold."""
+    config.data["agent"]["progress"] = {**P.DEFAULTS, "k": 4}
+    report = "# 修正報告\n\n" + "說明" * 300
+    steps = [msg("", [("write_file", {"path": "calc.py", "content": "x = 0"}),
+                      ("write_file", {"path": "REPORT.md", "content": report})])]
+    steps += [msg("", [("write_file", {"path": "calc.py", "content": f"x = {i}"}),
+                       ("write_file", {"path": "REPORT.md", "content": report + "補" * i})]) for i in range(1, 9)]
+    steps.append(msg("修好了，報告也寫了"))
+    rt, agent, events = run_agent(config, ScriptedProvider(steps))
+    assert await agent.run("修 calc.py 並寫修正報告") == "修好了，報告也寫了"
+    assert agent.last_status["status"] == "done" and not [d for k, d in events if k == "control"]
+    trace = agent._progress.trace
+    assert "code+document" in trace[-1]["why"] and "8/8" in trace[-1]["why"]
