@@ -296,6 +296,18 @@ def register(app: FastAPI, rt_getter) -> None:
         rt = rt_getter()
         return {"checked": PRICES_CHECKED, "rows": table(rt.config.get("pricing") or {})}
 
+    @app.get("/api/usage/year")
+    async def usage_year():
+        """Tokens per day for the last 53 weeks (the year heatmap in Settings > SinoBee.ai account)."""
+        import asyncio as _a
+        rows = await _a.to_thread(rt_getter().memory.usage_year, 371)
+        active = [r for r in rows if r["tokens"] > 0]
+        peak = max(active, key=lambda r: r["tokens"], default=None)
+        return {"days": rows, "total": sum(r["tokens"] for r in rows),
+                "sub_total": sum(r["sub_tokens"] for r in rows), "active_days": len(active),
+                "peak": {"day": peak["day"], "tokens": peak["tokens"]} if peak else None,
+                "cap_days": sum(1 for r in rows if (r["max6h"] or 0) >= 95)}
+
     @app.get("/api/usage")
     async def usage(days: int = 30):
         rt = rt_getter()

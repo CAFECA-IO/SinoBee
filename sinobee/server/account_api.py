@@ -90,4 +90,11 @@ def register(app: FastAPI, rt) -> None:
                            [cfg.get("model.default"), *(cfg.get("model.fallbacks") or [])]),
              "fetched_at": time.time()}
         state["quota"] = (time.time(), q, account.token(cfg))
+        if q.get("status") == "ok":
+            w6 = next((w for w in q.get("windows") or [] if w.get("window") == "6h"), None)
+            if w6 and w6.get("usedPct") is not None:
+                try:
+                    rt().memory.mark_quota(w6["usedPct"])
+                except Exception:  # noqa: BLE001
+                    pass
         return q

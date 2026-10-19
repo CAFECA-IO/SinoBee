@@ -131,6 +131,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(msg_id UNINDEXED, ses
 CREATE TABLE IF NOT EXISTS skill_stats(
   name TEXT PRIMARY KEY, uses INTEGER DEFAULT 0, successes INTEGER DEFAULT 0, failures INTEGER DEFAULT 0,
   last_used REAL, needs_revision INTEGER DEFAULT 0, notes TEXT DEFAULT '[]');
+CREATE TABLE IF NOT EXISTS quota_marks(
+  day TEXT PRIMARY KEY, max6h REAL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS usage(
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, session_id TEXT, purpose TEXT, provider TEXT, model TEXT,
   input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cache_read_tokens INTEGER DEFAULT 0,
@@ -765,6 +767,35 @@ class MemoryStore:
                 (ts or time.time(), session_id, purpose, provider, model, input_tokens, output_tokens,
                  cache_read_tokens, cache_write_tokens, cost_usd, price_source))
             self.db.commit()
+
+    def mark_quota(self, used_6h_pct: float, ts: float | None = None) -> None:
+        """The highest share of the SinoBee.ai 6-hour window seen on a day (the year heatmap marks days that hit it)."""
+        try:
+            pct = float(used_6h_pct)
+        except (TypeError, ValueError):
+            return
+        day = time.strftime("%Y-%m-%d", time.localtime(ts or time.time()))
+        with self._lock:
+            self.db.execute("INSERT INTO quota_marks(day, max6h) VALUES(?, ?) ON CONFLICT(day) DO UPDATE SET "
+                            "max6h = MAX(max6h, excluded.max6h)", (day, pct))
+            self.db.commit()
+
+    def usage_year(self, days: int = 371) -> list[dict]:
+        """Tokens per local day for the last `days` days: all models, the SinoBee.ai subscription's share, and the
+        highest 6-hour quota share seen that day."""
+        since = time.time() - days * 86400
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT date(ts, 'unixepoch', 'localtime') AS day, COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens, "
+                "COALESCE(SUM(CASE WHEN provider = 'sinobee' THEN input_tokens + output_tokens ELSE 0 END), 0) AS sub_tokens, "
+                "COUNT(*) AS calls FROM usage WHERE ts >= ? AND purpose != 'embedding' GROUP BY day", (since,)).fetchall()
+            marks = {r["day"]: r["max6h"] for r in self.db.execute("SELECT day, max6h FROM quota_marks WHERE day >= ?",
+                                                                    (time.strftime("%Y-%m-%d", time.localtime(since)),))}
+        out = {r["day"]: {"day": r["day"], "tokens": r["tokens"], "sub_tokens": r["sub_tokens"], "calls": r["calls"],
+                          "max6h": marks.get(r["day"])} for r in rows}
+        for d, m in marks.items():
+            out.setdefault(d, {"day": d, "tokens": 0, "sub_tokens": 0, "calls": 0, "max6h": m})
+        return [out[d] for d in sorted(out)]
 
     _AGG = ("COUNT(*) AS calls, COALESCE(SUM(input_tokens),0) AS input_tokens, "
             "COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens, "

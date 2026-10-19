@@ -14,13 +14,13 @@
 <style>
 :root,:root[data-theme="dark"]{--bg:#060d1b;--panel:#0b1627;--panel2:#0f1e33;--ink:#e3f3ec;--muted:#86a0a4;--line:#1a2b42;--accent:#6fe3b0;--accent2:#2fb3a0;
 --accent-ink:#04201a;--user:#0f2a35;--tool:#0e1b2d;--err:#ff7d88;--ok:#6fe3b0;--code:#08121f;--chart:#4fd1a5;--grid:#15263b;--warn:#ffc56b;
---glow:rgba(111,227,176,.10);--accent-solid:#6fe3b0;--on-accent:#04201a;--ht-a:.55;--cap-vis:#8ab4ff;--cap-think:#d6a8ff;--shadow:0 18px 50px rgba(0,0,0,.45);color-scheme:dark}
+--hm0:#11213a;--hm1:#1d4a45;--hm2:#2a7a62;--hm3:#46b386;--hm4:#8ff0c4;--glow:rgba(111,227,176,.10);--accent-solid:#6fe3b0;--on-accent:#04201a;--ht-a:.55;--cap-vis:#8ab4ff;--cap-think:#d6a8ff;--shadow:0 18px 50px rgba(0,0,0,.45);color-scheme:dark}
 :root[data-theme="light"]{--bg:#f1f8f5;--panel:#ffffff;--panel2:#f6fbf9;--ink:#0b1528;--muted:#577078;--line:#d4e5de;--accent:#119c84;--accent2:#2fb3a0;
 --accent-ink:#04201a;--user:#e0f5ea;--tool:#eaf3ef;--err:#c4283a;--ok:#0f8a63;--code:#e8f1ed;--chart:#22a88a;--grid:#e1ece7;--warn:#a45b00;
---glow:rgba(47,179,160,.10);--accent-solid:#0b7a66;--on-accent:#ffffff;--ht-a:.32;--cap-vis:#2f5fd0;--cap-think:#8a3fcf;--shadow:0 18px 50px rgba(6,13,27,.16);color-scheme:light}
+--hm0:#e6efeb;--hm1:#b6e3d3;--hm2:#6cc7a8;--hm3:#1f9e7d;--hm4:#0b6b55;--glow:rgba(47,179,160,.10);--accent-solid:#0b7a66;--on-accent:#ffffff;--ht-a:.32;--cap-vis:#2f5fd0;--cap-think:#8a3fcf;--shadow:0 18px 50px rgba(6,13,27,.16);color-scheme:light}
 @media (prefers-color-scheme:light){:root[data-theme="auto"]{--bg:#f1f8f5;--panel:#ffffff;--panel2:#f6fbf9;--ink:#0b1528;--muted:#577078;--line:#d4e5de;--accent:#119c84;--accent2:#2fb3a0;
 --accent-ink:#04201a;--user:#e0f5ea;--tool:#eaf3ef;--err:#c4283a;--ok:#0f8a63;--code:#e8f1ed;--chart:#22a88a;--grid:#e1ece7;--warn:#a45b00;
---glow:rgba(47,179,160,.10);--accent-solid:#0b7a66;--on-accent:#ffffff;--ht-a:.32;--cap-vis:#2f5fd0;--cap-think:#8a3fcf;--shadow:0 18px 50px rgba(6,13,27,.16);color-scheme:light}}
+--hm0:#e6efeb;--hm1:#b6e3d3;--hm2:#6cc7a8;--hm3:#1f9e7d;--hm4:#0b6b55;--glow:rgba(47,179,160,.10);--accent-solid:#0b7a66;--on-accent:#ffffff;--ht-a:.32;--cap-vis:#2f5fd0;--cap-think:#8a3fcf;--shadow:0 18px 50px rgba(6,13,27,.16);color-scheme:light}}
 [hidden]{display:none!important}
 *{box-sizing:border-box}html,body{height:100%;margin:0}
 body{background:radial-gradient(900px 520px at 100% 115%,var(--glow),transparent 65%),var(--bg);color:var(--ink);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;
@@ -577,12 +577,25 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   #form{padding-left:10px;padding-right:10px}
 }
 /* SinoBee.ai subscription: quota rings */
-.qring{display:inline-flex;align-items:center;gap:8px;min-width:0}.qring svg{flex:none;display:block}
-.qring .qr-bg{stroke:var(--grid)}.qring .qr-fg{stroke:var(--accent);transition:stroke-dashoffset .5s ease}
-.qring.warn .qr-fg{stroke:var(--warn)}.qring.full .qr-fg{stroke:var(--err)}
-.qring .qr-pct{font:600 11px/1 ui-sans-serif,system-ui;fill:var(--ink)}
-.qring .qr-t{display:flex;flex-direction:column;gap:2px;font-size:12px;min-width:0}.qring .qr-t b{font-size:12px}.qring .qr-t span{color:var(--muted);font-size:11px}
-.qrings{display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+.qwins{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media (max-width:560px){.qwins{grid-template-columns:1fr}}
+.qwin{--c:var(--accent);min-width:0}.qwin.warn{--c:var(--warn)}.qwin.full{--c:var(--err)}
+.qw-h{display:flex;justify-content:space-between;gap:8px;font-size:12px}.qw-h b{color:var(--c);font-variant-numeric:tabular-nums}
+.qw-bar{height:8px;border-radius:4px;background:var(--grid);margin-top:5px;overflow:hidden}.qw-bar i{display:block;height:100%;background:var(--c);border-radius:4px;transition:width .5s ease}
+.qw-f{font-size:11px;color:var(--muted);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.yr{position:relative;margin-top:14px}.yr:empty{display:none}
+.yr-sum{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:6px}.yr-sum b{color:var(--ink);font-weight:600}
+.yr-scroll{overflow-x:auto;padding-bottom:2px}
+.yr-months,.yr-grid{display:grid;grid-template-columns:repeat(53,10px);gap:3px}.yr-months{font-size:10px;color:var(--muted);height:14px;margin-bottom:2px}.yr-months span{white-space:nowrap}
+.yr-grid{grid-template-rows:repeat(7,10px)}
+.yr-grid i,.yr-legend i{width:10px;height:10px;border-radius:2px;background:var(--hm0);display:inline-block}
+.yr i[data-l="1"]{background:var(--hm1)}.yr i[data-l="2"]{background:var(--hm2)}.yr i[data-l="3"]{background:var(--hm3)}.yr i[data-l="4"]{background:var(--hm4)}
+.yr i.hm-cap{outline:1.5px solid var(--warn);outline-offset:-1.5px}
+.yr-legend{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
+.yr-tip{position:absolute;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:11px;white-space:nowrap;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.25);z-index:3}
+.qshare.ok,.qshare.warn,.qshare.full{display:inline-flex;align-items:center;gap:6px;vertical-align:middle}
+.qshare.ok{--c:var(--accent)}.qshare.warn{--c:var(--warn)}.qshare.full{--c:var(--err)}.qshare .qs-t{color:var(--c);font-variant-numeric:tabular-nums}
+.qs-bar{position:relative;width:64px;height:6px;border-radius:3px;background:var(--grid);overflow:hidden;display:inline-block}
+.qs-bar i{position:absolute;top:0;bottom:0}.qs-bar .qs-before{left:0;background:color-mix(in srgb,var(--c) 45%,var(--grid))}.qs-bar .qs-me{background:var(--c)}
 #quotaBar{margin:0 10px 6px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);font-size:12px;display:flex;flex-direction:column;gap:6px;cursor:pointer;position:relative;z-index:1}
 #quotaBar[hidden]{display:none}#quotaBar .qb-h{display:flex;align-items:center;gap:6px}#quotaBar .qb-h b{font-size:12px}
 #quotaBar .qb-h .badge{margin-left:auto}#quotaBar .qwarn{color:var(--warn)}#quotaBar .qerr{color:var(--err)}
@@ -1413,11 +1426,21 @@ function fmtDur(s){
   s = +s || 0;
   return s >= 3600 ? `${Math.floor(s / 3600)} 小時 ${Math.round(s % 3600 / 60)} 分` : s >= 60 ? `${Math.floor(s / 60)} 分 ${Math.round(s % 60)} 秒` : `${Math.round(s * 10) / 10} 秒`;
 }
+/** this answer's share of the 6-hour window next to what was used before it (a two-part mini bar) */
+function quotaShare(u){
+  const me = Math.max(0, +u.quota_6h_pct || 0), after = u.quota?.['6h'];
+  if (after == null) return `<span class="qshare" title="這次回答用掉 SinoBee.ai 訂閱 6 小時額度的比例">額度 ${fmtPct(me)}</span>`;
+  const used = Math.min(100, +after || 0), before = Math.max(0, used - me), lvl = used >= 90 ? 'full' : used >= 70 ? 'warn' : 'ok';
+  return `<span class="qshare ${lvl}" role="img" aria-label="這次用掉 6 小時額度的 ${fmtPct(me)}，目前已用 ${fmtPct(used)}"
+    title="這次之前已用 ${fmtPct(before)}，這次 ${fmtPct(me)}，目前已用 ${fmtPct(used)}"><span class="qs-t">額度 ${fmtPct(me)}</span>
+    <span class="qs-bar"><i class="qs-before" style="width:${before}%"></i><i class="qs-me" style="left:${before}%;width:${Math.min(me, 100 - before)}%"></i></span>
+    <span>已用 ${fmtPct(used)}</span></span>`;
+}
 function resultCard(ev){
   const u = ev.usage || {};
   const meta = [ev.steps ? `${ev.steps} 步` : '', ev.duration_s != null ? fmtDur(ev.duration_s) : '',
     u.calls ? `${fmtTok((u.input_tokens || 0) + (u.output_tokens || 0))} tokens` : '',
-    u.quota_6h_pct != null ? `<span class="qshare" title="這次回答用掉 SinoBee.ai 訂閱 6 小時額度的比例">占 6 小時額度 ${fmtPct(u.quota_6h_pct)}</span>` : '',
+    u.quota_6h_pct != null ? quotaShare(u) : '',
     u.calls && (u.cost_usd || u.quota_6h_pct == null) ? fmtCost(u.cost_usd) + (u.unpriced ? '（部分模型未設定費率）' : '') : '',
     ev.run_report ? `<a href="#" data-rr="${esc(ev.run_report)}" title="每一步用了多少 tokens、時間與重送次數">每步花費</a>` : ''].filter(Boolean).join(' · ');
   const st = ev.status || 'done';
@@ -2633,17 +2656,14 @@ function fmtWhen(iso){
   return `${day}${clock}（${m < 60 ? m + ' 分鐘' : m < 2880 ? Math.round(m / 6) / 10 + ' 小時' : Math.round(m / 1440) + ' 天'}後）`;
 }
 function fmtDate(iso){ if (!iso) return ''; const d = new Date(iso); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`; }
-/** one quota ring: % used of a rolling window */
-function ring(pct, title, sub = '', size = 48){
-  pct = Math.max(0, Math.min(100, +pct || 0));
-  const r = size / 2 - 5, c = 2 * Math.PI * r, cls = pct >= 90 ? 'full' : pct >= 70 ? 'warn' : '';
-  return `<div class="qring ${cls}" role="img" aria-label="${esc(title)} 已用 ${Math.round(pct)}%"><svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <circle class="qr-bg" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke-width="5"/>
-    <circle class="qr-fg" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke-width="5" stroke-linecap="round"
-      stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - pct / 100)).toFixed(2)}" transform="rotate(-90 ${size / 2} ${size / 2})"/>
-    <text class="qr-pct" x="50%" y="50%" text-anchor="middle" dominant-baseline="central"${size < 40 ? ' style="font-size:9px"' : ''}>${Math.round(pct)}%</text></svg>
-    ${title ? `<div class="qr-t"><b>${esc(title)}</b>${sub ? `<span>${sub}</span>` : ''}</div>` : ''}</div>`;
+/** one rolling window as a bar: used / left, tokens left and when it starts coming back */
+function quotaBar(k){
+  const w = qWin(k), u = Math.max(0, Math.min(100, +w?.usedPct || 0)), lvl = u >= 90 ? 'full' : u >= 70 ? 'warn' : 'ok';
+  return `<div class="qwin ${lvl}" role="img" aria-label="${WIN_NAME[k]}額度已用 ${Math.round(u)}%">
+    <div class="qw-h"><span>${WIN_NAME[k]}額度</span><span>已用 <b>${fmtPct(u)}</b> · 剩 ${fmtPct(100 - u)}</span></div>
+    <div class="qw-bar"><i style="width:${u}%"></i></div><div class="qw-f">${winSub(w) || '&nbsp;'}</div></div>`;
 }
+const quotaBars = () => `<div class="qwins">${['6h', '168h'].map(quotaBar).join('')}</div>`;
 const qWin = k => (QUOTA?.windows || []).find(w => w.window === k);
 function winSub(w){
   if (!w) return '';
@@ -2651,8 +2671,46 @@ function winSub(w){
   const left = w.remainingTokens ? `約剩 ${fmtTok(w.remainingTokens)} tokens` : '';
   return [left, w.usedPct > 0 && next ? `${fmtWhen(next.at).replace(/（.*/, '')} 起釋放` : ''].filter(Boolean).join(' · ');
 }
-function quotaRings(size = 48){
-  return `<div class="qrings">${['6h', '168h'].map(k => ring(qWin(k)?.usedPct, WIN_NAME[k] + '額度', winSub(qWin(k)), size)).join('')}</div>`;
+/** the year heatmap (Settings > SinoBee.ai account): one cell per day, darker = more tokens, outlined = the
+ * 6-hour limit was reached that day */
+let YEAR = null;
+async function loadYear(){
+  const box = $('#subYear'); if (!box) return;
+  if (!YEAR || Date.now() - YEAR.at > 300000) {
+    try { YEAR = {at: Date.now(), d: await api('/api/usage/year')}; } catch { box.innerHTML = ''; return; }
+  }
+  box.innerHTML = yearHeatmap(YEAR.d);
+  const tip = $('#yrTip');
+  box.querySelectorAll('.yr-grid i[data-t]').forEach(c => {
+    c.onmouseenter = () => { tip.textContent = c.dataset.t; tip.hidden = false;
+      const r = c.getBoundingClientRect(), b = box.getBoundingClientRect();
+      tip.style.left = Math.max(0, Math.min(r.left - b.left - 40, b.width - tip.offsetWidth)) + 'px'; tip.style.top = (r.top - b.top - 30) + 'px'; };
+    c.onmouseleave = () => { tip.hidden = true; };
+  });
+}
+function yearHeatmap(y){
+  const by = Object.fromEntries((y.days || []).map(d => [d.day, d]));
+  const p2 = n => String(n).padStart(2, '0'), key = d => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  const end = new Date(); end.setHours(0, 0, 0, 0);
+  const start = new Date(end); start.setDate(start.getDate() - 364 - start.getDay());     // 53 columns, Sunday first
+  const vals = (y.days || []).map(d => d.tokens).filter(v => v > 0).sort((a, b) => a - b);
+  const q = f => vals.length ? vals[Math.floor(f * (vals.length - 1))] : 0, cuts = [q(.25), q(.5), q(.75)];
+  const lvl = v => !v ? 0 : v <= cuts[0] ? 1 : v <= cuts[1] ? 2 : v <= cuts[2] ? 3 : 4;
+  let cells = '', months = '', col = -1, lastMonth = -1;
+  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() === 0) { col++;
+      const m = d.getMonth(); months += m !== lastMonth ? `<span style="grid-column:${col + 1}">${m + 1}月</span>` : ''; lastMonth = m; }
+    const r = by[key(d)] || {}, v = r.tokens || 0, cap = (r.max6h || 0) >= 95;
+    const t = `${d.getFullYear() !== end.getFullYear() ? d.getFullYear() + '/' : ''}${d.getMonth() + 1}/${d.getDate()}（${'日一二三四五六'[d.getDay()]}）· ${v ? fmtTok(v) + ' tokens' + (r.sub_tokens ? `（訂閱 ${fmtTok(r.sub_tokens)}）` : '') : '沒有使用'}${cap ? ' · 碰到 6 小時上限' : ''}`;
+    cells += `<i data-l="${lvl(v)}"${cap ? ' class="hm-cap"' : ''} data-t="${esc(t)}" style="grid-row:${d.getDay() + 1};grid-column:${col + 1}"></i>`;
+  }
+  const pk = y.peak ? new Date(y.peak.day + 'T00:00') : null;
+  return `<div class="yr-sum"><span>過去一年 <b>${fmtTok(y.total || 0)}</b> tokens${y.sub_total ? `（訂閱 ${fmtTok(y.sub_total)}）` : ''} · 有使用 ${y.active_days || 0} 天${pk ? ` · 最多的一天 <b>${pk.getMonth() + 1}/${pk.getDate()} ${fmtTok(y.peak.tokens)}</b>` : ''}</span>
+      <span>碰到 6 小時上限 <b>${y.cap_days || 0}</b> 天</span></div>
+    <div class="yr-scroll"><div class="yr-months">${months}</div><div class="yr-grid" role="img" aria-label="過去一年每天的 token 用量">${cells}</div></div>
+    <div class="yr-legend">少 <i data-l="0"></i><i data-l="1"></i><i data-l="2"></i><i data-l="3"></i><i data-l="4"></i> 多<span style="width:12px"></span><i data-l="0" class="hm-cap"></i> 碰到 6 小時上限
+      <span style="flex:1"></span><span>每天的用量含自己的金鑰與本地模型</span></div>
+    <div class="yr-tip" id="yrTip" hidden></div>`;
 }
 /** expiry reminder: the plan ends within 3 days */
 function expiryNote(){
@@ -2751,8 +2809,10 @@ function paintSubPane(){
         <b style="font-size:15px">${esc(q.plan?.name || '')}</b><span class="badge ok">使用中</span>
         <span class="sd">到期 ${fmtDate(q.endsAt)} · 同時執行 ${q.plan?.concurrency ?? '—'} 個任務</span><span style="flex:1"></span>
         <a class="btn sm" href="${esc(q.subscribe_url)}" target="_blank" rel="noopener">續訂／升級</a></div>
-      ${quotaRings(56)}${expiryNote()}
-      <div class="note" style="margin:8px 0 0">剩餘 tokens 以最便宜的模型估算${q.tokensBasis ? `（${esc(q.tokensBasis.label)}，輸入：輸出 = 3：1）` : ''}；較貴的模型用得比較快。</div></div>`;
+      ${quotaBars()}${expiryNote()}
+      <div class="note" style="margin:8px 0 0">剩餘 tokens 以最便宜的模型估算${q.tokensBasis ? `（${esc(q.tokensBasis.label)}，輸入：輸出 = 3：1）` : ''}；較貴的模型用得比較快。</div>
+      <div id="subYear" class="yr"></div></div>`;
+    loadYear();
   } else if (q.status === 'no_subscription') {
     el.innerHTML = `<div class="lcard" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div style="flex:1;min-width:200px;font-size:13px">目前沒有有效的訂閱。訂閱後即可使用 Claude、GPT、Gemini 等模型，不必自己申請金鑰。</div>
       <a class="btn primary" href="${esc(q.subscribe_url)}" target="_blank" rel="noopener">查看方案</a><button class="btn icon tip-left" type="button" data-icon="refresh" aria-label="重新檢查" id="subRetry"></button></div>`;
@@ -2769,7 +2829,7 @@ function paintUsageQuota(){
   const q = QUOTA; box.hidden = !q || q.status !== 'ok';
   if (box.hidden) return;
   const rel = w => (w?.releases || []).slice(0, 6).map(r => `<span><b>${fmtWhen(r.at).replace(/（.*/, '')}</b> 釋放 ${fmtPct(r.pct)}</span>`).join('');
-  box.innerHTML = `<h4>SinoBee.ai 訂閱額度 · ${esc(q.plan?.name || '')}</h4>${quotaRings(64)}
+  box.innerHTML = `<h4>SinoBee.ai 訂閱額度 · ${esc(q.plan?.name || '')}</h4>${quotaBars()}
     ${['6h', '168h'].map(k => { const w = qWin(k), r = rel(w); return r ? `<div class="qrel"><span>${WIN_NAME[k]}區間接下來釋放：</span>${r}</div>` : ''; }).join('')}
     <div class="note" style="margin:8px 0 0">訂閱模型的花費以方案額度計算，下方的美元金額只包含你自己金鑰的模型。</div>`;
 }
@@ -2813,7 +2873,7 @@ function sbCardBody(p){
   const q = QUOTA;
   if (q?.status === 'no_subscription') return `<div class="pkey"><span class="sd" style="flex:1">沒有有效的訂閱</span><a class="btn sm primary" href="${esc(q.subscribe_url)}" target="_blank" rel="noopener">查看方案</a></div>`;
   if (q?.status !== 'ok') return `<div class="pkey"><span class="sd" style="flex:1">${q ? esc(q.error || '讀取額度中…') : '讀取額度中…'}</span></div>`;
-  return `<div class="pkey" style="flex-wrap:wrap;gap:12px">${quotaRings(40)}<span style="flex:1"></span><span class="sd">${esc(q.plan?.name || '')} · 至 ${fmtDate(q.endsAt)}</span></div>${expiryNote()}`;
+  return `<div class="pkey" style="flex-wrap:wrap;gap:12px"><div style="flex:1;min-width:260px">${quotaBars()}</div><span class="sd">${esc(q.plan?.name || '')} · 至 ${fmtDate(q.endsAt)}</span></div>${expiryNote()}`;
 }
 /** a model call hit the quota (stopped) or a fallback model answered instead */
 function onQuotaEvent(ev, replay){
@@ -2827,7 +2887,7 @@ function showQuotaModal(qe, model){
   $('#qmTitle').textContent = sub ? '沒有有效的 SinoBee.ai 訂閱' : `SinoBee.ai ${WIN_NAME[qe.window] || ''}額度用完了`;
   $('#qmBody').innerHTML = sub ? '<p>訂閱已到期或尚未訂閱，所以這個任務沒有完成。</p>'
     : `<p>這個任務因為 ${esc(WIN_NAME[qe.window] || '')}額度用完而暫停${model ? `（${esc(model)}）` : ''}。${qe.retry_at ? `額度約在 <b>${esc(fmtWhen(qe.retry_at))}</b> 開始釋放，之後就能繼續。` : ''}</p>
-       ${QUOTA?.status === 'ok' ? quotaRings(48) : ''}`;
+       ${QUOTA?.status === 'ok' ? quotaBars() : ''}`;
   const subUrl = QUOTA?.subscribe_url || ((ACCT?.hub_url || 'https://sinobee.ai') + '/subscribe');
   $('#qmOpts').innerHTML = [
     !sub && qe.retry_at ? `<button class="btn" type="button" data-q="wait">${ic('clock')} 等額度釋放後，回覆「繼續」接著做</button>` : '',

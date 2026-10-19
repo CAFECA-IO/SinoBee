@@ -123,6 +123,11 @@ class Runtime:
                                  input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
                                  cache_read_tokens=usage.cache_read_tokens,
                                  cache_write_tokens=usage.cache_write_tokens, cost_usd=cost, price_source=source)
+        if prov == "sinobee" and sc.quota and sc.quota.get("6h") is not None:
+            try:
+                self.memory.mark_quota(sc.quota["6h"])      # the year heatmap marks days that reached the limit
+            except Exception:  # noqa: BLE001
+                log.debug("quota mark failed", exc_info=True)
         sc.calls += 1
         sc.input_tokens += usage.input_tokens
         sc.output_tokens += usage.output_tokens
@@ -1139,6 +1144,8 @@ class Agent:
                 resp = await self._step_chat(request, tool_specs, max_tokens, stats)
             except Exception as e:
                 for qe in current_scope.get().drain_quota_events():
+                    if qe.get("window") == "6h":
+                        self.rt.memory.mark_quota(100)
                     self._emit("quota", {**qe, "stopped": True})
                 if OVERFLOW_RE.search(str(e)) and not overflow_retried:
                     # the estimate was too optimistic for this model: compact hard and try once more
@@ -1173,6 +1180,8 @@ class Agent:
             for ce in current_scope.get().drain_compat_events():  # a call adapted to what the model accepts
                 self._event(f"模型 {ce['model']} 不接受參數 {ce['param']}：已自動改用相容的設定重送，之後不再送這個參數")
             for qe in current_scope.get().drain_quota_events():   # quota used up; a fallback model answered
+                if qe.get("window") == "6h":
+                    self.rt.memory.mark_quota(100)
                 self._emit("quota", {**qe, "stopped": False, "answered_by": resp.model})
             self.usage.add(resp.usage)
             msg = resp.message
