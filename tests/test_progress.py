@@ -442,5 +442,6 @@ async def test_an_agent_fixing_code_and_writing_its_report_is_not_stopped(home, 
     rt, agent, events = run_agent(config, ScriptedProvider(steps))
     assert await agent.run("修 calc.py 並寫修正報告") == "修好了，報告也寫了"
     assert agent.last_status["status"] == "done" and not [d for k, d in events if k == "control"]
-    trace = agent._progress.trace
+    trace = [t for t in agent._progress.trace if not t.get("final")]      # the answer step only records its cost
+    assert agent._progress.trace[-1]["final"] and agent._progress.trace[-1]["cost"]["calls"] == 1
     assert "code+document" in trace[-1]["why"] and "8/8" in trace[-1]["why"]

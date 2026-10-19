@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 from abc import ABC, abstractmethod
 
 import httpx
@@ -68,6 +69,22 @@ def _note_quota(headers) -> None:
         pass
 
 
+def _scope_add(model_seconds: float = 0.0, retry: dict | None = None) -> None:
+    """Per-step accounting (agent/loop.py): time spent on models and calls sent again, on the current usage scope."""
+    try:
+        from ..accounting import current_scope
+        sc = current_scope.get()
+        if sc is None:
+            return
+        sc.model_seconds += model_seconds
+        if retry:
+            sc.retries += 1
+            sc.retry_events.append(retry)
+            del sc.retry_events[:-200]
+    except Exception:  # noqa: BLE001 - accounting must never break a call
+        pass
+
+
 def _gateway_timeout(err: ProviderError) -> bool:
     """A proxy in front of the model gave up waiting (504 / Cloudflare 524), as opposed to the model failing."""
     if err.status in (504, 524):
@@ -117,6 +134,16 @@ class Provider(ABC):
             temperature = None            # learned earlier: this model does not accept it
         adapted = False
         attempt = 0
+        t0 = time.monotonic()
+        try:
+            return await self._chat_retrying(messages, tools, temperature, max_tokens, retries, delay, timeouts,
+                                             adapted, attempt)
+        finally:
+            _scope_add(model_seconds=time.monotonic() - t0)
+
+    async def _chat_retrying(self, messages, tools, temperature, max_tokens, retries, delay, timeouts, adapted,
+                             attempt) -> ChatResponse:
+        from . import compat
         while True:
             try:
                 return await self._chat(messages, tools, temperature=temperature, max_tokens=max_tokens)
@@ -145,6 +172,7 @@ class Provider(ABC):
             if not err.retryable or attempt >= retries:
                 raise err
             sleep = delay * (2 ** attempt) + random.random()
+            _scope_add(retry={"model": self.label, "status": err.status, "error": str(err)[:160]})
             log.warning("%s failed (%s); retrying in %.1fs", self.label, err, sleep)
             await asyncio.sleep(sleep)
             attempt += 1

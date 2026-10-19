@@ -898,6 +898,34 @@ def _observe_cmd(args) -> None:
     print("套用：sinobee tune --apply all（或指定 key）")
 
 
+def _runs_cmd(args) -> None:
+    """Run reports: what every task cost (per step) and what it produced."""
+    import json as _json
+    import time as _t
+    from .agent import runreport as RR
+    from .config import Config
+    cfg = Config.load()
+    if args.id:
+        try:
+            r = RR.get(cfg.home, args.id)
+        except KeyError:
+            raise SystemExit(f"no run report {args.id}") from None
+        print(_json.dumps(r, ensure_ascii=False, indent=1) if args.json else RR.summary_text(r))
+        return
+    rows = RR.listing(cfg.home, days=args.days, sort=args.sort, limit=args.limit)
+    if args.json:
+        print(_json.dumps(rows, ensure_ascii=False, indent=1))
+        return
+    if not rows:
+        print("沒有執行報告")
+    for r in rows:
+        when = _t.strftime("%m-%d %H:%M", _t.localtime(r["created"] or 0))
+        out = "沒有產出" if r["no_output"] else f"{r['files']} 檔・清單 {r['checklist']}"
+        top = r.get("top_step") or {}
+        print(f"{r['id']:<36} {when} {r['status'] or '':<10} {r['tokens'] or 0:>10,} tok {r['steps'] or 0:>4} 步 "
+              f"{out:<16} 最貴 #{top.get('step', '-')} {top.get('tokens') or 0:,}  {r['request'][:40]}")
+
+
 def _failures_cmd(args) -> None:
     """Failure reports: what a task that did not finish did, step by step, and the thinking model's diagnosis."""
     import json as _json
@@ -1036,6 +1064,12 @@ def main(argv: list[str] | None = None) -> None:
     fl.add_argument("id", nargs="?")
     fl.add_argument("--limit", type=int, default=30)
     fl.add_argument("--json", action="store_true")
+    rr = sub.add_parser("runs", help="every task's cost and output (most spent for the least first)")
+    rr.add_argument("id", nargs="?", help="show one report: the cost of every step")
+    rr.add_argument("--days", type=float, default=30)
+    rr.add_argument("--sort", choices=["waste", "tokens", "recent"], default="waste")
+    rr.add_argument("--limit", type=int, default=20)
+    rr.add_argument("--json", action="store_true")
     cl = sub.add_parser("control-log", help="why executions were questioned or stopped (consults, stops, triggers)")
     cl.add_argument("--session")
     cl.add_argument("--trigger")
@@ -1096,6 +1130,8 @@ def main(argv: list[str] | None = None) -> None:
         _eval_cmd(args)
     elif args.cmd == "failures":
         _failures_cmd(args)
+    elif args.cmd == "runs":
+        _runs_cmd(args)
     elif args.cmd == "control-log":
         _control_log_cmd(args)
     elif args.cmd == "progress-replay":

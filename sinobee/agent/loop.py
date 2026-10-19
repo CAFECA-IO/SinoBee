@@ -1067,6 +1067,8 @@ class Agent:
                 break
             steps = iteration + 1
             stats["step"] = steps
+            self._step_mark = self._cost_mark()
+            self._step_tools_s = 0.0
             if self._msr and not self._cancel:
                 await self._guarded("里程碑", self._msr.before_step(steps, stats), stats)
             if self._cancel:
@@ -1156,6 +1158,13 @@ class Agent:
                 from .errors import explain_error
                 error_info = explain_error(e)
                 status = "error"
+                try:                      # the step that failed still cost time (and retries): keep it in the trace
+                    self._progress.trace.append({"step": steps, "progress": False, "strong": False, "file_only": 0,
+                                                 "why": f"模型呼叫失敗：{error_info['summary']}", "kind": None,
+                                                 "waiting": False, "failed": True, "cost": self._step_cost()})
+                    stats["progress_trace"] = self._progress.trace
+                except Exception:  # noqa: BLE001
+                    pass
                 final_text = f"⚠︎ 任務中斷：{error_info['summary']}。{error_info['hint']}"
                 # keep a short note (not the raw provider error) so the next turn knows this attempt failed
                 self.history.append(Message("assistant", f"[上一次嘗試失敗：{error_info['summary']}]"))
@@ -1332,6 +1341,15 @@ class Agent:
                 self._emit("partial_delivery", pd)
 
         self._persist()
+        try:      # the last step (the answer, its checks) made no tool call, so no verdict recorded its cost
+            tr = self._progress.trace
+            if steps and (not tr or tr[-1].get("step") != steps) and getattr(self, "_step_mark", None):
+                tr.append({"step": steps, "progress": False, "strong": False, "file_only": 0, "output": False,
+                           "why": "最後的回答" if status == "done" else f"結束（{status}）", "kind": None,
+                           "waiting": False, "final": True, "cost": self._step_cost()})
+                stats["progress_trace"] = tr
+        except Exception:  # noqa: BLE001
+            pass
         turn_usage = usage_scope.as_dict()
         session_usage = self.rt.memory.usage_totals(session_id=self.session_id)
         stats["status"] = status
@@ -1365,6 +1383,10 @@ class Agent:
                     "failure_id": failure, "status": status, "session_id": self.session_id, "depth": self.depth,
                     "run_id": getattr(getattr(self, "_run_rec", None), "rid", None),
                     "model": getattr(getattr(self, "_prov", None), "label", "")})
+        run_report = None
+        if self.depth == 0 and self.config.get("agent.run_reports", True):
+            run_report = self._run_report(status, error_info, final_text, query, stats, turn_start, turn_id,
+                                          turn_usage, steps, round(time.time() - started, 1), failure)
         snap = None
         if self.depth == 0 and self._snap:
             from . import snapshots
@@ -1375,7 +1397,8 @@ class Agent:
             if inf and inf["files"]:
                 snap = {"session": self._snap[0], "key": self._snap[1], "files": len(inf["files"])}
         self._emit("turn_end", {"text": final_text, "status": status, "error": error_info, "steps": steps,
-                                "snapshot": snap, "failure": failure, "plan": bool(stats.get("plan")),
+                                "snapshot": snap, "failure": failure, "run_report": run_report,
+                                "plan": bool(stats.get("plan")),
                                 "consults": len(stats.get("consult_log") or []),
                                 "milestones": self._msr.plan.card({}, status)["milestones"] if self._msr else None,
                                 "budget": self._guard.summary() if self._guard else None,
@@ -1623,6 +1646,26 @@ class Agent:
         items = checklist_tools.get(self.ctx)
         return bool(items) and not checklist_tools.open_items(items)
 
+    @staticmethod
+    def _cost_mark() -> dict:
+        sc = current_scope.get()
+        return {"calls": sc.calls, "in": sc.input_tokens, "out": sc.output_tokens, "cache": sc.cache_read_tokens,
+                "usd": sc.cost_usd, "q6h": sc.quota_6h_pct, "model_s": sc.model_seconds, "retries": sc.retries,
+                "t": time.monotonic()}
+
+    def _step_cost(self) -> dict:
+        """What this step cost: every model call made during it (the step itself, advice, checks), the time spent
+        waiting for models and running tools, and the calls that had to be sent again."""
+        a, b = getattr(self, "_step_mark", None) or self._cost_mark(), self._cost_mark()
+        sc = current_scope.get()
+        retried = b["retries"] - a["retries"]
+        return {"calls": b["calls"] - a["calls"], "input": b["in"] - a["in"], "output": b["out"] - a["out"],
+                "cache_read": b["cache"] - a["cache"], "tokens": (b["in"] - a["in"]) + (b["out"] - a["out"]),
+                "usd": round(b["usd"] - a["usd"], 6), "quota_6h_pct": round(b["q6h"] - a["q6h"], 2),
+                "model_s": round(b["model_s"] - a["model_s"], 1), "tools_s": round(getattr(self, "_step_tools_s", 0.0), 1),
+                "wall_s": round(b["t"] - a["t"], 1), "retries": retried,
+                "retry_errors": [r["error"][:100] for r in sc.retry_events[-retried:]] if retried > 0 else []}
+
     def _observe_step(self, step: int, stats: dict) -> dict:
         """The step's progress verdict (agent/progress.py); kept for the failure report and the run record."""
         from ..tools.files import resolve as resolve_path
@@ -1632,6 +1675,10 @@ class Agent:
         except Exception:  # noqa: BLE001 - progress bookkeeping must never break a task
             log.exception("progress check failed")
             return {}
+        try:
+            verdict["cost"] = self._step_cost()          # the same dict is the trace entry
+        except Exception:  # noqa: BLE001
+            log.debug("step cost failed", exc_info=True)
         stats["progress_trace"] = self._progress.trace
         rec = getattr(self, "_run_rec", None)
         if rec:
@@ -1660,6 +1707,7 @@ class Agent:
                 self._snapshot((call.arguments or {}).get("path"), stats)
             result = await REGISTRY.dispatch(call, self.ctx, self.tool_names)
         elapsed = round(time.time() - t0, 1)
+        self._step_tools_s = getattr(self, "_step_tools_s", 0.0) + (time.time() - t0)
         stats["tool_calls"] += 1
         denied = result.is_error and "user did not approve" in str(result.content)[:300]
         if result.is_error and not denied:   # a refused approval is the user's decision, not a failure
@@ -1753,6 +1801,20 @@ class Agent:
             return None
         if self.config.get("agent.failure_diagnosis", True):
             self.rt.spawn(failures.diagnose(self.rt, self.config.home, rep["id"], emit=self._emit))
+        return rep["id"]
+
+    def _run_report(self, status, error_info, final_text, query, stats, turn_start, turn_id, usage, steps, duration,
+                    failure) -> str | None:
+        """Every task's cost and output (agent/runreport.py), finished or not."""
+        from . import runreport
+        try:
+            rep = runreport.save(self.config.home, runreport.build(
+                self, status=status, error_info=error_info, final_text=final_text, query=query, stats=stats,
+                turn_start=turn_start, turn_id=turn_id, usage=usage, steps=steps, duration=duration,
+                failure_id=failure))
+        except Exception:  # noqa: BLE001 - the report must never break the turn
+            log.exception("could not save the run report")
+            return None
         return rep["id"]
 
     def _persist(self) -> None:

@@ -68,6 +68,7 @@ DEFAULTS: dict[str, Any] = {
         "plan": "auto",                 # auto | always | off: the thinking model plans before the first step (auto:
                                         # skills picked or multi-stage, or a long request)
         "consult_max": 2,
+        "run_reports": True,            # every task's cost and output, finished or not (Settings > Quality)
         "failure_reports": True,        # save a report (work log, plan, advice, checks) when a task does not finish
         "failure_diagnosis": True,      # ... and have the thinking model diagnose it (in the background)               # times per task the thinking model is asked for advice when execution is stuck
         "context_budget": "auto",   # optional cap in tokens; "auto" = the model's context window (see model.context_window)

@@ -24,6 +24,9 @@ class UsageScope:
     quota: dict | None = None                 # latest {"6h": used %, "168h": used %} reported by sinobee.ai
     quota_events: list = field(default_factory=list)  # quota stops / fallbacks to show in the GUI
     compat_events: list = field(default_factory=list)  # calls adapted to what a model accepts (providers/compat.py)
+    model_seconds: float = 0.0                # time spent waiting for models (retries and back-off included)
+    retry_events: list = field(default_factory=list)   # [{model, status, error}] one per call sent again (last 200)
+    retries: int = 0
 
     def as_dict(self) -> dict:
         return {"calls": self.calls, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens,

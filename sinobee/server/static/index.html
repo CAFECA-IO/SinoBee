@@ -60,6 +60,7 @@ header .title{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;whit
 .uidlg .uidin{width:100%;margin-top:12px;box-sizing:border-box}.uidlg .row{margin-top:18px}
 .obs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.obs-t{border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .obs-t b{font-size:20px}.obs-t span{font-size:13px}.obs-t small{overflow-wrap:anywhere}.obs-tune td{vertical-align:top}.obs-tune td:nth-child(n+2):nth-child(-n+4),.obs-tune th{white-space:nowrap}.obs-tune td.sd,.obs-tune th:nth-child(5){min-width:220px;text-align:left;white-space:normal}
+table.t.obs-eff th,table.t.obs-eff td{vertical-align:top;text-align:left;white-space:nowrap}table.t.obs-eff td:nth-child(2){white-space:normal;min-width:180px;max-width:320px}table.t.obs-eff td:nth-child(7){white-space:normal;min-width:110px}table.t.obs-eff td.num,table.t.obs-eff th.num{text-align:right}.obs-eff b.bad{color:var(--err)}.obs-eff .lk{display:block;margin-top:2px;font-size:12px}
 .uichoices{display:flex;flex-direction:column;gap:8px;margin-top:14px}.uichoices .btn{display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:10px 12px;height:auto;white-space:normal}.uichoices .btn small{font-weight:400;opacity:.8;margin-top:2px}
 .mscard .mshead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.mscard .mslist{list-style:none;padding:0;margin:8px 0}.mscard .mslist li{display:flex;gap:8px;padding:5px 0;border-top:1px solid var(--line)}
 .mscard .msic{width:18px;flex:none;text-align:center;color:var(--muted)}.mscard .ms-doing .msic{color:var(--accent)}.mscard .ms-done .msic{color:var(--ok,#2a9d5c)}.mscard .ms-delegated .msic{color:var(--accent)}
@@ -1405,15 +1406,18 @@ function resultCard(ev){
   const meta = [ev.steps ? `${ev.steps} 步` : '', ev.duration_s != null ? fmtDur(ev.duration_s) : '',
     u.calls ? `${fmtTok((u.input_tokens || 0) + (u.output_tokens || 0))} tokens` : '',
     u.quota_6h_pct != null ? `<span class="qshare" title="這次回答用掉 SinoBee.ai 訂閱 6 小時額度的比例">占 6 小時額度 ${fmtPct(u.quota_6h_pct)}</span>` : '',
-    u.calls && (u.cost_usd || u.quota_6h_pct == null) ? fmtCost(u.cost_usd) + (u.unpriced ? '（部分模型未設定費率）' : '') : ''].filter(Boolean).join(' · ');
+    u.calls && (u.cost_usd || u.quota_6h_pct == null) ? fmtCost(u.cost_usd) + (u.unpriced ? '（部分模型未設定費率）' : '') : '',
+    ev.run_report ? `<a href="#" data-rr="${esc(ev.run_report)}" title="每一步用了多少 tokens、時間與重送次數">每步花費</a>` : ''].filter(Boolean).join(' · ');
   const st = ev.status || 'done';
-  if (st === 'done') { const c = add(`<b>✓ 完成</b>${meta ? ' · ' + meta : ''}`, 'result done'); if (ev.turn_id) attachFeedback(c, ev.turn_id, null); return c; }
-  if (st === 'stopped') return add(`<b>■ 已停止</b>${meta ? ' · ' + meta : ''}`, 'result stopped');
+  const rr = c => { c.querySelectorAll('[data-rr]').forEach(a => a.onclick = e => { e.preventDefault(); showRunReport(a.dataset.rr); }); return c; };
+  if (st === 'done') { const c = rr(add(`<b>✓ 完成</b>${meta ? ' · ' + meta : ''}`, 'result done')); if (ev.turn_id) attachFeedback(c, ev.turn_id, null); return c; }
+  if (st === 'stopped') return rr(add(`<b>■ 已停止</b>${meta ? ' · ' + meta : ''}`, 'result stopped'));
   const er = ev.error || {};
   const head = {error: '✕ 任務中斷', incomplete: '△ 任務未完成', blocked: '⏸ 已暫停', failed: '✕ 任務失敗'}[st] || '✕ 任務中斷';
   const c = add(`<b>${head}：${esc(er.summary || '')}</b><div class="hint">${esc(er.hint || '')}</div>` +
     (er.detail ? `<details><summary>技術細節</summary><pre>${esc(er.detail)}</pre></details>` : '') +
     (meta ? `<div style="color:var(--muted);margin-top:4px">${meta}</div>` : ''), 'result ' + st);
+  rr(c);
   if (ev.failure) { const f = document.createElement('span'); f.className = 'failrep';
     f.innerHTML = `已保存失敗報告，供改進系統使用 · <a href="#" data-fail="${esc(ev.failure)}">查看</a>`;
     f.querySelector('a').onclick = e => { e.preventDefault(); showFailure(ev.failure); }; c.appendChild(f); }
@@ -2118,7 +2122,7 @@ async function loadFailures(){
       ${x.regression ? '' : '<button class="btn sm" type="button" data-a="reg">轉成回歸測試</button>'}<button class="btn icon sm" type="button" data-icon="trash" data-a="del" aria-label="刪除失敗報告"></button></div></div>`).join('')
     : '<div class="sd" style="padding:6px 0">目前沒有失敗報告。</div>';
   paintIcons($('#qFails'));
-  loadControlLog().then(loadObservability);
+  loadControlLog().then(loadObservability).then(loadRunReports);
   $('#qFails').querySelectorAll('[data-fid]').forEach(row => row.querySelectorAll('button').forEach(b => b.onclick = async () => {
     const id = row.dataset.fid;
     if (b.dataset.a === 'view') return showFailure(id);
@@ -2169,6 +2173,33 @@ async function loadObservability(){
     if (!await uiConfirm(`把「${TUNE_LABEL[bn.dataset.tune] || bn.dataset.tune}」改成 ${bn.dataset.v}？`)) return;
     await jreq('/api/tuning/apply', {values: {[bn.dataset.tune]: Number(bn.dataset.v)}}); loadObservability(); });
 }
+function costText(c){
+  if (!c) return '';
+  return `（${[`${(c.tokens || 0).toLocaleString()} tokens`, c.model_s ? `模型 ${c.model_s}s` : '', c.tools_s ? `工具 ${c.tools_s}s` : '', c.retries ? `重送 ${c.retries}` : ''].filter(Boolean).join(' · ')}）`;
+}
+async function showRunReport(id){
+  const r = await api(`/api/run-reports/${encodeURIComponent(id)}`).catch(() => null);
+  if (!r || !r.id) return;
+  $('#vTitle').textContent = '執行報告 ' + r.id; $('#vBody').textContent = r.text; $('#viewer').classList.add('open');
+}
+async function loadRunReports(){
+  let box = $('#qEff');
+  if (!box) { box = document.createElement('div'); box.id = 'qEff'; ($('#qObs') || $('#qCtl') || $('#qFails')).after(box); }
+  const d = await api('/api/run-reports?days=30&sort=waste&limit=15').catch(() => null);
+  const rows = d?.reports || [];
+  if (!rows.length) { box.innerHTML = `<h4 style="margin:14px 0 6px">任務效率</h4><div class="sd">還沒有執行報告：每個任務結束後都會記下花費與產出。</div>`; return; }
+  box.innerHTML = `<h4 style="margin:14px 0 6px">任務效率 <small class="sd">最近 30 天花最多但產出最少的任務（沒有產出的排在最前面）</small></h4>
+    <div style="overflow-x:auto"><table class="t obs-eff"><thead><tr><th>時間</th><th>任務</th><th>狀態</th><th class="num">tokens</th><th>產出</th><th class="num">步數・時間</th><th>最貴的一步</th></tr></thead><tbody>${rows.map(r => {
+      const t = r.top_step || {};
+      const out = r.no_output ? `<b class="bad">沒有產出</b><small class="sd" style="display:block">清單 ${esc(r.checklist)}</small>` : `${r.files} 個檔案<small class="sd" style="display:block">清單 ${esc(r.checklist)}${r.tokens_per_output ? `・每單位 ${fmtTok(r.tokens_per_output)}` : ''}</small>`;
+      const d = new Date((r.created || 0) * 1000), p2 = n => String(n).padStart(2, '0');
+      return `<tr><td class="sd">${p2(d.getMonth() + 1)}/${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}</td><td>${esc(r.request)}<span class="lk"><a href="#" data-rr="${esc(r.id)}">每步花費</a>${r.failure_id ? ` · <a href="#" data-fid="${esc(r.failure_id)}">失敗報告</a>` : ''}</span></td><td>${esc(r.status || '')}</td>
+        <td class="num">${fmtTok(r.tokens || 0)}${r.quota_6h_pct ? `<small class="sd" style="display:block">6h ${fmtPct(r.quota_6h_pct)}</small>` : ''}</td><td>${out}</td>
+        <td class="num">${r.steps || 0} 步<small class="sd" style="display:block">${fmtDur(r.duration_s || 0)}${r.retries ? `・重送 ${r.retries}` : ''}</small></td>
+        <td>${t.step ? `第 ${t.step} 步・${fmtTok(t.tokens || 0)}<small class="sd" style="display:block">${esc((t.why || '').slice(0, 40))}</small>` : '—'}</td></tr>`; }).join('')}</tbody></table></div>`;
+  box.querySelectorAll('[data-rr]').forEach(b => b.onclick = e => { e.preventDefault(); showRunReport(b.dataset.rr); });
+  box.querySelectorAll('[data-fid]').forEach(b => b.onclick = e => { e.preventDefault(); showFailure(b.dataset.fid); });
+}
 async function showFailure(id){
   const r = await api(`/api/failures/${encodeURIComponent(id)}`);
   if (!r || !r.id) return;
@@ -2188,7 +2219,7 @@ async function showFailure(id){
     r.control_log.forEach(e => { L.push(`  第 ${e.step} 步 ${CTL_EVENT[e.event] || e.event}：${e.label || e.trigger}${e.decision ? ' → ' + (CTL_DECISION[e.decision] || e.decision) : ''}`, `     ${e.detail || ''}`);
       (e.evidence || []).forEach(x => L.push(`       ${x}`)); });
   }
-  if ((r.progress || []).length) L.push('', '【每步進度】（✓ 有進度 · 沒有）', ...r.progress.slice(-40).map(t => `  #${t.step} ${t.progress ? '✓' : '·'} ${t.why}`));
+  if ((r.progress || []).length) L.push('', '【每步進度】（✓ 有進度 · 沒有）', ...r.progress.slice(-40).map(t => `  #${t.step} ${t.progress ? '✓' : '·'} ${t.why}${costText(t.cost)}`));
   if (r.checklist?.length) L.push('', '【驗收清單】', ...r.checklist.map(i => `  [${i.status}] ${i.text}${i.evidence ? ' — ' + i.evidence : ''}`));
   L.push('', '【工作紀錄】');
   (r.work_log || []).forEach((w, i) => L.push(w.note ? `  · ${w.note.slice(0, 300)}` : `  ${i + 1}. ${w.ok === false ? '✕' : '✓'} ${w.tool} ${w.args.slice(0, 160)}${w.ok === false ? '\n       ' + (w.result || '').slice(0, 300) : ''}`));

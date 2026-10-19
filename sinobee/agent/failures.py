@@ -138,6 +138,7 @@ def listing(home, limit: int = 50) -> list[dict]:
 
 
 def summary_text(r: dict, limit: int = 30000) -> str:
+    from .progress import cost_text
     """The record as the thinking model reads it for the diagnosis."""
     parts = [f"REQUEST: {r.get('request', '')}", f"STATUS: {r.get('status')} - {json.dumps(r.get('reason'), ensure_ascii=False)}",
              f"MODELS: {json.dumps(r.get('models'), ensure_ascii=False)}", f"SKILLS: {', '.join(r.get('skills') or [])}"]
@@ -153,7 +154,8 @@ def summary_text(r: dict, limit: int = 30000) -> str:
                      "\n".join(describe(e) for e in r["control_log"][-20:]))
     if r.get("progress"):
         parts.append("PROGRESS PER STEP (✓ progress, · none):\n" + "\n".join(
-            f"#{t['step']} {'✓' if t.get('progress') else '·'} {t.get('why', '')[:160]}" for t in r["progress"][-30:]))
+            f"#{t['step']} {'✓' if t.get('progress') else '·'} {t.get('why', '')[:160]}{cost_text(t.get('cost'))}"
+            for t in r["progress"][-30:]))
     q = r.get("quality") or {}
     if q.get("qa_issues") or q.get("review") or q.get("skipped"):
         parts.append("QUALITY: " + json.dumps(q, ensure_ascii=False, default=str)[:3000])

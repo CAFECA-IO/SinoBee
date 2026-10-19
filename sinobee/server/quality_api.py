@@ -118,6 +118,24 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
         rt = rt_getter()
         return await _a.to_thread(observe.stats, rt.config.home, get_hub(rt).store, max(1.0, min(days, 365)))
 
+    @app.get("/api/run-reports")
+    async def run_reports(days: float = 30, sort: str = "waste", limit: int = 30):
+        """Every task's cost and output; sort=waste lists the ones that spent the most for the least first."""
+        import asyncio as _a
+        from ..agent import runreport
+        rows = await _a.to_thread(runreport.listing, home(), days=max(0.1, min(days, 365)), sort=sort,
+                                  limit=max(1, min(limit, 200)))
+        return {"reports": rows}
+
+    @app.get("/api/run-reports/{rid}")
+    async def run_report(rid: str):
+        from ..agent import runreport
+        try:
+            r = runreport.get(home(), rid)
+        except KeyError:
+            raise HTTPException(404, "no such report") from None
+        return {**r, "text": runreport.summary_text(r)}
+
     @app.get("/api/tuning")
     async def tuning(last: int = 200):
         """Data-based recommendations for K, N and the budget's synthetic factor."""

@@ -279,6 +279,20 @@ STRONG_TOOLS = {"board_write": "寫入共享事實", "delegate": "委派子代�
                 "skill_create": "建立技能", "skill_patch": "修改技能"}
 
 
+def cost_text(c: dict | None) -> str:
+    """ "（52,300 tokens · 模型 98s · 工具 2s · 重送 1）" - empty when nothing was recorded."""
+    if not c:
+        return ""
+    parts = [f"{c.get('tokens', 0):,} tokens"]
+    if c.get("model_s"):
+        parts.append(f"模型 {c['model_s']:g}s")
+    if c.get("tools_s"):
+        parts.append(f"工具 {c['tools_s']:g}s")
+    if c.get("retries"):
+        parts.append(f"重送 {c['retries']}")
+    return "（" + " · ".join(parts) + "）"
+
+
 def _sig(obj) -> str:
     return hashlib.sha1(json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:12]
 
@@ -325,7 +339,8 @@ class Tracker:
                 "output_gap": self.output_gap, "health_steps": self.health_steps, "safety_max_steps": self.safety_max}
 
     def evidence(self, last: int = 6) -> list[str]:
-        return [f"#{t['step']} {'✓' if t['progress'] else '·'} {t['why']}" for t in self.trace[-last:]]
+        return [f"#{t['step']} {'✓' if t['progress'] else '·'} {t['why']}" + cost_text(t.get("cost"))
+                for t in self.trace[-last:]]
 
     def set_checklist(self, items: list[dict]) -> None:
         self.checklist_sig = _sig([(i.get("id"), i.get("status")) for i in items or []])
@@ -483,11 +498,14 @@ class Tracker:
         done_now = sum(1 for i in checklist or [] if i.get("status") == "done")
         if checklist is not None:
             self.checklist_open = sum(1 for i in checklist if i.get("status") in ("todo", "doing")) if checklist else None
-        if weak_files or any(not x.startswith("驗收清單更新") for x in strong) or done_now > self.checklist_done:
+        output = bool(weak_files or any(not x.startswith("驗收清單更新") for x in strong)
+                      or done_now > self.checklist_done)
+        if output:
             self.last_output_step = step
         if checklist is not None:
             self.checklist_done = done_now
-        verdict = {"step": step, "progress": progress, "strong": bool(strong), "why": why[:400], "kind": kind,
+        verdict = {"step": step, "progress": progress, "strong": bool(strong), "output": output, "why": why[:400],
+                   "kind": kind,
                    "waiting": wait,
                    "file_only": self.file_only, "no_progress": self.no_progress}
         self.trace.append(verdict)
