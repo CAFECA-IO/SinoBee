@@ -104,6 +104,17 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     async def session(sid: str):
         return [m.to_dict() for m in rt().memory.load_messages(sid)]
 
+    @app.get("/api/sessions/{sid}/interrupted")
+    async def session_interrupted(sid: str):
+        """The conversation's newest turn, when it was interrupted (restart / crash) and has not finished since."""
+        from ..work.hub import get_hub
+        runs = [r for r in get_hub(rt()).store.runs(limit=300) if r["kind"] == "chat" and r.get("session_id") == sid]
+        if not runs or runs[0]["status"] != "interrupted":
+            return {"interrupted": False}
+        r = runs[0]
+        return {"interrupted": True, "run_id": r["id"], "error": r.get("error") or "",
+                "auto_resume": (r.get("state") or {}).get("auto_resume"), "at": r.get("created_at")}
+
     @app.get("/api/sessions/{sid}/artifacts")
     async def session_artifacts(sid: str):
         """Files produced during a conversation, per tool call, for re-drawing the links when it is reopened."""
@@ -364,6 +375,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     _hub = _get_hub(rt())
     _hub.chat_resumer = lambda sid, text: asyncio.create_task(start_turn(sid, text))
     _hub.chat_canceller = lambda sid: asyncio.create_task(cancel_turn(sid))
+    _hub.chat_alive = lambda sid: sid in state["running"]
 
     skills_api.register_feedback(app, rt, lambda k, d: broadcast(k, d))
     work_api.register(app, rt, lambda: run_snapshot())

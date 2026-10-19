@@ -37,6 +37,9 @@ class WorkHub:
         self.rt = rt
         self.chat_resumer = None        # set by the web server: (session_id, text) -> starts a turn
         self.chat_canceller = None      # set by the web server: (session_id) -> stops that turn
+        self.chat_alive = None          # set by the web server: (session_id) -> is a turn running there now
+        from .recovery import Recovery
+        self.recovery = Recovery(self)
         self.store = WorkStore(Path(rt.config.home) / "work.db")
         self.listeners: list = []
         self.tasks: dict[str, asyncio.Task] = {}
@@ -334,7 +337,7 @@ class WorkHub:
         self.notify("approval", {"approval_id": aid, "decided": ok})
         return self.store.approval(aid)
 
-    def resume(self, rid: str) -> dict:
+    def resume(self, rid: str, brief: dict | None = None, auto: bool = False) -> dict:
         run = self.store.run(rid)
         if not run:
             raise WorkError("找不到這次執行")
@@ -344,9 +347,23 @@ class WorkHub:
             if not self.chat_resumer or not run.get("session_id"):
                 raise WorkError("這段對話需要在網頁介面中續跑")
             req = (run.get("state") or {}).get("input") or run.get("name") or ""
-            self.chat_resumer(run["session_id"],
-                              "[續跑] 上一次的任務在中途被中斷了。已完成的步驟都在這段對話裡：先確認做到哪裡，"
-                              f"從中斷處接著完成，不要重做已完成的部分。原本的要求：{req}")
+            text = ("[自動續跑]" if auto else "[續跑]") + (" 上一次的任務在中途被中斷了。已完成的步驟都在這段對話裡：先確認做到哪裡，"
+                                                          f"從中斷處接著完成，不要重做已完成的部分。原本的要求：{req}")
+            if brief:
+                parts = []
+                if brief.get("done"):
+                    parts.append("已完成：" + "；".join(str(x) for x in brief["done"][:8]))
+                if brief.get("remaining"):
+                    parts.append("還沒做：" + "；".join(str(x) for x in brief["remaining"][:8]))
+                if brief.get("next"):
+                    parts.append(f"先做：{brief['next']}")
+                if parts:
+                    text += "\n進度整理（輔助模型依工作紀錄整理，請先核對）：\n" + "\n".join(parts)
+            self.chat_resumer(run["session_id"], text)
+            if not auto:                  # resumed by hand: the recovery check leaves it alone
+                st = dict(run.get("state") or {})
+                st.setdefault("auto_resume", {"at": time.time(), "resumed": True, "manual": True})
+                self.store.update_run(rid, state=st)
             self.store.update_run(rid, summary=(run.get("summary") or "") + "（已續跑）")
             return self.store.run(rid)
         if run["kind"] == "task":      # a task starts over in a new run (same job, same blackboard)
@@ -421,6 +438,11 @@ class WorkHub:
                 self.tick()
             except Exception:  # noqa: BLE001
                 log.exception("scheduler tick failed")
+            if self.recovery.due():            # interrupted work is looked for every minute
+                try:
+                    await self.recovery.check()
+                except Exception:  # noqa: BLE001
+                    log.exception("recovery check failed")
             await asyncio.sleep(TICK)
 
     def tick(self, at: float | None = None) -> list[str]:

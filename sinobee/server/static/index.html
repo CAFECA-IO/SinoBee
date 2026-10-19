@@ -39,7 +39,9 @@ canvas.ht{position:absolute;left:0;right:0;bottom:0;width:100%;height:48%;pointe
 .item.on{box-shadow:inset 3px 0 0 var(--accent)}
 .list{overflow:auto;flex:1;padding:8px}
 .item{padding:8px 10px;border-radius:8px;cursor:pointer;margin-bottom:2px}
-.item:hover,.item.on{background:var(--tool)}
+.item:hover{background:var(--tool)}
+.item.on{background:color-mix(in srgb,var(--accent) 14%,var(--panel));box-shadow:inset 3px 0 0 var(--accent);font-weight:600;color:var(--ink)}
+.item.on small{font-weight:400}
 .item small{display:block;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .status{padding:10px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);background:color-mix(in srgb,var(--bg) 70%,transparent);backdrop-filter:blur(6px)}
 .ldot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin:0 4px 0 2px;vertical-align:0}
@@ -231,6 +233,7 @@ details.tool .dur{color:var(--muted);font-size:12px;margin-left:6px}
 .result.done b{color:var(--ok)}
 .result.error,.result.incomplete,.result.blocked,.result.failed{background:var(--user);border-color:var(--warn)}
 .result.failed b{color:var(--err)}.result .failrep{display:block;margin-top:6px;font-size:12px;color:var(--muted)}
+.note.resume b{color:var(--accent)}.note.resume details{margin-top:4px}.note.resume pre{white-space:pre-wrap;font-size:12px;margin:4px 0 0}
 .note.plan ol{margin:6px 0 0;padding-left:20px}.note.plan li{margin:2px 0}.note.plan small{display:block;color:var(--muted)}
 .result.error b,.result.incomplete b,.result.blocked b{color:var(--err)}
 .result.stopped b{color:var(--muted)}
@@ -301,6 +304,29 @@ details.tool .dur{color:var(--muted);font-size:12px;margin-left:6px}
 .srcseg button.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
 .srcseg button.on::after{content:'✓';position:absolute;top:10px;right:12px;color:var(--accent);font-weight:700}
 .lcard{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:12px 14px;margin-bottom:10px}
+/* 設定 → SinoBee.ai → 我的分享 */
+.msh{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:12px 14px}
+.msh-h{display:flex;align-items:baseline;gap:8px;font-size:14px}.msh-n{font-size:12px;color:var(--muted)}
+.msh-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 4px}.msh-tools .seg button{font-size:12px}.msh-q{flex:1;min-width:140px;max-width:260px}
+.msh-empty{display:flex;gap:12px;align-items:flex-start;padding:12px 2px 4px;font-size:13px}.msh-empty>svg.i{width:28px;height:28px;color:var(--muted);flex:none}
+.msh-empty div{display:flex;flex-direction:column;gap:2px}.msh-empty span{color:var(--muted);font-size:12px;line-height:1.5}
+.msh-list{display:flex;flex-direction:column}
+.msh-item{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.msh-list .msh-item:first-child{border-top:0}
+.msh-th{position:relative;width:96px;aspect-ratio:1200/630;border-radius:8px;overflow:hidden;background:var(--tool);display:grid;place-items:center;border:1px solid var(--line)}
+.msh-th img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.msh-th span svg.i{width:20px;height:20px;color:var(--muted)}
+.msh-main{min-width:0;display:flex;flex-direction:column;gap:3px}
+.msh-t{font-weight:600;font-size:13px;color:var(--ink);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.msh-t:hover{color:var(--accent)}
+.msh-d{font-size:12px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.45}
+.msh-m{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:var(--muted);align-items:center}
+.msh-m span{display:inline-flex;align-items:center;gap:4px}.msh-m svg.i{width:12px;height:12px}.msh-m .warn{color:var(--warn)}
+.msh-m a{color:var(--accent);text-decoration:none}.msh-k{background:var(--tool);border-radius:999px;padding:1px 8px;color:var(--ink)}
+.msh-act{display:flex;gap:6px;align-items:flex-start;position:relative}
+.msh-act .btn{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}.msh-act svg.i{width:13px;height:13px}
+.msh-more{position:relative}.msh-more>summary{list-style:none;cursor:pointer}.msh-more>summary::-webkit-details-marker{display:none}
+.msh-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:20;width:230px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:12px;display:flex;flex-direction:column;gap:10px}
+.msh-pop .btn.danger{justify-content:center}
+@media (max-width:640px){.msh-item{grid-template-columns:72px minmax(0,1fr)}.msh-th{width:72px}.msh-act{grid-column:1/-1;justify-content:flex-end}.msh-pop{right:0}}
 .lhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.lhead .grow{flex:1;min-width:200px}
 .hwgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px;margin-top:10px}
 .hw{background:var(--tool);border-radius:10px;padding:8px 10px;position:relative;overflow:hidden}
@@ -940,6 +966,7 @@ const ICONS = {
   moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
   thumbUp: '<path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3zm0 0 4-8a2.5 2.5 0 0 1 2.5 2.5V9h5.6a2 2 0 0 1 2 2.3l-1.3 8a2 2 0 0 1-2 1.7H7"/>',
   thumbDown: '<g transform="rotate(180 12 12)"><path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3zm0 0 4-8a2.5 2.5 0 0 1 2.5 2.5V9h5.6a2 2 0 0 1 2 2.3l-1.3 8a2 2 0 0 1-2 1.7H7"/></g>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
@@ -1339,20 +1366,24 @@ function attachFeedback(card, turnId, rating, comment){
       const r = +b.dataset.r;
       if (b.dataset.a === 'edit' || (r && r === rating)) return openFbPanel(card, turnId, rating, () => { comment = '1'; paint(); });
       if (r > 0) return sendFeedback(turnId, 1, [], '', rating < 0).then(ok => { if (ok) { rating = 1; paint(); } });
-      openFbPanel(card, turnId, -1, () => { rating = -1; paint(); }, rating > 0);
+      // 👎 is selected at once; the panel only adds the reasons. Closing it without reasons still records 👎.
+      const before = rating; rating = -1; paint();
+      openFbPanel(card, turnId, -1, () => paint(), before > 0, async () => {
+        if (!await sendFeedback(turnId, -1, [], '', before > 0)) { rating = before; paint(); } });
     });
   };
   paint();
   card.appendChild(bar);
 }
-function openFbPanel(card, turnId, rating, done, changed = false){
+function openFbPanel(card, turnId, rating, done, changed = false, onCancel = null){
   card.nextElementSibling?.classList.contains('fbpanel') && card.nextElementSibling.remove();
   const p = document.createElement('div'); p.className = 'fbpanel'; const chosen = new Set();
   p.innerHTML = (rating < 0 ? '哪裡不好？（可複選）<div class="tags">' + FB_TAGS.map(([k, l]) => `<button type="button" data-t="${k}">${l}</button>`).join('') + '</div>' : '想補充什麼嗎？')
     + `<textarea placeholder="${rating < 0 ? '例如：我要的是表格比較，而且要附資料來源' : '例如：這種格式很好，以後都這樣做'}"></textarea>`
     + '<div class="row" style="margin-top:6px"><button class="btn sm" type="button" data-a="cancel">取消</button><button class="btn sm primary" type="button" data-a="send">送出回饋</button></div>';
   p.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { b.classList.toggle('on'); chosen.has(b.dataset.t) ? chosen.delete(b.dataset.t) : chosen.add(b.dataset.t); });
-  p.querySelector('[data-a=cancel]').onclick = () => p.remove();
+  p.querySelector('[data-a=cancel]').onclick = () => { p.remove(); if (onCancel) onCancel(); };
+  if (onCancel) p.querySelector('[data-a=cancel]').textContent = '略過說明';
   p.querySelector('[data-a=send]').onclick = async () => { if (!await sendFeedback(turnId, rating, [...chosen], p.querySelector('textarea').value.trim(), changed)) return; p.remove(); done(rating); };
   card.after(p); p.querySelector('textarea').focus();
 }
@@ -1457,7 +1488,7 @@ function handle(ev, replay = false){
   if (ev.type === 'turn_end' && ev.session_id) { delete RUNNING[ev.session_id]; setBusy(); }
   if (ev.session_id && ev.type !== 'session' && ev.session_id !== sessionId) return;
   switch (ev.type) {
-    case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
+    case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
     case 'notice': add('ⓘ ' + esc(ev.error || ev.message), 'note'); break;
     case 'quota': onQuotaEvent(ev, replay); break;
     case 'steer': if (ev.client_ref !== CLIENT_REF) { procClose(); } if (ev.client_ref !== CLIENT_REF) add(`<span class="steer-tag">執行中補充</span>` + md(ev.text), 'msg user steer');
@@ -1707,8 +1738,12 @@ $('#stopBtn').onclick = () => ws.send(JSON.stringify({type:'cancel', session_id:
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); tab = b.dataset.tab; loadSide(); });
 
+function markSideSession(){
+  document.querySelectorAll('#side .item[data-sid]').forEach(d => { const on = d.dataset.sid === sessionId;
+    d.classList.toggle('on', on); on ? d.setAttribute('aria-current', 'true') : d.removeAttribute('aria-current'); });
+}
 async function openSession(s){
-  sessionId = s.id; $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {}; PROC = null; REPLAY = true;
+  sessionId = s.id; markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {}; PROC = null; REPLAY = true;
   const [msgs, turns, arts] = await Promise.all([api('/api/sessions/' + s.id), api('/api/sessions/' + s.id + '/turns'),
     api('/api/sessions/' + s.id + '/artifacts').catch(() => [])]);
   const chat = $('#chat');
@@ -1716,7 +1751,8 @@ async function openSession(s){
     const before = chat.childElementCount;
     const text = typeof m.content === 'string' ? m.content : (m.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n');
     if (m.role === 'user') procClose();
-    if (m.role === 'user' && text.startsWith('[使用者在執行中補充指示]')) add(`<span class="steer-tag">執行中補充</span>` + md(text.replace('[使用者在執行中補充指示] ', '').split('\n（請把這個補充')[0]), 'msg user steer');
+    if (m.role === 'user' && /^\[(自動)?續跑\]/.test(text)) resumeNote(text);
+    else if (m.role === 'user' && text.startsWith('[使用者在執行中補充指示]')) add(`<span class="steer-tag">執行中補充</span>` + md(text.replace('[使用者在執行中補充指示] ', '').split('\n（請把這個補充')[0]), 'msg user steer');
     else if (m.role === 'user') {
       const act = text.match(/\[User explicitly activated: ([^\]]+)\]\n?([\s\S]*)$/);
       const shown = act ? act[1].split(/,\s*/).map(n => '/' + n).join(' ') + ' ' + (/^Use the .* skill\(s\)\.$/.test(act[2].trim()) ? '' : act[2]) : text.startsWith('<skill_content') ? text.split('\n').pop() : text;
@@ -1736,6 +1772,7 @@ async function openSession(s){
   if (!RUNNING[s.id]) procClose();
   REPLAY = false; if (replayLast && RUNNING[s.id]) { replayLast.live = true; }
   for (const a of Array.isArray(arts) ? arts : []) showArtifacts(a.id, a.files);
+  if (!RUNNING[s.id]) api('/api/sessions/' + s.id + '/interrupted').then(r => { if (r?.interrupted && sessionId === s.id) interruptedCard(r); }).catch(() => {});
   for (const t of Array.isArray(turns) ? turns : []) {
     const els = [...chat.querySelectorAll('[data-idx]')].filter(e => +e.dataset.idx <= t.end_idx);
     const anchor = els[els.length - 1]; if (!anchor) continue;
@@ -1790,7 +1827,8 @@ async function fillMemory(side){
 async function fillSide(side){
   if (tab === 'sessions') {
     for (const s of await api('/api/sessions')) {
-      const d = document.createElement('div'); d.className = 'item' + (s.id === sessionId ? ' on' : '');
+      const d = document.createElement('div'); d.className = 'item' + (s.id === sessionId ? ' on' : ''); d.dataset.sid = s.id;
+      if (s.id === sessionId) d.setAttribute('aria-current', 'true');
       d.innerHTML = `${esc(s.title || s.id)}${RUNNING[s.id] ? '<span class="run-dot">● 執行中</span>' : ''}<small>${new Date(s.updated_at * 1000).toLocaleString()} · ${s.message_count} 則</small>`;
       d.onclick = () => openSession(s); side.appendChild(d);
     }
@@ -3194,22 +3232,62 @@ async function markShared(){
   let n = 0; try { n = ((await api('/api/share/session/' + encodeURIComponent(sessionId))).items || []).length; } catch {}
   b.classList.toggle('shared', n > 0); b.setAttribute('aria-label', n ? `分享對話（已分享 ${n} 次）` : '分享對話');
 }
+const MSH = {filter: 'all', q: ''};
 async function renderMyShares(){
   const box = $('#mySharesBox'); if (!box) return;
-  let items = []; try { items = (await api('/api/share/mine')).items || []; } catch { return; }
+  let items = [];
+  try { items = (await api('/api/share/mine')).items || []; }
+  catch { box.innerHTML = ''; return; }
   items = items.filter(x => !x.revoked);
-  const V = {LINK: '知道連結', LOGIN: '需登入', PUBLIC: '公開'};
-  box.innerHTML = `<div class="lcard" style="font-size:13px"><b>我的分享</b>${items.length ? '' : '<div class="note">還沒有分享。</div>'}
-    ${items.map(x => `<div class="shrow" style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
-      <a href="${esc(x.url)}" target="_blank" rel="noopener" style="flex:1;min-width:180px">${esc(x.title)}</a>
-      <span class="badge">${V[x.visibility]}${x.restricted ? '・指定帳號' : ''}</span><span class="note">${x.views} 次瀏覽${x.expires_at ? '・到 ' + new Date(x.expires_at).toLocaleDateString() : ''}</span>
-      <select data-vis="${esc(x.id)}" class="inp" style="width:auto">${Object.entries(V).map(([k, l]) => `<option value="${k}"${x.visibility === k ? ' selected' : ''}>${l}</option>`).join('')}</select>
-      <button class="btn sm" type="button" data-rev="${esc(x.id)}">撤回</button></div>`).join('')}</div>`;
-  box.querySelectorAll('[data-vis]').forEach(sel => sel.onchange = async () => {
-    const r = await fetch('/api/share/' + sel.dataset.vis + '?token=' + encodeURIComponent(token), {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({visibility: sel.value})});
-    if (!r.ok) alert((await r.json()).detail); renderMyShares(); });
-  box.querySelectorAll('[data-rev]').forEach(b => b.onclick = async () => { if (!confirm('撤回這個分享？連結會立即失效。')) return;
-    const r = await fetch('/api/share/' + b.dataset.rev + '?token=' + encodeURIComponent(token), {method: 'DELETE'}); if (!r.ok) alert((await r.json()).detail); renderMyShares(); markShared(); });
+  const V = {LINK: ['link', '知道連結的人'], LOGIN: ['user', '登入 SinoBee.ai 的人'], PUBLIC: ['globe', '所有人（公開）']};
+  const K = {chat: '對話', doc: '報告／頁面'};
+  const now = Date.now();
+  const left = x => x.expires_at ? Math.ceil((new Date(x.expires_at) - now) / 86400000) : null;
+  const shown = items.filter(x => (MSH.filter === 'all' || (x.kind || 'chat') === MSH.filter)
+    && (!MSH.q || (x.title + ' ' + (x.description || '')).toLowerCase().includes(MSH.q.toLowerCase())));
+  const counts = {all: items.length, chat: items.filter(x => (x.kind || 'chat') === 'chat').length, doc: items.filter(x => x.kind === 'doc').length};
+  box.innerHTML = `<div class="msh">
+    <div class="msh-h"><b>我的分享</b><span class="msh-n">${items.length ? items.length + ' 個連結' : ''}</span></div>
+    ${items.length ? `<div class="msh-tools"><div class="seg">${Object.entries({all: '全部', chat: '對話', doc: '報告／頁面'}).map(([k, l]) =>
+        `<button type="button" data-f="${k}" class="${MSH.filter === k ? 'on' : ''}">${l} ${counts[k]}</button>`).join('')}</div>
+      ${items.length > 5 ? `<input class="inp msh-q" placeholder="搜尋標題" value="${esc(MSH.q)}">` : ''}</div>` : ''}
+    ${!items.length ? `<div class="msh-empty">${ic('share')}<div><b>還沒有分享</b><span>在對話上方按分享鍵，或在報告、頁面的預覽中按分享，就能產生連結給別人看。</span></div></div>` : ''}
+    ${items.length && !shown.length ? '<div class="note" style="padding:8px 2px">沒有符合的分享。</div>' : ''}
+    <div class="msh-list">${shown.map(x => { const d = left(x), soon = d !== null && d <= 3;
+      return `<div class="msh-item" data-id="${esc(x.id)}">
+        <a class="msh-th" href="${esc(x.url)}" target="_blank" rel="noopener" aria-label="開啟 ${esc(x.title)}">${x.thumbnail ? `<img src="${esc(x.thumbnail)}" alt="" loading="lazy" onerror="this.remove()">` : ''}<span>${ic(x.kind === 'doc' ? 'file' : 'chat')}</span></a>
+        <div class="msh-main">
+          <a class="msh-t" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>
+          ${x.description ? `<div class="msh-d">${esc(x.description)}</div>` : ''}
+          <div class="msh-m"><span class="msh-k">${K[x.kind || 'chat'] || '對話'}</span>
+            <span>${ic(V[x.visibility]?.[0] || 'link')}${V[x.visibility]?.[1] || x.visibility}${x.restricted ? '・指定帳號' : ''}</span>
+            <span>${ic('eye')}${x.views} 次瀏覽</span>
+            <span class="${soon ? 'warn' : ''}">${ic('clock')}${d === null ? '不過期' : d <= 0 ? '已過期' : d === 1 ? '明天到期' : `${d} 天後到期`}</span>
+            <span>${new Date(x.created_at).toLocaleDateString()} 分享</span>
+            ${x.session_id ? `<a href="#" data-open-sess="${esc(x.session_id)}">回到對話</a>` : ''}</div>
+        </div>
+        <div class="msh-act">
+          <button class="btn sm" type="button" data-copy="${esc(x.url)}">${ic('copy')}<span>複製連結</span></button>
+          <details class="msh-more"><summary class="btn sm">${ic('gear')}<span>設定</span></summary><div class="msh-pop">
+            <label class="f">誰可以看<select class="inp" data-vis>${Object.entries(V).map(([k, [, l]]) => `<option value="${k}"${x.visibility === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+            <label class="f">保留多久<select class="inp" data-exp><option value="">不變（${d === null ? '不過期' : d + ' 天'}）</option><option value="7">從今天起 7 天</option><option value="30">從今天起 30 天</option><option value="0">不過期</option></select></label>
+            <button class="btn sm danger" type="button" data-rev>${ic('trash')}撤回分享</button></div></details>
+        </div></div>`; }).join('')}</div></div>`;
+  box.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { MSH.filter = b.dataset.f; renderMyShares(); });
+  box.querySelectorAll('.msh-more').forEach(d => d.addEventListener('toggle', () => { if (d.open) box.querySelectorAll('.msh-more[open]').forEach(o => { if (o !== d) o.open = false; }); }));
+  const q = box.querySelector('.msh-q'); if (q) q.oninput = () => { MSH.q = q.value; clearTimeout(MSH.t); MSH.t = setTimeout(() => { renderMyShares().then(() => { const n = $('#mySharesBox .msh-q'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 250); };
+  const patch = async (id, body) => { const r = await fetch('/api/share/' + encodeURIComponent(id) + '?token=' + encodeURIComponent(token), {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    if (!r.ok) alert((await r.json().catch(() => ({}))).detail || '更新失敗'); renderMyShares(); };
+  box.querySelectorAll('.msh-item').forEach(row => { const id = row.dataset.id;
+    row.querySelector('[data-copy]').onclick = async e => { const b = e.currentTarget;
+      try { await navigator.clipboard.writeText(b.dataset.copy); b.querySelector('span').textContent = '已複製'; setTimeout(() => b.querySelector('span').textContent = '複製連結', 1500); } catch { prompt('複製這個連結：', b.dataset.copy); } };
+    row.querySelector('[data-vis]').onchange = e => patch(id, {visibility: e.target.value});
+    row.querySelector('[data-exp]').onchange = e => { if (e.target.value !== '') patch(id, {expiresInDays: +e.target.value || null}); };
+    row.querySelector('[data-rev]').onclick = async () => { if (!confirm('撤回這個分享？連結會立即失效，看過的人也無法再開啟。')) return;
+      const r = await fetch('/api/share/' + encodeURIComponent(id) + '?token=' + encodeURIComponent(token), {method: 'DELETE'});
+      if (!r.ok) alert((await r.json().catch(() => ({}))).detail || '撤回失敗'); renderMyShares(); markShared(); };
+  });
+  paintIcons(box);
 }
 async function importFromUrl(){
   const u = new URLSearchParams(location.search).get('import'); if (!u) return;
@@ -3727,11 +3805,34 @@ $('#jfSave').onclick = async () => {
 
 // live updates
 let WK_DEB = 0;
+document.addEventListener('click', e => { if (!e.target.closest('.msh-more')) document.querySelectorAll('.msh-more[open]').forEach(o => o.open = false); });
+document.addEventListener('click', async e => { const a = e.target.closest('[data-open-sess]'); if (!a) return; e.preventDefault();
+  const s = (await api('/api/sessions')).find(x => x.id === a.dataset.openSess); if (s) openSession(s); });
+function resumeNote(text){
+  const auto = text.startsWith('[自動續跑]'), prog = text.split('進度整理')[1];
+  add(`<b>↻ ${auto ? 'SinoBee 自動續跑中斷的任務' : '從中斷處續跑'}</b>` + (prog ? `<details><summary>進度整理</summary><pre>${esc(prog.replace(/^[^\n]*\n/, ''))}</pre></details>` : ''), 'note resume');
+}
+function interruptedCard(r){
+  const ar = r.auto_resume || {};
+  const st = ar.resumed ? '已續跑' : ar.reason ? `沒有自動續跑：${esc(ar.reason)}` : 'SinoBee 會在一分鐘內檢查並自動續跑';
+  const c = add(`<b>△ 任務中斷：${esc(r.error || '執行到一半停止了')}</b><div class="hint">${st}</div>`, 'result incomplete');
+  if (!ar.resumed) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm primary'; b.style.marginTop = '8px';
+    b.textContent = '立即繼續'; b.onclick = async () => { b.disabled = true; try { await post(`/api/work/runs/${encodeURIComponent(r.run_id)}/resume`, {}); b.textContent = '已開始續跑'; } catch { b.disabled = false; } };
+    c.appendChild(b); }
+}
 function onWorkEvent(ev){
   clearTimeout(WK_DEB); WK_DEB = setTimeout(() => {
     if (tab === 'work') loadSide();
     if ($('#workModal').classList.contains('open') && ['overview', 'run', 'jobs', 'job'].includes(WK.view)) wkRender(true);
   }, 400);
+  if (ev.what === 'auto_resume') {
+    if (ev.session_id === sessionId) {
+      document.querySelectorAll('#chat .result.incomplete').forEach(c => { if (c.textContent.includes('任務中斷')) c.remove(); });
+      if (ev.resumed) add(`<b>↻ SinoBee 自動續跑中斷的任務</b>${ev.next ? `<div class="hint">先做：${esc(ev.next)}</div>` : ''}`, 'note resume');
+      else add(`ⓘ 中斷的任務沒有自動續跑：${esc(ev.reason || '')}`, 'note');
+    } else if (ev.resumed) add(`↻ 已自動續跑另一段對話中被中斷的任務 <a href="#" data-open-sess="${esc(ev.session_id)}">查看</a>`, 'note');
+    loadSide(); refreshStatus(false);
+  }
   if (ev.what === 'approval' && ev.reason && !ev.decided) {
     if (Notification?.permission === 'granted') try { new Notification('SinoBee 需要你核准', {body: ev.reason}); } catch {}
     add(`ⓘ 背景工作「${esc(ev.name || '')}」等你核准：${esc(ev.reason)} <a href="#" onclick="openWork('run','${esc(ev.run_id)}');return false">前往核准</a>`, 'note');

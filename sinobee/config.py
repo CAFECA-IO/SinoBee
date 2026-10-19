@@ -111,6 +111,9 @@ DEFAULTS: dict[str, Any] = {
         "scheduler": True,          # run scheduled jobs (server only)
         "max_parallel_runs": 2,     # background runs at the same time
         "max_parallel_subagents": 3,
+        "auto_resume": True,        # every minute: resume tasks interrupted by a restart / crash (work/recovery.py)
+        "auto_resume_max": 2,       # automatic resumes per conversation per day
+        "auto_resume_hours": 24,    # only tasks interrupted within this many hours
     },
     "learning": {
         "enabled": True,
