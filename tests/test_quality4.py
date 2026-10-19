@@ -167,18 +167,18 @@ def test_core_eval_has_the_source_numbers_regression():
     assert "250 kilos of air" in task["setup"]["files"]["talk/transcript.md"]
 
 
-async def test_a_complex_skill_turn_gets_the_larger_step_budget(home, monkeypatch):
-    main = ScriptedProvider([msg("", [("list_dir", {"path": "."})]) for _ in range(8)] + [msg("好了")])
+async def test_there_is_no_fixed_step_limit_but_an_explicit_one_still_holds(home):
+    # no step cap for a turn: 70 steps of new information run to the end (progress decides, agent/progress.py)
+    main = ScriptedProvider([msg("", [("list_dir", {"path": f"d{i}"})]) for i in range(70)] + [msg("好了")])
     cfg = Config.load()
-    cfg.data["agent"].update(max_iterations=3, max_iterations_complex=12, verify=False)
+    cfg.data["agent"].update(verify=False)
     agent = Agent(Runtime(cfg, provider=main))
-    await agent.run("看一下")
-    assert agent.last_status["status"] == "incomplete" and "3 步" in agent.last_status["error"]["summary"]
-    main2 = ScriptedProvider([msg("", [("list_dir", {"path": "."})]) for _ in range(8)] + [msg("好了")])
-    agent2 = Agent(Runtime(cfg, provider=main2))
-    monkeypatch.setattr(agent2, "_complex_task", lambda explicit: True)
-    out = await agent2.run("看一下")
-    assert out == "好了" and agent2.last_status["status"] == "done"
+    assert await agent.run("看一下") == "好了" and agent.last_status["status"] == "done"
+    # a caller's explicit budget (a sub-agent, the reviewer) is still respected
+    main2 = ScriptedProvider([msg("", [("list_dir", {"path": f"d{i}"})]) for i in range(8)] + [msg("好了")])
+    agent2 = Agent(Runtime(cfg, provider=main2), max_iterations=3)
+    await agent2.run("看一下")
+    assert agent2.last_status["status"] == "incomplete" and "3 步" in agent2.last_status["error"]["summary"]
 
 
 async def test_a_stalled_thinking_model_is_skipped_not_replaced(home):

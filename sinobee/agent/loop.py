@@ -25,6 +25,7 @@ from ..fileaccess import resolve_file
 from ..tools import checklist_tools
 from ..tools.registry import REGISTRY, ToolContext
 from . import artifacts
+from . import progress as progress_mod
 from ..types import ImagePart, Message, TextPart, ToolCall, ToolResult, Usage
 from .context import OVERFLOW_RE, compact, context_budget, context_window, estimate_tokens, prune_images, with_summary
 from .prompt import build_context_block, build_system_prompt
@@ -500,36 +501,87 @@ class Agent:
         self._persist()
         self._emit("plan", {**plan, "model": model.label})
 
-    def _request_consult(self, why: str, stats: dict) -> bool:
+    def _consult_refusal(self, stats: dict) -> str | None:
+        """Why the thinking model cannot be asked now: "max" (agent.consult_max used up), "pending" (already
+        asked for this step), "too_soon" (less than 5 steps after the last advice) - or None."""
+        if stats.get("consults", 0) >= int(self.config.get("agent.consult_max", 2)):
+            return "max"
+        if stats.get("consult_pending"):
+            return "pending"
+        if stats.get("step", 0) - stats.get("consult_at", -99) < 5:
+            return "too_soon"
+        return None
+
+    def _request_consult(self, why: str, stats: dict, trigger: str | None = None, detail: str | None = None) -> bool:
         """Ask the thinking model for advice at the start of the next step (at most agent.consult_max times per
-        task, at least 5 steps apart). The execution model keeps running the task; models are never switched."""
+        task, at least 5 steps apart). The execution model keeps running the task; models are never switched.
+        Every request - granted or not - is a control entry with its trigger."""
+        refusal = self._consult_refusal(stats)
         step = stats.get("step", 0)
-        if stats.get("consults", 0) >= int(self.config.get("agent.consult_max", 2)) or stats.get("consult_pending") \
-                or step - stats.get("consult_at", -99) < 5:
+        if trigger:
+            if refusal is None:
+                self._control(stats, "consult_requested", trigger, detail or why)
+            elif stats.get("_last_refusal") != (trigger, refusal):
+                stats["_last_refusal"] = (trigger, refusal)
+                text = {"max": f"諮詢次數已用完（agent.consult_max={self.config.get('agent.consult_max', 2)}）",
+                        "pending": "這一步已經排定請教",
+                        "too_soon": f"距離上次請教（第 {stats.get('consult_at')} 步）不到 5 步"}[refusal]
+                self._control(stats, "consult_skipped", trigger, f"{detail or why}；{text}", decision=refusal)
+        if refusal:
             return False
         stats["consult_pending"] = why
+        stats["consult_trigger"] = trigger
         return True
+
+    def _control(self, stats: dict, event: str, trigger: str, detail: str, **extra) -> dict:
+        """Record a decision about the execution with its exact trigger: in the turn's stats (failure report), the
+        run record, the UI, the server log and $SINOBEE_HOME/logs/control.jsonl."""
+        e = progress_mod.entry(event, trigger, stats.get("step", 0), detail, getattr(self, "_progress", None),
+                               **extra)
+        stats.setdefault("control_log", []).append(e)
+        rec = getattr(self, "_run_rec", None)
+        progress_mod.append_log(self.config.home, {**e, "session_id": self.session_id, "depth": self.depth,
+                                                   "run_id": getattr(rec, "rid", None),
+                                                   "model": getattr(getattr(self, "_prov", None), "label", "")})
+        line = progress_mod.describe(e)
+        progress_mod.log.info("%s session=%s", line, self.session_id)
+        self._emit("control", e)
+        self._emit("status", {"message": line, "control": True})     # plain clients (CLI) show the line
+        if rec:
+            rec.control(e)
+        return e
+
+    def _stop_control(self, stats: dict, trigger: str, detail: str) -> None:
+        self._control(stats, "stop", trigger, detail, decision="failed")
 
     async def _consult(self, why: str, context_block: str, stats: dict) -> None:
         """The thinking model reads a fork of the full context and advises - and decides whether the execution
         model can still finish. "stop" ends the task as failed (stats["give_up"])."""
         from . import thinking
         model = self.rt.thinker()
-        self._event(f"向思維模型 {model.label} 請教（{why}）")
+        trigger = stats.pop("consult_trigger", None) or "consult"
         request = [self.system] + self.history + [Message("user", [TextPart(
             context_block + "\n\n" + thinking.CONSULT.format(why=why), volatile=True)])]
         stats["consults"] = stats.get("consults", 0) + 1
         stats["consult_at"] = stats.get("step", 0)
         resp = await self._thinking_call("請教", request, 1400, stats)
         if resp is None:
-            stats.setdefault("consult_log", []).append({"step": stats.get("step"), "why": why, "advice": None})
+            stats.setdefault("consult_log", []).append({"step": stats.get("step"), "why": why, "advice": None,
+                                                        "trigger": trigger})
+            self._control(stats, "consult", trigger, f"思維模型 {model.label} 沒有回覆，照原做法繼續",
+                          decision="no_answer")
             return
         advice, decision, reason = thinking.parse_decision(resp.message.text())
         stats.setdefault("consult_log", []).append({"step": stats.get("step"), "why": why, "advice": advice[:3000],
-                                                    "decision": decision, "reason": reason})
+                                                    "decision": decision, "reason": reason, "trigger": trigger})
+        self._control(stats, "consult", trigger,
+                      f"思維模型 {model.label}：{reason or advice.splitlines()[0][:160] if advice else reason}",
+                      decision=decision)
+        if trigger in ("no_progress", "loop_repeat", "loop_alternating", "file_oscillation", "repeated_error") \
+                and getattr(self, "_progress", None):
+            self._progress.no_progress = 0          # the advice gets K fresh steps
         if decision == "stop":
             stats["give_up"] = reason or "思維模型判斷執行模型無法完成這個任務"
-            self._event(f"思維模型判斷執行模型無法完成：{stats['give_up']}")
         if advice:
             self.history.append(Message("user", f"[思維模型的建議]（{why}）\n{advice[:4000]}"))
             self._persist()
@@ -905,7 +957,11 @@ class Agent:
 
         context_block = await self._build_context(query)
         final_text = ""
-        max_iter = int(self.max_iterations or self.config.get("agent.max_iterations", 60))
+        # no fixed step limit: progress decides when the task is stuck (agent/progress.py). A caller may still
+        # give an explicit limit (a sub-agent's or reviewer's budget); 300 steps is the safety valve for everything
+        self._progress = progress_mod.Tracker(self.config)
+        max_iter = int(self.max_iterations) if self.max_iterations else 0
+        safety_max = self._progress.safety_max
         max_tokens = self._max_tokens()
         empty_replies = 0
         overflow_retried = False
@@ -918,6 +974,8 @@ class Agent:
         self._checklist_turn_start()
         if self._should_plan(query, explicit, stats):
             await self._guarded("規劃", self._plan(query, context_block, stats), stats)
+        self._progress.set_checklist(checklist_tools.get(self.ctx))
+        stats["compactions"] = 0
         self._turn_started = started
         self._snap = None
         if self.depth == 0:
@@ -929,16 +987,22 @@ class Agent:
             self._snap = _SNAPSHOT.get()
         stats["artifacts"] = []
 
-        def step_limit() -> int:
-            # a multi-stage skill (sinobee-complexity: high) used in this turn gets the larger budget
-            if not self.max_iterations and self._complex_task(explicit):
-                return max(max_iter, int(self.config.get("agent.max_iterations_complex", 120)))
-            return max_iter
-
         hit_limit = False
-        for iteration in itertools.count():                # counts up to the step limit (which may grow)
-            if iteration >= step_limit():
-                max_iter, hit_limit = step_limit(), True
+        for iteration in itertools.count():
+            if max_iter and iteration >= max_iter:
+                hit_limit = True
+                break
+            if iteration >= safety_max:
+                stats["step"] = iteration
+                detail = (f"單一 Agent 已執行 {iteration} 步（agent.progress.safety_max_steps={safety_max}）。"
+                          "正常情況下任務應早已因完成、被判定卡住或拆成里程碑而結束，這代表進度偵測或規劃有缺陷")
+                self._stop_control(stats, "safety_valve", detail)
+                status = "failed"
+                error_info = {"summary": f"已達安全閥（{safety_max} 步），任務被強制停止", "kind": "safety_valve",
+                              "category": "system_bug", "detail": detail,
+                              "hint": "這是系統異常，已保存失敗報告（設定 →「品質」）供改進。可以回覆「繼續」接著做。"}
+                final_text = f"⚠︎ 任務被安全閥停止：已執行 {iteration} 步。已完成的部分已保留。"
+                self.history.append(Message("assistant", f"[上一次嘗試被安全閥停止：已執行 {iteration} 步]"))
                 break
             steps = iteration + 1
             if self._cancel:
@@ -964,10 +1028,17 @@ class Agent:
                     context_block = self._render_context()
                 if estimate_tokens([self.system] + self.history, tool_specs, context_block) > budget * 0.8:
                     turn_start = await self._compact(budget, tool_specs, context_block, turn_start)
+                    stats["compactions"] += 1
+                    stats["step"] = steps
+                    if steps > 1 and not self._checklist_done():     # compacted by this turn's own work
+                        self._request_consult(
+                            "里程碑內發生上下文壓縮", stats, "health_compaction",
+                            f"這個回合第 {stats['compactions']} 次壓縮上下文（第 {steps} 步），檢視是否需要把工作拆小")
             stats["step"] = steps
             if stats.get("consult_pending"):
                 await self._consult(stats.pop("consult_pending"), context_block, stats)
                 if stats.get("give_up"):
+                    self._stop_control(stats, "thinking_stop", stats["give_up"])
                     status = "failed"
                     error_info = {"summary": "執行模型無法完成這個任務", "kind": "capability",
                                   "detail": stats["give_up"],
@@ -984,8 +1055,11 @@ class Agent:
                 tail.append(EMPTY_NUDGE)
                 nudge = False
             request.append(Message("user", [TextPart("\n\n".join(t for t in tail if t), volatile=True)]))
-            if steps > int(self.config.get("agent.consult_after_steps", 25)) and not stats.get("consulted_steps"):
-                stats["consulted_steps"] = self._request_consult(f"已進行 {steps - 1} 步仍未完成", stats)
+            hs = self._progress.health_steps
+            if hs and steps > 1 and (steps - 1) % hs == 0 and not self._checklist_done():
+                self._request_consult(f"已執行 {steps - 1} 步仍未通過驗收", stats, "health_steps",
+                                      f"已執行 {steps - 1} 步，驗收清單尚未完成（健康水位每 {hs} 步檢查一次），"
+                                      "檢視是否需要原地拆分")
             self._emit("thinking", {"iteration": iteration, "step": steps, "model": self._prov.label})
             try:
                 resp = await self._step_chat(request, tool_specs, max_tokens, stats)
@@ -1004,6 +1078,7 @@ class Agent:
                     context_block = self._render_context()
                     turn_start = await self._compact(budget, tool_specs, context_block, turn_start,
                                                      force=True, keep_ratio=0.25, reason="overflow")
+                    stats["compactions"] = stats.get("compactions", 0) + 1
                     if dieted or self._last_compaction_changed or len(self.history) != before:
                         continue
                 from .errors import explain_error
@@ -1073,34 +1148,66 @@ class Agent:
                                   "hint": "請看最後一個 ✕ 的錯誤訊息，或回覆「繼續」讓我換個方法再試。",
                                   "detail": stats.get("last_error", "")}
                 break
+            self._step_calls = []
             for call in msg.tool_calls:
                 result_msg = await self._execute(call, stats)
                 self.history.append(result_msg)
+            verdict = self._observe_step(steps, stats)
             self._persist()
-            if stats.get("consecutive_errors", 0) >= int(self.config.get("agent.consult_after_errors", 3)) \
-                    or stats.get("repeats"):
-                self._request_consult(f"連續 {stats.get('consecutive_errors', 0)} 次工具錯誤"
-                                      if stats.get("consecutive_errors") else "重複執行已失敗的操作", stats)
             limit = int(self.config.get("agent.max_consecutive_errors", 6))
-            if stats.get("consecutive_errors", 0) >= limit or stats.get("repeats", 0) >= 3:
-                why = (f"連續 {stats['consecutive_errors']} 次工具呼叫失敗" if stats.get("consecutive_errors", 0) >= limit
+            hard = stats.get("consecutive_errors", 0) >= limit or stats.get("repeats", 0) >= 3
+            stop_why = None
+            if hard:
+                trig = "consecutive_errors" if stats.get("consecutive_errors", 0) >= limit else "repeated_failed_call"
+                why = (f"連續 {stats['consecutive_errors']} 次工具呼叫失敗" if trig == "consecutive_errors"
                        else "重複執行已失敗的相同操作")
-                if self._request_consult(why, stats):
+                detail = (f"連續 {stats.get('consecutive_errors', 0)} 次工具失敗（硬上限 agent.max_consecutive_errors={limit}）"
+                          if trig == "consecutive_errors" else
+                          f"同一個已失敗的呼叫被重複了 {stats.get('repeats', 0)} 次（上限 3）") + \
+                    f"；最後的錯誤：{stats.get('last_error', '')[:160]}"
+                if self._request_consult(why, stats, trig, detail):
                     # one more chance with the thinking model's advice before the task is given up
                     stats["consecutive_errors"], stats["repeats"] = 0, 0
                     continue
+                stop_why = (trig, why, detail)
+            elif verdict.get("loop"):
+                lp = verdict["loop"]
+                if not self._request_consult(progress_mod.TRIGGERS[lp["trigger"]], stats, lp["trigger"], lp["detail"]) \
+                        and self._consult_refusal(stats) == "max":
+                    stop_why = (lp["trigger"], progress_mod.TRIGGERS[lp["trigger"]], lp["detail"])
+            elif stats.get("consecutive_errors", 0) >= int(self.config.get("agent.consult_after_errors", 3)) \
+                    or stats.get("repeats"):
+                trig = "consecutive_errors" if stats.get("consecutive_errors") else "repeated_failed_call"
+                self._request_consult(f"連續 {stats.get('consecutive_errors', 0)} 次工具錯誤"
+                                      if stats.get("consecutive_errors") else "重複執行已失敗的操作", stats, trig,
+                                      f"連續 {stats.get('consecutive_errors', 0)} 次工具失敗（門檻 agent.consult_after_errors="
+                                      f"{self.config.get('agent.consult_after_errors', 3)}）：{stats.get('last_error', '')[:160]}"
+                                      if trig == "consecutive_errors" else "重複執行已失敗的相同操作")
+            elif self._progress.no_progress >= self._progress.k:
+                t = self._progress
+                detail = (f"連續 {t.no_progress} 步沒有進度（門檻 K={t.k}）；最後一次有進度是第 {t.last_progress_step} 步"
+                          if t.last_progress_step else f"連續 {t.no_progress} 步沒有進度（門檻 K={t.k}），本回合尚無任何進度")
+                if not self._request_consult(progress_mod.TRIGGERS["no_progress"], stats, "no_progress", detail) \
+                        and self._consult_refusal(stats) == "max":
+                    stop_why = ("no_progress", "諮詢次數用完後仍沒有進度", detail)
+            if stop_why:
+                trig, why, detail = stop_why
+                self._stop_control(stats, "advice_exhausted",
+                                   f"{progress_mod.TRIGGERS.get(trig, trig)}：{detail}；思維模型的諮詢已用完"
+                                   f"（{stats.get('consults', 0)}/{self.config.get('agent.consult_max', 2)}）")
                 # stuck after the advice allowed: the execution model could not do it
                 status = "failed"
-                error_info = {"summary": why + "，執行模型無法完成這個任務", "kind": "capability",
+                error_info = {"summary": why + "，執行模型無法完成這個任務", "kind": "capability", "trigger": trig,
                               "hint": "已保存失敗報告（設定 →「品質」）。可以換用能力更強的執行模型，或回覆更明確的做法後再試。",
-                              "detail": stats.get("last_error", "")}
-                final_text = (f"⚠︎ 任務沒有完成：{why}。最後的錯誤：\n{stats.get('last_error', '')[:400]}")
-                self.history.append(Message("assistant", f"[上一次嘗試失敗：{why}。最後的錯誤：{stats.get('last_error', '')[:300]}]"))
+                              "detail": stats.get("last_error", "") or detail}
+                final_text = (f"⚠︎ 任務沒有完成：{why}。" + (f"最後的錯誤：\n{stats.get('last_error', '')[:400]}"
+                                                             if stats.get("last_error") else detail))
+                self.history.append(Message("assistant", f"[上一次嘗試失敗：{why}。{stats.get('last_error', '')[:300] or detail[:300]}]"))
                 break
         if hit_limit:
             status = "incomplete"
-            error_info = {"summary": f"已達單次任務的步驟上限（{max_iter} 步）",
-                          "hint": "可以回覆「繼續」讓我接著做，或在設定提高 agent.max_iterations。", "detail": ""}
+            error_info = {"summary": f"已達這個子任務指定的步驟上限（{max_iter} 步）",
+                          "hint": "可以回覆「繼續」讓我接著做。", "detail": ""}
             final_text = "（步驟用完，任務尚未完成）"
             self.history.append(Message("assistant", final_text))
 
@@ -1331,6 +1438,25 @@ class Agent:
         return [TextPart("\n\n".join(blocks)), TextPart(f"[User explicitly activated: {', '.join(names)}]"),
                 TextPart(body)], names, False
 
+    def _checklist_done(self) -> bool:
+        items = checklist_tools.get(self.ctx)
+        return bool(items) and not checklist_tools.open_items(items)
+
+    def _observe_step(self, step: int, stats: dict) -> dict:
+        """The step's progress verdict (agent/progress.py); kept for the failure report and the run record."""
+        from ..tools.files import resolve as resolve_path
+        try:
+            verdict = self._progress.observe(step, getattr(self, "_step_calls", None) or [],
+                                             checklist_tools.get(self.ctx), lambda p: resolve_path(self.ctx, p))
+        except Exception:  # noqa: BLE001 - progress bookkeeping must never break a task
+            log.exception("progress check failed")
+            return {}
+        stats["progress_trace"] = self._progress.trace
+        rec = getattr(self, "_run_rec", None)
+        if rec:
+            rec.progress(self._progress.trace)
+        return verdict
+
     async def _execute(self, call: ToolCall, stats: dict) -> Message:
         self._emit("tool_call", {"id": call.id, "name": call.name, "arguments": call.arguments})
         t0 = time.time()
@@ -1370,6 +1496,9 @@ class Agent:
             "\n".join(p.text for p in result.content if isinstance(p, TextPart))
         has_image = isinstance(result.content, list) and any(isinstance(p, ImagePart) for p in result.content)
         image_b64 = next((p.data for p in result.content if isinstance(p, ImagePart)), None) if has_image else None
+        calls = getattr(self, "_step_calls", None)
+        if calls is not None:
+            calls.append((call.name, call.arguments or {}, preview, bool(result.is_error) and not denied))
         self._emit("tool_result", {"id": call.id, "name": call.name, "error": result.is_error, "duration_s": elapsed,
                                    "preview": preview[:3000], "image": image_b64})
         if rec:

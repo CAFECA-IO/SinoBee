@@ -187,7 +187,8 @@ async def test_repeated_failures_consult_the_thinking_model_and_never_switch(cfg
     rt = Runtime(cfg, provider=weak, thinking_provider=strong)
     agent, seen = await run_turn(rt, "讀檔")
     assert strong.calls == 1 and weak.calls == 4                # every step stayed on the execution model
-    assert any(e == "status" and "向思維模型 anthropic/strong 請教" in d["message"] for e, d in seen)
+    assert any(e == "status" and "請教思維模型" in d["message"] for e, d in seen)
+    assert any(e == "status" and "思維模型 anthropic/strong" in d["message"] for e, d in seen)
     assert not any(e == "status" and "改用" in d["message"] for e, d in seen)
 
 

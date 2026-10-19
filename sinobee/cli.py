@@ -793,6 +793,36 @@ def _eval_cmd(args) -> None:
     asyncio.run(go())
 
 
+def _control_log_cmd(args) -> None:
+    """Every consult, skipped consult and stop, with the exact trigger, thresholds and evidence."""
+    import json as _json
+    import time as _t
+    from .agent import progress as P
+    from .config import Config
+    cfg = Config.load()
+    rows = P.read_log(cfg.home, session=args.session, trigger=args.trigger, event=args.event, limit=args.limit)
+    if args.stats:
+        counts: dict = {}
+        for e in P.read_log(cfg.home, limit=100000):
+            k = (e.get("event"), e.get("trigger"))
+            counts[k] = counts.get(k, 0) + 1
+        for (ev, tr), n in sorted(counts.items(), key=lambda kv: -kv[1]):
+            print(f"{n:>6}  {ev:<18} {tr:<20} {P.TRIGGERS.get(tr, '')}")
+        return
+    if not rows:
+        print("沒有紀錄")
+    for e in rows:
+        if args.json:
+            print(_json.dumps(e, ensure_ascii=False))
+            continue
+        when = _t.strftime("%m-%d %H:%M:%S", _t.localtime(e.get("t") or 0))
+        print(f"{when} {str(e.get('session_id'))[:12]:<12} {P.describe(e)}")
+        if args.verbose_evidence:
+            print("    門檻：" + ", ".join(f"{k}={v}" for k, v in (e.get("thresholds") or {}).items()))
+            for line in e.get("evidence") or []:
+                print("    " + line)
+
+
 def _failures_cmd(args) -> None:
     """Failure reports: what a task that did not finish did, step by step, and the thinking model's diagnosis."""
     import json as _json
@@ -931,6 +961,14 @@ def main(argv: list[str] | None = None) -> None:
     fl.add_argument("id", nargs="?")
     fl.add_argument("--limit", type=int, default=30)
     fl.add_argument("--json", action="store_true")
+    cl = sub.add_parser("control-log", help="why executions were questioned or stopped (consults, stops, triggers)")
+    cl.add_argument("--session")
+    cl.add_argument("--trigger")
+    cl.add_argument("--event", choices=["consult_requested", "consult", "consult_skipped", "stop"])
+    cl.add_argument("--limit", type=int, default=50)
+    cl.add_argument("--stats", action="store_true", help="counts per event and trigger")
+    cl.add_argument("--evidence", dest="verbose_evidence", action="store_true", help="show thresholds and evidence")
+    cl.add_argument("--json", action="store_true")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -968,6 +1006,8 @@ def main(argv: list[str] | None = None) -> None:
         _eval_cmd(args)
     elif args.cmd == "failures":
         _failures_cmd(args)
+    elif args.cmd == "control-log":
+        _control_log_cmd(args)
 
 
 if __name__ == "__main__":

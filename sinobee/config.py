@@ -38,8 +38,16 @@ DEFAULTS: dict[str, Any] = {
     "providers": {},             # per-provider overrides: {name: {base_url, api_key_env, api_key, transport}}
     "agent": {
         "name": "SinoBee",
-        "max_iterations": 60,
-        "max_iterations_complex": 120,  # turns that use a sinobee-complexity: high skill
+        # no fixed step limit: a task stops when it stops making progress (agent/progress.py)
+        "progress": {
+            "k": 15,                # steps in a row without progress before the thinking model is consulted
+            "n_code": 8,            # steps in a row that only change code files and still count as progress
+            "n_document": 3,        # ... that only reword documents (no structural change)
+            "n_other": 5,           # ... other files (data, config, unknown)
+            "health_steps": 40,     # every this many steps with the checklist still open: thinking-model check
+            "safety_max_steps": 300,  # safety valve per agent - reaching it is a system anomaly (config.yaml only)
+            "window": 8,            # steps looked at for loops
+        },
         "model_deadline": 240,          # s a thinking / review call may take; after that it is skipped and recorded
         "plan": "auto",                 # auto | always | off: the thinking model plans before the first step (auto:
                                         # skills picked or multi-stage, or a long request)
@@ -64,7 +72,6 @@ DEFAULTS: dict[str, Any] = {
         "checklist_after_tool_calls": 4,  # remind the agent to write an acceptance checklist after this many tools        # times an open checklist / failed file check is sent back to be fixed
         "consult_after_errors": 3,  # consecutive tool errors before the thinking model is consulted
         "inline_aux": "auto",       # model for compaction a running task waits on: auto | auxiliary | main
-        "consult_after_steps": 25,  # steps in one turn before the thinking model is consulted
     },
     "permissions": {
         "toolsets": ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database", "work"],

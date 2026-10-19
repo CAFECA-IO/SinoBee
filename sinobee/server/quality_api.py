@@ -109,6 +109,21 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
     # ------------------------------------------------------------------ failure reports
     from ..agent import failures as F
 
+    @app.get("/api/control-log")
+    async def control_log(session: str | None = None, trigger: str | None = None, event: str | None = None,
+                          limit: int = 200):
+        """Every decision that questioned or stopped an execution, with its exact trigger (agent/progress.py)."""
+        from ..agent import progress as P
+        rows = P.read_log(home(), session=session, trigger=trigger, event=event, limit=max(1, min(limit, 2000)))
+        counts: dict = {}
+        for e in P.read_log(home(), limit=100000):
+            k = (e.get("event"), e.get("trigger"))
+            counts[k] = counts.get(k, 0) + 1
+        return {"entries": [{**e, "text": P.describe(e)} for e in reversed(rows)],
+                "counts": [{"event": k[0], "trigger": k[1], "label": P.TRIGGERS.get(k[1], k[1]), "n": n}
+                           for k, n in sorted(counts.items(), key=lambda kv: -kv[1])],
+                "triggers": P.TRIGGERS}
+
     @app.get("/api/failures")
     async def failures_list(limit: int = 50):
         return {"failures": F.listing(home(), max(1, min(limit, 300)))}

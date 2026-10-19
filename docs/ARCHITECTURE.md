@@ -89,7 +89,7 @@ run(user_input):
   2. skills   = skills.relevant(user_input)          # 相關技能索引（top-n）
   3. messages = [system(穩定)] + history(只增不改) + tail(每次重建、不存檔：<context>回憶/技能/工作記憶/黑板</context>
                                                        + 使用中技能 + 驗收清單)
-  4. loop (≤ max_iterations):
+  4. loop（沒有固定步數上限；進度決定何時停，見第 22 節；單一 Agent 300 步為安全閥）:
        resp = provider.chat(messages, tools)
        若無 tool_calls → 品質關卡（驗收清單 → 成果檢查 → 完成檢查），沒過就退回修正，過了才結束
        for call in tool_calls:
@@ -744,7 +744,7 @@ sinobee eval show                   # 最近一次的結果
 | 延遲 | `agent.inline_aux`（預設 auto）：主模型在雲端、輔助模型在本機時，任務當下要等的壓縮改用主模型；背景工作仍用輔助模型 | `agent/loop.py` |
 | 重跑時偽造稽核紀錄（`echo PASS`） | `run.py audit <folder>` 執行每張圖的 `build({ audit: true })`，紀錄帶圖檔雜湊與結束碼；check 只認這種紀錄 | `engineering-feasibility` |
 | 舊資料夾被沉默沿用 | scaffold 對已有前次檔案的資料夾發出警告 | 同上 |
-| 60 步不夠 | 用到 `sinobee-complexity: high` 技能的回合上限為 `agent.max_iterations_complex`（120） | `agent/loop.py` |
+| 60 步不夠 | 2026-10-19 起取消固定步數上限，改由進度判斷（第 22 節）；300 步只是安全閥 | `agent/progress.py`、`agent/loop.py` |
 | 升級模型一步卡 15 分鐘 | `agent.model_deadline`（240 s）；逾時請求只重試 1 次。2026-10-19 起步驟一律由執行模型做，思維／審查呼叫超時就略過並記錄，不再改用別的模型（第 20 節） | `agent/loop.py`、`providers/base.py` |
 | 審查員的 revise 被丟掉 | 驗收審查無法執行時，審查員的 revise 當修正清單送回一次 | `agent/loop.py` |
 | 召回不相關記憶 | 關鍵詞依查詢詞覆蓋率計分、embedding 0.45 以下不計、`memory.recall_min_rel`（0.3） | `memory/store.py` |
@@ -814,12 +814,14 @@ SinoBee 原本是「主模型 + 升級模型」：卡關、步驟太多或遇到
 ### 流程（`agent/thinking.py`、`agent/loop.py`）
 1. **規劃**（`agent.plan`：auto／always／off）：auto 在指定了技能、用到 `sinobee-complexity: high` 的技能、或需求超過 200 字時觸發。思維模型拿到需求、記憶脈絡、工具清單與相關技能的用法，回覆 JSON：理解、做法、3–10 個步驟、2–8 項驗收清單、風險、需要先問使用者的問題。計畫以「[思維模型的計畫]」加入歷史（只加一次，不影響快取），驗收清單直接建立；對話顯示計畫卡。接續先前未完成的清單（「繼續」）時不重新規劃。子代理不規劃，由協調者給任務說明。
 2. **執行**：每一步都由執行模型做（`_step_chat` 不再有逾時換手）。
-3. **請教**：連續工具錯誤達 `agent.consult_after_errors`（3）、重複呼叫已失敗的操作、或步驟超過 `agent.consult_after_steps`（25）時，下一步開始前思維模型讀取完整上下文的分支，回覆「哪裡出錯、接下來 2–4 步、該停止什麼」，最後一行 `DECISION: continue` 或 `DECISION: stop - 原因`。建議以「[思維模型的建議]」加入歷史。每個任務最多 `agent.consult_max`（2）次、至少相隔 5 步。
+3. **請教**：連續工具錯誤達 `agent.consult_after_errors`（3）、重複呼叫已失敗的操作、連續 K 步沒有進度、偵測到循環、或健康水位（每 40 步、回合內壓縮上下文）時（觸發條件見第 22 節），下一步開始前思維模型讀取完整上下文的分支，回覆「哪裡出錯、接下來 2–4 步、該停止什麼」，最後一行 `DECISION: continue` 或 `DECISION: stop - 原因`。建議以「[思維模型的建議]」加入歷史。每個任務最多 `agent.consult_max`（2）次、至少相隔 5 步。
 4. **判定失敗**：
    - 思維模型回覆 `stop` → 任務結束，狀態 `failed`（`error.kind = capability`），結果卡顯示「✕ 任務失敗」與原因。
    - 達到硬上限（連續錯誤 `agent.max_consecutive_errors`、重複失敗 3 次）時，若還能請教就先請教並再給一次機會；已請教過仍卡住 → `failed`。
    - 執行模型連續回傳空白回覆 → `failed`。
-   - 步驟用完、未通過驗收仍維持 `incomplete`（預算或品質問題，不一定是能力問題），但同樣保存失敗報告。
+   - 諮詢次數用完後仍沒有進度或仍在循環 → `failed`（`error.trigger` 記錄是哪一個條件）。
+   - 單一 Agent 達 300 步 → 安全閥，`failed`（`error.kind = safety_valve`，視為系統異常）。
+   - 呼叫端指定的步數上限（子代理、審查員）用完、未通過驗收仍維持 `incomplete`，但同樣保存失敗報告。
 5. **逾時與錯誤**：思維模型、審查模型的呼叫超過 `agent.model_deadline`（240 秒）或出錯時，那一步略過並記錄在 `turn_end.thinking_skipped`／`quality_skipped`，不改找別的模型代替。
 
 ### 失敗報告（`agent/failures.py`）
@@ -884,3 +886,58 @@ SinoBee 原本是「主模型 + 升級模型」：卡關、步驟太多或遇到
   - Esc 或點背景即可取消。
 - 設定：`work.auto_resume`、`work.auto_resume_max`、`work.auto_resume_hours`。
 
+
+
+## 22. 以進度取代步數上限，與執行控制紀錄（2026-10-19）
+
+依〈SinoBee 工作流程改善提案〉第 1 階段實作。程式：`agent/progress.py`、`agent/loop.py`。
+
+### 每一步的進度判斷
+每一步（模型的一次回覆與它呼叫的工具）結束後，`Tracker.observe` 判斷這一步有沒有讓任務前進：
+
+| 判斷 | 條件 |
+|---|---|
+| 實質進度 | 驗收清單狀態改變、測試結果改變（pytest／jest／cargo／unittest／go）、新檔案、文件結構變化（標題數改變，或內容增減 ≥ 200 字且 ≥ 5%）、寫入黑板、委派、詢問使用者 |
+| 只有檔案修改 | 檔案內容（忽略空白）改了，但上面都沒有。連續 N 步內仍算進度：程式碼 N=8、文件 N=3、其他 N=5 |
+| 新資訊 | 新的讀取、搜尋或指令輸出，而且沒有在改檔 |
+| 沒有進度 | 錯誤、重複讀取、寫入相同內容、檔案改回先前版本、測試結果沒變 |
+
+連續 K（15）步沒有進度 → 請教思維模型。循環不必等 K 步：同一組操作 3 次且沒有進度（`loop_repeat`）、A→B→A→B（`loop_alternating`）、檔案在 8 步內改回先前版本 2 次（`file_oscillation`）、連續 3 步相同錯誤（`repeated_error`）。健康水位：每 40 步驗收清單仍未完成、或回合內因自己的工作壓縮了上下文 → 請教（`health_steps`／`health_compaction`），只是檢查點。諮詢次數用完（`agent.consult_max`）仍沒有進度或仍循環 → `failed`（`advice_exhausted`）。單一 Agent 300 步 → 安全閥（`safety_valve`）。
+
+設定：`agent.progress.{k, n_code, n_document, n_other, health_steps, safety_max_steps, window}`。`agent.max_iterations`、`max_iterations_complex`、`consult_after_steps` 已移除；子代理與審查員仍可由呼叫端指定步數上限。
+
+### 檔案類型判定（`progress.classify`）
+1. 二進位內容 → other。`.example`／`.bak` 等後綴先去掉再判定。
+2. 檔名：Makefile、Dockerfile、requirements.txt、package.json、.gitignore… → code；.env、.npmrc… → data。
+3. 副檔名：程式（.py .ts .mjs .css .sql .prisma …）→ code；文件（.md .txt .tex .docx …）→ document；資料（.json .yaml .csv …）→ data。
+4. HTML：先看內容是否有決定性（模板或框架語法、程式＋SVG＋樣式 ≥ 80%、canvas 加 script ≥ 30% → code；可讀文字 ≥ 50% → document），再看資料夾（src、static、templates… → code；docs、reports… → document），最後看其餘內容比例，預設 document。
+5. 沒有副檔名：shebang → code；README、LICENSE → document；一般文字 → document；否則 other。
+
+不依工具判斷：報告任務也會用 bash 建置。每次判定都附理由（例如「HTML 以程式與圖形為主（SVG 98%）」），會出現在進度紀錄中。
+
+驗證：
+- `tests/test_progress.py` 的 69 個標註樣本（含 Roadster 案例的頁面形狀）全部正確。
+- 在實際資料上跑過：使用者工作區、SinoBee、SinoBee.ai 共約 4,000 個檔案。第一版找出三類錯誤並已修正：
+  - `.DS_Store`、`.ruff_cache` 等二進位檔被當成文件；
+  - Roadster 的 package report 頁面被當成文件，實際上 98% 是生成的 SVG，修改方式接近程式；
+  - `.prisma`、`.env.example` 被判為無法判定。
+
+### 執行控制紀錄
+每一次請教、略過請教（原因：次數用完／這步已排定／距上次不到 5 步）、思維模型的回覆，以及停止，都是一筆紀錄：
+
+```json
+{"event": "consult_requested", "trigger": "no_progress", "label": "連續多步沒有進度", "step": 8,
+ "detail": "連續 4 步沒有進度（門檻 K=4）；最後一次有進度是第 4 步",
+ "thresholds": {"K": 4, "N_code": 8, "N_document": 3, "N_other": 5, "health_steps": 40, "safety_max_steps": 300},
+ "evidence": ["#3 ✓ 只有檔案修改 2/3 步（document）：修改 report.md（document：副檔名 .md）：內容變動 +2 字，未達結構變化門檻 200", "…"]}
+```
+
+同一筆紀錄寫到下面這些地方：
+- 失敗報告的 `control_log`、`progress`（每步判斷）和 `thresholds`，並納入思維模型的診斷；
+- 執行紀錄的 `state.control` / `state.progress`，工作頁的執行詳情顯示「執行控制」；
+- 對話中的控制卡片，展開「觸發依據」可看門檻與每步判斷；
+- `$SINOBEE_HOME/logs/control.jsonl`，超過 5 MB 會輪替；
+- 伺服器 log `sinobee.control`；
+- `/api/control-log?session=&trigger=&event=`（含各觸發條件的次數）；
+- `sinobee control-log [--stats] [--evidence] [--trigger …]`；
+- 設定 →「品質」的「執行控制紀錄」。

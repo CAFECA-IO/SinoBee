@@ -61,6 +61,14 @@ def collect(config, tool: str, args: dict, text: str, seen: set[str], since: flo
     for v in (args or {}).values():
         for tok in str(v).split() if isinstance(v, str) else []:
             tok = tok.strip("\"'")
+            if not tok or len(tok) > 1024:
+                continue
+            try:
+                d = Path(tok).expanduser()
+                d = d if d.is_absolute() else config.workspace / d
+                is_file, is_dir = d.is_file(), d.is_dir()
+            except (OSError, ValueError):      # a sentence in write_file's content is not a path
+                continue
             d = Path(tok).expanduser()
             d = d if d.is_absolute() else config.workspace / d
             if d.name in ("project.json", "plan.json"):

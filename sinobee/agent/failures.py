@@ -81,6 +81,9 @@ def build(agent, *, status: str, error_info: dict | None, final_text: str, query
         "quality": {"gate_rounds": stats.get("gate_rounds"), "qa_issues": (stats.get("qa_issues") or [])[:20],
                     "review": stats.get("review"), "level": (stats.get("quality") or [None])[0],
                     "skipped": stats.get("quality_skipped") or []},
+        "control_log": stats.get("control_log") or [],
+        "progress": (stats.get("progress_trace") or [])[-80:],
+        "thresholds": agent._progress.thresholds() if getattr(agent, "_progress", None) else {},
         "usage": usage, "duration_s": duration,
         "work_log": work_log(agent.history[turn_start:], secrets),
         "diagnosis": None,
@@ -125,7 +128,9 @@ def listing(home, limit: int = 50) -> list[dict]:
         out.append({"id": r["id"], "created": r.get("created"), "status": r.get("status"),
                     "summary": (r.get("reason") or {}).get("summary", ""), "request": (r.get("request") or "")[:160],
                     "models": r.get("models"), "skills": r.get("skills"), "category": dg.get("category"),
-                    "diagnosis": dg.get("summary"), "session_id": r.get("session_id"), "regression": r.get("regression")})
+                    "diagnosis": dg.get("summary"), "session_id": r.get("session_id"), "regression": r.get("regression"),
+                    "trigger": next((e.get("trigger") for e in reversed(r.get("control_log") or [])
+                                     if e.get("event") == "stop"), (r.get("reason") or {}).get("trigger"))})
     return out
 
 
@@ -139,6 +144,13 @@ def summary_text(r: dict, limit: int = 30000) -> str:
         parts.append("CHECKLIST: " + json.dumps(r["checklist"], ensure_ascii=False)[:2000])
     if r.get("consults"):
         parts.append("THINKING-MODEL ADVICE: " + json.dumps(r["consults"], ensure_ascii=False)[:3000])
+    if r.get("control_log"):
+        from .progress import describe
+        parts.append("CONTROL DECISIONS (what stopped or questioned the execution, with the exact trigger):\n" +
+                     "\n".join(describe(e) for e in r["control_log"][-20:]))
+    if r.get("progress"):
+        parts.append("PROGRESS PER STEP (✓ progress, · none):\n" + "\n".join(
+            f"#{t['step']} {'✓' if t.get('progress') else '·'} {t.get('why', '')[:160]}" for t in r["progress"][-30:]))
     q = r.get("quality") or {}
     if q.get("qa_issues") or q.get("review") or q.get("skipped"):
         parts.append("QUALITY: " + json.dumps(q, ensure_ascii=False, default=str)[:3000])

@@ -96,6 +96,21 @@ class ChatRun:
             self.state.setdefault("events", []).append({"text": text[:500], "t": time.time()})
             self._save()
 
+    def control(self, entry: dict) -> None:
+        """A decision about the execution itself (consult, stop, health check) with its exact trigger."""
+        if self.rid:
+            ctl = self.state.setdefault("control", [])
+            ctl.append({k: entry.get(k) for k in ("t", "event", "trigger", "label", "step", "detail", "decision",
+                                                   "thresholds", "evidence")})
+            del ctl[:-100]
+            self._save()
+
+    def progress(self, trace: list[dict]) -> None:
+        """The newest per-step progress verdicts (saved with the next step)."""
+        if self.rid:
+            self.state["progress"] = [{k: t.get(k) for k in ("step", "progress", "why", "kind", "no_progress")}
+                                      for t in trace[-60:]]
+
     def finish(self, status: str, text: str, error: dict | None, cost: float, turn_id=None) -> None:
         if not self.rid:
             return
