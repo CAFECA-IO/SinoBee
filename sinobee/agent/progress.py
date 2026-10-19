@@ -35,7 +35,8 @@ from pathlib import Path, PurePath
 log = logging.getLogger("sinobee.control")
 
 DEFAULTS = {"k": 15, "n_code": 8, "n_document": 3, "n_other": 5, "health_steps": 40, "safety_max_steps": 300,
-            "window": 8, "stall_window": 20, "stall_ratio": 0.5, "wait_limit": 30, "semantic_check": True}
+            "window": 8, "stall_window": 20, "stall_ratio": 0.5, "wait_limit": 30, "semantic_check": True,
+            "output_gap": 8}
 
 # ------------------------------------------------------------------------------------------------ file types
 CODE_EXT = {
@@ -296,6 +297,10 @@ class Tracker:
         self.stall_window = int(cfg.get("stall_window", 20))
         self.stall_ratio = float(cfg.get("stall_ratio", 0.5))
         self.advised_at = 0                      # the step the thinking model last advised at
+        self.output_gap = int(cfg.get("output_gap", 8))
+        self.last_output_step = 0                # the last step that changed a file or made strong progress
+        self.checklist_open: int | None = None   # open acceptance items (None: no checklist)
+        self.checklist_done = 0
         self.wait_limit = int(cfg.get("wait_limit", 30))
         self.waits = 0                           # polls in a row that say the job is still running
         self.read_file = read_file or (lambda p: Path(p).read_text(encoding="utf-8", errors="replace")[:2_000_000])
@@ -317,13 +322,15 @@ class Tracker:
     # ---------------------------------------------------------------------------------------------------
     def thresholds(self) -> dict:
         return {"K": self.k, "N_code": self.n["code"], "N_document": self.n["document"], "N_other": self.n["other"],
-                "health_steps": self.health_steps, "safety_max_steps": self.safety_max}
+                "output_gap": self.output_gap, "health_steps": self.health_steps, "safety_max_steps": self.safety_max}
 
     def evidence(self, last: int = 6) -> list[str]:
         return [f"#{t['step']} {'✓' if t['progress'] else '·'} {t['why']}" for t in self.trace[-last:]]
 
     def set_checklist(self, items: list[dict]) -> None:
         self.checklist_sig = _sig([(i.get("id"), i.get("status")) for i in items or []])
+        self.checklist_open = sum(1 for i in items or [] if i.get("status") in ("todo", "doing")) if items else None
+        self.checklist_done = sum(1 for i in items or [] if i.get("status") == "done")
 
     def _file(self, path: str, resolved: str | None) -> dict:
         real = resolved or path
@@ -471,6 +478,15 @@ class Tracker:
             self.no_progress += 1
         step_sig = _sig(sorted([(n, a) for n, a, _, _ in calls], key=lambda x: x[0] + json.dumps(x[1], sort_keys=True, default=str)))
         self.step_sigs.append(step_sig)
+        # output = something to show: a file changed, a test result, a delegated piece of work, a checklist item
+        # done. Adding items to the checklist or starting one is planning, not output
+        done_now = sum(1 for i in checklist or [] if i.get("status") == "done")
+        if checklist is not None:
+            self.checklist_open = sum(1 for i in checklist if i.get("status") in ("todo", "doing")) if checklist else None
+        if weak_files or any(not x.startswith("驗收清單更新") for x in strong) or done_now > self.checklist_done:
+            self.last_output_step = step
+        if checklist is not None:
+            self.checklist_done = done_now
         verdict = {"step": step, "progress": progress, "strong": bool(strong), "why": why[:400], "kind": kind,
                    "waiting": wait,
                    "file_only": self.file_only, "no_progress": self.no_progress}
@@ -522,6 +538,17 @@ class Tracker:
                 return {"trigger": "exploration_stall",
                         "detail": f"最近 {w} 步（第 {span[0]['step']}–{span[-1]['step']} 步）沒有寫任何檔案，"
                                   f"其中 {idle} 步是重複的讀取或指令（門檻 {int(self.stall_ratio * 100)}%）"}
+        # producing nothing while the acceptance checklist is open: every new search or grep output counts as
+        # information, so neither K nor the stall rule ever fires (the wind-turbine task: 18 steps of reading the kit
+        # and grepping a PDF, checklist 0/6, no file). Only asks; it never stops the task (soft)
+        if self.output_gap and self.checklist_open and not (cur["strong"] or cur["file_only"]):
+            since = max(self.advised_at, self.last_output_step)
+            span = [t for t in self.trace if t["step"] > since and not t.get("waiting")]
+            if len(span) >= self.output_gap:
+                return {"trigger": "production_gap", "soft": True,
+                        "detail": f"驗收清單還有 {self.checklist_open} 項未完成，已連續 {len(span)} 步"
+                                  f"（第 {span[0]['step']}–{span[-1]['step']} 步）沒有寫出檔案或完成清單項目，"
+                                  f"只有查詢與讀取（門檻 output_gap={self.output_gap}）"}
         return None
 
     def produced_within(self, n: int) -> bool:
@@ -536,6 +563,7 @@ class Tracker:
         self.waits = 0
         self.advised_at = step
         self.last_progress_step = step
+        self.last_output_step = step
 
     def advised(self, step: int) -> None:
         """The thinking model just advised: the advice gets K fresh steps and a fresh stall window."""
@@ -544,9 +572,14 @@ class Tracker:
         self.waits = 0
 
 
+# triggers whose advice gets a fresh K / stall window / output gap (Tracker.advised)
+ADVISED_TRIGGERS = {"no_progress", "loop_repeat", "loop_alternating", "file_oscillation", "repeated_error",
+                    "exploration_stall", "long_wait", "production_gap", "budget_no_output"}
+
 # ------------------------------------------------------------------------------------------------ semantic check
 SEMANTIC_TRIGGERS = {"no_progress", "loop_repeat", "loop_alternating", "file_oscillation", "repeated_error",
-                     "exploration_stall", "long_wait", "health_steps", "health_compaction"}
+                     "exploration_stall", "long_wait", "health_steps", "health_compaction", "production_gap",
+                     "budget_no_output"}
 SEMANTIC = """An AI agent's progress rules flagged its work ({trigger}). Read its recent steps and say whether it is
 really spinning in place (rewording, re-reading, retrying the same thing, waiting on nothing) or making real progress
 the rules could not see (e.g. a long build, a careful multi-file edit, research that keeps finding new facts).
@@ -593,6 +626,8 @@ TRIGGERS = {
     "repeated_error": "相同錯誤連續出現",
     "exploration_stall": "反覆探索、沒有產出",
     "long_wait": "等待工作完成過久",
+    "production_gap": "清單未完成、多步沒有產出",
+    "budget_no_output": "預算已用八成仍沒有產出",
     "milestone_started": "里程碑計畫開始",
     "milestone_confirmed": "使用者確認里程碑計畫",
     "milestone_corrected": "使用者修正里程碑計畫",

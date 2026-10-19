@@ -110,9 +110,12 @@ def replay_turn(turn: dict, config=None, consult_max: int = 2) -> dict:
     stop = None
     max_np = 0
 
-    def ask(step, trigger, detail):
+    def ask(step, trigger, detail, soft=False):
         nonlocal consults, consult_at, stop
         if consults >= consult_max:
+            if soft:                                  # a reminder, never a stop
+                tr.advised(step)
+                return
             stop = stop or {"step": step, "trigger": "advice_exhausted", "after": trigger, "detail": detail}
             return
         if step - consult_at < 5:
@@ -120,8 +123,7 @@ def replay_turn(turn: dict, config=None, consult_max: int = 2) -> dict:
         consults += 1
         consult_at = step
         decisions.append({"step": step, "trigger": trigger, "detail": detail})
-        if trigger in ("no_progress", "loop_repeat", "loop_alternating", "file_oscillation", "repeated_error",
-                       "exploration_stall", "long_wait"):
+        if trigger in P.ADVISED_TRIGGERS:
             tr.advised(step)
 
     for n, step in enumerate(turn["steps"], 1):
@@ -140,7 +142,7 @@ def replay_turn(turn: dict, config=None, consult_max: int = 2) -> dict:
         v = tr.observe(n, step, items)
         max_np = max(max_np, tr.no_progress)
         if v.get("loop"):
-            ask(n, v["loop"]["trigger"], v["loop"]["detail"])
+            ask(n, v["loop"]["trigger"], v["loop"]["detail"], bool(v["loop"].get("soft")))
         elif tr.no_progress >= tr.k:
             ask(n, "no_progress", f"連續 {tr.no_progress} 步沒有進度（K={tr.k}）")
         if stop:

@@ -10,7 +10,7 @@ import json
 import re
 
 from ..types import ChatResponse, ImagePart, Message, TextPart, ToolCall, Usage
-from .base import Provider
+from .base import Provider, ProviderError
 
 _REASONING_MODEL = re.compile(r"^(o\d|gpt-5)", re.I)
 
@@ -106,9 +106,44 @@ def parse_arguments(raw) -> dict:
 class OpenAICompatProvider(Provider):
     name = "openai"
 
-    def __init__(self, *a, vision: bool = True, **kw):
+    def __init__(self, *a, vision: bool = True, stream: bool = False, **kw):
         super().__init__(*a, **kw)
         self.vision = vision
+        # streamed answers (the SinoBee.ai relay): a long answer never looks idle to the proxy in front of it
+        self.stream = stream
+
+    async def _read_stream(self, r) -> dict:
+        content: list[str] = []
+        calls: dict[int, dict] = {}
+        finish, model, usage = "", self.model, {}
+        async for ev in self._sse(r):
+            if ev.get("error"):
+                err = ev["error"] if isinstance(ev["error"], dict) else {"message": str(ev["error"])}
+                raise ProviderError(f"{self.label} stream error: {err.get('message', '')}", 500, True)
+            model = ev.get("model") or model
+            if ev.get("usage"):
+                usage = ev["usage"]
+            for ch in ev.get("choices") or []:
+                d = ch.get("delta") or {}
+                if isinstance(d.get("content"), str):
+                    content.append(d["content"])
+                for tc in d.get("tool_calls") or []:
+                    c = calls.setdefault(int(tc.get("index", len(calls))), {"id": None, "name": "", "args": [], "extra": None})
+                    c["id"] = tc.get("id") or c["id"]
+                    fn = tc.get("function") or {}
+                    c["name"] += fn.get("name") or ""
+                    c["args"].append(fn.get("arguments") or "")
+                    c["extra"] = tc.get("extra_content") or c["extra"]
+                if ch.get("finish_reason"):
+                    finish = ch["finish_reason"]
+        if finish == "quota":                     # the relay ended the answer: the plan's window is used up
+            from .base import QuotaExceeded
+            raise QuotaExceeded(f"{self.label} SinoBee.ai quota used up while answering", "6h")
+        tool_calls = [{"id": c["id"] or f"call_{i}", "type": "function", "extra_content": c["extra"],
+                       "function": {"name": c["name"], "arguments": "".join(c["args"])}}
+                      for i, c in sorted(calls.items())]
+        return {"model": model, "usage": usage, "choices": [{"finish_reason": finish, "message": {
+            "role": "assistant", "content": "".join(content), "tool_calls": tool_calls}}]}
 
     def _headers(self) -> dict:
         h = {"Content-Type": "application/json"}
@@ -133,6 +168,9 @@ class OpenAICompatProvider(Provider):
             payload["tools"] = [{"type": "function", "function": {
                 "name": t.name, "description": t.description, "parameters": t.parameters}} for t in tools]
             payload["tool_choice"] = "auto"
+        if self.stream:
+            payload["stream"] = True
+            payload["stream_options"] = {"include_usage": True}
         data = await self._post(f"{self.base_url}/chat/completions", payload, self._headers())
         choice = (data.get("choices") or [{}])[0]
         msg = choice.get("message") or {}

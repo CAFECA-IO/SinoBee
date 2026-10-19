@@ -1,8 +1,13 @@
 """Anthropic Messages API transport (native tool use, images in tool results, prompt caching)."""
 from __future__ import annotations
 
+import json
+import logging
+
 from ..types import ChatResponse, ImagePart, Message, TextPart, ToolCall, Usage
-from .base import Provider
+from .base import Provider, ProviderError
+
+log = logging.getLogger("sinobee.providers")
 
 CACHE = {"type": "ephemeral"}
 
@@ -52,6 +57,68 @@ def to_anthropic(messages: list[Message]) -> tuple[list[dict], list[dict]]:
 
 class AnthropicProvider(Provider):
     name = "anthropic"
+    # answers are streamed: a long answer (a whole HTML page) keeps bytes flowing, so neither a proxy's idle cut
+    # (Cloudflare ~100 s in front of the SinoBee.ai relay) nor a read timeout ends it; the result is assembled into
+    # the same shape as a plain answer
+    stream = True
+
+    async def _read_stream(self, r) -> dict:
+        blocks: dict[int, dict] = {}
+        partial: dict[int, list[str]] = {}
+        msg: dict = {"content": [], "usage": {}, "stop_reason": "", "model": self.model}
+        async for ev in self._sse(r):
+            t = ev.get("type")
+            if t == "message_start":
+                m = ev.get("message") or {}
+                msg["model"] = m.get("model") or msg["model"]
+                msg["usage"].update({k: v for k, v in (m.get("usage") or {}).items() if v is not None})
+            elif t == "content_block_start":
+                i = int(ev.get("index", len(blocks)))
+                blocks[i] = dict(ev.get("content_block") or {})
+                if blocks[i].get("type") == "tool_use":
+                    blocks[i]["input"] = {}
+            elif t == "content_block_delta":
+                i = int(ev.get("index", 0))
+                b = blocks.setdefault(i, {"type": "text", "text": ""})
+                d = ev.get("delta") or {}
+                dt = d.get("type")
+                if dt == "text_delta":
+                    b["text"] = b.get("text", "") + d.get("text", "")
+                elif dt == "input_json_delta":
+                    partial.setdefault(i, []).append(d.get("partial_json", ""))
+                elif dt == "thinking_delta":
+                    b["thinking"] = b.get("thinking", "") + d.get("thinking", "")
+                elif dt == "signature_delta":
+                    b["signature"] = d.get("signature", "")
+            elif t == "content_block_stop":
+                i = int(ev.get("index", 0))
+                if i in partial and blocks.get(i, {}).get("type") == "tool_use":
+                    raw = "".join(partial.pop(i))
+                    try:
+                        blocks[i]["input"] = json.loads(raw) if raw.strip() else {}
+                    except ValueError:
+                        from .openai_compat import parse_arguments
+                        blocks[i]["input"] = parse_arguments(raw)
+            elif t == "message_delta":
+                d = ev.get("delta") or {}
+                if d.get("stop_reason"):
+                    msg["stop_reason"] = d["stop_reason"]
+                msg["usage"].update({k: v for k, v in (ev.get("usage") or {}).items() if v is not None})
+            elif t == "error":
+                err = ev.get("error") or {}
+                kind = err.get("type") or "error"
+                raise ProviderError(f"{self.label} stream error {kind}: {err.get('message', '')}",
+                                    529 if kind == "overloaded_error" else 500,
+                                    kind in ("overloaded_error", "api_error", "rate_limit_error"))
+        if msg["stop_reason"] == "quota":            # the relay ended the answer: the plan's window is used up
+            from .base import QuotaExceeded
+            raise QuotaExceeded(f"{self.label} SinoBee.ai quota used up while answering", "6h")
+        msg["content"] = [blocks[i] for i in sorted(blocks)]
+        kinds = [b.get("type") for b in msg["content"]]
+        if any(k not in ("text", "tool_use") for k in kinds):
+            log.info("%s answer blocks: %s (output %s tokens)", self.label, ",".join(kinds),
+                     msg["usage"].get("output_tokens"))
+        return msg
 
     def _headers(self) -> dict:
         return {"x-api-key": self.api_key or "", "anthropic-version": "2023-06-01", "content-type": "application/json"}
@@ -73,6 +140,8 @@ class AnthropicProvider(Provider):
         for m in msgs:
             m["content"] = [{k: v for k, v in b.items() if k != "_volatile"} for b in m["content"]]
         payload: dict = {"model": self.model, "max_tokens": max_tokens, "messages": msgs}
+        if self.stream:
+            payload["stream"] = True
         if system:
             payload["system"] = system
         if temperature is not None:

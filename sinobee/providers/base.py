@@ -68,6 +68,14 @@ def _note_quota(headers) -> None:
         pass
 
 
+def _gateway_timeout(err: ProviderError) -> bool:
+    """A proxy in front of the model gave up waiting (504 / Cloudflare 524), as opposed to the model failing."""
+    if err.status in (504, 524):
+        return True
+    text = str(err).lower()
+    return "gateway time-out" in text or "gateway timeout" in text or "a timeout occurred" in text
+
+
 class Provider(ABC):
     """A single (provider, model) endpoint."""
 
@@ -128,6 +136,12 @@ class Provider(ABC):
                     temperature, adapted = None, True
                     continue
                 err = e
+            if err.retryable and _gateway_timeout(err):
+                # a proxy cut the call because no answer came within its limit (Cloudflare ~100 s, nginx 60 s). The
+                # same call takes as long again, and the relay may still be finishing (and charging) the first one:
+                # retry it once, like a timeout, not four times
+                err.retryable = timeouts == 0
+                timeouts += 1
             if not err.retryable or attempt >= retries:
                 raise err
             sleep = delay * (2 ** attempt) + random.random()
@@ -161,32 +175,76 @@ class Provider(ABC):
         return r.json()
 
     async def _post(self, url: str, payload: dict, headers: dict) -> dict:
+        """POST a JSON request. With payload["stream"] the answer is read as server-sent events (_read_stream) and
+        returned in the same shape as a plain answer: bytes keep arriving while the model writes, so a proxy that cuts
+        requests which stay silent for ~100 s (Cloudflare in front of the SinoBee.ai relay) never cuts a long answer."""
+        import json as _json
+        stream = bool(payload.get("stream"))
+        body = _json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
         if self.auth:
-            import json as _json
-            body = _json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
             keep = {k: v for k, v in {**headers, **self.extra_headers}.items()
                     if k.lower() not in ("x-api-key", "authorization", "content-type")}
             headers = {**keep, "Content-Type": "application/json", **await self._auth_headers("POST", url, body)}
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                r = await client.post(url, content=body, headers=headers)
-            if r.status_code >= 400:
-                raise relay_error(self.label, r.status_code, r.text[:2000])
-            _note_quota(r.headers)
-            dropped = r.headers.get("x-sinobee-dropped-params")
-            if dropped:                  # the relay had to leave a parameter out: stop sending it from here too
-                from . import compat
-                for prm in dropped.split(","):
-                    if prm.strip() in compat.OPTIONAL and prm.strip() not in compat.dropped(self.label):
-                        compat.learn(self.label, prm.strip(), "the SinoBee.ai relay left it out (x-sinobee-dropped-params)")
-                        compat.note(self.label, prm.strip())
-            return r.json()
+        else:
+            headers = {**{k: v for k, v in headers.items() if k.lower() != "content-type"}, **self.extra_headers,
+                       "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.post(url, json=payload, headers={**headers, **self.extra_headers})
-        if r.status_code >= 400:
-            body = r.text[:2000]
-            raise ProviderError(f"{self.label} HTTP {r.status_code}: {body}", r.status_code,
-                                r.status_code in RETRYABLE_STATUS)
-        return r.json()
+            if not stream:
+                r = await client.post(url, content=body, headers=headers)
+                if r.status_code >= 400:
+                    raise self._http_error(r.status_code, r.text[:2000])
+                self._relay_headers(r.headers)
+                return r.json()
+            async with client.stream("POST", url, content=body, headers=headers) as r:
+                if r.status_code >= 400:
+                    raise self._http_error(r.status_code, (await r.aread()).decode("utf-8", "replace")[:2000])
+                self._relay_headers(r.headers)
+                if "text/event-stream" not in r.headers.get("content-type", ""):
+                    return _json.loads(await r.aread())          # a server that answered without streaming
+                return await self._read_stream(r)
+
+    def _http_error(self, status: int, text: str) -> ProviderError:
+        if self.auth:
+            return relay_error(self.label, status, text)
+        return ProviderError(f"{self.label} HTTP {status}: {text}", status, status in RETRYABLE_STATUS)
+
+    def _relay_headers(self, headers) -> None:
+        if not self.auth:
+            return
+        _note_quota(headers)
+        dropped = headers.get("x-sinobee-dropped-params")
+        if dropped:                      # the relay had to leave a parameter out: stop sending it from here too
+            from . import compat
+            for prm in dropped.split(","):
+                if prm.strip() in compat.OPTIONAL and prm.strip() not in compat.dropped(self.label):
+                    compat.learn(self.label, prm.strip(), "the SinoBee.ai relay left it out (x-sinobee-dropped-params)")
+                    compat.note(self.label, prm.strip())
+
+    async def _read_stream(self, r) -> dict:
+        raise ProviderError(f"{self.label}: streaming is not supported by this provider")
+
+    async def _sse(self, r):
+        """The JSON events of a server-sent event stream. The relay's quota for the answer arrives as an SSE comment
+        (": x-sinobee-quota {...}") at the end, since headers are sent before the answer exists."""
+        import json as _json
+        async for line in r.aiter_lines():
+            if line.startswith(": x-sinobee-quota "):
+                try:
+                    self._relay_headers({k.lower(): str(v) for k, v in _json.loads(line[18:]).items()})
+                except (ValueError, AttributeError):
+                    pass
+                continue
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                ev = _json.loads(data)
+            except ValueError:
+                continue
+            if isinstance(ev, dict):
+                yield ev
 
 
 class FallbackChain:

@@ -50,7 +50,8 @@ class SinoBeeProvider(Provider):
             if fmt == "anthropic":
                 self._inner = AnthropicProvider(self.model, f"{self.base_url}/anthropic", None, **common)
             else:
-                self._inner = OpenAICompatProvider(self.model, self.base_url, None, vision=self.vision, **common)
+                self._inner = OpenAICompatProvider(self.model, self.base_url, None, vision=self.vision, stream=True,
+                                                   **common)
             self._inner_fmt = fmt
         return self._inner
 

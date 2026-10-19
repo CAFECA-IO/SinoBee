@@ -49,6 +49,13 @@ TOOL_GUIDE = """# Tool notes
   they are more reliable than clicking. Verify with another screenshot (or screenshot_after=true).
 - shell: non-interactive commands only; use timeouts for long jobs; background servers with nohup ... &.
 - files: read before editing; edit_file needs an exact unique match.
+- large files (a whole HTML page, a long report, anything over ~300 lines): build them in parts. First write_file a
+  working skeleton (structure, styles, each section as a placeholder comment like <!-- SECTION: params -->), then
+  fill one or two sections per step with edit_file replacing the placeholder. Never put a whole large file in one
+  tool call: it takes minutes to generate, nothing is saved if the call is cut off, and a retry starts over.
+- produce early: once the acceptance checklist is set, write the first deliverable within a few steps and keep it
+  growing; look up only what the next section needs, and use well-known values you already have instead of
+  digging them out of long sources.
 - ask_user: when you need something only the user can give (a preference, a choice between approaches, a missing
   detail, consent to a trade-off), call ask_user with 2-4 concrete options, your recommendation first and marked
   recommended, each with a one-line description of what it means. Never end a turn with a bare question, and never

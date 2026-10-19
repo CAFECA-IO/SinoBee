@@ -614,9 +614,7 @@ class Agent:
                       f"思維模型 {model.label}：{reason or advice.splitlines()[0][:160] if advice else reason}"
                       + (f"（輔助模型：{'原地打轉' if sem['spinning'] else '有實質進展'}，{sem.get('pattern') or ''}）" if sem else ""),
                       decision=decision, semantic=sem)
-        if trigger in ("no_progress", "loop_repeat", "loop_alternating", "file_oscillation", "repeated_error",
-                       "exploration_stall", "long_wait") \
-                and getattr(self, "_progress", None):
+        if trigger in progress_mod.ADVISED_TRIGGERS and getattr(self, "_progress", None):
             self._progress.advised(stats.get("step", 0))   # the advice gets K fresh steps
         if decision == "stop":
             stats["give_up"] = reason or "思維模型判斷執行模型無法完成這個任務"
@@ -1268,7 +1266,15 @@ class Agent:
                 lp = verdict["loop"]
                 if not self._request_consult(progress_mod.TRIGGERS[lp["trigger"]], stats, lp["trigger"], lp["detail"]) \
                         and self._consult_refusal(stats) == "max":
-                    stop_why = (lp["trigger"], progress_mod.TRIGGERS[lp["trigger"]], lp["detail"])
+                    if lp.get("soft"):
+                        # information keeps coming, so this is no reason to give up: remind the execution model
+                        # once per gap instead (the advice is used up)
+                        self._progress.advised(steps)
+                        self.history.append(Message("user", f"[進度提醒] {lp['detail']}。請先產出最重要的一項"
+                                                            "（寫出檔案或完成一個清單項目），已查到的資料就夠用時不要再查。"))
+                        self._persist()
+                    else:
+                        stop_why = (lp["trigger"], progress_mod.TRIGGERS[lp["trigger"]], lp["detail"])
             elif stats.get("consecutive_errors", 0) >= int(self.config.get("agent.consult_after_errors", 3)) \
                     or stats.get("repeats"):
                 trig = "consecutive_errors" if stats.get("consecutive_errors") else "repeated_failed_call"

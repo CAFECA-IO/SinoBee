@@ -213,6 +213,14 @@ class Guard:
                   f"思維模型：{label}" + (f"，{data.get('estimate')}" if data.get("estimate") else "")
                   + (f"。{data.get('note')}" if data.get("note") else ""))
         a._control(stats, "budget", f"budget_{int(cp * 100)}", detail, decision=verdict)
+        tr = getattr(a, "_progress", None)
+        done = sum(1 for i in items if i["status"] == "done")
+        if cp >= 0.8 and items and done == 0 and tr is not None and tr.last_output_step == 0:
+            # most of the budget gone and nothing to show: not just a note any more, the thinking model decides how
+            # to change course (the wind-turbine task went on grepping a PDF after both budget notes)
+            a._request_consult("預算已用八成仍沒有產出", stats, "budget_no_output",
+                               f"已用參考預算的 {int(ratio * 100)}%，驗收清單完成 0/{len(items)}，"
+                               f"本回合 {stats.get('step', 0)} 步沒有寫出任何檔案")
         if verdict == "at_risk" and data.get("advice"):
             a.history.append(Message("user", f"[預算提醒] 已用參考預算的 {int(ratio * 100)}%。{data['advice']}"
                                              "（這只是提醒，照計畫繼續；先完成最重要的部分。）"))
