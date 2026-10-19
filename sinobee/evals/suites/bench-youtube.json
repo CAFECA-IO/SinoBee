@@ -1,0 +1,67 @@
+{
+ "title": "技能評鑑：youtube-analysis",
+ "bench": {
+  "kind": "skill",
+  "skill": "youtube-analysis",
+  "domain": "YouTube 影片分析與查核",
+  "summary": "用 youtube-analysis 技能分析一支工程題材的影片（Tesla Roadster 發表會片段），寫成附封面、時間軸與論述查核的繁中報告。"
+ },
+ "tasks": [
+  {
+   "id": "youtube-roadster",
+   "title": "分析 Roadster Rocket 影片並查核",
+   "prompt": "/youtube-analysis 分析這支影片 https://www.youtube.com/watch?v=qt5p-_tE8d0 ，針對 Roadster Rocket 的技術說法做分析與查核，用繁體中文寫報告。",
+   "toolsets": [
+    "shell",
+    "files",
+    "web",
+    "skills"
+   ],
+   "timeout": 2700,
+   "graders": [
+    {
+     "type": "command",
+     "label": "技能檢查通過（run.py check）",
+     "cmd": "d=$(ls -d reports/youtube/*/ 2>/dev/null | head -1); [ -n \"$d\" ] && python3 ../home/skills/youtube-analysis/scripts/run.py check \"$d\" | python3 -c \"import json,sys;r=json.load(sys.stdin);print(r.get('problems'));sys.exit(0 if r.get('status')=='ok' else 1)\"",
+     "timeout": 120
+    },
+    {
+     "type": "file_exists",
+     "label": "產出報告",
+     "path": "reports/youtube/*/report.md"
+    },
+    {
+     "type": "file_exists",
+     "label": "產出封面",
+     "path": "reports/youtube/*/cover.png"
+    },
+    {
+     "type": "file_regex",
+     "label": "採用影片中講者說的 250 kg",
+     "path": "reports/youtube/*/report.md",
+     "pattern": "250\\s*(kg|公斤)",
+     "flags": "i"
+    },
+    {
+     "type": "qa_clean",
+     "label": "成果檢查（語言、圖片、版面）",
+     "path": "reports/youtube/*/report.md"
+    },
+    {
+     "type": "llm",
+     "label": "內容忠於影片（評鑑模型）",
+     "files": [
+      "reports/youtube/*/report.md",
+      "reports/youtube/*/transcript.md"
+     ],
+     "rubric": "對照逐字稿（transcript.md）檢查報告（report.md）。通過條件：(1) 報告摘要與時間軸的內容都能在逐字稿找到，沒有逐字稿以外的捏造說法；(2) 報告裡引用講者說的數字（質量、推力、時間等）與逐字稿一致；(3) 論述查核把「影片說的」和「查核結果」分開，判定有附來源；(4) 全文為繁體中文。任一項不符就判失敗。"
+    },
+    {
+     "type": "status",
+     "label": "任務正常完成",
+     "is": "done"
+    }
+   ]
+  }
+ ]
+}

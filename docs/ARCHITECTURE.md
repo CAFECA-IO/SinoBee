@@ -1327,3 +1327,47 @@ SinoBee 原本是「主模型 + 升級模型」：卡關、步驟太多或遇到
   - API：`GET /api/usage/year`，回傳每天的資料、合計、最多的一天與碰到上限的天數。
 - **結果卡片（J）**：「額度 20%」後面接一條 64px 雙段條，淡色是這次之前已用的、深色是這次用掉的，再寫「已用 95%」；顏色依用量變化。如果中繼沒有回報目前用量，只顯示「額度 20%」。
 - 測試：`tests/test_usage_year.py`。
+
+## 31. 模型評鑑與技能評鑑報告（2026-10-20）
+
+用途：
+- **模型評鑑**：特定領域哪個模型表現最好。
+- **技能評鑑**：這個技能能解決什麼問題，以及哪個模型用這個技能表現最好。
+
+報告在 SinoBee 實跑，發布到 sinobee.ai 的 /benchmarks。
+
+### SinoBee
+- **受測模型單獨上場**：`sinobee eval run <suite> -m <model>`。
+  - `runner.solo()` 把執行、思維、審查、輔助模型都設成同一個，備援清空。
+  - 這樣量到的是這個模型本身，不會混入使用者設定的其他模型。
+- **評鑑模型**：`--judge <model>` 只用這個模型（不走備援）評 `llm` 評分準則。
+  - 評分用掉的 tokens 另記在 `judge_usage`，不算進受測模型的花費。
+  - `llm` 評分器可用 `files` 指定給評鑑模型看哪些檔案，例如逐字稿與報告。
+- **每次試跑記錄**：開始時間、花費時間、輸入／輸出／快取 tokens、費用、步數，以及每個評分項目的 `label` 與結果。
+- **每次執行記錄**：受測模型、評鑑模型、SinoBee 版本、題組的 `bench` 說明（類型、領域、技能）。
+- **統計**：平均分數（各評分項目通過比例的平均）、tokens 合計、平均時間。
+- **題組**：
+  - `suites/bench-coding.json`：模型評鑑，程式修改與除錯。
+    - 有 3 個錯誤的記帳套件，要修好並依 SPEC 新增 `budget_alerts`。
+    - 評分：單元測試、既有測試未被修改（雜湊比對）、隱藏測試、補上新測試、評鑑模型判修正品質、正常完成。
+  - `suites/bench-youtube.json`：技能評鑑，youtube-analysis。
+    - 分析 Roadster 影片。
+    - 評分：技能自帶檢查、報告與封面存在、採用講者說的 250 kg、成果檢查、評鑑模型對照逐字稿判內容、正常完成。
+- **匯出與發布**：
+  - `sinobee eval export [id ...] --out <資料夾>`：把執行結果寫成 JSON。
+  - `sinobee eval publish <id> <id> ... --body report.md`：把同一題組、同一個評鑑模型、每個模型一次的執行合成一份報告，送到 `POST /api/v1/evaluations`（權杖範圍 `evals:write`）。
+  - 登入時若 sinobee.ai 還不認得 `evals:write`，會自動改用不含它的範圍登入。
+- **試跑腳本**：`scripts/bench-pilot.sh`，可用 MODELS、JUDGE 等環境變數調整。
+
+### SinoBee.ai
+- **資料表 `EvaluationStudy`**：
+  - 欄位：類型、標題、領域、技能、摘要、報告本文、題組、評鑑模型、SinoBee 版本、測試起訖時間、每個模型的執行內容（題目、試跑、評分），以及最佳模型與分數。
+  - migration：`20261103000000_evaluation_studies`，PostgreSQL 與 SQLite 各一份。
+- **API**：`POST /api/v1/evaluations`（Bearer，`evals:write`）、`GET /api/v1/evaluations?kind=model|skill`。
+- **統計一律從試跑資料重算**（`runStats`），不採用用戶端送來的合計。
+- **報告頁 `/benchmarks/studies/[id]`**：
+  - 結果表：分數、全部通過、pass@k／pass^k、花費時間與每次時間、使用 tokens（輸入／輸出）、平均步數。
+  - 每題的評分項目 × 模型對照，以及每次試跑的時間、tokens、狀態。
+  - 側欄：受測模型、評鑑模型與評分 tokens、測試時間、SinoBee 版本、發布者。
+  - 下方是分析本文。
+- **/benchmarks**：新增「SinoBee 實測報告」卡片，顯示最佳模型、分數與評鑑模型。

@@ -23,7 +23,7 @@ import uuid
 from pathlib import Path
 
 from ..config import Config
-from . import EvalError, evals_dir, load
+from . import EvalError, bench_meta, evals_dir, load
 from .graders import Trial, grade
 
 log = logging.getLogger("sinobee.evals")
@@ -94,7 +94,36 @@ def _scan(ws: Path) -> dict[Path, tuple[float, int]]:
     return out
 
 
-async def run_trial(rt, task: dict, trial: int, *, keep: bool = False) -> dict:
+def solo(model: str) -> dict:
+    """Settings that make one model do everything in a trial - every step, the plan, advice, reviews and auxiliary
+    work - so a model evaluation measures that model, not a mix with the user's thinking or reviewer model."""
+    return {"model.default": model, "model.fallbacks": [], "model.thinking": None, "model.escalate": None,
+            "model.reviewer": None, "model.auxiliary": model}
+
+
+def judge_provider(rt, spec: str | None, usage: dict):
+    """The model that grades llm rubrics: `spec` alone (no fallbacks), else the user's reviewer / thinking model.
+    Its tokens are counted in `usage` (they are not part of the contestant's cost)."""
+    if not spec:
+        return rt.judge()
+    from ..providers import build_provider
+    from ..providers.base import FallbackChain
+    chain = FallbackChain([build_provider(spec, rt.config)])
+
+    def record(provider, u, purpose=None):
+        usage["calls"] = usage.get("calls", 0) + 1
+        usage["input_tokens"] = usage.get("input_tokens", 0) + u.input_tokens
+        usage["output_tokens"] = usage.get("output_tokens", 0) + u.output_tokens
+        try:
+            rt._record(provider, u, "eval")
+        except Exception:  # noqa: BLE001
+            pass
+    chain.recorder = record
+    return chain
+
+
+async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: str | None = None,
+                    judge=None) -> dict:
     from ..agent.loop import Agent
     tmp = Path(tempfile.mkdtemp(prefix="sinobee-eval-"))
     home, ws = tmp / "home", tmp / "workspace"
@@ -102,7 +131,8 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False) -> dict:
     ws.mkdir()
     started = time.time()
     out = {"task": task["id"], "trial": trial, "passed": False, "grades": [], "status": "error", "steps": 0,
-           "tool_calls": 0, "cost_usd": 0.0, "duration_s": 0.0}
+           "tool_calls": 0, "cost_usd": 0.0, "duration_s": 0.0, "input_tokens": 0, "output_tokens": 0,
+           "cache_read_tokens": 0, "started": started}
     child = None
     try:
         if rt.config.skills_dir.is_dir():         # the user's skills, as a copy the trial may not change for real
@@ -112,6 +142,8 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False) -> dict:
                      "server.token": None}
         if task.get("toolsets"):
             overrides["permissions.toolsets"] = list(task["toolsets"])
+        if model:
+            overrides.update(solo(model))
         cfg = EvalConfig(rt.config, home, ws, overrides)
         _setup(ws, (task.get("setup") or {}).get("files") or {})
         before = _scan(ws)
@@ -140,14 +172,18 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False) -> dict:
         after = _scan(ws)
         changed = [p for p, sig in after.items() if before.get(p) != sig]
         end = events["end"]
-        judge = rt.judge()
+        judge = judge if judge is not None else rt.judge()
         t = Trial(prompt=task["prompt"], workspace=ws, answer=answer or end.get("text", ""), status=status,
                   tools=events["tools"], files=changed, base_home=rt.config.home, judge=judge)
         for g in task["graders"]:
             ok, why = await grade(g, t)
-            out["grades"].append({"type": g["type"], "ok": ok, "detail": why})
+            out["grades"].append({"type": g["type"], "label": g.get("label") or g["type"], "ok": ok, "detail": why})
         out.update(passed=all(x["ok"] for x in out["grades"]), status=status, steps=end.get("steps", 0),
                    tool_calls=len(events["tools"]), cost_usd=round((end.get("usage") or {}).get("cost_usd") or 0, 5),
+                   input_tokens=int((end.get("usage") or {}).get("input_tokens") or 0),
+                   output_tokens=int((end.get("usage") or {}).get("output_tokens") or 0),
+                   cache_read_tokens=int((end.get("usage") or {}).get("cache_read_tokens") or 0),
+                   model=getattr(child.provider, "label", ""),
                    answer=(answer or "")[:1500], files=[str(p.relative_to(ws)) for p in changed][:30])
     except EvalError as e:
         out["error"] = str(e)
@@ -205,11 +241,17 @@ def summarize(tasks: list[dict]) -> dict:
             "trial_pass_rate": round(sum(t["passed"] for t in trials) / (len(trials) or 1), 3),
             "cost_usd": round(sum(t["cost_usd"] for t in trials), 4),
             "avg_steps": round(sum(t["steps"] for t in trials) / (len(trials) or 1), 1),
-            "duration_s": round(sum(t["duration_s"] for t in trials), 1)}
+            "duration_s": round(sum(t["duration_s"] for t in trials), 1),
+            "avg_duration_s": round(sum(t["duration_s"] for t in trials) / (len(trials) or 1), 1),
+            "input_tokens": sum(t.get("input_tokens", 0) for t in trials),
+            "output_tokens": sum(t.get("output_tokens", 0) for t in trials),
+            "score": round(100 * sum(sum(g["ok"] for g in t["grades"]) / (len(t["grades"]) or 1) for t in trials)
+                           / (len(trials) or 1), 1)}
 
 
 async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[str] | None = None, emit=None,
-              keep: bool = False) -> dict:
+              keep: bool = False, model: str | None = None, judge: str | None = None) -> dict:
+    """model: the model under test, alone in every role (solo()); judge: the model that grades llm rubrics."""
     home = rt.config.home
     suite, tasks = load(target, home=home, skills=rt.skills)
     if task_ids:
@@ -220,8 +262,13 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
     rid = (time.strftime("%Y%m%d-%H%M%S") + f"{int(time.time() * 1000) % 1000:03d}-" + uuid.uuid4().hex[:4] + "-"
            + re.sub(r"[^\w-]+", "-", suite)[-30:].strip("-"))
     path = evals_dir(home) / "results" / f"{rid}.json"
+    from .. import __version__
+    judge_usage: dict = {}
+    jprov = judge_provider(rt, judge, judge_usage)
     doc = {"id": rid, "suite": suite, "status": "running", "started": time.time(), "k": k,
-           "model": getattr(rt.provider, "label", ""), "progress": {"done": 0, "total": len(tasks)}, "tasks": []}
+           "model": model or getattr(rt.provider, "label", ""), "solo": bool(model),
+           "judge": judge or getattr(jprov, "label", "") or None, "judge_usage": judge_usage,
+           "sinobee_version": __version__, **bench_meta(target), "progress": {"done": 0, "total": len(tasks)}, "tasks": []}
 
     def save():
         path.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -233,8 +280,10 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
             if emit:
                 emit("eval_progress", {"id": rid, "task": task["id"], "done": doc["progress"]["done"],
                                        "total": len(tasks)})
-            trials = [await run_trial(rt, task, i + 1, keep=keep) for i in range(n)]
-            doc["tasks"].append({"id": task["id"], "kind": task["kind"], "prompt": task["prompt"][:300],
+            trials = [await run_trial(rt, task, i + 1, keep=keep, model=model, judge=jprov) for i in range(n)]
+            doc["tasks"].append({"id": task["id"], "kind": task["kind"], "prompt": task["prompt"][:1500],
+                                 "title": task.get("title") or task["id"],
+                                 "graders": [g.get("label") or g["type"] for g in task["graders"]],
                                  "pass_at_k": any(t["passed"] for t in trials),
                                  "pass_hat_k": all(t["passed"] for t in trials), "trials": trials})
             doc["progress"]["done"] += 1

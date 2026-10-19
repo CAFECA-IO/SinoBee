@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import platform
+import re
 import socket
 import threading
 import time
@@ -28,7 +29,7 @@ DEVICE_KEY = "sinobee-ai:device-key"   # this install's X25519 private key (base
 ACCOUNT = "sinobee-ai:account"
 SIGNING_KEY = "sinobee-ai:signing-key"  # Ed25519 private key (base64 raw) that signs requests to sinobee.ai
 REFRESH = "sinobee-ai:refresh"           # device-bound refresh token (only usable with a signed request)
-SCOPES = "skills:publish tools:write vault:rw shares:write llm"
+SCOPES = "skills:publish tools:write vault:rw shares:write llm evals:write"
 UA = {"User-Agent": f"sinobee/{__version__}"}
 
 
@@ -119,10 +120,16 @@ def sign_headers(config, method: str, url: str, body: bytes = b"") -> dict:
 
 def start(config) -> dict:
     """Step 1: request a device code. Returns the RFC 8628 response (device_code stays local)."""
-    r = _post(f"{base_url(config)}/api/v1/device/code",
-              {"client_id": "sinobee", "device_name": device_name(),
-               "platform": f"{platform.system()} {platform.machine()}".strip(), "scope": SCOPES,
-               "public_key": device_public_key(config), "signing_key": signing_public_key(config)})
+    def ask(scope: str):
+        return _post(f"{base_url(config)}/api/v1/device/code",
+                     {"client_id": "sinobee", "device_name": device_name(),
+                      "platform": f"{platform.system()} {platform.machine()}".strip(), "scope": scope,
+                      "public_key": device_public_key(config), "signing_key": signing_public_key(config)})
+    r = ask(SCOPES)
+    if r.status_code == 400 and "invalid_scope" in r.text:
+        # a sinobee.ai that does not know a newer scope yet (e.g. evals:write): sign in without the unknown ones
+        bad = set(re.findall(r"[a-z]+:[a-z]+|\b[a-z]+\b", r.text.split("invalid_scope", 1)[1])[:10])
+        r = ask(" ".join(x for x in SCOPES.split() if x not in bad))
     if r.status_code == 429:
         raise AccountError("登入要求太頻繁，請幾分鐘後再試")
     if r.status_code >= 400 or "json" not in r.headers.get("content-type", ""):

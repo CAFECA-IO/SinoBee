@@ -142,6 +142,22 @@ def load(target: str, *, home, skills=None) -> tuple[str, list[dict]]:
     return (f.stem if f.parent == SUITES_DIR else str(f)), [normalize(t, f"t{i + 1}") for i, t in enumerate(raw)]
 
 
+def bench_meta(target: str) -> dict:
+    """A suite file's title and `bench` block ({kind: model|skill, domain, skill, summary}) - what a published
+    evaluation report is about."""
+    target = (target or "").strip()
+    if target.startswith("skill:"):
+        return {"title": f"技能 {target[6:]}", "bench": {"kind": "skill", "skill": target[6:]}}
+    if target == "regressions":
+        return {}
+    f = SUITES_DIR / f"{target}.json" if "/" not in target and not target.endswith(".json") else Path(target).expanduser()
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {"title": data.get("title") or f.stem, "bench": data.get("bench") or {}} if isinstance(data, dict) else {}
+
+
 def suites(home, skills=None) -> list[dict]:
     out = []
     for f in sorted(SUITES_DIR.glob("*.json")):

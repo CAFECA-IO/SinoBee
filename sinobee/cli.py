@@ -10,6 +10,7 @@ import shutil
 import sys
 import time
 
+from pathlib import Path
 from .config import Config, sinobee_home
 
 DIM, BOLD, YEL, RED, GRN, RST = "\033[2m", "\033[1m", "\033[33m", "\033[31m", "\033[32m", "\033[0m"
@@ -771,6 +772,31 @@ def _eval_cmd(args) -> None:
         doc = E.result(cfg.home, rid)
         print(_json.dumps(doc, ensure_ascii=False, indent=1) if args.json else report(doc))
         return
+    if args.action == "export":
+        # copy finished runs as JSON into a folder (e.g. to write the evaluation report from them)
+        cfg = Config.load()
+        out = Path(args.out or ".").expanduser()
+        out.mkdir(parents=True, exist_ok=True)
+        ids = ([args.target] if args.target else []) + list(args.ids or [])
+        for rid in ids or [r["id"] for r in E.results(cfg.home, 1)]:
+            doc = E.result(cfg.home, rid)
+            (out / f"{rid}.json").write_text(_json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(out / f"{rid}.json")
+        return
+    if args.action == "publish":
+        from .evals import publish as P
+        cfg = Config.load()
+        ids = ([args.target] if args.target else []) + list(args.ids or [])
+        if not ids:
+            raise SystemExit("give the run ids to publish together (one per model): sinobee eval publish ID ID ...")
+        body = Path(args.body).expanduser().read_text(encoding="utf-8") if args.body else ""
+        try:
+            res = P.publish(cfg, [E.result(cfg.home, rid) for rid in ids], body=body, title=args.title,
+                            summary=args.summary)
+        except (E.EvalError, P.PublishError) as e:
+            raise SystemExit(f"publish: {e}") from None
+        print(res.get("url") or _json.dumps(res, ensure_ascii=False))
+        return
 
     async def go():
         from .evals.runner import report, run
@@ -782,7 +808,8 @@ def _eval_cmd(args) -> None:
                 print(f"[{data['done'] + 1}/{data['total']}] {data['task']} …", flush=True)
 
         try:
-            doc = await run(rt, args.target or "core", k=args.k, task_ids=args.task or None, emit=emit, keep=args.keep)
+            doc = await run(rt, args.target or "core", k=args.k, task_ids=args.task or None, emit=emit, keep=args.keep,
+                            model=args.model, judge=args.judge)
         except E.EvalError as e:
             raise SystemExit(f"eval: {e}") from None
         finally:
@@ -1050,13 +1077,19 @@ def main(argv: list[str] | None = None) -> None:
     wk.add_argument("ref", nargs="?", help="job id (runs/pause/resume/delete)")
     wk.add_argument("--limit", type=int, default=100)
     ev = sub.add_parser("eval", help="evaluations: run fixed tasks in a throw-away workspace and grade the results")
-    ev.add_argument("action", choices=["list", "run", "show"])
+    ev.add_argument("action", choices=["list", "run", "show", "export", "publish"])
     ev.add_argument("target", nargs="?", help="run: core | regressions | skill:<name> | file.json; show: run id")
     ev.add_argument("-k", type=int, help="trials per task (pass@k / pass^k); default: each task's own")
     ev.add_argument("--task", action="append", help="only this task id (repeatable)")
     ev.add_argument("--keep", action="store_true", help="keep the trial workspaces for inspection")
     ev.add_argument("--json", action="store_true")
-    ev.add_argument("-m", "--model")
+    ev.add_argument("-m", "--model", help="run: the model under test; it alone plans, runs, reviews and assists")
+    ev.add_argument("--judge", help="run: the model that grades llm rubrics (default: reviewer / thinking model)")
+    ev.add_argument("ids", nargs="*", help="export / publish: more run ids (one per model)")
+    ev.add_argument("--out", help="export: folder for the JSON files")
+    ev.add_argument("--body", help="publish: the report text (Markdown file)")
+    ev.add_argument("--title", help="publish: report title (default: the suite's)")
+    ev.add_argument("--summary", help="publish: one-paragraph conclusion")
     ev.add_argument("-c", "--config")
     ev.add_argument("--approval", default=None, help=argparse.SUPPRESS)
     fl = sub.add_parser("failures", help="failure reports of tasks that did not finish (work log + diagnosis)")

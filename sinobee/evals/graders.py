@@ -112,6 +112,16 @@ FINAL ANSWER:
 Reply with JSON only: {{"pass": true|false, "reason": "<one sentence>"}}"""
 
 
+def _judge_files(g: dict, t: Trial) -> list[Path]:
+    """The files the judge reads: the grader's `files` globs (in that order), else the first files the agent made."""
+    if g.get("files"):
+        out: list[Path] = []
+        for pat in g["files"]:
+            out += [p for p in sorted(_files(t, pat)) if p not in out]
+        return out[:6]
+    return [p for p in t.files if p.is_file()][:6]
+
+
 async def _llm(g: dict, t: Trial) -> tuple[bool, str]:
     from ..agent.review import excerpts
     from ..learning.reflector import parse_json
@@ -119,7 +129,7 @@ async def _llm(g: dict, t: Trial) -> tuple[bool, str]:
     if t.judge is None:
         return False, "no model to judge with"
     prompt = JUDGE.format(rubric=g["rubric"][:2000], prompt=t.prompt[:3000],
-                          files=excerpts([p for p in t.files if p.is_file()][:6])[:14000] or "(none)",
+                          files=excerpts(_judge_files(g, t))[:14000] or "(none)",
                           answer=(t.answer or "")[:5000])
     resp = await t.judge.chat([Message("user", prompt)], None, temperature=0, max_tokens=400)
     data = parse_json(resp.message.text())

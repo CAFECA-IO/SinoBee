@@ -18,3 +18,4 @@ node_modules/
 Claude outputs/
 logs/
 _to_delete/
+_eval_results/

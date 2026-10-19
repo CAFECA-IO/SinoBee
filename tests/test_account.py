@@ -252,3 +252,17 @@ def test_whoami_renews_an_expired_access_token_before_giving_up(config, monkeypa
     me = account.whoami(config)                    # the stored access token is rejected (the laptop slept)
     assert me and me["handle"] == "bee" and calls == ["/api/v1/me", "/api/v1/device/token", "/api/v1/me"]
     assert account.token(config) == "sbh_" + "n" * 40
+
+
+def test_signing_in_to_a_sinobee_ai_that_does_not_know_a_newer_scope(config, monkeypatch):
+    asked = []
+
+    def post(url, body, **kw):
+        asked.append(body["scope"])
+        if "evals:write" in body["scope"]:
+            return httpx.Response(400, json={"error": "invalid_scope: evals:write"})
+        return httpx.Response(200, json={"device_code": "d", "user_code": "ABCD1234", "verification_uri": "https://x",
+                                          "expires_in": 900, "interval": 5})
+    monkeypatch.setattr(account, "_post", post)
+    assert account.start(config)["user_code"] == "ABCD1234"
+    assert "evals:write" in asked[0] and "evals:write" not in asked[1] and "llm" in asked[1]

@@ -1,0 +1,62 @@
+{
+ "title": "模型評鑑：程式修改與除錯（Python）",
+ "bench": {
+  "kind": "model",
+  "domain": "程式修改與除錯",
+  "summary": "一個有 3 個錯誤的小型記帳套件：找出測試失敗的根本原因並修正，再依規格新增功能、補上測試。"
+ },
+ "tasks": [
+  {
+   "id": "coding-ledger",
+   "title": "修好記帳套件並新增預算警示",
+   "prompt": "這個 Python 專案（ledger 套件）的單元測試有失敗。請：\n1. 執行 `python3 -m unittest` 找出失敗的原因，修正程式本身（不要修改 tests/test_ledger.py）。\n2. 依照 SPEC.md 在 ledger/report.py 新增 budget_alerts，並在 tests/ 補上它的單元測試。\n3. 最後確認 `python3 -m unittest` 全部通過，並用一段話說明你修了哪些錯誤、原因是什麼。",
+   "setup": {
+    "files": {
+     "ledger/__init__.py": "\"\"\"A tiny household ledger: amounts, entries and monthly reports.\"\"\"\n",
+     "ledger/money.py": "from decimal import Decimal, ROUND_HALF_UP\n\n\ndef parse_amount(text: str) -> Decimal:\n    \"\"\"'NT$1,234.5' -> Decimal('1234.50'); '-300' -> Decimal('-300.00'); '(45)' -> Decimal('-45.00').\"\"\"\n    s = text.strip().replace(\"NT$\", \"\").replace(\"$\", \"\")\n    negative = s.startswith(\"(\") and s.endswith(\")\")\n    s = s.strip(\"()\").replace(\",\", \".\")\n    value = Decimal(s)\n    if negative:\n        value = -value\n    return value.quantize(Decimal(\"0.01\"), rounding=ROUND_HALF_UP)\n",
+     "ledger/report.py": "from collections import defaultdict\nfrom decimal import Decimal\n\nfrom .money import parse_amount\n\n\ndef month_of(date: str) -> str:\n    \"\"\"'2026-03-07' -> '2026-03'.\"\"\"\n    return date[:6]\n\n\ndef monthly_totals(entries: list[dict]) -> dict:\n    \"\"\"Spending per (month, category) from entries {date, category, amount}; categories are case-insensitive and\n    stored in lower case; refunds (negative amounts) reduce the total.\"\"\"\n    totals: dict = defaultdict(Decimal)\n    for e in entries:\n        key = (month_of(e[\"date\"]), e[\"category\"])\n        totals[key] += parse_amount(e[\"amount\"])\n    return dict(totals)\n",
+     "tests/__init__.py": "",
+     "tests/test_ledger.py": "import unittest\nfrom decimal import Decimal\n\nfrom ledger.money import parse_amount\nfrom ledger.report import month_of, monthly_totals\n\n\nclass MoneyTest(unittest.TestCase):\n    def test_plain(self):\n        self.assertEqual(parse_amount(\"300\"), Decimal(\"300.00\"))\n\n    def test_thousands_separator(self):\n        self.assertEqual(parse_amount(\"NT$1,234.5\"), Decimal(\"1234.50\"))\n\n    def test_negative_forms(self):\n        self.assertEqual(parse_amount(\"-300\"), Decimal(\"-300.00\"))\n        self.assertEqual(parse_amount(\"(45)\"), Decimal(\"-45.00\"))\n\n\nclass ReportTest(unittest.TestCase):\n    ENTRIES = [\n        {\"date\": \"2026-03-07\", \"category\": \"Food\", \"amount\": \"NT$1,200\"},\n        {\"date\": \"2026-03-21\", \"category\": \"food\", \"amount\": \"300\"},\n        {\"date\": \"2026-03-22\", \"category\": \"Food\", \"amount\": \"(100)\"},\n        {\"date\": \"2026-04-02\", \"category\": \"Rent\", \"amount\": \"15,000\"},\n    ]\n\n    def test_month(self):\n        self.assertEqual(month_of(\"2026-03-07\"), \"2026-03\")\n\n    def test_totals(self):\n        self.assertEqual(monthly_totals(self.ENTRIES), {\n            (\"2026-03\", \"food\"): Decimal(\"1400.00\"),\n            (\"2026-04\", \"rent\"): Decimal(\"15000.00\"),\n        })\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+     "SPEC.md": "# 新功能：預算警示 `budget_alerts`\n\n在 `ledger/report.py` 新增：\n\n```python\ndef budget_alerts(entries: list[dict], budgets: dict[str, str], threshold: float = 0.8) -> list[dict]:\n```\n\n- `entries` 與 `monthly_totals` 相同；`budgets` 是「類別 → 每月預算金額字串」（金額格式同 `parse_amount`，類別不分大小寫）。\n- 對每個有預算的類別、每個有花費的月份，計算當月花費：\n  - 花費 **超過** 預算 → `level` 為 `\"over\"`\n  - 花費 **大於等於** 預算 × `threshold`（且未超過）→ `level` 為 `\"warn\"`\n  - 其他不列出；沒有預算的類別也不列出。\n- 回傳的每一筆是 `{\"month\": \"2026-03\", \"category\": \"food\", \"spent\": Decimal, \"budget\": Decimal, \"level\": \"warn\" | \"over\"}`，類別用小寫。\n- 依月份、再依類別排序。\n- 金額用 `Decimal`，不要用浮點數比較（例如預算 1000、花費 800.00、threshold 0.8 要列為 `warn`）。\n"
+    }
+   },
+   "toolsets": [
+    "shell",
+    "files"
+   ],
+   "timeout": 1500,
+   "graders": [
+    {
+     "type": "command",
+     "label": "全部單元測試通過",
+     "cmd": "python3 -m unittest -q"
+    },
+    {
+     "type": "command",
+     "label": "沒有修改既有測試",
+     "cmd": "python3 -c \"import hashlib,sys;sys.exit(0 if hashlib.sha256(open('tests/test_ledger.py','rb').read()).hexdigest()=='f814036d013fbcd11ac0698cc2a92e38b271704746002e5bed1dccc28375a0ca' else 1)\""
+    },
+    {
+     "type": "command",
+     "label": "新功能符合規格（隱藏測試）",
+     "cmd": "python3 -c \"import base64;exec(base64.b64decode('aW1wb3J0IHN5cwpmcm9tIGRlY2ltYWwgaW1wb3J0IERlY2ltYWwKc3lzLnBhdGguaW5zZXJ0KDAsICIuIikKZnJvbSBsZWRnZXIubW9uZXkgaW1wb3J0IHBhcnNlX2Ftb3VudApmcm9tIGxlZGdlci5yZXBvcnQgaW1wb3J0IGJ1ZGdldF9hbGVydHMsIG1vbnRobHlfdG90YWxzCgpFID0gWwogICAgeyJkYXRlIjogIjIwMjYtMDMtMDciLCAiY2F0ZWdvcnkiOiAiRm9vZCIsICJhbW91bnQiOiAiTlQkNjAwIn0sCiAgICB7ImRhdGUiOiAiMjAyNi0wMy0yMSIsICJjYXRlZ29yeSI6ICJmb29kIiwgImFtb3VudCI6ICIyMDAuMDAifSwKICAgIHsiZGF0ZSI6ICIyMDI2LTAzLTI1IiwgImNhdGVnb3J5IjogIkZ1biIsICJhbW91bnQiOiAiMSw1MDAifSwKICAgIHsiZGF0ZSI6ICIyMDI2LTAzLTI2IiwgImNhdGVnb3J5IjogIlRheGkiLCAiYW1vdW50IjogIjk5OSJ9LAogICAgeyJkYXRlIjogIjIwMjYtMDQtMDIiLCAiY2F0ZWdvcnkiOiAiRk9PRCIsICJhbW91bnQiOiAiMSwyNTAuNSJ9LAogICAgeyJkYXRlIjogIjIwMjYtMDQtMDMiLCAiY2F0ZWdvcnkiOiAiRnVuIiwgImFtb3VudCI6ICIoMjAwKSJ9LAogICAgeyJkYXRlIjogIjIwMjYtMDQtMDQiLCAiY2F0ZWdvcnkiOiAiZnVuIiwgImFtb3VudCI6ICIzMDAifSwKXQpCID0geyJmb29kIjogIjEsMDAwIiwgIkZVTiI6ICJOVCQxLDIwMCJ9CmdvdCA9IGJ1ZGdldF9hbGVydHMoRSwgQikKd2FudCA9IFsKICAgIHsibW9udGgiOiAiMjAyNi0wMyIsICJjYXRlZ29yeSI6ICJmb29kIiwgInNwZW50IjogRGVjaW1hbCgiODAwLjAwIiksICJidWRnZXQiOiBEZWNpbWFsKCIxMDAwLjAwIiksICJsZXZlbCI6ICJ3YXJuIn0sCiAgICB7Im1vbnRoIjogIjIwMjYtMDMiLCAiY2F0ZWdvcnkiOiAiZnVuIiwgInNwZW50IjogRGVjaW1hbCgiMTUwMC4wMCIpLCAiYnVkZ2V0IjogRGVjaW1hbCgiMTIwMC4wMCIpLCAibGV2ZWwiOiAib3ZlciJ9LAogICAgeyJtb250aCI6ICIyMDI2LTA0IiwgImNhdGVnb3J5IjogImZvb2QiLCAic3BlbnQiOiBEZWNpbWFsKCIxMjUwLjUwIiksICJidWRnZXQiOiBEZWNpbWFsKCIxMDAwLjAwIiksICJsZXZlbCI6ICJvdmVyIn0sCl0KYXNzZXJ0IFt7azogZ1trXSBmb3IgayBpbiAoIm1vbnRoIiwgImNhdGVnb3J5IiwgInNwZW50IiwgImJ1ZGdldCIsICJsZXZlbCIpfSBmb3IgZyBpbiBnb3RdID09IHdhbnQsIGdvdAphc3NlcnQgYWxsKGlzaW5zdGFuY2UoZ1sic3BlbnQiXSwgRGVjaW1hbCkgZm9yIGcgaW4gZ290KQphc3NlcnQgYnVkZ2V0X2FsZXJ0cyhFLCBCLCB0aHJlc2hvbGQ9MC41KVsxXVsiY2F0ZWdvcnkiXSA9PSAiZnVuIiBhbmQgbGVuKGJ1ZGdldF9hbGVydHMoRSwgQiwgdGhyZXNob2xkPTAuNSkpID09IDMKYXNzZXJ0IFt7azogZ1trXSBmb3IgayBpbiB3YW50WzJdfSBmb3IgZyBpbiBidWRnZXRfYWxlcnRzKEUsIHsiZm9vZCI6ICIxMDAwIn0sIHRocmVzaG9sZD0wLjgxKV0gPT0gW3dhbnRbMl1dCmFzc2VydCBidWRnZXRfYWxlcnRzKFtdLCBCKSA9PSBbXQphc3NlcnQgcGFyc2VfYW1vdW50KCIxMiwzNDUsNjc4LjkiKSA9PSBEZWNpbWFsKCIxMjM0NTY3OC45MCIpCmFzc2VydCBtb250aGx5X3RvdGFscyhbeyJkYXRlIjogIjIwMjYtMTItMzEiLCAiY2F0ZWdvcnkiOiAiQSIsICJhbW91bnQiOiAiMSJ9XSkgPT0geygiMjAyNi0xMiIsICJhIik6IERlY2ltYWwoIjEuMDAiKX0KcHJpbnQoImhpZGRlbiB0ZXN0cyBwYXNzZWQiKQo='))\""
+    },
+    {
+     "type": "command",
+     "label": "補上新功能的測試",
+     "cmd": "grep -rl --include='*.py' budget_alerts tests | grep -vq '^tests/test_ledger.py$'"
+    },
+    {
+     "type": "llm",
+     "label": "修正與說明的品質（評鑑模型）",
+     "rubric": "通過條件：(1) 三個錯誤都從根本原因修正——parse_amount 把千分位逗號換成小數點、month_of 只取前 6 個字元、monthly_totals 沒把類別轉小寫——而不是針對測試寫死數值；(2) budget_alerts 用 Decimal 比較，沒有用浮點數；(3) 最後的回答用繁體中文清楚說明每個錯誤與原因。任何一項不符就判失敗。"
+    },
+    {
+     "type": "status",
+     "label": "任務正常完成",
+     "is": "done"
+    }
+   ]
+  }
+ ]
+}
