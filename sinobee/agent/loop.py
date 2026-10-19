@@ -25,6 +25,7 @@ from ..fileaccess import resolve_file
 from ..tools import checklist_tools
 from ..tools.registry import REGISTRY, ToolContext
 from . import artifacts
+from . import budget as budget_mod
 from . import progress as progress_mod
 from ..types import ImagePart, Message, TextPart, ToolCall, ToolResult, Usage
 from .context import OVERFLOW_RE, compact, context_budget, context_window, estimate_tokens, prune_images, with_summary
@@ -994,6 +995,14 @@ class Agent:
             if self._msr:
                 tool_specs = self._tool_specs()
                 self._progress.set_checklist(checklist_tools.get(self.ctx))
+        # the task's budget: baseline for its type (or synthetic), soft checkpoints, the per-task cap (agent/budget.py)
+        stats["query"] = query
+        self._guard = None
+        if self.depth == 0 and budget_mod._cfg(self.config)["enabled"]:
+            try:
+                self._guard = budget_mod.Guard(self, stats)
+            except Exception:  # noqa: BLE001 - no budget is better than a broken turn
+                log.exception("budget guard unavailable")
         self._turn_started = started
         self._snap = None
         if self.depth == 0:
@@ -1190,6 +1199,16 @@ class Agent:
             verdict = self._observe_step(steps, stats)
             if self._msr:
                 await self._guarded("里程碑", self._msr.after_step(steps, stats), stats)
+            if self._guard and await self._guarded("預算", self._guard.check(stats), stats) == "cap" \
+                    and not await self._task_cap(stats):
+                status = "incomplete"
+                error_info = {"summary": f"已達每個任務的花費上限 {self._guard.cap_text()}，任務已暫停", "kind": "budget",
+                              "detail": f"已用 {self._guard.spent()['tokens']:,} tokens／"
+                                        f"{budget_mod.money(self._guard.spent()['cost_usd'])}",
+                              "hint": "已完成的部分整理在下面。回覆「繼續」會接著做；也可以在設定 →「用量」調整每個任務的上限。"}
+                final_text = f"⏸ 任務已暫停：已達每個任務的花費上限 {self._guard.cap_text()}。"
+                self.history.append(Message("assistant", final_text))
+                break
             self._persist()
             limit = int(self.config.get("agent.max_consecutive_errors", 6))
             hard = stats.get("consecutive_errors", 0) >= limit or stats.get("repeats", 0) >= 3
@@ -1254,6 +1273,19 @@ class Agent:
                           "hint": "可以回覆「繼續」讓我接著做。", "detail": ""}
             final_text = "（步驟用完，任務尚未完成）"
             self.history.append(Message("assistant", final_text))
+        if status in ("incomplete", "failed", "error", "blocked") and self.depth == 0:
+            # hand over what is finished: accepted milestones and their outputs, files, what is left
+            pd = budget_mod.partial_delivery(self, stats, status, (error_info or {}).get("summary") or status)
+            if pd:
+                stats["partial"] = pd
+                final_text = (final_text + "\n\n" if final_text else "") + pd["text"]
+                self.history.append(Message("assistant", pd["text"]))
+                self._control(stats, "budget" if (error_info or {}).get("kind") == "budget" else "delivery",
+                              "partial_delivery",
+                              f"交付 {len(pd['done'])} 個已完成的里程碑、{len(pd['files'])} 個檔案；尚有 "
+                              f"{len(pd['left']) + len(pd['open_items'])} 項未完成（{pd['reason'][:120]}）",
+                              decision=status)
+                self._emit("partial_delivery", pd)
 
         self._persist()
         turn_usage = usage_scope.as_dict()
@@ -1293,6 +1325,8 @@ class Agent:
                                 "snapshot": snap, "failure": failure, "plan": bool(stats.get("plan")),
                                 "consults": len(stats.get("consult_log") or []),
                                 "milestones": self._msr.plan.card({}, status)["milestones"] if self._msr else None,
+                                "budget": self._guard.summary() if self._guard else None,
+                                "partial": stats.get("partial"),
                                 "thinking_skipped": stats.get("thinking_skipped") or [],
                                 "turn_id": turn_id, "skills": turn_skills,
                                 "duration_s": round(time.time() - started, 1), "usage": turn_usage,
@@ -1301,6 +1335,12 @@ class Agent:
                                 "artifacts": stats.get("artifacts", [])[-30:],
                                 "quality_skipped": stats.get("quality_skipped") or []})
         if getattr(self, "_run_rec", None):
+            if self._run_rec.rid:
+                self._run_rec.state["usage"] = budget_mod.usage_record(self._guard, stats, turn_usage, steps)
+                if self._guard:
+                    self._run_rec.state["budget"] = self._guard.summary()
+                if stats.get("partial"):
+                    self._run_rec.state["partial"] = stats["partial"]
             self._run_rec.finish(status, final_text, error_info, turn_usage.get("cost_usd", 0), turn_id)
         bs = self.rt.budget_status()
         if bs["warn"]:
@@ -1484,6 +1524,27 @@ class Agent:
         body = rest or f"Use the {', '.join(names)} skill(s)."
         return [TextPart("\n\n".join(blocks)), TextPart(f"[User explicitly activated: {', '.join(names)}]"),
                 TextPart(body)], names, False
+
+    async def _task_cap(self, stats: dict) -> bool:
+        """The hard cap per task is reached: ask to extend it (x agent.budget.cap_extend) or stop. True = go on."""
+        g = self._guard
+        sp = g.spent()
+        detail = f"已用 {sp['tokens']:,} tokens／{budget_mod.money(sp['cost_usd'])}，達到每個任務的上限 {g.cap_text()}"
+        ask = getattr(self.ctx, "ask", None)
+        if ask is None or self.platform not in ("web", "cli"):
+            self._control(stats, "budget", "budget_cap", detail + "；無人可確認，暫停並交付已完成的部分", decision="stop")
+            return False
+        f = g.cfg["cap_extend"]
+        ans = await ask(f"{detail}。要追加上限繼續嗎？", [
+            {"label": "停止並交付", "description": "整理已完成的部分交給你，之後可以回覆「繼續」", "recommended": True},
+            {"label": f"追加 {f:g} 倍並繼續", "description": "上限提高後照計畫繼續"}], False, False)
+        if ans and any(str(c).startswith("追加") for c in ans.get("choices") or []):
+            g.extend()
+            self._control(stats, "budget", "budget_extended", f"{detail}；使用者追加上限為 {g.cap_text()}", decision="extend")
+            return True
+        self._control(stats, "budget", "budget_cap", detail + ("；使用者選擇停止" if ans else "；沒有回覆，暫停"),
+                      decision="stop")
+        return False
 
     def _turn_messages(self, turn_start: int) -> list:
         """This turn's messages, including those of finished milestones that left the model context."""

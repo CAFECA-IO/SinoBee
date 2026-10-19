@@ -212,6 +212,9 @@ class MilestoneRunner:
             except Exception as e:  # noqa: BLE001
                 res = {"status": "error", "result": f"（子代理失敗：{e}）", "session_id": ""}
             m["sub_session"] = res.get("session_id")
+            g = getattr(self.agent, "_guard", None)
+            if g is not None:                   # the sub-agent's spending counts toward this task's budget
+                g.extra_cost += float(res.get("cost_usd") or 0)
             await self._merge_facts(m, res.get("session_id") or "", stats)
             if res.get("status") == "done":
                 m["status"] = "done"

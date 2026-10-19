@@ -563,6 +563,11 @@ TRIGGERS = {
     "milestone_interrupted": "立即中斷並重劃",
     "milestone_replanned": "里程碑重新規劃",
     "fact_conflict": "共享事實衝突",
+    "budget_50": "預算檢查點 50%",
+    "budget_80": "預算檢查點 80%",
+    "budget_cap": "達到每個任務的上限",
+    "budget_extended": "追加任務上限",
+    "partial_delivery": "部分交付",
     "consecutive_errors": "工具連續失敗",
     "repeated_failed_call": "重複執行已失敗的操作",
     "health_steps": "里程碑健康水位：步數",
@@ -622,6 +627,7 @@ def entry(event: str, trigger: str, step: int, detail: str, tracker: Tracker | N
 def describe(e: dict) -> str:
     """One line for people: what happened, why, with the numbers."""
     what = {"consult_requested": "請教思維模型", "consult": "思維模型回覆", "consult_skipped": "未請教思維模型",
-            "stop": "停止任務", "health_check": "健康檢查", "milestone": "里程碑"}.get(e.get("event"), e.get("event"))
+            "stop": "停止任務", "health_check": "健康檢查", "milestone": "里程碑", "budget": "預算",
+            "delivery": "交付"}.get(e.get("event"), e.get("event"))
     tail = f"→ {e['decision']}" if e.get("decision") else ""
     return f"[第 {e.get('step')} 步] {what}：{e.get('label')} — {e.get('detail')} {tail}".strip()

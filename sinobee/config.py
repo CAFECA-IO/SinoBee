@@ -38,6 +38,18 @@ DEFAULTS: dict[str, Any] = {
     "providers": {},             # per-provider overrides: {name: {base_url, api_key_env, api_key, transport}}
     "agent": {
         "name": "SinoBee",
+        # task budgets (agent/budget.py): baselines by task type, soft checkpoints, per-task cap, partial delivery
+        "budget": {
+            "enabled": True,
+            "checkpoints": [0.5, 0.8],      # shares of the reference budget where the thinking model checks progress
+            "min_samples": 8,               # runs of a type before its p50/p90 are used (else the synthetic baseline)
+            "synthetic_factor": 2.0,        # synthetic baseline = estimated steps x average per step x this
+            "default_step_tokens": 8000,    # per-step average before there is any history
+            "default_step_cost": 0.02,
+            "initial_max_task_usd": 10.0,   # per-task cap before there are 8 large tasks to compute it from
+            "initial_max_task_tokens": 4000000,
+            "cap_extend": 1.5,              # "追加" multiplies the cap by this
+        },
         # no fixed step limit: a task stops when it stops making progress (agent/progress.py)
         "progress": {
             "k": 15,                # steps in a row without progress before the thinking model is consulted
@@ -146,6 +158,8 @@ DEFAULTS: dict[str, Any] = {
         "daily_budget_usd": None,
         "monthly_budget_usd": None,
         "enforce_budget": False,    # stop calling models once a budget is reached
+        "task_max_usd": None,       # per-task cap; None = automatic (agent/budget.py: large-task p95 x 1.5, else initial)
+        "task_max_tokens": None,
         "currency_rate": None,      # optional display conversion, e.g. 32.5 for TWD
         "currency": "USD",
     },

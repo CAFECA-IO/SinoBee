@@ -166,10 +166,13 @@ def register(app: FastAPI, rt_getter) -> None:
                 updates.setdefault("agent", {})["plan"] = a["plan"]
         if "usage" in body:
             u = {}
-            for k in ("daily_budget_usd", "monthly_budget_usd", "currency_rate"):
+            for k in ("daily_budget_usd", "monthly_budget_usd", "currency_rate", "task_max_usd"):
                 if k in body["usage"]:
                     v = body["usage"][k]
                     u[k] = float(v) if v not in (None, "") else None
+            if "task_max_tokens" in body["usage"]:
+                v = body["usage"]["task_max_tokens"]
+                u["task_max_tokens"] = int(float(v)) if v not in (None, "") else None
             for k in ("enforce_budget",):
                 if k in body["usage"]:
                     u[k] = bool(body["usage"][k])

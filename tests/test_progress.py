@@ -241,7 +241,7 @@ async def test_rewording_a_document_is_stopped_and_every_decision_says_why(home,
     log = report["control_log"]
     assert [(e["event"], e["trigger"]) for e in log] == [
         ("consult_requested", "no_progress"), ("consult", "no_progress"),
-        ("consult_skipped", "no_progress"), ("stop", "advice_exhausted")]
+        ("consult_skipped", "no_progress"), ("stop", "advice_exhausted"), ("delivery", "partial_delivery")]
     req = log[0]
     # the exact numbers: 1 new file + 3 allowed rewordings, then 4 steps without progress (K=4)
     assert req["step"] == 8 and "連續 4 步沒有進度（門檻 K=4）" in req["detail"] and "第 4 步" in req["detail"]

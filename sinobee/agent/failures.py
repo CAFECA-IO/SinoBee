@@ -82,6 +82,8 @@ def build(agent, *, status: str, error_info: dict | None, final_text: str, query
                     "review": stats.get("review"), "level": (stats.get("quality") or [None])[0],
                     "skipped": stats.get("quality_skipped") or []},
         "control_log": stats.get("control_log") or [],
+        "partial": stats.get("partial"),
+        "budget": agent._guard.summary() if getattr(agent, "_guard", None) else None,
         "progress": (stats.get("progress_trace") or [])[-80:],
         "thresholds": agent._progress.thresholds() if getattr(agent, "_progress", None) else {},
         "usage": usage, "duration_s": duration,

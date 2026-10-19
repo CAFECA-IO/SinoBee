@@ -147,7 +147,9 @@ def parse_plan(text: str) -> dict | None:
     ask = data.get("ask_user")
     from .milestones import parse as parse_milestones
     ms = parse_milestones(data)
-    return {"milestones": ms, "understanding": str(data.get("understanding") or "").strip()[:600],
+    tt = str(data.get("task_type") or "other").lower()
+    return {"milestones": ms, "task_type": tt if tt in ("research", "coding", "document", "data", "media") else "other",
+            "understanding": str(data.get("understanding") or "").strip()[:600],
             "approach": str(data.get("approach") or "").strip()[:1200], "steps": steps, "checklist": items[:8],
             "risks": [str(r).strip()[:300] for r in data.get("risks") or [] if str(r).strip()][:6],
             "ask_user": str(ask).strip()[:400] if ask and str(ask).strip().lower() not in ("null", "none") else None}
