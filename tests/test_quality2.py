@@ -94,19 +94,19 @@ async def test_strict_level_runs_an_independent_reviewer_first(home):
     assert {t.name for t in main.requests[2][1]} & {"write_file", "edit_file", "delegate"} == set()   # read-only
 
 
-async def test_stuck_agent_consults_the_stronger_model_and_carries_on(home):
+async def test_stuck_agent_consults_the_thinking_model_and_carries_on(home):
     main = ScriptedProvider([msg("", [("read_file", {"path": f"missing{i}.txt"})]) for i in range(3)]
                             + [msg("找到了，答案是 42")])
-    strong = ScriptedProvider([msg("檔案不存在：先用 list_dir 看資料夾裡有哪些檔案。"), judge("pass")])
+    strong = ScriptedProvider([msg("檔案不存在：先用 list_dir 看資料夾裡有哪些檔案。\nDECISION: continue"), judge("pass")])
     rt = Runtime(Config.load(), provider=main, strong_provider=strong)
     agent = Agent(rt)
     out = await agent.run("讀那個檔案")
     assert out == "找到了，答案是 42"
-    advice = [m.text() for m in agent.history if m.text().startswith("[較強模型的建議]")]
-    assert advice and "list_dir" in advice[0]
+    advice = [m.text() for m in agent.history if m.text().startswith("[思維模型的建議]")]
+    assert advice and "list_dir" in advice[0] and "DECISION" not in advice[0]
     consult_req, consult_tools = strong.requests[0]
     assert consult_tools is None and any(m.role == "tool" for m in consult_req)      # it saw the whole context
-    assert agent._prov is main                                                       # the main model carried on
+    assert agent._prov is main                                              # the execution model carried on
 
 
 async def test_delegate_briefs_and_condensed_reports(home):
@@ -132,9 +132,9 @@ def test_quality_settings_round_trip(home, provider):
     rt = Runtime(Config.load(), provider=provider)
     c = TestClient(create_app(rt))
     assert c.get("/api/settings").json()["agent"]["quality"] == "auto"
-    r = c.put("/api/settings", json={"agent": {"quality": "strict"}, "model": {"escalate_mode": "consult"}})
+    r = c.put("/api/settings", json={"agent": {"quality": "strict", "plan": "always"}})
     assert r.status_code == 200, r.text
     s = c.get("/api/settings").json()
-    assert s["agent"]["quality"] == "strict" and s["model"]["escalate_mode"] == "consult"
+    assert s["agent"]["quality"] == "strict" and s["agent"]["plan"] == "always"
     assert c.put("/api/settings", json={"agent": {"quality": "extreme"}}).status_code == 200
     assert c.get("/api/settings").json()["agent"]["quality"] == "strict"          # invalid values are ignored

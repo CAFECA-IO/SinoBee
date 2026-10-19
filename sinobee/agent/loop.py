@@ -80,9 +80,9 @@ class Runtime:
     """Shared, long-lived resources (one per process)."""
 
     def __init__(self, config: Config | None = None, *, provider=None, aux_provider=None, embedder=None,
-                 strong_provider=None, reviewer_provider=None):
+                 thinking_provider=None, reviewer_provider=None, strong_provider=None):
         self.config = config or Config.load()
-        self._strong = strong_provider
+        self._strong = thinking_provider or strong_provider     # strong_provider: the old name
         self._strong_spec = None
         self._reviewer = reviewer_provider
         self._reviewer_spec = None
@@ -152,11 +152,12 @@ class Runtime:
             out[name] = item
         return out
 
-    def strong(self):
-        """The stronger model to escalate to (model.escalate), or None when none is configured / it is the same."""
+    def thinking(self):
+        """The thinking model (model.thinking): plans, advises, judges and diagnoses; never runs a step of a task.
+        None when it is not configured (or is the execution model itself) - see thinker()."""
         if self._strong is not None and (self._fixed_provider or self._strong_spec is None):
             return self._strong
-        spec = self.config.get("model.escalate")
+        spec = self.config.get("model.thinking") or self.config.get("model.escalate")
         if not spec or spec == self.config.get("model.default"):
             return None
         if self._strong_spec != spec:
@@ -165,9 +166,20 @@ class Runtime:
                 self._strong.recorder = self._record
                 self._strong_spec = spec
             except Exception as e:  # noqa: BLE001
-                log.warning("escalation model %s unavailable: %s", spec, e)
+                log.warning("thinking model %s unavailable: %s", spec, e)
                 return None
         return self._strong
+
+    strong = thinking          # the old name (model.escalate)
+
+    def thinker(self):
+        """The model that does the thinking calls: model.thinking, or the execution model when none is set."""
+        return self.thinking() or self.provider
+
+    def judge(self):
+        """The model that judges results: model.reviewer, else the thinking model, else the execution model.
+        One model per role and no silent hand-over: when it cannot answer, the check is recorded as skipped."""
+        return self.reviewer() or self.thinker()
 
     @staticmethod
     def is_local(prov) -> bool:
@@ -188,7 +200,7 @@ class Runtime:
 
     def reviewer(self):
         """The model that judges results (model.reviewer): ideally another family than the main model, so the
-        acceptance review does not share the main model's blind spots. None: use strong() or the main model."""
+        acceptance review does not share the execution model's blind spots. None: see judge()."""
         if self._reviewer is not None and (self._fixed_provider or self._reviewer_spec is None):
             return self._reviewer
         spec = self.config.get("model.reviewer")
@@ -426,64 +438,100 @@ class Agent:
             self._run_rec.event(text)
 
     def _complex_task(self, explicit) -> bool:
-        """Skills marked sinobee-complexity: high (long multi-stage pipelines) start on the stronger model."""
+        """Skills marked sinobee-complexity: high (long multi-stage pipelines): planned first, larger step budget."""
         names = set(explicit or []) | set(self.ctx.state.get("skills_used", set()))
         return any(str(getattr(self.rt.skills.skills.get(n), "metadata", {}).get("sinobee-complexity", "")).lower()
                    == "high" for n in names if self.rt.skills.skills.get(n))
 
-    def _prov_is_local(self) -> bool:
-        label = str(getattr(self._prov, "label", "") or "")
-        return label.startswith(("ollama/", "local/", "lmstudio/", "vllm/")) or \
-            bool(re.search(r"//(localhost|127\.0\.0\.1|host\.docker\.internal)", str(getattr(self._prov, "base_url", ""))))
+    # ------------------------------------------------------------------ thinking model: plan, advice, verdict
+    async def _thinking_call(self, what: str, messages, max_tokens: int, stats: dict):
+        """One call to the thinking model with agent.model_deadline. It never falls back to another model: a call
+        that fails or runs out of time is recorded (stats["thinking_skipped"]) and the caller goes on without it."""
+        model = self.rt.thinker()
+        deadline = float(self.config.get("agent.model_deadline", 240)) or None
+        try:
+            return await asyncio.wait_for(model.chat(messages, None, temperature=0.2, max_tokens=max_tokens), deadline)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            why = "逾時" if isinstance(e, asyncio.TimeoutError) else f"{type(e).__name__}: {e}"
+            stats.setdefault("thinking_skipped", []).append(f"{what}: {why}")
+            self._event(f"⚠︎ 思維模型 {model.label} 無法完成{what}（{str(why)[:120]}），這一步略過")
+            return None
 
-    def _escalate(self, why: str, stats: dict, at_start: bool = False) -> bool:
-        """Bring in the stronger model (model.escalate). Two ways (model.escalate_mode):
-          switch   the rest of the turn runs on the stronger model (once per turn)
-          consult  the stronger model reads a fork of the whole context and advises; the current model carries on
-                   with that advice (up to twice per turn, at least 5 steps apart)
-          auto     switch at the start of complex tasks and when the current model runs locally (a weak model
-                   rarely uses advice well); consult otherwise
-        """
-        strong = self.rt.strong()
-        if strong is None or strong is self._prov or stats.get("escalated"):
+    def _should_plan(self, query: str, explicit, stats: dict) -> bool:
+        mode = str(self.config.get("agent.plan", "auto")).lower()
+        if self.depth > 0 or mode == "off" or stats.get("learn_command") or not query.strip():
             return False
-        mode = str(self.config.get("model.escalate_mode", "auto") or "auto")
-        if mode not in ("switch", "consult"):
-            mode = "switch" if (at_start or self._prov_is_local()) else "consult"
-        if mode == "consult":
-            step = stats.get("step", 0)
-            if stats.get("consults", 0) >= 2 or stats.get("consult_pending") or \
-                    step - stats.get("consult_at", -99) < 5:
-                return False
-            stats["consult_pending"] = why
+        if checklist_tools.open_items(checklist_tools.get(self.ctx)):
+            return False                      # carrying on with an earlier plan ("繼續")
+        if mode == "always":
             return True
-        stats["escalated"] = True
-        old = self._prov.label
-        self._prov = strong
-        self._event(f"改用較強的模型 {strong.label}（{why}；原本 {old}）")
+        best = stats.get("best_skill")
+        return bool(explicit) or self._complex_task(explicit) or len(query) >= 200 or \
+            bool(best and self._complex_task([best]))
+
+    async def _plan(self, query: str, context_block: str, stats: dict) -> None:
+        """Before the first step: the thinking model writes the approach, the steps and the acceptance checklist;
+        the execution model then carries them out."""
+        from . import thinking
+        names = sorted(self.tool_names)
+        skills = []
+        for n in list(stats.get("explicit_skills") or []) + ([stats["best_skill"]] if stats.get("best_skill") else []):
+            sk = self.rt.skills.skills.get(n)
+            if sk and n not in [x[0] for x in skills]:
+                skills.append((n, f"- {n}: {sk.description[:400]}" + (f"\n  how to run: {sk.quickstart[:600]}" if sk.quickstart else "")))
+        skill_txt = ("SKILLS TO USE:\n" + "\n".join(x[1] for x in skills) + "\n") if skills else ""
+        prompt = thinking.PLAN.format(request=query[:6000], context=context_block[:6000], tools=", ".join(names),
+                                      skills=skill_txt)
+        model = self.rt.thinker()
+        self._event(f"思維模型 {model.label} 規劃中")
+        resp = await self._thinking_call("規劃", [Message("user", prompt)], 1500, stats)
+        plan = thinking.parse_plan(resp.message.text()) if resp else None
+        if not plan:
+            return
+        stats["plan"] = plan
+        items = checklist_tools.get(self.ctx)
+        if plan["checklist"] and not items and "task_checklist" in self.tool_names:
+            for it in plan["checklist"]:
+                items.append({"id": len(items) + 1, "status": "todo", "evidence": "", "updated": time.time(), **it})
+            checklist_tools.save(self.ctx)
+        self.history.append(Message("user", thinking.render_plan(plan, model.label)))
+        self._persist()
+        self._emit("plan", {**plan, "model": model.label})
+
+    def _request_consult(self, why: str, stats: dict) -> bool:
+        """Ask the thinking model for advice at the start of the next step (at most agent.consult_max times per
+        task, at least 5 steps apart). The execution model keeps running the task; models are never switched."""
+        step = stats.get("step", 0)
+        if stats.get("consults", 0) >= int(self.config.get("agent.consult_max", 2)) or stats.get("consult_pending") \
+                or step - stats.get("consult_at", -99) < 5:
+            return False
+        stats["consult_pending"] = why
         return True
 
     async def _consult(self, why: str, context_block: str, stats: dict) -> None:
-        """Ask the stronger model for advice on a fork of the full context; the advice joins the history."""
-        strong = self.rt.strong()
-        if strong is None:
+        """The thinking model reads a fork of the full context and advises - and decides whether the execution
+        model can still finish. "stop" ends the task as failed (stats["give_up"])."""
+        from . import thinking
+        model = self.rt.thinker()
+        self._event(f"向思維模型 {model.label} 請教（{why}）")
+        request = [self.system] + self.history + [Message("user", [TextPart(
+            context_block + "\n\n" + thinking.CONSULT.format(why=why), volatile=True)])]
+        stats["consults"] = stats.get("consults", 0) + 1
+        stats["consult_at"] = stats.get("step", 0)
+        resp = await self._thinking_call("請教", request, 1400, stats)
+        if resp is None:
+            stats.setdefault("consult_log", []).append({"step": stats.get("step"), "why": why, "advice": None})
             return
-        self._event(f"向較強的模型 {strong.label} 請教（{why}）")
-        ask = ("[SinoBee] You are a senior advisor looking over the shoulder of the agent above. It is stuck: "
-               f"{why}. Read the whole conversation and tool results, then give concise, concrete guidance in the "
-               "user's language: (1) what is actually going wrong, (2) the next 2-4 steps to take, with the exact "
-               "tools/commands if you can, (3) anything it should stop doing. Do not call tools; reply with text only.")
-        request = [self.system] + self.history + [Message("user", [TextPart(context_block + "\n\n" + ask, volatile=True)])]
-        try:
-            resp = await strong.chat(request, None, temperature=0.2, max_tokens=1200)
-            advice = resp.message.text().strip()
-        except Exception as e:  # noqa: BLE001 - advice is optional
-            log.info("consult failed: %s", e)
-            return
+        advice, decision, reason = thinking.parse_decision(resp.message.text())
+        stats.setdefault("consult_log", []).append({"step": stats.get("step"), "why": why, "advice": advice[:3000],
+                                                    "decision": decision, "reason": reason})
+        if decision == "stop":
+            stats["give_up"] = reason or "思維模型判斷執行模型無法完成這個任務"
+            self._event(f"思維模型判斷執行模型無法完成：{stats['give_up']}")
         if advice:
-            stats["consults"] = stats.get("consults", 0) + 1
-            stats["consult_at"] = stats.get("step", 0)
-            self.history.append(Message("user", f"[較強模型的建議]（{why}）\n{advice[:4000]}"))
+            self.history.append(Message("user", f"[思維模型的建議]（{why}）\n{advice[:4000]}"))
             self._persist()
 
     def _should_verify(self, stats: dict) -> bool:
@@ -562,24 +610,10 @@ class Agent:
         return ""
 
     async def _step_chat(self, request, tool_specs, max_tokens: int, stats: dict):
-        """One model call with a deadline. A stronger model that keeps a step waiting past agent.model_deadline
-        (default 240 s; a slow request was retried five times with 180 s timeouts, 15 minutes of a silent
-        '思考中') hands this step to the main model, and the rest of the turn stays there."""
-        deadline = float(self.config.get("agent.model_deadline", 240))
-        call = self._prov.chat(request, tool_specs, temperature=self.config.get("model.temperature", 0.3),
-                               max_tokens=max_tokens)
-        fallback = self.rt.provider if self._prov is not self.rt.provider else None
-        if deadline <= 0 or fallback is None:
-            return await call
-        try:
-            return await asyncio.wait_for(call, deadline)
-        except asyncio.TimeoutError:
-            slow = self._prov.label
-            self._prov = fallback
-            stats["slow_model"] = slow
-            self._event(f"⚠︎ {slow} 超過 {deadline:.0f} 秒沒有回應，這一步起改用 {fallback.label}")
-            return await fallback.chat(request, tool_specs, temperature=self.config.get("model.temperature", 0.3),
-                                       max_tokens=max_tokens)
+        """One step of the task, always on the execution model (the provider's own retries and the configured
+        outage fallbacks, model.fallbacks, still apply)."""
+        return await self._prov.chat(request, tool_specs, temperature=self.config.get("model.temperature", 0.3),
+                                     max_tokens=max_tokens)
 
     async def _guarded(self, what: str, coro, stats: dict):
         """Run one quality step; a bug inside it never turns a finished task into an error. The skip is recorded
@@ -658,14 +692,11 @@ class Agent:
             return []
         want = language.wanted(query) or "zh-Hant"
         lang = language.NAMES.get(want, want)
-        models = [m for m in dict.fromkeys([self.rt.reviewer(), self.rt.strong(), self.rt.provider]) if m]
+        models = [self.rt.judge()]           # one judge, no hand-over: if it cannot answer, the check is skipped
         self._event(f"視覺檢查：截取 {len(todo)} 張畫面，由 {models[0].label} 判讀")
         deadline = float(self.config.get("agent.model_deadline", 240)) or None
-
-        def fallback(model, err):
-            self._event(f"⚠︎ 視覺檢查：{model.label} 無法判讀（{type(err).__name__}），改由下一個模型判讀")
         try:
-            items = await visual.judge(models, query, lang, todo, deadline, fallback)
+            items = await visual.judge(models, query, lang, todo, deadline, None)
         except Exception as e:  # noqa: BLE001
             stats.setdefault("quality_skipped", []).append(f"視覺檢查: {type(e).__name__}: {e}")
             self._event(f"⚠︎ 視覺檢查無法執行：{type(e).__name__}")
@@ -739,7 +770,7 @@ class Agent:
                 "hint": "可以回覆「繼續」讓我接著修，或告訴我哪些可以接受。"}
 
     async def _review(self, query: str, final_text: str, stats: dict, level: str) -> dict | None:
-        """Fresh-context review by the stronger model (or the main one): verdict, checklist items, fix list."""
+        """Fresh-context review by the judge (reviewer, else thinking, else execution model): verdict, items, fixes."""
         from . import review
         paths = []
         for a in stats.get("artifacts", [])[:20]:
@@ -782,21 +813,19 @@ class Agent:
         for path, img in list(shots.items())[:3]:
             parts += [TextPart(f"Screenshot of {Path(path).name} as the user sees it:"),
                       ImagePart.from_bytes(img, "image/jpeg")]
-        model = self.rt.reviewer() or self.rt.strong() or self.rt.provider
+        model = self.rt.judge()
         self._event(f"驗收審查：由 {model.label} 以全新上下文檢查結果")
         deadline = float(self.config.get("agent.model_deadline", 240)) or None
         try:
-            try:
-                resp = await asyncio.wait_for(model.chat([Message("user", parts)], None, temperature=0,
-                                                         max_tokens=1500), deadline)
-            except asyncio.TimeoutError:
-                if model is self.rt.provider:
-                    raise
-                self._event(f"⚠︎ 驗收審查：{model.label} 超過 {deadline:.0f} 秒沒有回應，改由 {self.rt.provider.label} 審查")
-                resp = await asyncio.wait_for(self.rt.provider.chat([Message("user", parts)], None, temperature=0,
-                                                                    max_tokens=1500), deadline)
-        except Exception as e:  # noqa: BLE001 - a failed review never blocks the answer
-            log.info("acceptance review skipped: %s", e)
+            resp = await asyncio.wait_for(model.chat([Message("user", parts)], None, temperature=0,
+                                                     max_tokens=1500), deadline)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - a failed review never blocks the answer, and is never hidden
+            why = "逾時" if isinstance(e, asyncio.TimeoutError) else f"{type(e).__name__}: {e}"
+            log.info("acceptance review skipped: %s", why)
+            stats.setdefault("quality_skipped", []).append(f"驗收審查（{model.label}）: {why}")
+            self._event(f"⚠︎ 驗收審查：{model.label} 無法完成（{str(why)[:120]}），這次結果沒有經過驗收審查")
             return None
         return review.parse(resp.message.text())
 
@@ -863,7 +892,8 @@ class Agent:
         best = self.rt.skills.search(query, 1, self.tool_names) if "skill_view" in self.tool_names else []
         stats = {"tool_calls": 0, "errors": 0, "recovered": False, "correction": bool(CORRECTION_RE.search(query)),
                  "skill_request": bool(SKILL_REQUEST_RE.search(query)) and not learn, "learn_command": learn,
-                 "skill_gap": not best or best[0][1] < 1.0, "explicit_skills": explicit}
+                 "skill_gap": not best or best[0][1] < 1.0, "explicit_skills": explicit,
+                 "best_skill": best[0][0].name if best and best[0][1] >= 1.0 and hasattr(best[0][0], "name") else None}
         self._emit("turn_start", {"session_id": self.session_id, "input": query})
 
         context_block = await self._build_context(query)
@@ -879,8 +909,8 @@ class Agent:
         stats["verify_rounds"] = 0
         stats["gate_rounds"] = {}
         self._checklist_turn_start()
-        if self._complex_task(explicit):
-            self._escalate("任務屬於複雜類型", stats, at_start=True)
+        if self._should_plan(query, explicit, stats):
+            await self._guarded("規劃", self._plan(query, context_block, stats), stats)
         self._turn_started = started
         self._snap = None
         if self.depth == 0:
@@ -934,6 +964,14 @@ class Agent:
             stats["step"] = steps
             if stats.get("consult_pending"):
                 await self._consult(stats.pop("consult_pending"), context_block, stats)
+                if stats.get("give_up"):
+                    status = "failed"
+                    error_info = {"summary": "執行模型無法完成這個任務", "kind": "capability",
+                                  "detail": stats["give_up"],
+                                  "hint": "已保存失敗報告（設定 →「品質」）。可以換用能力更強的執行模型，或補充更明確的做法後再試。"}
+                    final_text = f"✕ 任務失敗：{stats['give_up']}"
+                    self.history.append(Message("assistant", f"[上一次嘗試失敗：{stats['give_up']}]"))
+                    break
             # The history is append-only so the provider's prompt cache keeps hitting; everything that changes
             # between requests (context, checklist, active skill notes, nudges) goes in one tail message that is
             # rebuilt every time and never stored - at the end, where the model attends most during long tasks.
@@ -943,8 +981,8 @@ class Agent:
                 tail.append(EMPTY_NUDGE)
                 nudge = False
             request.append(Message("user", [TextPart("\n\n".join(t for t in tail if t), volatile=True)]))
-            if steps > int(self.config.get("agent.escalate_after_steps", 25)) and not stats.get("escalated"):
-                self._escalate(f"已進行 {steps - 1} 步仍未完成", stats)
+            if steps > int(self.config.get("agent.consult_after_steps", 25)) and not stats.get("consulted_steps"):
+                stats["consulted_steps"] = self._request_consult(f"已進行 {steps - 1} 步仍未完成", stats)
             self._emit("thinking", {"iteration": iteration, "step": steps, "model": self._prov.label})
             try:
                 resp = await self._step_chat(request, tool_specs, max_tokens, stats)
@@ -992,12 +1030,12 @@ class Agent:
                     nudge = True
                     continue
                 final_text = (f"⚠︎ 模型 {resp.model or self._prov.label} 連續 {empty_replies} 次回傳空白回覆"
-                              f"（finish_reason={resp.stop_reason or 'n/a'}），任務沒有完成。建議改用能力較強的模型，"
+                              f"（finish_reason={resp.stop_reason or 'n/a'}），任務沒有完成，已保存失敗報告。建議換用能力較強的執行模型，"
                               "或在設定頁提高輸出上限後重試。")
                 self.history.append(Message("assistant", "[上一次嘗試失敗：模型沒有產生回覆]"))
-                status = "incomplete"
-                error_info = {"summary": f"模型連續 {empty_replies} 次回傳空白回覆",
-                              "hint": "建議改用能力較強的模型，或在設定頁提高輸出上限後重試。",
+                status = "failed"
+                error_info = {"summary": f"執行模型連續 {empty_replies} 次回傳空白回覆", "kind": "capability",
+                              "hint": "已保存失敗報告。建議換用能力較強的執行模型，或在設定頁提高輸出上限後重試。",
                               "detail": f"model={resp.model}, finish_reason={resp.stop_reason or 'n/a'}"}
                 break
             self.history.append(msg)
@@ -1036,16 +1074,22 @@ class Agent:
                 result_msg = await self._execute(call, stats)
                 self.history.append(result_msg)
             self._persist()
-            if (stats.get("consecutive_errors", 0) >= int(self.config.get("agent.escalate_after_errors", 3))
-                    or stats.get("repeats")) and not stats.get("escalated"):
-                self._escalate(f"連續 {stats.get('consecutive_errors', 0)} 次工具錯誤", stats)
+            if stats.get("consecutive_errors", 0) >= int(self.config.get("agent.consult_after_errors", 3)) \
+                    or stats.get("repeats"):
+                self._request_consult(f"連續 {stats.get('consecutive_errors', 0)} 次工具錯誤"
+                                      if stats.get("consecutive_errors") else "重複執行已失敗的操作", stats)
             limit = int(self.config.get("agent.max_consecutive_errors", 6))
             if stats.get("consecutive_errors", 0) >= limit or stats.get("repeats", 0) >= 3:
-                status = "incomplete"
                 why = (f"連續 {stats['consecutive_errors']} 次工具呼叫失敗" if stats.get("consecutive_errors", 0) >= limit
                        else "重複執行已失敗的相同操作")
-                error_info = {"summary": why + "，任務沒有完成",
-                              "hint": "請看最後的錯誤訊息；可以換用能力較強的模型，或回覆更明確的指示後再試。",
+                if self._request_consult(why, stats):
+                    # one more chance with the thinking model's advice before the task is given up
+                    stats["consecutive_errors"], stats["repeats"] = 0, 0
+                    continue
+                # stuck after the advice allowed: the execution model could not do it
+                status = "failed"
+                error_info = {"summary": why + "，執行模型無法完成這個任務", "kind": "capability",
+                              "hint": "已保存失敗報告（設定 →「品質」）。可以換用能力更強的執行模型，或回覆更明確的做法後再試。",
                               "detail": stats.get("last_error", "")}
                 final_text = (f"⚠︎ 任務沒有完成：{why}。最後的錯誤：\n{stats.get('last_error', '')[:400]}")
                 self.history.append(Message("assistant", f"[上一次嘗試失敗：{why}。最後的錯誤：{stats.get('last_error', '')[:300]}]"))
@@ -1077,6 +1121,11 @@ class Agent:
             log.exception("could not record turn")
         if status != "done":
             self._save_progress(status, error_info, final_text)
+        failure = None
+        if status in ("failed", "incomplete", "error") and self.depth == 0 and \
+                self.config.get("agent.failure_reports", True):
+            failure = self._failure_report(status, error_info, final_text, query, stats, turn_start, turn_id,
+                                           turn_usage, steps, round(time.time() - started, 1))
         snap = None
         if self.depth == 0 and self._snap:
             from . import snapshots
@@ -1087,7 +1136,9 @@ class Agent:
             if inf and inf["files"]:
                 snap = {"session": self._snap[0], "key": self._snap[1], "files": len(inf["files"])}
         self._emit("turn_end", {"text": final_text, "status": status, "error": error_info, "steps": steps,
-                                "snapshot": snap,
+                                "snapshot": snap, "failure": failure, "plan": bool(stats.get("plan")),
+                                "consults": len(stats.get("consult_log") or []),
+                                "thinking_skipped": stats.get("thinking_skipped") or [],
                                 "turn_id": turn_id, "skills": turn_skills,
                                 "duration_s": round(time.time() - started, 1), "usage": turn_usage,
                                 "session_cost_usd": session_usage["cost_usd"],
@@ -1284,8 +1335,6 @@ class Agent:
         if rec:
             rec.tool_started(call.name)
         sk = (call.arguments or {}).get("name") if call.name in ("skill_view", "skill_run") else None
-        if sk and self._complex_task([sk]) and not stats.get("escalated"):
-            self._escalate(f"技能 {sk} 是多階段的複雜任務", stats, at_start=True)
         sig = call.name + json.dumps(call.arguments or {}, sort_keys=True, ensure_ascii=False, default=str)
         failed = stats.setdefault("failed_calls", {})
         if sig in failed:
@@ -1375,6 +1424,22 @@ class Agent:
                                                key="progress", author="agent")
         except Exception:  # noqa: BLE001
             log.debug("could not save progress note", exc_info=True)
+
+    def _failure_report(self, status, error_info, final_text, query, stats, turn_start, turn_id, usage, steps,
+                        duration) -> str | None:
+        """Keep what is needed to understand a failed task (work log, plan, advice, checks, models); the thinking
+        model's diagnosis is added in the background."""
+        from . import failures
+        try:
+            rep = failures.save(self.config.home, failures.build(
+                self, status=status, error_info=error_info, final_text=final_text, query=query, stats=stats,
+                turn_start=turn_start, turn_id=turn_id, usage=usage, steps=steps, duration=duration))
+        except Exception:  # noqa: BLE001 - the report must never break the turn
+            log.exception("could not save the failure report")
+            return None
+        if self.config.get("agent.failure_diagnosis", True):
+            self.rt.spawn(failures.diagnose(self.rt, self.config.home, rep["id"], emit=self._emit))
+        return rep["id"]
 
     def _persist(self) -> None:
         new = self.history[self._persisted:]

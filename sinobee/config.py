@@ -22,10 +22,12 @@ DEFAULTS: dict[str, Any] = {
         "default": None,         # "provider/model"; set in the Web UI or with -e SINOBEE_MODEL=...
         "fallbacks": [],
         "auxiliary": None,       # cheaper model for reflection / compression (None = default)
-        "escalate": None,        # stronger model to switch to when a task keeps failing or is too complex
+        "thinking": None,        # THINKING model: plans before a task, advises when it is stuck, judges the result and
+                                 # diagnoses failures; never runs a step (None: the execution model also thinks).
+                                 # model.default is the EXECUTION model: it runs every step; SinoBee never switches
+                                 # models in a task (model.escalate is read as model.thinking for old settings)
         "reviewer": None,        # model for the acceptance review and the independent reviewer; another family than
-                                 # the main model catches what the main model misses (None: escalate, then default)
-        "escalate_mode": "auto", # auto | consult (the stronger model advises) | switch (it takes over the turn)
+                                 # the execution model catches what it misses (None: thinking, then default)
         "embedding": None,       # e.g. openai/text-embedding-3-small ; None = BM25 only
         "temperature": 0.3,
         "max_tokens": 8192,
@@ -38,7 +40,12 @@ DEFAULTS: dict[str, Any] = {
         "name": "SinoBee",
         "max_iterations": 60,
         "max_iterations_complex": 120,  # turns that use a sinobee-complexity: high skill
-        "model_deadline": 240,          # s a stronger model may keep one step waiting before the main model takes over
+        "model_deadline": 240,          # s a thinking / review call may take; after that it is skipped and recorded
+        "plan": "auto",                 # auto | always | off: the thinking model plans before the first step (auto:
+                                        # skills picked or multi-stage, or a long request)
+        "consult_max": 2,
+        "failure_reports": True,        # save a report (work log, plan, advice, checks) when a task does not finish
+        "failure_diagnosis": True,      # ... and have the thinking model diagnose it (in the background)               # times per task the thinking model is asked for advice when execution is stuck
         "context_budget": "auto",   # optional cap in tokens; "auto" = the model's context window (see model.context_window)
         "tool_output_limit": 12000, # chars per tool result
         "language": "auto",
@@ -55,9 +62,9 @@ DEFAULTS: dict[str, Any] = {
         "snapshots": True,          # keep a copy of files before write_file/edit_file so a turn can be undone
         "snapshot_days": 14,
         "checklist_after_tool_calls": 4,  # remind the agent to write an acceptance checklist after this many tools        # times an open checklist / failed file check is sent back to be fixed
-        "escalate_after_errors": 3, # consecutive tool errors before switching to model.escalate
+        "consult_after_errors": 3,  # consecutive tool errors before the thinking model is consulted
         "inline_aux": "auto",       # model for compaction a running task waits on: auto | auxiliary | main
-        "escalate_after_steps": 25, # steps in one turn before switching to model.escalate
+        "consult_after_steps": 25,  # steps in one turn before the thinking model is consulted
     },
     "permissions": {
         "toolsets": ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database", "work"],
@@ -192,6 +199,12 @@ class Config:
         self.data = merged
         self.locked: set[str] = set()
         self._apply_env()
+        m, a = self.data.setdefault("model", {}), self.data.setdefault("agent", {})
+        if not m.get("thinking") and m.get("escalate"):      # settings from before the thinking / execution split
+            m["thinking"] = m["escalate"]
+        for old, new in (("escalate_after_errors", "consult_after_errors"), ("escalate_after_steps", "consult_after_steps")):
+            if old in (data.get("agent") or {}) and new not in (data.get("agent") or {}):
+                a[new] = data["agent"][old]
 
     def save_gui_settings(self, updates: dict, replace: tuple[str, ...] = ("pricing", "providers")) -> list[str]:
         """Merge updates into settings.json; returns dotted keys that were ignored because env locks them."""
@@ -236,8 +249,8 @@ class Config:
             lock("model.fallbacks", csv(env["SINOBEE_FALLBACKS"]))
         if env.get("SINOBEE_AUX_MODEL"):
             lock("model.auxiliary", env["SINOBEE_AUX_MODEL"])
-        if env.get("SINOBEE_ESCALATE_MODEL"):
-            lock("model.escalate", env["SINOBEE_ESCALATE_MODEL"])
+        if env.get("SINOBEE_THINKING_MODEL") or env.get("SINOBEE_ESCALATE_MODEL"):
+            lock("model.thinking", env.get("SINOBEE_THINKING_MODEL") or env["SINOBEE_ESCALATE_MODEL"])
         if env.get("SINOBEE_REVIEWER_MODEL"):
             lock("model.reviewer", env["SINOBEE_REVIEWER_MODEL"])
         if env.get("SINOBEE_EMBEDDING_MODEL"):

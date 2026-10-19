@@ -78,8 +78,8 @@ async def test_identical_failing_call_is_refused_and_the_turn_is_not_done(cfg):
     assert results[0]["error"] and "not a command" in results[0]["preview"]
     assert all(r["error"] and r["preview"].startswith("ERROR: REPEATED CALL") for r in results[1:])
     assert len(results) == 4                                   # stopped after 3 refused repeats
-    assert agent.last_status["status"] == "incomplete"
-    assert "重複執行" in agent.last_status["error"]["summary"]
+    assert agent.last_status["status"] == "failed"              # the execution model could not do it
+    assert "重複執行" in agent.last_status["error"]["summary"] and agent.last_status["error"]["kind"] == "capability"
 
 
 async def test_stopping_right_after_an_error_is_incomplete(cfg):

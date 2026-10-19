@@ -226,7 +226,9 @@ details.tool .dur{color:var(--muted);font-size:12px;margin-left:6px}
 .result{border-radius:10px;padding:10px 14px;margin:4px 0 16px;font-size:13px;border:1px solid var(--line)}
 .result.done{color:var(--muted);border:0;padding:2px 2px}
 .result.done b{color:var(--ok)}
-.result.error,.result.incomplete,.result.blocked{background:var(--user);border-color:var(--warn)}
+.result.error,.result.incomplete,.result.blocked,.result.failed{background:var(--user);border-color:var(--warn)}
+.result.failed b{color:var(--err)}.result .failrep{display:block;margin-top:6px;font-size:12px;color:var(--muted)}
+.note.plan ol{margin:6px 0 0;padding-left:20px}.note.plan li{margin:2px 0}.note.plan small{display:block;color:var(--muted)}
 .result.error b,.result.incomplete b,.result.blocked b{color:var(--err)}
 .result.stopped b{color:var(--muted)}
 .result .hint{margin-top:4px}.result details{margin-top:6px;color:var(--muted)}.result pre{white-space:pre-wrap;font-size:12px;max-height:240px;overflow:auto}
@@ -616,7 +618,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
           <div id="roleRows"></div>
           <div id="roleHint" class="note" hidden></div>
           <div class="srow end"><span id="testResult" class="sd"></span>
-            <button class="btn" id="refreshModels" type="button">重新整理模型清單</button><button class="btn" id="testModel" type="button">測試主要模型</button></div>
+            <button class="btn" id="refreshModels" type="button">重新整理模型清單</button><button class="btn" id="testModel" type="button">測試執行模型</button></div>
         </div>
         <div class="grp"><div class="grp-h">模型供應商<span class="grp-d">按「連線」會立即儲存並驗證金鑰，成功後模型馬上出現在上方清單。金鑰只存在這台電腦的 secrets.json（權限 600），啟動時用 -e 帶入的金鑰在此唯讀</span></div>
           <div id="provList" class="plist"></div>
@@ -643,8 +645,8 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
         <details class="grp adv" id="modelAdv"><summary>進階：品質把關、看圖、上下文上限、自訂端點</summary>
           <div class="srow"><div class="sl"><b>品質把關</b><span class="sd">交付前怎麼檢查結果。自動：依任務風險決定；快速：只做檔案與驗收清單檢查；標準：再由模型以全新上下文逐項驗收；嚴謹：再派審查員重新核對來源與檔案</span></div>
             <div class="sc"><select class="inp" id="aQuality"><option value="auto">自動（建議）</option><option value="fast">快速</option><option value="standard">標準</option><option value="strict">嚴謹</option></select><span class="lock" data-lock="agent.quality"></span></div></div>
-          <div class="srow"><div class="sl"><b>卡關時找較強的模型</b><span class="sd">請教：較強的模型看過整段過程後給建議，原模型繼續做（省錢）；切換：剩下的步驟改由較強的模型做；自動：本機模型或複雜任務用切換，其他用請教</span></div>
-            <div class="sc"><select class="inp" id="mEscMode"><option value="auto">自動（建議）</option><option value="consult">請教</option><option value="switch">切換</option></select><span class="lock" data-lock="model.escalate_mode"></span></div></div>
+          <div class="srow"><div class="sl"><b>開工前先規劃</b><span class="sd">由思維模型先想好做法、步驟與驗收清單，再交給執行模型逐步完成。自動：指定技能、多階段技能或較長的需求時規劃；執行中卡關時也會請思維模型給建議，判定做不到就回報失敗並保存紀錄，不會自行換模型</span></div>
+            <div class="sc"><select class="inp" id="aPlan"><option value="auto">自動（建議）</option><option value="always">每次都規劃</option><option value="off">不規劃</option></select><span class="lock" data-lock="agent.plan"></span></div></div>
           <input type="checkbox" id="aVerify" hidden>
           <div class="srow"><div class="sl"><b>模型看得懂圖片</b><span class="sd">開啟後操作桌面或瀏覽器時會把截圖給模型看</span></div>
             <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="mVision" aria-label="模型看得懂圖片"></div></div>
@@ -707,6 +709,8 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
             <button class="btn" type="button" id="qStop" hidden>停止</button><button class="btn primary" type="button" id="qRun">開始評測</button></div>
           <div style="overflow-x:auto"><table class="t" id="qRuns"><thead><tr><th>時間</th><th>測試組</th><th>狀態</th><th>pass@k</th><th>pass^k</th><th>費用</th></tr></thead><tbody></tbody></table></div>
           <div id="qRegs"></div></div>
+        <div class="grp"><div class="grp-h">失敗報告<span class="grp-d">任務沒有完成時保存的完整紀錄：思維模型的計畫與建議、執行模型的每一步、品質檢查，以及思維模型的診斷與改進建議</span></div>
+          <div id="qFails"></div></div>
       </section>
 
       <!-- ───── 用量與預算 ───── -->
@@ -1249,10 +1253,13 @@ function resultCard(ev){
   if (st === 'done') { const c = add(`<b>✓ 完成</b>${meta ? ' · ' + meta : ''}`, 'result done'); if (ev.turn_id) attachFeedback(c, ev.turn_id, null); return c; }
   if (st === 'stopped') return add(`<b>■ 已停止</b>${meta ? ' · ' + meta : ''}`, 'result stopped');
   const er = ev.error || {};
-  const head = {error: '✕ 任務中斷', incomplete: '△ 任務未完成', blocked: '⏸ 已暫停'}[st] || '✕ 任務中斷';
+  const head = {error: '✕ 任務中斷', incomplete: '△ 任務未完成', blocked: '⏸ 已暫停', failed: '✕ 任務失敗'}[st] || '✕ 任務中斷';
   const c = add(`<b>${head}：${esc(er.summary || '')}</b><div class="hint">${esc(er.hint || '')}</div>` +
     (er.detail ? `<details><summary>技術細節</summary><pre>${esc(er.detail)}</pre></details>` : '') +
     (meta ? `<div style="color:var(--muted);margin-top:4px">${meta}</div>` : ''), 'result ' + st);
+  if (ev.failure) { const f = document.createElement('span'); f.className = 'failrep';
+    f.innerHTML = `已保存失敗報告，供改進系統使用 · <a href="#" data-fail="${esc(ev.failure)}">查看</a>`;
+    f.querySelector('a').onclick = e => { e.preventDefault(); showFailure(ev.failure); }; c.appendChild(f); }
   if (ev.turn_id && st !== 'error') attachFeedback(c, ev.turn_id, null);
   return c;
 }
@@ -1440,8 +1447,12 @@ function handle(ev, replay = false){
       if (ev.feedback?.length) parts.push(`技能評分 ${ev.feedback.length}`);
       if (parts.length) add('✨ 背景學習：' + parts.join('、'), 'note learn');
       loadSide(); refreshStatus(false); break; }
-    case 'status': if (/空白回覆|停止|activated|pre-approved|較強的模型|完成檢查|成果檢查|驗收清單|驗收審查|獨立審查|品質等級|請教|流程「/.test(ev.message || '')) add('ⓘ ' + esc(ev.message), 'note'); break;
+    case 'status': if (/空白回覆|停止|activated|pre-approved|思維模型|完成檢查|成果檢查|驗收清單|驗收審查|獨立審查|品質等級|請教|流程「/.test(ev.message || '')) add('ⓘ ' + esc(ev.message), 'note'); break;
     case 'checklist': cklShow(ev.items || []); break;
+    case 'plan': add(`<b>思維模型的計畫</b>${ev.model ? `<small>${esc(ev.model)}</small>` : ''}${ev.understanding ? `<div>${esc(ev.understanding)}</div>` : ''}`
+      + (ev.steps?.length ? `<ol>${ev.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : '')
+      + (ev.risks?.length ? `<small>注意：${ev.risks.map(esc).join('；')}</small>` : ''), 'note plan'); break;
+    case 'failure_diagnosed': if (ev.diagnosis?.summary) add(`ⓘ 失敗診斷（${esc(FAIL_CAT[ev.diagnosis.category] || ev.diagnosis.category || '')}）：${esc(ev.diagnosis.summary)}${ev.diagnosis.retry_advice ? `<small style="display:block;color:var(--muted)">${esc(ev.diagnosis.retry_advice)}</small>` : ''}`, 'note'); break;
     case 'qa': add(`<b>成果檢查發現 ${ev.issues.length} 個問題</b><ul>${ev.issues.slice(0, 8).map(i => `<li>${esc(i.name)}：${esc(i.problem)}${i.detail ? `<small>${esc(i.detail)}</small>` : ''}</li>`).join('')}</ul>`, 'note qacard'); break;
     case 'review': if (ev.verdict === 'revise') add(`<b>驗收審查：需要修正</b>${ev.summary ? `<div>${esc(ev.summary)}</div>` : ''}<ul>${(ev.problems || []).slice(0, 8).map(p => `<li>${esc(p.what)}${p.fix ? `<small>→ ${esc(p.fix)}</small>` : ''}</li>`).join('')}</ul>`, 'note qacard'); break;
     case 'turn_end': {
@@ -1839,9 +1850,48 @@ const TOOLSET_INFO = {
   database: {name: '資料庫', desc: '查詢已儲存的資料庫連線；寫入每次都要核准', icon: 'database'},
   work: {name: '子代理與背景工作', desc: '分派子代理並行處理、執行固定流程、建立排程工作（建立排程需要你確認）', icon: 'clock'},
 };
+// ---------------- failure reports ----------------
+const FAIL_CAT = {execution_capability: '執行能力不足', skill_defect: '技能有誤', missing_tool: '缺少工具或權限', environment: '環境問題',
+  unclear_request: '需求不明確', external_blocker: '外部阻擋', system_bug: '系統錯誤', unknown: '未分類'};
+async function loadFailures(){
+  const d = await api('/api/failures').catch(() => ({failures: []}));
+  const rows = d.failures || [];
+  $('#qFails').innerHTML = rows.length ? rows.map(x => `<div class="srow" data-fid="${esc(x.id)}"><div class="sl"><b>${esc(x.summary || x.status)}</b>
+      <span class="sd">${new Date((x.created || 0) * 1000).toLocaleString()} · ${esc(x.request)}${x.category ? ` · ${esc(FAIL_CAT[x.category] || x.category)}` : ' · 診斷中…'}${x.regression ? ' · 已轉為回歸測試' : ''}</span></div>
+      <div class="sc" style="display:flex;gap:6px;flex-direction:row"><button class="btn sm" type="button" data-a="view">查看</button>
+      ${x.regression ? '' : '<button class="btn sm" type="button" data-a="reg">轉成回歸測試</button>'}<button class="btn icon sm" type="button" data-icon="trash" data-a="del" aria-label="刪除失敗報告"></button></div></div>`).join('')
+    : '<div class="sd" style="padding:6px 0">目前沒有失敗報告。</div>';
+  paintIcons($('#qFails'));
+  $('#qFails').querySelectorAll('[data-fid]').forEach(row => row.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    const id = row.dataset.fid;
+    if (b.dataset.a === 'view') return showFailure(id);
+    if (b.dataset.a === 'reg') { await jreq(`/api/failures/${encodeURIComponent(id)}/regression`, {}); return loadQuality(); }
+    if (b.dataset.a === 'del' && confirm('刪除這份失敗報告？')) { await jreq(`/api/failures/${encodeURIComponent(id)}`, undefined, 'DELETE'); loadFailures(); }
+  }));
+}
+async function showFailure(id){
+  const r = await api(`/api/failures/${encodeURIComponent(id)}`);
+  if (!r || !r.id) return;
+  const dg = r.diagnosis || {}, m = r.models || {};
+  const L = [`狀態：${r.status} — ${(r.reason || {}).summary || ''}`, `要求：${r.request}`,
+    `執行模型：${m.execution || '—'}　思維模型：${m.thinking || '（同執行模型）'}${m.reviewer ? '　審查模型：' + m.reviewer : ''}`,
+    `技能：${(r.skills || []).join('、') || '—'}　步數：${r.steps}　工具呼叫：${r.tool_calls}　錯誤：${r.errors}`, ''];
+  if (dg.summary) { L.push(`【診斷】${FAIL_CAT[dg.category] || dg.category}：${dg.summary}`);
+    if (dg.failed_at) L.push(`出錯的地方：${dg.failed_at}`);
+    (dg.improvements || []).forEach(i => L.push(`改進 → ${i.target}: ${i.change}`));
+    if (dg.retry_advice) L.push(`現在可以：${dg.retry_advice}`); L.push(''); }
+  else L.push('【診斷】思維模型診斷中，稍後再開啟', '');
+  if (r.plan) L.push('【計畫】' + (r.plan.approach || ''), ...(r.plan.steps || []).map((x, i) => `  ${i + 1}. ${x}`), '');
+  (r.consults || []).forEach(c => L.push(`【第 ${c.step} 步請教思維模型】${c.why} → ${c.decision || '無回覆'}${c.reason ? '：' + c.reason : ''}`));
+  if (r.checklist?.length) L.push('', '【驗收清單】', ...r.checklist.map(i => `  [${i.status}] ${i.text}${i.evidence ? ' — ' + i.evidence : ''}`));
+  L.push('', '【工作紀錄】');
+  (r.work_log || []).forEach((w, i) => L.push(w.note ? `  · ${w.note.slice(0, 300)}` : `  ${i + 1}. ${w.ok === false ? '✕' : '✓'} ${w.tool} ${w.args.slice(0, 160)}${w.ok === false ? '\n       ' + (w.result || '').slice(0, 300) : ''}`));
+  $('#vTitle').textContent = '失敗報告 ' + r.id; $('#vBody').textContent = L.join('\n'); $('#viewer').classList.add('open');
+}
 // ---------------- 設定 → 品質: quality rules and evaluations ----------------
 const QK = {forbid: '不可出現', require: '必須包含'};
 async function loadQuality(){
+  loadFailures();
   const [r, e] = await Promise.all([api('/api/rules').catch(() => ({rules: []})), api('/api/evals').catch(() => null)]);
   const rules = r.rules || [];
   $('#qRules').innerHTML = rules.length ? rules.map(x => `<div class="srow" data-rid="${esc(x.id)}"><div class="sl"><b>${esc(x.title)}</b>
@@ -1944,7 +1994,7 @@ function keySource(p){
 function renderSettings(){
   const m = SET.model;
   $('#mDefault').value = m.default || ''; $('#mFallbacks').value = (m.fallbacks || []).join(', ');
-  $('#mAux').value = m.auxiliary || ''; $('#mEsc').value = m.escalate || ''; $('#mRev').value = m.reviewer || ''; $('#mEmb').value = m.embedding || ''; $("#aVerify").checked = (SET.agent || {}).verify !== false; $('#aQuality').value = (SET.agent || {}).verify === false ? 'fast' : ((SET.agent || {}).quality || 'auto'); $('#mEscMode').value = m.escalate_mode || 'auto'; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : '';
+  $('#mAux').value = m.auxiliary || ''; $('#mEsc').value = m.thinking || ''; $('#mRev').value = m.reviewer || ''; $('#mEmb').value = m.embedding || ''; $("#aVerify").checked = (SET.agent || {}).verify !== false; $('#aQuality').value = (SET.agent || {}).verify === false ? 'fast' : ((SET.agent || {}).quality || 'auto'); $('#aPlan').value = (SET.agent || {}).plan || 'auto'; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : '';
   { const c = SET.context || {}, k = n => n >= 1e6 ? `${+(n / 1e6).toFixed(2)}M` : `${Math.round(n / 1000)}K`;
     $('#mCtxNote').textContent = c.window ? `目前以 ${k(c.window)} tokens 計算（${{setting: '手動設定', local: '本機 num_ctx', model: '依模型', default: '未知模型的預設值'}[c.source] || c.source}），對話超過約 ${k(Math.round(c.budget * 0.8))} 時，較早的內容會自動整理成摘要` : '對話超過約八成時，較早的內容會自動整理成摘要；auto 依模型自動判斷'; }
   const customs = SET.providers.filter(p => p.custom);
@@ -1970,10 +2020,10 @@ function renderSettings(){
 let CAT = null, CAT_LOADING = null;
 const PROV_SUG = {};
 const ROLES = [
-  {k: 'default', id: '#mDefault', name: '主要模型', desc: '平常的對話與任務都用它', kind: 'chat', empty: '— 請選擇 —', lock: 'model.default'},
-  {k: 'auxiliary', id: '#mAux', name: '輔助模型', desc: '反思、摘要長對話、記憶整理等背景工作；建議選便宜快速的', kind: 'chat', empty: '同主要模型', lock: 'model.auxiliary'},
-  {k: 'escalate', id: '#mEsc', name: '升級模型', desc: '任務連續失敗、步驟太多、未通過完成檢查或屬於複雜技能（如影片製作）時自動改用；建議選最強的', kind: 'chat', empty: '不升級', lock: 'model.escalate'},
-  {k: 'reviewer', id: '#mRev', name: '審查模型', desc: '交付前的驗收審查與獨立審查員；選和主要模型不同家族的，較能抓到主要模型自己看不出的錯', kind: 'chat', empty: '同升級模型', lock: 'model.reviewer'},
+  {k: 'thinking', id: '#mEsc', name: '思維模型', desc: '開工前規劃做法與驗收清單、卡關時給建議並判斷能否完成、交付前驗收、失敗時診斷原因；不執行任何步驟。建議選推理最強的', kind: 'chat', empty: '同執行模型', lock: 'model.thinking'},
+  {k: 'default', id: '#mDefault', name: '執行模型', desc: '依計畫執行每一個步驟（工具、檔案、回覆），從頭做到尾，不會中途被換掉；做不到時回報失敗', kind: 'chat', empty: '— 請選擇 —', lock: 'model.default'},
+  {k: 'auxiliary', id: '#mAux', name: '輔助模型', desc: '反思、摘要長對話、記憶整理等背景工作；建議選便宜快速的', kind: 'chat', empty: '同執行模型', lock: 'model.auxiliary'},
+  {k: 'reviewer', id: '#mRev', name: '審查模型', desc: '交付前的驗收審查與獨立審查員；選和執行模型不同家族的，較能抓到它自己看不出的錯', kind: 'chat', empty: '同思維模型', lock: 'model.reviewer'},
   {k: 'embedding', id: '#mEmb', name: 'Embedding 模型', desc: '讓記憶搜尋更準確；不使用時改用關鍵字搜尋', kind: 'embedding', empty: '不使用（關鍵字搜尋）', lock: 'model.embedding'},
 ];
 async function loadCatalog(refresh = false, only = null){
@@ -2018,7 +2068,7 @@ function renderRoles(){
         <input class="inp" hidden placeholder="例如 gemini/gemini-flash-latest" value="${esc(cur)}">
         ${st.ok ? '' : `<span class="pwarn">⚠︎ ${esc(st.msg)}</span>`}${locked(r.lock) ? '<span class="lock">🔒 由啟動參數提供（docker -e），此處唯讀</span>' : ''}</div></div>`; });
   const fb = $('#mFallbacks').value.split(',').map(x => x.trim()).filter(Boolean);
-  rows.push(`<div class="srow"><div class="sl"><b>備援模型</b><span class="sd">主要模型失敗或額度用完時依序改用；可跨供應商（例如本機模型掛掉時改用雲端）</span></div>
+  rows.push(`<div class="srow"><div class="sl"><b>備援模型</b><span class="sd">執行模型的供應商無法連線或額度用完時依序改用（只在服務中斷時，不會因為任務困難而換）；可跨供應商</span></div>
     <div class="sc"><div class="fbchips">${fb.map((f, i) => `<span class="chip">${esc(f)}${roleState(f).ok ? '' : ' ⚠︎'}<button type="button" data-fb="${i}" aria-label="移除">×</button></span>`).join('') || '<span class="sd">未設定</span>'}</div>
       <select class="inp" id="fbAdd" ${locked('model.fallbacks') ? 'disabled' : ''}>${modelOptions('chat', '', '＋ 加入備援模型…')}</select></div></div>`);
   $('#roleRows').innerHTML = rows.join('');
@@ -2053,7 +2103,7 @@ function provCard(p){
       ${p.key_url && !p.has_key ? `<a class="sd" href="${esc(p.key_url)}" target="_blank" rel="noopener">取得 ${esc(p.label)} 金鑰 ↗</a>` : ''}`;
   else body = `<div class="pkey"><span class="sd" style="flex:1">${esc(s.base_url || '')}</span></div>`;
   const err = p.error && status !== 'ready' ? `<div class="perr">${esc(p.error)}</div>` : (p.error ? `<div class="sd">${esc(p.error)}</div>` : '');
-  const sug = PROV_SUG[p.name] ? `<div class="psug">要把主要模型改為 <b>${esc(PROV_SUG[p.name])}</b> 嗎？<button class="btn sm primary" type="button" data-act="use" data-spec="${esc(PROV_SUG[p.name])}">設為主要模型</button></div>` : '';
+  const sug = PROV_SUG[p.name] ? `<div class="psug">要把執行模型改為 <b>${esc(PROV_SUG[p.name])}</b> 嗎？<button class="btn sm primary" type="button" data-act="use" data-spec="${esc(PROV_SUG[p.name])}">設為執行模型</button></div>` : '';
   return `<div class="pcard st-${status}" data-p="${esc(p.name)}"><div class="ph"><b>${esc(p.label || s.label || p.name)}</b>${uses}<span class="pbadge">${badge}</span></div>${body}${err}${sug}<div class="pmsg sd"></div></div>`;
 }
 function renderProviders(){
@@ -2074,7 +2124,7 @@ async function provAction(card, act, btn){
   if (act === 'use') { const spec = btn.dataset.spec;
     const r = await post('/api/settings', {model: {default: spec}}, 'PUT');
     SET.model = r.model; SET.selected = r.selected; SET.needs_setup = r.needs_setup; $('#mDefault').value = spec; delete PROV_SUG[name];
-    $('#setBanner').innerHTML = ''; $('#setSaved').textContent = `✓ 主要模型已改為 ${spec}`; renderRoles(); renderProviders(); refreshStatus(false); return; }
+    $('#setBanner').innerHTML = ''; $('#setSaved').textContent = `✓ 執行模型已改為 ${spec}`; renderRoles(); renderProviders(); refreshStatus(false); return; }
   if (act === 'retry') { btn.disabled = true; await loadCatalog(true, [name]); return; }
   const key = act === 'clear' ? '' : (card.querySelector('input')?.value || '').trim();
   if (act === 'connect' && !key) { msg.textContent = '請先貼上金鑰'; return; }
@@ -2180,7 +2230,7 @@ async function openSettings(firstRun = false, pane = null){
   $('#settings').classList.add('open');
 }
 function collectSettings(){
-  const body = {agent: {verify: true, quality: $('#aQuality').value}, model: {escalate_mode: $('#mEscMode').value, default: $('#mDefault').value, fallbacks: $('#mFallbacks').value, auxiliary: $('#mAux').value, escalate: $('#mEsc').value, reviewer: $('#mRev').value,
+  const body = {agent: {verify: true, quality: $('#aQuality').value, plan: $('#aPlan').value}, model: {default: $('#mDefault').value, fallbacks: $('#mFallbacks').value, auxiliary: $('#mAux').value, thinking: $('#mEsc').value, reviewer: $('#mRev').value,
                         embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto'},
                 permissions: {approval: $('#pApproval').value, toolsets: [...document.querySelectorAll('#pToolsets input:checked')].map(i => i.value)},
                 usage: {daily_budget_usd: $('#uDaily').value, monthly_budget_usd: $('#uMonthly').value, currency: $('#uCurrency').value,
@@ -2354,7 +2404,7 @@ async function useSubscription(btn){
   const spec = sbp?.models?.find(m => m.spec === SB_RECOMMENDED) ? SB_RECOMMENDED : (sbp?.models?.find(m => m.kind === 'chat')?.spec || SB_RECOMMENDED);
   const r = await post('/api/settings', {model: {default: spec}}, 'PUT');
   SET.model = r.model; SET.selected = r.selected; SET.needs_setup = r.needs_setup; $('#mDefault').value = spec;
-  $('#setBanner').innerHTML = ''; showPane('model'); $('#setSaved').textContent = `✓ 主要模型已改為 ${spec}`;
+  $('#setBanner').innerHTML = ''; showPane('model'); $('#setSaved').textContent = `✓ 執行模型已改為 ${spec}`;
   renderRoles(); renderProviders(); refreshStatus(false); loadQuota(true);
 }
 let SB_PENDING = false;   // "use the subscription" was picked before signing in: finish after sign-in
@@ -2495,7 +2545,7 @@ function lmStatus(m){
 function lmActions(m){
   const id = esc(m.id), k = m.kind || 'chat', role = k === 'embedding' ? 'embedding' : 'default', used = (m.selected || []).includes(role);
   const B = (act, icon, label, cls = '', extra = '') => `<button class="btn icon sm ${cls}" type="button" data-act="${act}" data-id="${id}" data-kind="${k}" aria-label="${label}" ${extra}>${ic(icon)}</button>`;
-  const useBtn = used ? '' : B('use', 'checkCircle', k === 'embedding' ? '用於記憶搜尋' : '設為主要模型', 'primary');
+  const useBtn = used ? '' : B('use', 'checkCircle', k === 'embedding' ? '用於記憶搜尋' : '設為執行模型', 'primary');
   switch (m.state) {
     case 'absent': return B('pull', 'download', '下載', 'tip-left', `data-fit="${m.fit.level}"`);
     case 'error': return B('pull', 'refresh', '重試', 'tip-left');
@@ -2511,7 +2561,7 @@ function renderLocalModels(){
   if (LFILTER === 'fit') list = list.filter(m => m.fit.level !== 'no' || m.state !== 'absent');
   const rank = m => (m.selected?.length ? 0 : 10) + ({running: 0, loading: 0, pulling: 1, downloaded: 2}[m.state] ?? 5);
   list.sort((a, b) => rank(a) - rank(b) || FIT_ORDER[a.fit.level] - FIT_ORDER[b.fit.level] || (b.quality || 0) - (a.quality || 0));
-  const roleName = {default: '主要模型', embedding: '記憶搜尋', auxiliary: '輔助模型'};
+  const roleName = {default: '執行模型', embedding: '記憶搜尋', auxiliary: '輔助模型'};
   $('#lModels').innerHTML = !LOCAL.runtime.reachable ? '<div class="note">啟動本地服務後即可下載與管理模型。下方清單依這台電腦的硬體評估：</div>' : '';
   $('#lModels').innerHTML += list.map(m => {
     const st = lmStatus(m);

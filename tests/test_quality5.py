@@ -72,6 +72,7 @@ async def test_the_agent_must_rewrite_an_english_report(home, monkeypatch):
     main = ScriptedProvider([msg("", [("write_file", {"path": "report.md", "content": EN_REPORT})]), msg("完成"),
                              msg("", [("write_file", {"path": "report.md", "content": ZH_REPORT})]), msg("已改成中文")])
     cfg = Config.load()
+    cfg.data["agent"]["plan"] = "off"
     agent = Agent(Runtime(cfg, provider=main))
 
     async def no_acceptance(*a, **k):
@@ -187,5 +188,5 @@ async def test_a_visual_judgment_that_cannot_run_is_recorded_as_skipped(home, tm
     agent = Agent(Runtime(cfg, provider=main, reviewer_provider=Stalled([])))
     stats = {"artifacts": [{"path": str(page)}]}
     assert await agent._quality_gate(stats, ZH, "完成") is None
-    assert len(main.requests) == 1                                 # the main model was asked after the timeout
+    assert len(main.requests) == 0                 # no hand-over to another model: the judge's role is not reassigned
     assert stats["quality_skipped"] and stats["quality_skipped"][0].startswith("視覺檢查")

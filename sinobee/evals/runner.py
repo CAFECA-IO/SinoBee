@@ -140,7 +140,7 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False) -> dict:
         after = _scan(ws)
         changed = [p for p, sig in after.items() if before.get(p) != sig]
         end = events["end"]
-        judge = rt.strong() or rt.provider
+        judge = rt.judge()
         t = Trial(prompt=task["prompt"], workspace=ws, answer=answer or end.get("text", ""), status=status,
                   tools=events["tools"], files=changed, base_home=rt.config.home, judge=judge)
         for g in task["graders"]:

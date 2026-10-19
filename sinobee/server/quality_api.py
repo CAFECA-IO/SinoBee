@@ -106,6 +106,44 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
             raise HTTPException(404, str(e)) from None
         return {"ok": True}
 
+    # ------------------------------------------------------------------ failure reports
+    from ..agent import failures as F
+
+    @app.get("/api/failures")
+    async def failures_list(limit: int = 50):
+        return {"failures": F.listing(home(), max(1, min(limit, 300)))}
+
+    @app.get("/api/failures/{rid}")
+    async def failures_get(rid: str):
+        try:
+            return F.get(home(), rid)
+        except KeyError:
+            raise HTTPException(404, "no such failure report") from None
+
+    @app.delete("/api/failures/{rid}")
+    async def failures_delete(rid: str):
+        try:
+            F.delete(home(), rid)
+        except KeyError:
+            raise HTTPException(404, "no such failure report") from None
+        return {"ok": True}
+
+    @app.post("/api/failures/{rid}/regression")
+    async def failures_regression(rid: str):
+        try:
+            return F.to_regression(home(), rid)
+        except KeyError:
+            raise HTTPException(404, "no such failure report") from None
+        except E.EvalError as e:
+            raise HTTPException(400, str(e)) from None
+
+    @app.post("/api/failures/{rid}/diagnose")
+    async def failures_diagnose(rid: str):
+        dg = await F.diagnose(rt_getter(), home(), rid, emit=broadcast)
+        if dg is None:
+            raise HTTPException(404, "no such failure report")
+        return dg
+
     # ------------------------------------------------------------------ snapshots
     @app.get("/api/sessions/{sid}/snapshots/{key}")
     async def snapshot_info(sid: str, key: str):

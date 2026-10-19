@@ -397,9 +397,10 @@ volumes: ~/.sinobee → config.yaml、settings.json、secrets.json、sinobee.db�
   - 立即寫入 `secrets.json`；
   - 熱重建模型鏈，再用列出模型的方式驗證金鑰；
   - 401、403 或 "API key not valid" 會顯示為「金鑰無效」；
-  - 只有在主要模型無法使用時，才建議改用新連線供應商的推薦模型。
+  - 只有在執行模型無法使用時，才建議改用新連線供應商的推薦模型。
 - **儲存檢查**：`PUT /api/settings` 會回傳 `warnings`，列出哪個角色選了還沒設定金鑰的供應商。
-- **混用**：本機與雲端模型可以任意搭配，例如主要模型用本機，升級模型或備援模型用 Gemini。
+- **混用**：本機與雲端模型可以任意搭配，例如執行模型用本機，思維模型或備援模型用 Gemini。
+- **模型角色**：思維模型 `model.thinking`、執行模型 `model.default`、審查模型 `model.reviewer`、輔助模型 `model.auxiliary`、Embedding；分工見第 20 節。
 
 ## 11. Token 用量與成本
 
@@ -563,12 +564,12 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
     - 校驗碼不符。
 - approval 節點新增 `on_reject: continue`：拒絕時輸出 `{approved: false}`、改走另一條分支，而不是讓整個流程失敗。
 
-**3. 完成檢查與模型升級**（`agent.verify`、`model.escalate`）
+**3. 完成檢查與模型升級**（`agent.verify`、`model.escalate`；模型升級已由第 20 節的思維／執行分工取代）
 - **完成檢查**：使用了 `agent.verify_min_tool_calls`（預設 3）個以上工具的回合，在回報完成前，會由輔助模型依證據判斷是否真的完成。證據包括要求、執行中補充、工具步驟與結果、產出檔案與最後回答。
   - 沒完成時，加入一則「[自動完成檢查]」訊息讓 agent 再做一輪。
   - 第二次仍沒完成，狀態就標成 incomplete，並寫明缺什麼。
   - 檢查本身失敗不會阻擋回答。
-- **模型升級**：只要設定了 `model.escalate`（或 `SINOBEE_ESCALATE_MODEL`），以下任一情況會讓這一輪剩下的步驟改用較強的模型：
+- **模型升級**（舊設計，2026-10-19 起移除，見第 20 節）：只要設定了 `model.escalate`（或 `SINOBEE_ESCALATE_MODEL`），以下任一情況會讓這一輪剩下的步驟改用較強的模型：
   - 連續工具錯誤達 `agent.escalate_after_errors`（預設 3）；
   - 重複呼叫已失敗的操作；
   - 步驟超過 `agent.escalate_after_steps`（預設 25）；
@@ -652,7 +653,7 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
 `agent.verify=false` 等同快速。選定的等級與原因會顯示在對話裡。
 
 **驗收審查**（`Agent._acceptance` / `_review`）
-- 由升級模型（沒設定時用主要模型，不再用較弱的輔助模型）以**全新上下文**審查：只有一則訊息，不給工具。
+- 由審查模型（沒設定時用思維模型，再沒有就用執行模型；不用較弱的輔助模型）以**全新上下文**審查：只有一則訊息，不給工具。審查模型無法回應時不改找別的模型，而是記錄成「未經驗收審查」。
 - 輸入是實際成果：要求、執行中補充、驗收清單與證據、產出檔案的節錄（每檔 6,000 字元、合計 24,000）、產出頁面的截圖（成果檢查時以無頭瀏覽器拍下，模型看得懂圖時附上）、最後回答；嚴謹等級另附獨立審查員的發現。
 - 規則：評「結果」不評過程；只把**造成結果錯誤或漏掉需求**的問題退回，風格偏好與額外加分項不退（避免過度修改）；審查員的發現由它判斷哪些算阻擋。
 - 回覆 JSON：`verdict`、逐項 `items`、`problems`（what / evidence / fix）、`notes`、`summary`。退回訊息「[自動驗收審查]」附逐條修正清單，並提醒只處理這些問題、不要擴大範圍；仍不通過就標成 incomplete，結果卡列出問題。
@@ -662,7 +663,7 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
 - 在驗收審查之前派一個唯讀的 `reviewer` 子代理（全新上下文，`agent.reviewer_iterations` 預設 15 步）：重新打開引用的網頁、重跑唯讀查詢、讀檔重算關鍵數字，回報不超過 300 字並以 `VERDICT:` 結尾。
 - 每輪只派一次；之後的修正輪由驗收審查對照目前的檔案確認是否已修好（借用 Devin 的審查橋接）。`agent.reviewer=false` 可關閉。
 
-**向較強的模型請教**（`Agent._escalate` / `_consult`，設定 `model.escalate_mode`：auto / consult / switch）
+**向較強的模型請教**（舊設計；2026-10-19 起只保留「請教」並交給思維模型，switch／auto 已移除，見第 20 節）
 - consult：較強的模型讀取完整上下文的分支（不給工具），回覆「哪裡出錯、接下來 2–4 步、該停止做什麼」，以「[較強模型的建議]」加入歷史，原模型繼續做。每輪最多 2 次、至少相隔 5 步。
 - switch：原本的行為，剩下的步驟改用較強的模型（每輪一次）。
 - auto：任務一開始就屬於高複雜度技能，或目前是本機模型（`ollama/`、localhost 端點）時用 switch；其他用 consult。這呼應 Cognition 的觀察：兩邊都是頂尖模型時請教有效，主模型太弱則不然。
@@ -673,7 +674,7 @@ SinoBee 原本是一個代理的工具迴圈（agentic harness）。這一版在
 - 每個子任務可帶 `output`（預期輸出）與 `boundaries`（不涵蓋什麼），組成自足的任務說明。
 - 子代理報告控制在約 300 字；回給協調者的報告超過 3,000 字元時截斷，完整內容寫到黑板（`finding`，key `report:<session>`）。流程節點仍拿到完整輸出。
 
-**介面**：設定 →「模型」→ 進階：「品質把關」（自動／快速／標準／嚴謹）與「卡關時找較強的模型」（自動／請教／切換）。對話中顯示品質等級、獨立審查、驗收審查的進度；審查要求修正時列出問題與修法，成果檢查的問題也以清單顯示。
+**介面**：設定 →「模型」→ 進階：「品質把關」（自動／快速／標準／嚴謹）與「開工前先規劃」（自動／每次／不規劃；原本的「卡關時找較強的模型」已移除）。對話中顯示品質等級、獨立審查、驗收審查的進度；審查要求修正時列出問題與修法，成果檢查的問題也以清單顯示。
 
 ### 第 3 階段（已實作）
 
@@ -744,7 +745,7 @@ sinobee eval show                   # 最近一次的結果
 | 重跑時偽造稽核紀錄（`echo PASS`） | `run.py audit <folder>` 執行每張圖的 `build({ audit: true })`，紀錄帶圖檔雜湊與結束碼；check 只認這種紀錄 | `engineering-feasibility` |
 | 舊資料夾被沉默沿用 | scaffold 對已有前次檔案的資料夾發出警告 | 同上 |
 | 60 步不夠 | 用到 `sinobee-complexity: high` 技能的回合上限為 `agent.max_iterations_complex`（120） | `agent/loop.py` |
-| 升級模型一步卡 15 分鐘 | `agent.model_deadline`（240 s）：步驟與驗收審查超時就改用主模型；逾時請求只重試 1 次 | `agent/loop.py`、`providers/base.py` |
+| 升級模型一步卡 15 分鐘 | `agent.model_deadline`（240 s）；逾時請求只重試 1 次。2026-10-19 起步驟一律由執行模型做，思維／審查呼叫超時就略過並記錄，不再改用別的模型（第 20 節） | `agent/loop.py`、`providers/base.py` |
 | 審查員的 revise 被丟掉 | 驗收審查無法執行時，審查員的 revise 當修正清單送回一次 | `agent/loop.py` |
 | 召回不相關記憶 | 關鍵詞依查詢詞覆蓋率計分、embedding 0.45 以下不計、`memory.recall_min_rel`（0.3） | `memory/store.py` |
 | 挑容易的主張湊「可行」 | 極限清單每項要有主張檢驗或 `verdict_impact`；文章引文存 `sources/` 才能查證 | `engineering-feasibility` |
@@ -793,3 +794,51 @@ sinobee eval show                   # 最近一次的結果
 - 新的中繼資料 `sinobee-requires-python`（`docx=python-docx, openpyxl`）：缺套件時 `skill_run` 直接回報缺哪些與安裝指令；技能檢查在缺套件時略過而不誤擋。
 - 視覺檢查（第 17 節）會把產出的 PDF / Word / PowerPoint / Excel 前 4 頁轉成圖片一起判讀（需要 LibreOffice 與 pdftoppm）。
 - `pyproject.toml` 新增 `office` extra。
+
+## 20. 思維模型與執行模型（2026-10-19）
+
+### 決定
+SinoBee 原本是「主模型 + 升級模型」：卡關、步驟太多或遇到複雜技能時，剩下的步驟改由較強的模型接手（switch），或由它給建議（consult）；較強的模型逾時又會把步驟交回主模型。結果是一個任務常由兩個模型輪流做，失敗時說不清是誰、在哪一步、因為什麼能力不足，也無從改進。
+
+現在改成兩個固定的角色，任務中**不自行切換模型**：
+
+| 角色 | 設定 | 做什麼 | 不做什麼 |
+|---|---|---|---|
+| 思維模型 | `model.thinking`（`SINOBEE_THINKING_MODEL`；舊的 `model.escalate` 會自動視為它） | 開工前規劃；卡關時給建議並判斷執行模型還能否完成；交付前驗收（沒有設定審查模型時）；失敗時診斷 | 不呼叫工具、不執行任何步驟 |
+| 執行模型 | `model.default`（`SINOBEE_MODEL`） | 依計畫執行每一步：工具、檔案、回覆；主代理與子代理都用它 | 不會中途被換掉 |
+| 審查模型（選用） | `model.reviewer` | 驗收審查、獨立審查員 | — |
+| 輔助模型 | `model.auxiliary` | 背景工作：反思、記憶整理、壓縮 | 不參與任務步驟與判斷 |
+
+沒有設定思維模型時，思維的工作由執行模型以獨立的呼叫完成（用同樣的規劃／請教／診斷提示，不混進執行步驟）。`model.fallbacks` 仍是**服務中斷**時的備援（供應商無法連線、額度用完），不會因為任務困難而啟用。
+
+### 流程（`agent/thinking.py`、`agent/loop.py`）
+1. **規劃**（`agent.plan`：auto／always／off）：auto 在指定了技能、用到 `sinobee-complexity: high` 的技能、或需求超過 200 字時觸發。思維模型拿到需求、記憶脈絡、工具清單與相關技能的用法，回覆 JSON：理解、做法、3–10 個步驟、2–8 項驗收清單、風險、需要先問使用者的問題。計畫以「[思維模型的計畫]」加入歷史（只加一次，不影響快取），驗收清單直接建立；對話顯示計畫卡。接續先前未完成的清單（「繼續」）時不重新規劃。子代理不規劃，由協調者給任務說明。
+2. **執行**：每一步都由執行模型做（`_step_chat` 不再有逾時換手）。
+3. **請教**：連續工具錯誤達 `agent.consult_after_errors`（3）、重複呼叫已失敗的操作、或步驟超過 `agent.consult_after_steps`（25）時，下一步開始前思維模型讀取完整上下文的分支，回覆「哪裡出錯、接下來 2–4 步、該停止什麼」，最後一行 `DECISION: continue` 或 `DECISION: stop - 原因`。建議以「[思維模型的建議]」加入歷史。每個任務最多 `agent.consult_max`（2）次、至少相隔 5 步。
+4. **判定失敗**：
+   - 思維模型回覆 `stop` → 任務結束，狀態 `failed`（`error.kind = capability`），結果卡顯示「✕ 任務失敗」與原因。
+   - 達到硬上限（連續錯誤 `agent.max_consecutive_errors`、重複失敗 3 次）時，若還能請教就先請教並再給一次機會；已請教過仍卡住 → `failed`。
+   - 執行模型連續回傳空白回覆 → `failed`。
+   - 步驟用完、未通過驗收仍維持 `incomplete`（預算或品質問題，不一定是能力問題），但同樣保存失敗報告。
+5. **逾時與錯誤**：思維模型、審查模型的呼叫超過 `agent.model_deadline`（240 秒）或出錯時，那一步略過並記錄在 `turn_end.thinking_skipped`／`quality_skipped`，不改找別的模型代替。
+
+### 失敗報告（`agent/failures.py`）
+- 狀態 `failed`、`incomplete`、`error` 的任務（主代理）都會存一份 `$SINOBEE_HOME/failures/<id>.json`（最多 300 份）：
+  - 要求、最後回答、失敗原因；
+  - 執行／思維／審查模型、用到的技能；
+  - 思維模型的計畫、每次請教的原因、建議與決定；
+  - 驗收清單與證據；
+  - 工作紀錄：每一步的工具、參數、成功與否、錯誤或結果摘要，以及歷史中的系統訊息（建議、修正清單、使用者插話）；
+  - 品質檢查：退回輪數、成果檢查問題、驗收審查、略過的檢查；
+  - 用量、步數、時間。
+  已存的金鑰與密碼會從紀錄中替換成 `[secret]`。
+- 背景由思維模型**診斷**：類別（執行能力不足、技能有誤、缺少工具或權限、環境、需求不明確、外部阻擋、系統錯誤）、出錯的步驟、引用的證據、具體改進（對象：model／skill:名稱／tool:名稱／prompt／settings／sinobee）、使用者現在可以怎麼做。對話中顯示「失敗診斷」。
+- 查看：結果卡的「查看」、設定 →「品質」→ 失敗報告、`sinobee failures list|show|regression|delete`、`GET /api/failures[/<id>]`。
+- **轉成回歸測試**：以原始要求建立一題 `regressions` 評測（評分：完成，且不再以診斷描述的方式失敗），改進之後用 `sinobee eval run regressions` 量化是否修好。
+- 設定：`agent.failure_reports`、`agent.failure_diagnosis`。
+
+### 介面
+- 設定 →「模型」：思維模型、執行模型、輔助模型、審查模型、Embedding；備援模型說明改為「只在服務中斷時」。
+- 設定 →「模型」→ 進階：「開工前先規劃」。原本的「卡關時找較強的模型（自動／請教／切換）」移除。
+- 對話：計畫卡、請教與判定的事件、「✕ 任務失敗」結果卡與失敗報告連結、失敗診斷。
+

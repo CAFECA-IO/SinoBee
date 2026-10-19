@@ -1,5 +1,5 @@
-"""Acceptance review: before a task is reported done, a reviewer with a fresh context (the stronger model when one is
-configured) checks the actual result against the request and the acceptance checklist.
+"""Acceptance review: before a task is reported done, a reviewer with a fresh context (model.reviewer, else the thinking
+model, else the execution model) checks the actual result against the request and the acceptance checklist.
 
 Quality levels (agent.quality: auto | fast | standard | strict)
   fast      only the deterministic gates (open checklist items, file checks) - no model is asked

@@ -180,22 +180,30 @@ async def test_completion_check_passes(cfg):
     assert agent.last_status["status"] == "done"
 
 
-async def test_repeated_failures_escalate_to_the_stronger_model(cfg):
-    weak = Fake([call("read_file", path=f"missing{i}.txt") for i in range(3)], label="ollama/small")
-    strong = Fake(["找不到這些檔案，請確認路徑。"], label="anthropic/strong")
-    rt = Runtime(cfg, provider=weak, strong_provider=strong)
+async def test_repeated_failures_consult_the_thinking_model_and_never_switch(cfg):
+    weak = Fake([call("read_file", path=f"missing{i}.txt") for i in range(3)] + ["找不到這些檔案，請確認路徑。"],
+                label="ollama/small")
+    strong = Fake(["路徑錯了，先列出資料夾。\nDECISION: continue"], label="anthropic/strong")
+    rt = Runtime(cfg, provider=weak, thinking_provider=strong)
     agent, seen = await run_turn(rt, "讀檔")
-    assert strong.calls == 1 and weak.calls == 3
-    assert any(e == "status" and "改用較強的模型 anthropic/strong" in d["message"] for e, d in seen)
+    assert strong.calls == 1 and weak.calls == 4                # every step stayed on the execution model
+    assert any(e == "status" and "向思維模型 anthropic/strong 請教" in d["message"] for e, d in seen)
+    assert not any(e == "status" and "改用" in d["message"] for e, d in seen)
 
 
-async def test_complex_skill_switches_model_when_it_is_used(cfg):
-    weak = Fake([call("skill_view", name="ai-video-production")], label="ollama/small")
-    strong = Fake(["好的，開始規劃影片。"], label="anthropic/strong")
-    rt = Runtime(cfg, provider=weak, strong_provider=strong)
-    agent, seen = await run_turn(rt, "拍一段影片")
-    assert strong.calls == 1
-    assert any(e == "status" and "複雜" in d["message"] for e, d in seen)
+async def test_complex_skill_is_planned_by_the_thinking_model(cfg):
+    cfg.data["agent"]["plan"] = "auto"
+    weak = Fake(["好的，開始規劃影片。"], label="ollama/small")
+    plan = json.dumps({"understanding": "拍一段影片", "approach": "用 ai-video-production 技能",
+                       "steps": ["skill_view ai-video-production", "寫 plan.json"],
+                       "checklist": [{"text": "影片檔存在", "check": "ls"}], "risks": [], "ask_user": None})
+    strong = Fake([plan], label="anthropic/strong")
+    rt = Runtime(cfg, provider=weak, thinking_provider=strong)
+    agent, seen = await run_turn(rt, "/ai-video-production 拍一段影片")
+    assert strong.calls == 1                      # planned once; the open checklist item then went back to the executor
+    assert any(m.role == "user" and m.text().startswith("[思維模型的計畫]") for m in agent.history)
+    assert agent.ctx.state["checklist"][0]["text"] == "影片檔存在"
+    assert any(e == "plan" for e, d in seen)
 
 
 def test_no_escalation_model_configured(cfg):

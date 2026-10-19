@@ -181,7 +181,7 @@ async def test_a_complex_skill_turn_gets_the_larger_step_budget(home, monkeypatc
     assert out == "好了" and agent2.last_status["status"] == "done"
 
 
-async def test_a_stalled_stronger_model_hands_the_step_to_the_main_model(home):
+async def test_a_stalled_thinking_model_is_skipped_not_replaced(home):
     import asyncio as _a
 
     class Stalled(ScriptedProvider):
@@ -190,20 +190,19 @@ async def test_a_stalled_stronger_model_hands_the_step_to_the_main_model(home):
         async def chat(self, messages, tools=None, **kw):
             await _a.sleep(5)
             return await super().chat(messages, tools, **kw)
-    main = ScriptedProvider([msg("主要模型接手完成")])
+    main = ScriptedProvider([msg("執行模型的回覆")])
     cfg = Config.load()
     cfg.data["agent"]["model_deadline"] = 0.2
     events = []
-    agent = Agent(Runtime(cfg, provider=main, strong_provider=Stalled([msg("太慢")])),
+    agent = Agent(Runtime(cfg, provider=main, thinking_provider=Stalled([msg("太慢")])),
                   emit=lambda k, d: events.append((k, d)))
-    agent.rt.strong()                                   # the escalation target exists
-
-    async def run():
-        agent._prov = agent.rt.strong()
-        return await agent._step_chat([Message("user", "hi")], [], 100, {})
-    resp = await run()
-    assert resp.message.text() == "主要模型接手完成" and agent._prov is main
-    assert any(k == "status" and "超過" in d["message"] for k, d in events)
+    agent._prov = main
+    stats = {}
+    assert await agent._thinking_call("規劃", [Message("user", "hi")], 100, stats) is None
+    assert stats["thinking_skipped"][0].startswith("規劃") and not main.requests      # nobody else took the call
+    assert any(k == "status" and "思維模型" in d["message"] for k, d in events)
+    resp = await agent._step_chat([Message("user", "hi")], [], 100, {})                # steps stay on execution
+    assert resp.message.text() == "執行模型的回覆" and agent._prov is main
 
 
 async def test_timeouts_are_retried_once(monkeypatch):
@@ -245,7 +244,7 @@ def test_recall_does_not_bring_a_roadster_note_to_a_reactor_question(home):
         .content.startswith("正在分析")
 
 
-async def test_a_stalled_acceptance_review_falls_back_to_the_main_model(home):
+async def test_a_stalled_acceptance_review_is_recorded_as_skipped(home):
     import asyncio as _a
 
     class Stalled(ScriptedProvider):
@@ -254,14 +253,17 @@ async def test_a_stalled_acceptance_review_falls_back_to_the_main_model(home):
         async def chat(self, messages, tools=None, **kw):
             await _a.sleep(5)
             return await super().chat(messages, tools, **kw)
-    main = ScriptedProvider([msg("", [("write_file", {"path": "r.md", "content": "# r\n"})]), msg("完成"),
-                             judge("pass", summary="ok")])
+    main = ScriptedProvider([msg("", [("write_file", {"path": "r.md", "content": "# r\n"})]), msg("完成")])
     cfg = Config.load()
     cfg.data["agent"]["model_deadline"] = 0.2
-    agent = Agent(Runtime(cfg, provider=main, strong_provider=Stalled([])))
+    cfg.data["agent"]["quality"] = "standard"
+    cfg.data["agent"]["plan"] = "off"
+    events = []
+    agent = Agent(Runtime(cfg, provider=main, thinking_provider=Stalled([])), emit=lambda k, d: events.append((k, d)))
     out = await agent.run("寫 r.md")
-    assert out == "完成" and agent.last_status["status"] == "done"
-    assert len(main.requests) == 3                     # the main model judged it
+    assert out == "完成" and len(main.requests) == 2            # the execution model was not made the judge
+    end = next(d for k, d in events if k == "turn_end")
+    assert any(x.startswith("驗收審查") for x in end["quality_skipped"])
 
 
 async def test_a_reviewers_revise_stands_when_the_judge_cannot_run(home, monkeypatch):

@@ -54,6 +54,7 @@ def config(home):
     cfg.data["permissions"]["approval"] = "auto"
     cfg.data["permissions"]["toolsets"] = ["shell", "files", "web", "memory", "skills"]
     cfg.data["agent"]["verify"] = False      # scripted fake models: the completion check is tested on its own
+    cfg.data["agent"]["plan"] = "off"         # the thinking model's plan is tested on its own
     # background memory upkeep / context flush make extra model calls: tested on their own
     cfg.data["memory"].update(auto_maintain=False, flush_on_compact=False, schedule=False)
     return cfg

@@ -49,11 +49,10 @@ def settings_payload(rt) -> dict:
         prov = split_model(default)[0]
         needs_setup = not usable_now(prov, cfg)
     return {
-        "model": {**{k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "escalate", "reviewer", "embedding",
-                                                         "vision", "context_window")},
-                  "escalate_mode": cfg.get("model.escalate_mode", "auto")},
+        "model": {k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "thinking", "reviewer", "embedding",
+                                                      "vision", "context_window")},
         "agent": {"verify": cfg.get("agent.verify", True), "quality": cfg.get("agent.quality", "auto"),
-                  "reviewer": cfg.get("agent.reviewer", True)},
+                  "reviewer": cfg.get("agent.reviewer", True), "plan": cfg.get("agent.plan", "auto")},
         "context": _context_info(cfg),
         "permissions": {"approval": cfg.get("permissions.approval"),
                         "toolsets": sorted(set(cfg.get("permissions.toolsets") or [])
@@ -79,7 +78,7 @@ def _role_usable(spec: str, cfg) -> bool:
 def _selected(cfg) -> dict:
     """The model chosen for each role and whether its provider can be used (key present)."""
     out = {}
-    for role in ("default", "auxiliary", "escalate", "reviewer", "embedding"):
+    for role in ("default", "auxiliary", "thinking", "reviewer", "embedding"):
         spec = cfg.get(f"model.{role}")
         out[role] = {"spec": spec, "ok": bool(spec) and _valid_spec(spec) and _role_usable(spec, cfg)}
     out["fallbacks"] = [{"spec": f, "ok": _valid_spec(f) and _role_usable(f, cfg)}
@@ -111,12 +110,16 @@ def register(app: FastAPI, rt_getter) -> None:
         errors: list[str] = []
         if "model" in body:
             m = {}
-            for k in ("default", "auxiliary", "escalate", "reviewer", "embedding"):
+            if "escalate" in body["model"] and "thinking" not in body["model"]:
+                body["model"]["thinking"] = body["model"]["escalate"]          # the old name
+            for k in ("default", "auxiliary", "thinking", "reviewer", "embedding"):
                 if k in body["model"]:
                     v = (body["model"][k] or "").strip() or None
                     if v and not _valid_spec(v):
                         errors.append(f"model.{k}: use provider/model format, e.g. openai/gpt-5.4")
                     m[k] = v
+            if "thinking" in m:
+                m["escalate"] = None          # replaced by model.thinking
             if "fallbacks" in body["model"]:
                 fb = body["model"]["fallbacks"]
                 fb = [x.strip() for x in (fb.split(",") if isinstance(fb, str) else fb or []) if x and x.strip()]
@@ -159,8 +162,8 @@ def register(app: FastAPI, rt_getter) -> None:
                 updates.setdefault("agent", {})["quality"] = a["quality"]
             if "reviewer" in a:
                 updates.setdefault("agent", {})["reviewer"] = bool(a["reviewer"])
-        if isinstance(body.get("model"), dict) and body["model"].get("escalate_mode") in ("auto", "consult", "switch"):
-            updates.setdefault("model", {})["escalate_mode"] = body["model"]["escalate_mode"]
+            if a.get("plan") in ("auto", "always", "off"):
+                updates.setdefault("agent", {})["plan"] = a["plan"]
         if "usage" in body:
             u = {}
             for k in ("daily_budget_usd", "monthly_budget_usd", "currency_rate"):
@@ -218,7 +221,8 @@ def register(app: FastAPI, rt_getter) -> None:
             catalog.forget()
         rt.reload()
         payload = settings_payload(rt)
-        names = {"default": "主要模型", "auxiliary": "輔助模型", "escalate": "升級模型", "embedding": "Embedding 模型"}
+        names = {"default": "執行模型", "auxiliary": "輔助模型", "thinking": "思維模型", "reviewer": "審查模型",
+                 "embedding": "Embedding 模型"}
         why = lambda spec: "需要登入 SinoBee.ai" if str(spec).startswith("sinobee/") else "的供應商還沒有設定金鑰"  # noqa: E731
         warnings = [f"{names[r]} {v['spec']} {why(v['spec'])}" for r, v in payload["selected"].items()
                     if r in names and v["spec"] and not v["ok"]]

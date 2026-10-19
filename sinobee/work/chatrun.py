@@ -11,7 +11,7 @@ import time
 
 log = logging.getLogger("sinobee.work")
 
-STATUS = {"done": "done", "incomplete": "incomplete", "error": "failed", "stopped": "cancelled",
+STATUS = {"done": "done", "incomplete": "incomplete", "error": "failed", "failed": "failed", "stopped": "cancelled",
           "blocked": "blocked"}
 MAX_STEPS = 300
 

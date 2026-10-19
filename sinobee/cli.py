@@ -793,6 +793,41 @@ def _eval_cmd(args) -> None:
     asyncio.run(go())
 
 
+def _failures_cmd(args) -> None:
+    """Failure reports: what a task that did not finish did, step by step, and the thinking model's diagnosis."""
+    import json as _json
+    import time as _t
+    from .agent import failures as F
+    from .config import Config
+    cfg = Config.load()
+    if args.action == "list":
+        rows = F.listing(cfg.home, args.limit)
+        if not rows:
+            print("沒有失敗報告")
+        for r in rows:
+            when = _t.strftime("%m-%d %H:%M", _t.localtime(r["created"] or 0))
+            print(f"{r['id']:<36} {when}  {r['status']:<10} {(r.get('category') or '(診斷中)'):<22} {r['summary'][:60]}")
+        return
+    if not args.id:
+        raise SystemExit("give a report id (sinobee failures list)")
+    try:
+        if args.action == "show":
+            r = F.get(cfg.home, args.id)
+            if args.json:
+                print(_json.dumps(r, ensure_ascii=False, indent=1))
+                return
+            print(F.summary_text(r, 20000))
+            if r.get("diagnosis"):
+                print("\nDIAGNOSIS:", _json.dumps(r["diagnosis"], ensure_ascii=False, indent=1))
+        elif args.action == "regression":
+            print("added regression eval", F.to_regression(cfg.home, args.id)["id"])
+        elif args.action == "delete":
+            F.delete(cfg.home, args.id)
+            print("deleted")
+    except KeyError:
+        raise SystemExit(f"no failure report {args.id}") from None
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="sinobee", description="SinoBee autonomous agent")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -891,6 +926,11 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("-m", "--model")
     ev.add_argument("-c", "--config")
     ev.add_argument("--approval", default=None, help=argparse.SUPPRESS)
+    fl = sub.add_parser("failures", help="failure reports of tasks that did not finish (work log + diagnosis)")
+    fl.add_argument("action", nargs="?", default="list", choices=["list", "show", "regression", "delete"])
+    fl.add_argument("id", nargs="?")
+    fl.add_argument("--limit", type=int, default=30)
+    fl.add_argument("--json", action="store_true")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -926,6 +966,8 @@ def main(argv: list[str] | None = None) -> None:
         _work_cmd(args)
     elif args.cmd == "eval":
         _eval_cmd(args)
+    elif args.cmd == "failures":
+        _failures_cmd(args)
 
 
 if __name__ == "__main__":

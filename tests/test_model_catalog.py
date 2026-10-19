@@ -84,8 +84,13 @@ def test_connecting_the_first_provider_suggests_a_main_model(client):
     assert r["suggest_default"] == "gemini/gemini-flash-latest"
     s = client.get("/api/settings" + client.q).json()
     assert s["selected"]["default"]["ok"] is False
-    w = client.put("/api/settings" + client.q, json={"model": {"escalate": "openai/gpt-5.5"}}).json()["warnings"]
-    assert any("主要模型" in x for x in w) and any("升級模型" in x for x in w)
+    w = client.put("/api/settings" + client.q, json={"model": {"thinking": "openai/gpt-5.5"}}).json()["warnings"]
+    assert any("執行模型" in x for x in w) and any("思維模型" in x for x in w)
+    s = client.get("/api/settings" + client.q).json()
+    assert s["model"]["thinking"] == "openai/gpt-5.5" and "escalate" not in s["model"]
+    # the old setting name still works
+    client.put("/api/settings" + client.q, json={"model": {"escalate": "openai/gpt-5.4"}})
+    assert client.get("/api/settings" + client.q).json()["model"]["thinking"] == "openai/gpt-5.4"
 
 
 def test_key_validation_and_clear(client):
