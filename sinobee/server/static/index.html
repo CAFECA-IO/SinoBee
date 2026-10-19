@@ -586,6 +586,18 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 #quotaBar{margin:0 10px 6px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);font-size:12px;display:flex;flex-direction:column;gap:6px;cursor:pointer;position:relative;z-index:1}
 #quotaBar[hidden]{display:none}#quotaBar .qb-h{display:flex;align-items:center;gap:6px}#quotaBar .qb-h b{font-size:12px}
 #quotaBar .qb-h .badge{margin-left:auto}#quotaBar .qwarn{color:var(--warn)}#quotaBar .qerr{color:var(--err)}
+.qx{--c:var(--accent)}.qx.warn,.qx-more.warn{--c:var(--warn)}.qx.full,.qx-more.full{--c:var(--err)}.qx-more.ok{--c:var(--accent)}
+.qx-line{display:flex;align-items:center;gap:8px;min-width:0}.qx-line b{font-size:12px;white-space:nowrap}
+.qx-dot{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 20%,transparent)}
+.qx-s{margin-left:auto;color:var(--c);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.qx-chev{color:var(--muted);transition:transform .2s;flex:none}.qx.open .qx-chev{transform:rotate(90deg)}
+.qx-bar{height:3px;border-radius:2px;background:var(--grid);margin-top:7px;overflow:hidden;position:relative}.qx-bar i{position:absolute;inset:0 auto 0 0;background:var(--c);border-radius:2px}
+.qx-more{margin-top:10px;cursor:default}.qx-head{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}.qx-head b{color:var(--c);font-variant-numeric:tabular-nums}
+.qx-chart{height:40px;margin-top:6px;display:flex;align-items:flex-end;gap:2px;border-bottom:1px solid var(--line)}
+.qx-chart i{flex:1;background:var(--c);opacity:.85;border-radius:2px 2px 0 0}.qx-chart i.old{opacity:.4}
+.qx-axis{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px}
+.qx-foot{font-size:11px;color:var(--muted);margin-top:5px}.qx-foot b{color:var(--c);font-weight:600}
+.qx-end{display:flex;justify-content:space-between;gap:8px}.qx-end a{color:var(--muted)}.qx-end a:hover{color:var(--ink)}
 .qrel{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--muted);margin-top:6px}.qrel span b{color:var(--ink);font-weight:600}
 .result .btn.undo{margin:0 0 0 10px;vertical-align:middle;display:inline-flex;align-items:center;gap:4px}.result .btn.undo svg{width:13px;height:13px}
 .note.qacard ul{margin:6px 0 0;padding-left:18px}.note.qacard li{margin:2px 0}.note.qacard small{display:block;color:var(--muted)}
@@ -2663,10 +2675,9 @@ function paintQuota(){
   bar.hidden = !show;
   if (show) {
     if (q.status === 'ok') {
-      const w6 = qWin('6h'), w7 = qWin('168h');
-      bar.innerHTML = `<div class="qb-h">${ring(w6?.usedPct, '', '', 34)}<div style="min-width:0;flex:1"><b>SinoBee.ai ${esc(q.plan?.name || '')}</b>
-        <div style="color:var(--muted);white-space:nowrap">6 小時 ${fmtPct(w6?.usedPct)} · 7 天 ${fmtPct(w7?.usedPct)}</div>
-        ${q.endsAt && !expiryNote() ? `<div style="color:var(--muted)">方案至 ${fmtDate(q.endsAt)}</div>` : ''}</div></div>${expiryNote()}`;
+      bar.innerHTML = quotaLine(q);
+      bar.setAttribute('aria-expanded', String(QUOTA_OPEN));
+      bar.setAttribute('aria-label', `SinoBee.ai 訂閱額度（點一下${QUOTA_OPEN ? '收起' : '展開過去 6 小時的用量'}）`);
     } else {
       const msg = {signed_out: '尚未登入 SinoBee.ai，訂閱模型無法使用', no_scope: '請重新登入 SinoBee.ai 以啟用訂閱模型',
                    no_subscription: '沒有有效的 SinoBee.ai 訂閱', offline: '暫時連不上 sinobee.ai', error: '無法讀取訂閱額度'}[q.status] || '';
@@ -2679,7 +2690,53 @@ function paintQuota(){
   if (card && sbp) { const msg = card.querySelector('.pmsg')?.textContent || ''; card.outerHTML = provCard(sbp);
     const fresh = $('.pcard[data-p="sinobee"]'); paintIcons(fresh); if (msg) fresh.querySelector('.pmsg').textContent = msg; }
 }
-$('#quotaBar').onclick = () => openSettings(false, 'account');
+/** sidebar quota: one line (the tighter window: what is left, when it comes back); open = the 6-hour timeline */
+let QUOTA_OPEN = false;
+try { QUOTA_OPEN = localStorage.getItem('sb-quota-open') === '1'; } catch (e) {}
+const qLevel = p => p >= 90 ? 'full' : p >= 70 ? 'warn' : 'ok';
+/** "23:58" for a time within a day (the 6-hour window always is), "10/24" further out */
+const qClock = iso => { const t = new Date(iso), p2 = n => String(n).padStart(2, '0');
+  return t - Date.now() < 86400e3 ? `${p2(t.getHours())}:${p2(t.getMinutes())}` : `${t.getMonth() + 1}/${t.getDate()}`; };
+/** the 6 h window in 12 half-hour buckets (% of the limit, oldest first): from the relay, or rebuilt from releases */
+function quotaBuckets(w){
+  if (Array.isArray(w?.buckets) && w.buckets.length) return w.buckets;
+  const b = Array(12).fill(0), start = Date.now() - 6 * 3600e3;
+  for (const r of w?.releases || []) {
+    const t = new Date(r.at).getTime() - 6 * 3600e3;
+    if (t > start) b[Math.min(11, Math.floor((t - start) / 1800e3))] += +r.pct || 0;
+  }
+  return b;
+}
+function quotaLine(q){
+  const w6 = qWin('6h'), w7 = qWin('168h'), u6 = +w6?.usedPct || 0, u7 = +w7?.usedPct || 0;
+  const tight = u7 > u6 ? {w: w7, u: u7, name: '7 天'} : {w: w6, u: u6, name: ''};
+  const lvl = qLevel(tight.u), next = (tight.w?.releases || [])[0];
+  const status = `${tight.name ? tight.name + ' ' : ''}剩 ${fmtPct(100 - tight.u)}${lvl !== 'ok' && next ? ` · ${qClock(next.at)} 起恢復` : ''}`;
+  const b = quotaBuckets(w6), max = Math.max(...b, 5);
+  const first = b.findIndex(x => x > 0);
+  const rel = (w6?.releases || [])[0];
+  const soon = rel ? (w6.releases || []).filter(r => new Date(r.at) - new Date(rel.at) < 1800e3).reduce((a, r) => a + (+r.pct || 0), 0) : 0;
+  const bars = b.map((v, i) => `<i class="${i === first ? 'old' : ''}" style="height:${v > 0 ? Math.max(4, v / max * 100) : 0}%" title="${fmtPct(v)}"></i>`).join('');
+  return `<div class="qx ${lvl}${QUOTA_OPEN ? ' open' : ''}">
+    <div class="qx-line">
+      <span class="qx-dot"></span><b>${esc(q.plan?.name || 'SinoBee.ai')}</b><span class="qx-s">${esc(status)}</span><span class="qx-chev">›</span></div>
+    <div class="qx-bar"><i style="width:${Math.min(100, tight.u)}%"></i></div>
+    ${QUOTA_OPEN ? `<div class="qx-more ${qLevel(u6)}">
+      <div class="qx-head"><span>過去 6 小時</span><span>已用 <b>${fmtPct(u6)}</b> · 剩 ${fmtPct(100 - u6)}</span></div>
+      <div class="qx-chart" role="img" aria-label="過去 6 小時每 30 分鐘的用量">${bars}</div>
+      <div class="qx-axis"><span>6 小時前</span><span>3 小時前</span><span>現在</span></div>
+      <div class="qx-foot">${rel ? `最早的用量最先釋放：<b>${qClock(rel.at)} 起恢復約 ${fmtPct(soon)}</b>` : '過去 6 小時沒有用量'}</div>
+      <div class="qx-foot">7 天已用 ${fmtPct(u7)}${w6?.remainingTokens ? ` · 6 小時約剩 ${fmtTok(w6.remainingTokens)} tokens` : ''}</div>
+      <div class="qx-foot qx-end">${q.endsAt ? `方案至 ${fmtDate(q.endsAt)}` : ''}<a href="#" data-qacct>訂閱與帳號 ›</a></div></div>` : ''}
+    ${expiryNote()}</div>`;
+}
+$('#quotaBar').onclick = e => {
+  if (QUOTA?.status !== 'ok' || e.target.closest('[data-qacct]')) { e.preventDefault(); openSettings(false, 'account'); return; }
+  if (e.target.closest('a')) return;              // the renewal link in the expiry note
+  QUOTA_OPEN = !QUOTA_OPEN;
+  try { localStorage.setItem('sb-quota-open', QUOTA_OPEN ? '1' : '0'); } catch (err) {}
+  paintQuota();
+};
 $('#quotaBar').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#quotaBar').click(); } };
 /** settings → SinoBee.ai 帳號 → 訂閱 */
 function paintSubPane(){
