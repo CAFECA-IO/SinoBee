@@ -371,7 +371,36 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .cardseg button.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
 .cardseg button.on::after,.srcseg button.on::after{content:"✓";position:absolute;top:10px;right:12px;color:var(--accent);font-weight:700}
 .cardseg button:disabled{opacity:.5;cursor:not-allowed}
-.sshsec{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+/* database connection form: fixed header and footer, the body scrolls, so the buttons are always reachable */
+.dfcard{max-width:620px;padding:0;display:flex;flex-direction:column;max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:hidden}
+.dfhead{display:flex;align-items:center;gap:10px;padding:16px 18px 10px;border-bottom:1px solid var(--line)}.dfhead h3{margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dfhead svg.i{width:16px;height:16px}
+.dfbody{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px 18px 6px;display:flex;flex-direction:column;gap:14px}
+.dfsec{display:flex;flex-direction:column;gap:10px}
+.dfstep{font-size:12px;font-weight:650;color:var(--ink);letter-spacing:.02em}
+.dfkind{align-self:flex-start;max-width:100%;flex-wrap:wrap}
+.dfgrid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px 12px}.dfgrid>label{grid-column:span 3}
+.dfgrid>.span2{grid-column:1/-1}.dfgrid>.span-host{grid-column:span 4}.dfgrid>.span-port{grid-column:span 2}
+.dfgrid>[hidden]{display:none}
+.dfswitch{display:flex;gap:12px;align-items:flex-start;cursor:pointer}.dfswitch span{display:flex;flex-direction:column;gap:2px;font-size:13px}
+.dfswitch small{color:var(--muted);font-size:12px;line-height:1.5}.dfswitch .sw{margin-top:1px}
+.dfkeyrow{display:flex;gap:10px;align-items:flex-end;margin-top:8px;flex-wrap:wrap}.dfkeyrow label.f{flex:1;min-width:180px}
+.dffp{margin-top:10px;font-size:12px;color:var(--muted);line-height:1.6;overflow-wrap:anywhere}.dffp:empty{display:none}
+.dffp svg.i{width:14px;height:14px;display:inline-block;vertical-align:-2px;margin-right:4px;color:var(--ok)}.dffp code{font-size:11px;word-break:break-all}
+.dfadv{border:1px solid var(--line);border-radius:12px;padding:10px 14px;gap:0}.dfadv>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--ink)}
+.dfnote{font-size:12px;color:var(--muted);line-height:1.5}
+.dffoot{border-top:1px solid var(--line);padding:10px 18px 14px;display:flex;flex-direction:column;gap:8px;background:var(--panel)}
+.dfstatus{font-size:12px;line-height:1.5;overflow-wrap:anywhere;color:var(--muted)}.dfstatus:empty{display:none}
+.dfstatus.ok{color:var(--ok)}.dfstatus.err{color:var(--err)}
+#dbForm input.bad{border-color:var(--err);box-shadow:0 0 0 3px color-mix(in srgb,var(--err) 18%,transparent)}
+.dfbtns{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.dfbtns .grow{flex:1}
+@media (max-width:560px){
+  #dbForm{padding:0;align-items:stretch}.dfcard{max-width:none;max-height:none;height:100%;height:100dvh;border-radius:0;border:0}
+  .dfgrid>label{grid-column:1/-1}.dfgrid>.span-host{grid-column:span 4}.dfgrid>.span-port{grid-column:span 2}
+  .dfbtns .btn{flex:1}.dfbtns .grow{display:none}.dfbtns #dfDelete{flex-basis:100%;order:9}
+  .dffoot{padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+}
+.sshsec{padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
 .sshsec textarea{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px;resize:vertical;min-height:64px}
 .migcard{max-width:940px;width:100%;max-height:calc(100vh - 40px);display:flex;flex-direction:column}
 .migbody{overflow:auto;min-height:0;flex:1;margin:12px -4px 0;padding:0 4px}
@@ -745,46 +774,64 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   <div class="setfoot"><span id="setDirty" class="sd"></span><span style="flex:1"></span>
     <button class="btn" id="setClose" type="button">關閉</button><button class="btn primary" id="setSave" type="button">儲存</button></div>
 </div></div>
-<div class="modal" id="dbForm"><div class="card" style="max-width:640px">
-  <div class="dhead"><h3 id="dfTitle">新增資料庫連線</h3><span class="badge" id="dfMsg"></span></div>
-  <div class="seg" id="dfKind" style="margin:12px 0"><button data-k="postgres" type="button">PostgreSQL</button><button data-k="mysql" type="button">MySQL / MariaDB</button><button data-k="sqlite" type="button">SQLite</button></div>
-  <label class="f" style="margin-bottom:10px">貼上連線字串（選填，例如 postgres://user:密碼@host:5432/db）<input id="dfDsn" autocomplete="off" spellcheck="false"></label>
-  <div class="grid2">
-    <label class="f">名稱<input id="dfName" placeholder="例如 公司 ERP"></label>
-    <label class="f dfnet">主機<input id="dfHost" placeholder="db.example.com" spellcheck="false"></label>
-    <label class="f dfnet">連接埠<input id="dfPort" type="number" min="1" max="65535"></label>
-    <label class="f dfnet">資料庫<input id="dfDb" spellcheck="false"></label>
-    <label class="f dfnet">帳號<input id="dfUser" autocomplete="off" spellcheck="false"></label>
-    <label class="f dfnet">密碼<input id="dfPw" type="password" autocomplete="new-password"></label>
-    <label class="f dfnet">SSL<select id="dfSsl"><option value="prefer">prefer（有就用）</option><option value="require">require（一定要加密）</option><option value="verify-ca">verify-ca（驗證憑證）</option><option value="verify-full">verify-full（驗證憑證與主機）</option><option value="disable">disable</option></select></label>
-    <label class="f dfnet">CA 憑證<select id="dfCa"><option value="">系統預設</option><option value="aws-rds">Amazon RDS / Aurora（自動下載）</option><option value="custom">自訂 PEM 檔…</option></select></label>
-    <label class="f dfnet" id="dfCaPathL" hidden>CA 檔案路徑<input id="dfCaPath" placeholder="~/certs/ca.pem" spellcheck="false"></label>
-    <label class="f dfsqlite">SQLite 檔案路徑<input id="dfPath" placeholder="/home/bee/workspace/data.db" spellcheck="false"></label>
-    <label class="f">每次最多回傳列數<input id="dfRows" type="number" min="1" max="10000" value="500"></label>
-    <label class="f">查詢逾時（秒）<input id="dfTimeout" type="number" min="1" max="600" value="30"></label>
-  </div>
-  <div class="dfnet sshsec">
-    <label class="chips"><label><input type="checkbox" class="sw" role="switch" id="dfSsh"> 透過 SSH 跳板機連線</label></label>
-    <div class="sd" style="margin:2px 0 0 54px">資料庫沒有對外開放時使用，例如 AWS 私有子網路裡的 RDS / Aurora，經由同一個 VPC 裡的 EC2 連進去。</div>
-    <div id="dfSshBox" hidden>
-      <div class="grid2" style="margin-top:10px">
-        <label class="f">跳板機主機<input id="dfSshHost" placeholder="ec2-xx-xx.ap-northeast-1.compute.amazonaws.com" spellcheck="false"></label>
-        <label class="f">SSH 連接埠<input id="dfSshPort" type="number" min="1" max="65535" value="22"></label>
-        <label class="f">SSH 帳號<input id="dfSshUser" placeholder="ec2-user / ubuntu" spellcheck="false" autocomplete="off"></label>
-        <label class="f">驗證方式<select id="dfSshAuth"><option value="key">私鑰（.pem）</option><option value="password">密碼</option></select></label>
-      </div>
-      <div id="dfSshKeyBox" style="margin-top:10px">
-        <label class="f">私鑰<textarea id="dfSshKey" rows="3" spellcheck="false" autocomplete="off" placeholder="貼上私鑰內容（-----BEGIN … PRIVATE KEY-----），或按「選擇檔案」"></textarea></label>
-        <div class="row" style="margin-top:6px;justify-content:flex-start"><button class="btn sm" id="dfSshFile" type="button">選擇檔案…</button><input type="file" id="dfSshFileIn" accept=".pem,.key,.txt,*/*" hidden>
-          <label class="f" style="flex:1;flex-direction:row;align-items:center;gap:8px">私鑰密碼<input id="dfSshPass" type="password" autocomplete="new-password" placeholder="私鑰有加密才需要" style="flex:1"></label></div>
-      </div>
-      <label class="f" id="dfSshPwBox" hidden style="margin-top:10px">SSH 密碼<input id="dfSshPw" type="password" autocomplete="new-password"></label>
-      <div class="sd" id="dfSshFp" style="margin-top:8px"></div>
+<div class="modal" id="dbForm"><div class="card dfcard" role="dialog" aria-labelledby="dfTitle">
+  <div class="dfhead"><h3 id="dfTitle">新增資料庫連線</h3><button class="btn icon sm tip-left" id="dfX" data-icon="x" aria-label="關閉" type="button"></button></div>
+  <div class="dfbody">
+    <div class="dfsec">
+      <div class="dfstep">資料庫類型</div>
+      <div class="seg dfkind" id="dfKind"><button data-k="postgres" type="button">PostgreSQL</button><button data-k="mysql" type="button">MySQL / MariaDB</button><button data-k="sqlite" type="button">SQLite</button></div>
+      <label class="f dfnet dfdsn">有連線字串嗎？貼上就自動填好下面的欄位
+        <input id="dfDsn" autocomplete="off" spellcheck="false" placeholder="postgres://帳號:密碼@主機:5432/資料庫"></label>
     </div>
+    <div class="dfsec">
+      <div class="dfstep">連線資訊</div>
+      <div class="dfgrid">
+        <label class="f span2">名稱<input id="dfName" placeholder="例如 公司 ERP（留空會用 資料庫@主機）"></label>
+        <label class="f dfnet span-host">主機<input id="dfHost" placeholder="db.example.com" spellcheck="false" autocapitalize="off"></label>
+        <label class="f dfnet span-port">連接埠<input id="dfPort" type="number" min="1" max="65535" inputmode="numeric"></label>
+        <label class="f dfnet span2">資料庫<input id="dfDb" spellcheck="false" autocapitalize="off"></label>
+        <label class="f dfnet">帳號<input id="dfUser" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
+        <label class="f dfnet">密碼<input id="dfPw" type="password" autocomplete="new-password"></label>
+        <label class="f dfsqlite span2">SQLite 檔案路徑<input id="dfPath" placeholder="/home/bee/workspace/data.db" spellcheck="false"></label>
+      </div>
+    </div>
+    <div class="dfnet dfsec sshsec">
+      <label class="dfswitch"><input type="checkbox" class="sw" role="switch" id="dfSsh"><span><b>透過 SSH 跳板機連線</b>
+        <small>資料庫沒有對外開放時使用，例如 AWS 私有子網路裡的 RDS / Aurora，經由同一個 VPC 裡的 EC2 連進去。</small></span></label>
+      <div id="dfSshBox" hidden>
+        <div class="dfgrid" style="margin-top:12px">
+          <label class="f span-host">跳板機主機<input id="dfSshHost" placeholder="ec2-xx-xx.compute.amazonaws.com" spellcheck="false" autocapitalize="off"></label>
+          <label class="f span-port">SSH 連接埠<input id="dfSshPort" type="number" min="1" max="65535" value="22" inputmode="numeric"></label>
+          <label class="f">SSH 帳號<input id="dfSshUser" placeholder="ec2-user / ubuntu" spellcheck="false" autocomplete="off" autocapitalize="off"></label>
+          <label class="f">驗證方式<select id="dfSshAuth"><option value="key">私鑰（.pem）</option><option value="password">密碼</option></select></label>
+        </div>
+        <div id="dfSshKeyBox" style="margin-top:10px">
+          <label class="f">私鑰<textarea id="dfSshKey" rows="3" spellcheck="false" autocomplete="off" placeholder="貼上私鑰內容（-----BEGIN … PRIVATE KEY-----），或按「選擇檔案」"></textarea></label>
+          <div class="dfkeyrow"><button class="btn sm" id="dfSshFile" type="button">選擇檔案…</button><input type="file" id="dfSshFileIn" accept=".pem,.key,.txt,*/*" hidden>
+            <label class="f">私鑰密碼<input id="dfSshPass" type="password" autocomplete="new-password" placeholder="私鑰有加密才需要"></label></div>
+        </div>
+        <label class="f" id="dfSshPwBox" hidden style="margin-top:10px">SSH 密碼<input id="dfSshPw" type="password" autocomplete="new-password"></label>
+        <div class="dffp" id="dfSshFp"></div>
+      </div>
+    </div>
+    <details class="dfsec dfadv" id="dfAdv"><summary>進階：加密、查詢限制、寫入權限</summary>
+      <div class="dfgrid" style="margin-top:10px">
+        <label class="f dfnet">SSL<select id="dfSsl"><option value="prefer">prefer（有就用）</option><option value="require">require（一定要加密）</option><option value="verify-ca">verify-ca（驗證憑證）</option><option value="verify-full">verify-full（驗證憑證與主機）</option><option value="disable">disable</option></select></label>
+        <label class="f dfnet">CA 憑證<select id="dfCa"><option value="">系統預設</option><option value="aws-rds">Amazon RDS / Aurora（自動下載）</option><option value="custom">自訂 PEM 檔…</option></select></label>
+        <label class="f dfnet span2" id="dfCaPathL" hidden>CA 檔案路徑<input id="dfCaPath" placeholder="~/certs/ca.pem" spellcheck="false"></label>
+        <label class="f">每次最多回傳列數<input id="dfRows" type="number" min="1" max="10000" value="500" inputmode="numeric"></label>
+        <label class="f">查詢逾時（秒）<input id="dfTimeout" type="number" min="1" max="600" value="30" inputmode="numeric"></label>
+      </div>
+      <label class="dfswitch" style="margin-top:12px"><input type="checkbox" class="sw" role="switch" id="dfWrite"><span><b>允許寫入</b>
+        <small>每次寫入仍需你核准；建議改用唯讀帳號。</small></span></label>
+    </details>
+    <div class="dfnote">密碼與 SSH 私鑰只存在這台電腦的 secrets.json（權限 600），不會出現在對話裡，也不會送給模型。</div>
   </div>
-  <label class="chips" style="margin-top:12px"><label><input type="checkbox" class="sw" role="switch" id="dfWrite"> 允許寫入（每次寫入仍需你核准；建議改用唯讀帳號）</label></label>
-  <div class="note" style="margin-top:8px">密碼與 SSH 私鑰只存在這台電腦的 secrets.json（權限 600），不會出現在對話裡，也不會送給模型。</div>
-  <div class="row"><button class="btn danger" id="dfDelete" type="button" hidden>刪除</button><span style="flex:1"></span><button class="btn" id="dfTest" type="button">測試連線</button><button class="btn" id="dfCancel" type="button">取消</button><button class="btn primary" id="dfSave" type="button">儲存</button></div>
+  <div class="dffoot">
+    <div class="dfstatus" id="dfMsg" role="status" aria-live="polite"></div>
+    <div class="dfbtns"><button class="btn danger" id="dfDelete" type="button" hidden>刪除</button><span class="grow"></span>
+      <button class="btn" id="dfCancel" type="button">取消</button><button class="btn" id="dfTest" type="button">測試連線</button><button class="btn primary" id="dfSave" type="button">儲存</button></div>
+  </div>
 </div></div>
 <div class="modal" id="dbBrowser"><div class="card wide" style="max-width:1240px;width:100%">
   <div style="display:flex;align-items:center;gap:10px"><span class="kindtag" id="dbKind"></span><h3 style="margin:0" id="dbName"></h3><span style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="dbLabel"></span><span style="flex:1"></span>
@@ -2675,9 +2722,27 @@ function dfKind(k){ DB.kind = k; document.querySelectorAll('#dfKind button').for
   if (k !== 'sqlite' && (!$('#dfPort').value || Object.values(DB_PORTS).includes(+$('#dfPort').value))) $('#dfPort').value = DB_PORTS[k];
   if (k !== 'sqlite') dfSshUi(); }
 document.querySelectorAll('#dfKind button').forEach(b => b.onclick = () => dfKind(b.dataset.k));
+function dfStatus(text, kind = ''){ const el = $('#dfMsg'); el.className = 'dfstatus' + (kind ? ' ' + kind : ''); el.textContent = text || ''; }
+function dfClose(){ $('#dbForm').classList.remove('open'); }
+$('#dfX').onclick = dfClose;
+$('#dbForm').addEventListener('keydown', e => { if (e.key === 'Escape') dfClose(); });
+function dfMark(el, bad){ el.classList.toggle('bad', !!bad); if (bad) el.addEventListener('input', () => el.classList.remove('bad'), {once: true}); }
+function dfValidate(){
+  const net = DB.kind !== 'sqlite', need = net ? ['#dfHost', '#dfDb', '#dfUser'] : ['#dfPath'];
+  if ($('#dfSsh').checked && net) need.push('#dfSshHost', '#dfSshUser');
+  const miss = need.filter(sel => !$(sel).value.trim());
+  document.querySelectorAll('#dbForm input.bad').forEach(x => x.classList.remove('bad'));
+  miss.forEach(sel => dfMark($(sel), true));
+  if (miss.length) { const first = $(miss[0]); first.scrollIntoView({block: 'center', behavior: 'smooth'}); first.focus();
+    dfStatus('請填寫標示的欄位：' + miss.map(sel => $(sel).closest('label').firstChild.textContent.trim()).join('、'), 'err'); return false; }
+  if (!$('#dfName').value.trim()) $('#dfName').value = net ? `${$('#dfDb').value.trim()}@${$('#dfHost').value.trim()}` : $('#dfPath').value.trim().split('/').pop();
+  return true;
+}
+function dfBusy(on, what = ''){ ['#dfTest', '#dfSave', '#dfCancel'].forEach(x => $(x).disabled = on); if (on) dfStatus(what); }
 function openDbForm(conn = null, prefill = null, onSaved = null){
   DB.editing = conn; DB.onSaved = onSaved; const v = {...(conn || {}), ...(prefill || {})};
-  $('#dfTitle').textContent = conn ? '編輯連線：' + conn.name : '新增資料庫連線'; $('#dfMsg').textContent = '';
+  $('#dfTitle').textContent = conn ? '編輯連線：' + conn.name : '新增資料庫連線'; dfStatus('');
+  document.querySelectorAll('#dbForm .bad').forEach(x => x.classList.remove('bad')); $('#dbForm .dfbody').scrollTop = 0;
   $('#dfName').value = v.name || ''; $('#dfHost').value = v.host || ''; $('#dfPort').value = v.port || '';
   $('#dfDb').value = v.database || ''; $('#dfUser').value = v.user || ''; $('#dfPw').value = prefill?.password || '';
   $('#dfPw').placeholder = conn?.has_password ? '已儲存（留空表示不變）' : ''; $('#dfSsl').value = v.sslmode || 'prefer';
@@ -2689,7 +2754,10 @@ function openDbForm(conn = null, prefill = null, onSaved = null){
   $('#dfSshKey').placeholder = conn?.has_ssh_secret && v.ssh_auth !== 'password' ? '已儲存私鑰（留空表示不變；貼上新的私鑰會取代）' : '貼上私鑰內容（-----BEGIN … PRIVATE KEY-----），或按「選擇檔案」';
   $('#dfSshPw').placeholder = conn?.has_ssh_secret && v.ssh_auth === 'password' ? '已儲存（留空表示不變）' : '';
   DB.testFp = null; dfSshUi(); dfFp(v.ssh_fingerprint || '');
-  dfKind(v.kind || 'postgres'); $('#dbForm').classList.add('open'); setTimeout(() => (conn ? $('#dfName') : $('#dfDsn')).focus(), 50);
+  dfKind(v.kind || 'postgres');
+  // the advanced part opens by itself when this connection uses anything other than the defaults
+  $('#dfAdv').open = !!(v.allow_write || (v.sslmode && v.sslmode !== 'prefer') || v.ssl_ca || (v.row_limit && +v.row_limit !== 500) || (v.timeout_s && +v.timeout_s !== 30));
+  $('#dbForm').classList.add('open'); setTimeout(() => (conn ? $('#dfName') : (DB.kind === 'sqlite' ? $('#dfPath') : $('#dfDsn'))).focus(), 50);
 }
 function dfSshUi(){ $('#dfSshBox').hidden = !$('#dfSsh').checked; const pw = $('#dfSshAuth').value === 'password';
   $('#dfSshKeyBox').hidden = pw; $('#dfSshPwBox').hidden = !pw; $('#dfCaPathL').hidden = $('#dfCa').value !== 'custom'; }
@@ -2706,15 +2774,15 @@ function dfFp(fp, fresh = false){
 $('#dfSshFile').onclick = () => $('#dfSshFileIn').click();
 $('#dfSshFileIn').onchange = async () => { const f = $('#dfSshFileIn').files[0]; if (!f) return;
   if (f.size > 64 * 1024) { alert('這個檔案太大，不像是 SSH 私鑰'); return; }
-  $('#dfSshKey').value = (await f.text()).trim(); $('#dfSshFileIn').value = ''; $('#dfMsg').textContent = `已讀入 ${f.name}`; };
+  $('#dfSshKey').value = (await f.text()).trim(); $('#dfSshFileIn').value = ''; dfStatus(`已讀入 ${f.name}`); };
 $('#dfHost').addEventListener('change', () => { const h = $('#dfHost').value.trim();
   if (/\.rds\.amazonaws\.com$/i.test(h) && !$('#dfCa').value) { $('#dfCa').value = 'aws-rds'; if ($('#dfSsl').value === 'prefer') $('#dfSsl').value = 'require'; dfSshUi();
-    $('#dfMsg').textContent = '偵測到 Amazon RDS：已選用 RDS CA 憑證'; } });
+    $('#dfAdv').open = true; dfStatus('偵測到 Amazon RDS：已在「進階」選用 RDS CA 憑證並要求加密'); } });
 $('#dfDsn').addEventListener('input', async () => { const t = $('#dfDsn').value.trim(); if (!/:\/\//.test(t)) return;
   const r = await api('/api/db/parse', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: t})});
   if (!r.found) return; const c = r.connection; dfKind(c.kind); $('#dfHost').value = c.host; $('#dfPort').value = c.port; $('#dfDb').value = c.database;
   $('#dfUser').value = c.user; if (c.password) $('#dfPw').value = c.password; if (c.sslmode) $('#dfSsl').value = c.sslmode;
-  if (!$('#dfName').value) $('#dfName').value = (c.database || c.kind) + '@' + c.host; $('#dfDsn').value = ''; $('#dfMsg').textContent = '已從連線字串填入'; });
+  if (!$('#dfName').value) $('#dfName').value = (c.database || c.kind) + '@' + c.host; $('#dfDsn').value = ''; dfStatus('✓ 已從連線字串填好主機、資料庫與帳號，確認後按「測試連線」', 'ok'); });
 function dfBody(){ const ssh = $('#dfSsh').checked, pw = $('#dfSshAuth').value === 'password';
   return {id: DB.editing?.id, kind: DB.kind, name: $('#dfName').value.trim(), host: $('#dfHost').value.trim(), port: $('#dfPort').value,
   database: $('#dfDb').value.trim(), user: $('#dfUser').value.trim(), password: $('#dfPw').value, sslmode: $('#dfSsl').value, path: $('#dfPath').value.trim(),
@@ -2723,17 +2791,30 @@ function dfBody(){ const ssh = $('#dfSsh').checked, pw = $('#dfSshAuth').value =
   ssh_secret: ssh ? (pw ? $('#dfSshPw').value : $('#dfSshKey').value.trim()) : '', ssh_passphrase: ssh && !pw ? $('#dfSshPass').value : '',
   ssh_fingerprint: ssh ? (DB.testFp || '') : '',
   row_limit: $('#dfRows').value, timeout_s: $('#dfTimeout').value, allow_write: $('#dfWrite').checked}; }
-$('#dfTest').onclick = async () => { $('#dfMsg').textContent = $('#dfSsh').checked ? '建立 SSH 通道並測試中…' : '測試中…';
-  const r = await fetch('/api/db/test?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dfBody())});
-  const j = await r.json(); $('#dfMsg').innerHTML = r.ok ? `<span style="color:var(--ok)">✓ ${esc(j.version.slice(0, 60))} · ${j.latency_ms} ms${j.ssh_fingerprint ? ' · 經 SSH 跳板機' : ''}</span>` : `<span style="color:var(--err)">✕ ${esc(j.detail)}</span>`;
-  if (r.ok && j.ssh_fingerprint) { DB.testFp = j.ssh_fingerprint; dfFp(j.ssh_fingerprint, !DB.editing?.ssh_fingerprint); } };
-$('#dfCancel').onclick = () => $('#dbForm').classList.remove('open');
+$('#dfTest').onclick = async () => {
+  if (!dfValidate()) return;
+  dfBusy(true, $('#dfSsh').checked ? '建立 SSH 通道並測試中…' : '測試中…');
+  try {
+    const r = await fetch('/api/db/test?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dfBody())});
+    const j = await r.json();
+    if (r.ok) { dfStatus(`✓ 連線成功：${j.version.slice(0, 80)} · ${j.latency_ms} ms${j.ssh_fingerprint ? ' · 經 SSH 跳板機' : ''}`, 'ok');
+      if (j.ssh_fingerprint) { DB.testFp = j.ssh_fingerprint; dfFp(j.ssh_fingerprint, !DB.editing?.ssh_fingerprint); } }
+    else dfStatus('✕ ' + (j.detail || '連線失敗'), 'err');
+  } catch (e) { dfStatus('✕ 無法連到 SinoBee：' + e.message, 'err'); }
+  finally { dfBusy(false); }
+};
+$('#dfCancel').onclick = dfClose;
 $('#dfDelete').onclick = async () => { if (!DB.editing || !confirm(`刪除連線「${DB.editing.name}」？密碼與查詢紀錄也會一併刪除。`)) return;
   await post('/api/db/connections/' + encodeURIComponent(DB.editing.id), {}, 'DELETE'); $('#dbForm').classList.remove('open'); $('#dbBrowser').classList.remove('open'); if (tab === 'data') loadSide(); };
 $('#dfSave').onclick = async () => {
-  const r = await fetch('/api/db/connections?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dfBody())});
-  const j = await r.json(); if (!r.ok) { $('#dfMsg').innerHTML = `<span style="color:var(--err)">✕ ${esc(j.detail)}</span>`; return; }
-  $('#dbForm').classList.remove('open'); if (tab === 'data') loadSide(); const cb = DB.onSaved; DB.onSaved = null;
+  if (!dfValidate()) return;
+  dfBusy(true, '儲存中…'); let r, j;
+  try { r = await fetch('/api/db/connections?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dfBody())});
+    j = await r.json(); }
+  catch (e) { dfBusy(false); return dfStatus('✕ 無法連到 SinoBee：' + e.message, 'err'); }
+  dfBusy(false);
+  if (!r.ok) return dfStatus('✕ ' + (j.detail || '儲存失敗'), 'err');
+  dfClose(); if (tab === 'data') loadSide(); const cb = DB.onSaved; DB.onSaved = null;
   if (cb) cb(j.connection); else if (DB.cur && DB.cur.id === j.connection.id) { DB.cur = j.connection; renderDbHead(); } };
 function renderDbHead(){ const c = DB.cur; $('#dbKind').textContent = DB_KIND_LABEL[c.kind]; $('#dbName').textContent = c.name; $('#dbLabel').textContent = c.label + (c.allow_write ? ' · 可寫入' : ' · 唯讀'); }
 // ---------------- register a connection as a tool on sinobee.ai ----------------
@@ -3285,7 +3366,7 @@ async function interceptDsn(text){
   openDbForm(null, {...r.connection, name: (r.connection.database || r.connection.kind) + '@' + r.connection.host}, conn => {
     $('#input').value = text.replace(m[0], `資料庫連線「${conn.name}」`);
     add('ⓘ 已建立資料庫連線「' + esc(conn.name) + '」。密碼只存在這台電腦，不會送給模型；確認訊息後再按送出。', 'note'); $('#input').focus(); });
-  $('#dfMsg').textContent = '偵測到連線字串：先儲存連線，密碼就不會出現在對話裡';
+  dfStatus('偵測到連線字串：先儲存連線，密碼就不會出現在對話裡');
   return true;
 }
 
