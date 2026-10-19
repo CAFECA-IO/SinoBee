@@ -850,6 +850,54 @@ def _replay_cmd(args) -> None:
     print("\n" + _json.dumps(R.summary(rows), ensure_ascii=False, indent=1))
 
 
+def _observe_cmd(args) -> None:
+    """Phase 4: what the stop rules did, and data-based recommendations for their thresholds."""
+    import json as _json
+    from .agent import observe
+    from .config import Config
+    from .memory.store import MemoryStore
+    from .work.store import WorkStore
+    cfg = Config.load()
+    store = WorkStore(cfg.home / "work.db")
+    if args.action == "stats":
+        s = observe.stats(cfg.home, store, args.days)
+        if args.json:
+            print(_json.dumps(s, ensure_ascii=False, indent=1))
+            return
+        t = s["turns"]
+        print(f"最近 {args.days:g} 天：{t['n']} 個回合，步數 p50 {t['steps_p50']}／p90 {t['steps_p90']}／最多 {t['steps_max']}，"
+              f"超過 60 步 {t['over_60']} 個；狀態 {t['status']}")
+        c = s["consults"]
+        print(f"請教思維模型 {c['n']} 次，決定 {c['decisions']}；輔助模型檢查 {c['semantic_checked']} 次，其中認為其實有進展 "
+              f"{c['semantic_not_spinning']} 次")
+        print(f"安全閥 {len(s['safety_valve'])} 次" + "".join(f"\n  {x['session_id']} 報告 {x['failure_id'] or '（無）'}"
+                                                       for x in s["safety_valve"]))
+        b = s["budget"]
+        print(f"預算檢查點 {b['checkpoints']}；達到上限 {b['caps']} 次、追加 {b['extended']} 次；部分交付 {b['partial_deliveries']} 次")
+        print(f"里程碑事件 {s['milestones']}")
+        print(f"自動適應的模型參數 {s['models_adapted']}")
+        for x in s["counts"][:20]:
+            print(f"{x['n']:>6}  {x['event']:<18} {x['trigger']:<22} {x['label']}")
+        return
+    mem = MemoryStore(cfg.db_path)
+    r = observe.tune(cfg.home, store, mem, cfg, args.last)
+    if args.apply:
+        chosen = {x["key"]: x["suggested"] for x in r["recommendations"] if x["apply"] and
+                  (args.apply == ["all"] or x["key"] in args.apply)}
+        print("已套用：", observe.apply(cfg, chosen) or "（沒有可套用的建議）")
+        return
+    if args.json:
+        print(_json.dumps(r, ensure_ascii=False, indent=1))
+        return
+    print(f"重放 {r['turns_replayed']} 個回合（順利 {r['turns_ok']}、未完成 {r['turns_bad']}）")
+    for x in r["recommendations"]:
+        sug = "—" if x["suggested"] is None else x["suggested"]
+        print(f"{x['key']:<32} 目前 {x['current']!s:<6} 建議 {sug!s:<6} 信心 {x['confidence']:<7} {x['evidence']}")
+    print("任務類型基準：", _json.dumps(r["baselines"], ensure_ascii=False))
+    print("每個任務上限：", r["cap"])
+    print("套用：sinobee tune --apply all（或指定 key）")
+
+
 def _failures_cmd(args) -> None:
     """Failure reports: what a task that did not finish did, step by step, and the thinking model's diagnosis."""
     import json as _json
@@ -1002,6 +1050,15 @@ def main(argv: list[str] | None = None) -> None:
     rp.add_argument("--k", type=int, help="try another K")
     rp.add_argument("--steps", action="store_true", help="every step's verdict")
     rp.add_argument("--json", action="store_true")
+    ob = sub.add_parser("observe", help="what the stop rules, milestones and budgets did (counts, safety valve, budget)")
+    ob.add_argument("--days", type=float, default=30)
+    ob.add_argument("--json", action="store_true")
+    ob.set_defaults(action="stats")
+    tn = sub.add_parser("tune", help="data-based recommendations for K, N and the budget's synthetic factor")
+    tn.add_argument("--last", type=int, default=200, help="turns to replay")
+    tn.add_argument("--apply", nargs="*", help="apply recommendations: all, or keys like agent.progress.k")
+    tn.add_argument("--json", action="store_true")
+    tn.set_defaults(action="tune")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -1043,6 +1100,8 @@ def main(argv: list[str] | None = None) -> None:
         _control_log_cmd(args)
     elif args.cmd == "progress-replay":
         _replay_cmd(args)
+    elif args.cmd in ("observe", "tune"):
+        _observe_cmd(args)
 
 
 if __name__ == "__main__":

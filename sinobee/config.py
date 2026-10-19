@@ -62,6 +62,7 @@ DEFAULTS: dict[str, Any] = {
             "stall_window": 20,     # steps without any file change in which ...
             "stall_ratio": 0.5,     # ... this share of repeated reads / commands is a stall (exploration_stall)
             "wait_limit": 30,       # polls of a running job in a row (output says still running) before long_wait
+            "semantic_check": True,  # the auxiliary model reads the recent steps before the thinking model is asked
         },
         "model_deadline": 240,          # s a thinking / review call may take; after that it is skipped and recorded
         "plan": "auto",                 # auto | always | off: the thinking model plans before the first step (auto:

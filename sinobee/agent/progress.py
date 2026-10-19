@@ -35,7 +35,7 @@ from pathlib import Path, PurePath
 log = logging.getLogger("sinobee.control")
 
 DEFAULTS = {"k": 15, "n_code": 8, "n_document": 3, "n_other": 5, "health_steps": 40, "safety_max_steps": 300,
-            "window": 8, "stall_window": 20, "stall_ratio": 0.5, "wait_limit": 30}
+            "window": 8, "stall_window": 20, "stall_ratio": 0.5, "wait_limit": 30, "semantic_check": True}
 
 # ------------------------------------------------------------------------------------------------ file types
 CODE_EXT = {
@@ -544,6 +544,46 @@ class Tracker:
         self.waits = 0
 
 
+# ------------------------------------------------------------------------------------------------ semantic check
+SEMANTIC_TRIGGERS = {"no_progress", "loop_repeat", "loop_alternating", "file_oscillation", "repeated_error",
+                     "exploration_stall", "long_wait", "health_steps", "health_compaction"}
+SEMANTIC = """An AI agent's progress rules flagged its work ({trigger}). Read its recent steps and say whether it is
+really spinning in place (rewording, re-reading, retrying the same thing, waiting on nothing) or making real progress
+the rules could not see (e.g. a long build, a careful multi-file edit, research that keeps finding new facts).
+
+USER REQUEST:
+{request}
+
+PROGRESS RULES' VERDICT PER STEP (newest last):
+{trace}
+
+RECENT TOOL CALLS AND RESULTS (newest last):
+{work}
+
+Reply with JSON only: {{"spinning": true|false, "pattern": "<the repeating pattern, or what is progressing, one short
+phrase in the user's language>", "evidence": "<one concrete detail from the steps>"}}"""
+
+
+def parse_semantic(text: str) -> dict | None:
+    m = re.search(r"\{[\s\S]*\}", text or "")
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(0))
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or "spinning" not in data:
+        return None
+    v = data.get("spinning")
+    spinning = v.strip().lower() in ("true", "yes", "1") if isinstance(v, str) else bool(v)
+    return {"spinning": spinning, "pattern": str(data.get("pattern") or "")[:200],
+            "evidence": str(data.get("evidence") or "")[:300]}
+
+
+def cfg(config) -> dict:
+    return {**DEFAULTS, **((config.get("agent.progress", {}) if config is not None else {}) or {})}
+
+
 # ------------------------------------------------------------------------------------------------ control log
 TRIGGERS = {
     "no_progress": "連續多步沒有進度",
@@ -627,7 +667,7 @@ def entry(event: str, trigger: str, step: int, detail: str, tracker: Tracker | N
 def describe(e: dict) -> str:
     """One line for people: what happened, why, with the numbers."""
     what = {"consult_requested": "請教思維模型", "consult": "思維模型回覆", "consult_skipped": "未請教思維模型",
-            "stop": "停止任務", "health_check": "健康檢查", "milestone": "里程碑", "budget": "預算",
+            "stop": "停止任務", "health_check": "健康檢查", "milestone": "里程碑", "budget": "預算", "report": "失敗報告",
             "delivery": "交付"}.get(e.get("event"), e.get("event"))
     tail = f"→ {e['decision']}" if e.get("decision") else ""
     return f"[第 {e.get('step')} 步] {what}：{e.get('label')} — {e.get('detail')} {tail}".strip()

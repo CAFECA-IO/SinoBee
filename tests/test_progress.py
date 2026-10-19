@@ -262,7 +262,8 @@ async def test_rewording_a_document_is_stopped_and_every_decision_says_why(home,
     assert [c["trigger"] for c in run["state"]["control"]] == [e["trigger"] for e in log]
     assert run["state"]["progress"][-1]["progress"] is False
     rows = P.read_log(config.home, session="sess-progress")
-    assert [r["event"] for r in rows] == [e["event"] for e in log]
+    assert [r["event"] for r in rows] == [e["event"] for e in log] + ["report"]
+    assert rows[-1]["failure_id"] == failures.listing(config.home)[0]["id"] and rows[-1]["trigger"] == "advice_exhausted"
     assert all(r["run_id"] == agent._run_rec.rid and r["model"] for r in rows)
     assert (config.home / "logs" / "control.jsonl").exists()
 

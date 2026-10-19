@@ -58,6 +58,8 @@ header .title{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;whit
 .modal.uidlg{z-index:300;animation:uidIn .12s ease-out}.uidlg .card{max-width:440px;padding:20px 22px 16px}
 .uidlg h3{margin:0 0 8px;font-size:16px}.uidlg .uidmsg{font-size:14px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto}
 .uidlg .uidin{width:100%;margin-top:12px;box-sizing:border-box}.uidlg .row{margin-top:18px}
+.obs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.obs-t{border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.obs-t b{font-size:20px}.obs-t span{font-size:13px}.obs-t small{overflow-wrap:anywhere}.obs-tune td{vertical-align:top}.obs-tune td:nth-child(n+2):nth-child(-n+4),.obs-tune th{white-space:nowrap}.obs-tune td.sd,.obs-tune th:nth-child(5){min-width:220px;text-align:left;white-space:normal}
 .uichoices{display:flex;flex-direction:column;gap:8px;margin-top:14px}.uichoices .btn{display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:10px 12px;height:auto;white-space:normal}.uichoices .btn small{font-weight:400;opacity:.8;margin-top:2px}
 .mscard .mshead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.mscard .mslist{list-style:none;padding:0;margin:8px 0}.mscard .mslist li{display:flex;gap:8px;padding:5px 0;border-top:1px solid var(--line)}
 .mscard .msic{width:18px;flex:none;text-align:center;color:var(--muted)}.mscard .ms-doing .msic{color:var(--accent)}.mscard .ms-done .msic{color:var(--ok,#2a9d5c)}.mscard .ms-delegated .msic{color:var(--accent)}
@@ -2116,7 +2118,7 @@ async function loadFailures(){
       ${x.regression ? '' : '<button class="btn sm" type="button" data-a="reg">轉成回歸測試</button>'}<button class="btn icon sm" type="button" data-icon="trash" data-a="del" aria-label="刪除失敗報告"></button></div></div>`).join('')
     : '<div class="sd" style="padding:6px 0">目前沒有失敗報告。</div>';
   paintIcons($('#qFails'));
-  loadControlLog();
+  loadControlLog().then(loadObservability);
   $('#qFails').querySelectorAll('[data-fid]').forEach(row => row.querySelectorAll('button').forEach(b => b.onclick = async () => {
     const id = row.dataset.fid;
     if (b.dataset.a === 'view') return showFailure(id);
@@ -2132,6 +2134,40 @@ async function loadControlLog(){
   box.innerHTML = `<h4 style="margin:14px 0 6px">執行控制紀錄 <small class="sd">任務被請教、略過請教或停止的原因</small></h4>`
     + `<div class="sd" style="margin-bottom:6px">${(d.counts || []).slice(0, 8).map(c => `${esc(CTL_EVENT[c.event] || c.event)}・${esc(c.label)} ${c.n} 次`).join('　')}</div>`
     + d.entries.map(e => `<div class="srow"><div class="sl"><span class="sd">${new Date((e.t || 0) * 1000).toLocaleString()}</span>${controlNote(e)}</div></div>`).join('');
+}
+const TUNE_LABEL = {'agent.progress.k': '連續無進度門檻 K', 'agent.progress.n_code': '程式碼只改檔容忍 N', 'agent.progress.n_document': '文件只改檔容忍 N',
+  'agent.progress.n_other': '其他檔案只改檔容忍 N', 'agent.budget.synthetic_factor': '合成基準倍數'};
+const CONF = {high: '高', medium: '中', low: '低', none: '資料不足'};
+async function loadObservability(){
+  let box = $('#qObs');
+  if (!box) { box = document.createElement('div'); box.id = 'qObs'; ($('#qCtl') || $('#qFails')).after(box); }
+  const [s, t] = await Promise.all([api('/api/observability?days=30').catch(() => null), api('/api/tuning').catch(() => null)]);
+  if (!s) { box.innerHTML = ''; return; }
+  const tile = (n, label, sub = '') => `<div class="obs-t"><b>${esc(n)}</b><span>${esc(label)}</span>${sub ? `<small class="sd">${sub}</small>` : ''}</div>`;
+  const c = s.consults, b = s.budget, tu = s.turns;
+  const sv = (s.safety_valve || []).map(x => `<div class="sd">${new Date((x.t || 0) * 1000).toLocaleString()}・${esc(x.detail || '')} ${x.failure_id ? `<a href="#" data-fid="${esc(x.failure_id)}">失敗報告</a>` : '（沒有報告）'}</div>`).join('');
+  let html = `<h4 style="margin:14px 0 6px">觀測（最近 ${s.days} 天）</h4><div class="obs-grid">`
+    + tile(tu.n, '回合', `步數 p50 ${tu.steps_p50}・p90 ${tu.steps_p90}・最多 ${tu.steps_max}`)
+    + tile(tu.over_60, '超過 60 步', '以前會被固定上限切斷')
+    + tile(c.n, '請教思維模型', Object.entries(c.decisions || {}).map(([k, v]) => `${esc(CTL_DECISION[k] || k)} ${v}`).join('・'))
+    + tile(c.semantic_checked ? `${c.semantic_not_spinning}/${c.semantic_checked}` : '—', '輔助模型認為其實有進展', '規則誤判的比例')
+    + tile((s.safety_valve || []).length, '安全閥', (s.safety_valve || []).length ? '每次都附失敗報告' : '沒有觸發')
+    + tile(b.partial_deliveries, '部分交付', `上限暫停 ${b.caps}・追加 ${b.extended}`)
+    + tile(Object.values(b.checkpoints || {}).reduce((a, x) => a + x, 0), '預算檢查點', Object.entries(b.checkpoints || {}).map(([k, v]) => `${esc(CTL_DECISION[k] || k)} ${v}`).join('・'))
+    + tile(Object.keys(s.models_adapted || {}).length, '自動適應的模型', Object.entries(s.models_adapted || {}).map(([m, d]) => `${esc(m)}：${(d || []).map(esc).join('、')}`).join('；'))
+    + `</div>${sv ? `<div style="margin:6px 0">${sv}</div>` : ''}`;
+  if (t) {
+    html += `<h4 style="margin:14px 0 6px">調整建議 <small class="sd">重放 ${t.turns_replayed} 個回合（順利 ${t.turns_ok}、未完成 ${t.turns_bad}）</small></h4>`
+      + `<div style="overflow-x:auto"><table class="t obs-tune"><thead><tr><th>設定</th><th>目前</th><th>建議</th><th>信心</th><th>依據</th><th></th></tr></thead><tbody>`
+      + t.recommendations.map(r => `<tr><td>${esc(TUNE_LABEL[r.key] || r.key)}<small class="sd" style="display:block">${esc(r.key)}</small></td><td>${esc(r.current)}</td><td>${r.suggested == null ? '—' : `<b>${esc(r.suggested)}</b>`}</td><td>${esc(CONF[r.confidence] || r.confidence)}<small class="sd" style="display:block">n=${r.n}</small></td><td class="sd">${esc(r.evidence)}</td><td>${r.apply ? `<button class="btn sm" type="button" data-tune="${esc(r.key)}" data-v="${esc(r.suggested)}">套用</button>` : ''}</td></tr>`).join('')
+      + `</tbody></table></div>`
+      + `<div class="sd" style="margin-top:6px">任務類型基準：${Object.entries(t.baselines || {}).map(([k, v]) => `${esc(k)} ${v.source === 'history' ? `p90 ${(v.p90 || 0).toLocaleString()} tokens（${v.n} 筆）` : `合成基準（${v.n} 筆）`}`).join('・') || '尚無紀錄'}；每個任務上限 ${t.cap?.usd ? '$' + t.cap.usd : ''}${t.cap?.tokens ? '／' + t.cap.tokens.toLocaleString() + ' tokens' : ''}（${esc(t.cap?.source || '')}）</div>`;
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('[data-fid]').forEach(a => a.onclick = e => { e.preventDefault(); showFailure(a.dataset.fid); });
+  box.querySelectorAll('[data-tune]').forEach(bn => bn.onclick = async () => {
+    if (!await uiConfirm(`把「${TUNE_LABEL[bn.dataset.tune] || bn.dataset.tune}」改成 ${bn.dataset.v}？`)) return;
+    await jreq('/api/tuning/apply', {values: {[bn.dataset.tune]: Number(bn.dataset.v)}}); loadObservability(); });
 }
 async function showFailure(id){
   const r = await api(`/api/failures/${encodeURIComponent(id)}`);

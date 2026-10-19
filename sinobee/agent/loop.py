@@ -502,6 +502,37 @@ class Agent:
         self._persist()
         self._emit("plan", {**plan, "model": model.label})
 
+    async def _semantic_check(self, trigger: str, stats: dict) -> dict | None:
+        """Layer 3 of the progress check: when a progress rule asks the thinking model, the auxiliary model first
+        reads the recent steps and says whether the work is really spinning in place (and how). Its verdict goes to
+        the thinking model and to the control log, where it shows how often a rule fired on real progress (tuning)."""
+        if trigger not in progress_mod.SEMANTIC_TRIGGERS or not progress_mod.cfg(self.config).get("semantic_check", True):
+            return None
+        from . import failures
+        model = self.rt.aux
+        if model is None or model is self.rt.provider:
+            return None                  # only with a separate (cheap) auxiliary model; the thinking model is asked anyway
+        trace = "\n".join(f"#{t['step']} {'progress' if t['progress'] else 'none'}: {t['why'][:200]}"
+                          for t in (getattr(self, "_progress", None).trace if getattr(self, "_progress", None) else [])[-20:])
+        log_rows = failures.work_log(self.history[-60:], [])[-25:]
+        work = "\n".join(f"{r['tool']} {r['args'][:200]} -> {'ok' if r.get('ok', True) else 'FAILED'}: "
+                         f"{(r.get('result') or '')[:200]}" if "tool" in r else f"NOTE {r['note'][:200]}" for r in log_rows)
+        prompt = progress_mod.SEMANTIC.format(request=(stats.get("query") or "")[:2000], trigger=trigger,
+                                              trace=trace or "(none)", work=work or "(none)")
+        try:
+            resp = await asyncio.wait_for(model.chat([Message("user", prompt)], None, temperature=0, max_tokens=400),
+                                          float(self.config.get("agent.model_deadline", 240)) / 2)
+            data = progress_mod.parse_semantic(resp.message.text())
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - the thinking model is asked anyway
+            stats.setdefault("thinking_skipped", []).append(f"語意檢查: {str(e)[:120]}")
+            return None
+        if data:
+            data["model"] = getattr(model, "label", "")
+            stats.setdefault("semantic", []).append({"step": stats.get("step"), "trigger": trigger, **data})
+        return data
+
     def _consult_refusal(self, stats: dict) -> str | None:
         """Why the thinking model cannot be asked now: "max" (agent.consult_max used up), "pending" (already
         asked for this step), "too_soon" (less than 5 steps after the last advice) - or None."""
@@ -561,6 +592,10 @@ class Agent:
         from . import thinking
         model = self.rt.thinker()
         trigger = stats.pop("consult_trigger", None) or "consult"
+        sem = await self._semantic_check(trigger, stats)
+        if sem:
+            why += (f"\nAUXILIARY MODEL'S CHECK OF THE RECENT STEPS: {'spinning in place' if sem['spinning'] else 'making real progress'}"
+                    f" - {sem.get('pattern') or ''} (evidence: {sem.get('evidence') or ''})")
         request = [self.system] + self.history + [Message("user", [TextPart(
             context_block + "\n\n" + thinking.CONSULT.format(why=why), volatile=True)])]
         stats["consults"] = stats.get("consults", 0) + 1
@@ -576,8 +611,9 @@ class Agent:
         stats.setdefault("consult_log", []).append({"step": stats.get("step"), "why": why, "advice": advice[:3000],
                                                     "decision": decision, "reason": reason, "trigger": trigger})
         self._control(stats, "consult", trigger,
-                      f"思維模型 {model.label}：{reason or advice.splitlines()[0][:160] if advice else reason}",
-                      decision=decision)
+                      f"思維模型 {model.label}：{reason or advice.splitlines()[0][:160] if advice else reason}"
+                      + (f"（輔助模型：{'原地打轉' if sem['spinning'] else '有實質進展'}，{sem.get('pattern') or ''}）" if sem else ""),
+                      decision=decision, semantic=sem)
         if trigger in ("no_progress", "loop_repeat", "loop_alternating", "file_oscillation", "repeated_error",
                        "exploration_stall", "long_wait") \
                 and getattr(self, "_progress", None):
@@ -1314,6 +1350,15 @@ class Agent:
                 self.config.get("agent.failure_reports", True):
             failure = self._failure_report(status, error_info, final_text, query, stats, turn_start, turn_id,
                                            turn_usage, steps, round(time.time() - started, 1))
+            if failure:
+                # the control log points at the report, so every stop (the safety valve too) can be traced to it
+                stop = next((e for e in reversed(stats.get("control_log") or []) if e.get("event") == "stop"), None)
+                progress_mod.append_log(self.config.home, {
+                    **progress_mod.entry("report", (stop or {}).get("trigger") or (error_info or {}).get("kind") or status,
+                                         steps, f"失敗報告 {failure}（{(error_info or {}).get('summary') or status}）", None),
+                    "failure_id": failure, "status": status, "session_id": self.session_id, "depth": self.depth,
+                    "run_id": getattr(getattr(self, "_run_rec", None), "rid", None),
+                    "model": getattr(getattr(self, "_prov", None), "label", "")})
         snap = None
         if self.depth == 0 and self._snap:
             from . import snapshots

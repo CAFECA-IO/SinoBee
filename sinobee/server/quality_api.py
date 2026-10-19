@@ -109,6 +109,33 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
     # ------------------------------------------------------------------ failure reports
     from ..agent import failures as F
 
+    @app.get("/api/observability")
+    async def observability(days: float = 30):
+        """What the stop rules, milestones, budgets and model adaptations did (agent/observe.py)."""
+        import asyncio as _a
+        from ..agent import observe
+        from ..work.hub import get_hub
+        rt = rt_getter()
+        return await _a.to_thread(observe.stats, rt.config.home, get_hub(rt).store, max(1.0, min(days, 365)))
+
+    @app.get("/api/tuning")
+    async def tuning(last: int = 200):
+        """Data-based recommendations for K, N and the budget's synthetic factor."""
+        import asyncio as _a
+        from ..agent import observe
+        from ..work.hub import get_hub
+        rt = rt_getter()
+        return await _a.to_thread(observe.tune, rt.config.home, get_hub(rt).store, rt.memory, rt.config,
+                                  max(10, min(last, 2000)))
+
+    @app.post("/api/tuning/apply")
+    async def tuning_apply(body: dict):
+        from ..agent import observe
+        applied = observe.apply(rt_getter().config, body.get("values") or {})
+        if not applied:
+            raise HTTPException(400, "nothing to apply")
+        return {"applied": applied}
+
     @app.get("/api/model-caps")
     async def model_caps():
         """Parameters SinoBee learned that a model does not accept (providers/compat.py)."""
