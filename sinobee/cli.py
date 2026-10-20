@@ -860,8 +860,14 @@ def _eval_cmd(args) -> None:
             except E.EvalError as e:
                 raise SystemExit(f"compare: {e}") from None
         res = asyncio.run(cmp())
+        qn = res.get("qualified") or {}
         for k, v in res["scores"].items():
-            print(f"{k:<60} {v['wins']:>3}/{v['total']:<3} {100 * v['wins'] / (v['total'] or 1):.0f}%")
+            print(f"{k:<60} {v['wins']:>3}/{v['total']:<3} {100 * v['wins'] / (v['total'] or 1):.0f}%"
+                  f"   ({qn.get(k, 0)} qualified trials)")
+        if not res["pairs"]:
+            print("no comparison was made: creativity compares only qualified trials (score >= 70 and no critical "
+                  "question failed), and fewer than two combinations had one. See `sinobee eval show <run id>` for "
+                  "what failed.")
         return
 
     async def go():

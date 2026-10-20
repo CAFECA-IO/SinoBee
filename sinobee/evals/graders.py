@@ -151,11 +151,35 @@ def _judge_files(g: dict, t: Trial) -> list[Path]:
     return [p for p in t.files if p.is_file()][:6]
 
 
-async def _ask(judge, prompt: str, temperature: float) -> dict:
+JUDGE_TOKENS = 2048        # room for a model that thinks before it answers (its reasoning counts against the limit)
+RETRY_NOTE = ("\n\nYour previous reply was empty, cut off or not the JSON asked for. Reply with the JSON object only, "
+              "nothing before or after it.")
+
+
+async def ask_json(judge, prompt: str, key: str, temperature: float = 0) -> dict:
+    """A judge's JSON answer that contains `key`. A model that spends its output budget thinking returns nothing
+    (gemini-*-pro with a few hundred tokens): ask with room to think, and once more - with more room and a reminder -
+    when the answer is missing. {} when the judge still gives none (the caller records a judge error, never a fail
+    of the thing under test)."""
     from ..learning.reflector import parse_json
     from ..types import Message
-    resp = await judge.chat([Message("user", prompt)], None, temperature=temperature, max_tokens=500)
-    return parse_json(resp.message.text())
+    for i, (extra, tokens) in enumerate((("", JUDGE_TOKENS), (RETRY_NOTE, JUDGE_TOKENS * 4))):
+        try:
+            resp = await judge.chat([Message("user", prompt + extra)], None, temperature=temperature, max_tokens=tokens)
+        except Exception as e:  # noqa: BLE001 - a failed call is retried like an empty one
+            if i:
+                raise
+            import logging
+            logging.getLogger("sinobee.evals").warning("judge call failed, retrying: %s", e)
+            continue
+        data = parse_json(resp.message.text())
+        if isinstance(data, dict) and key in data:
+            return data
+    return {}
+
+
+async def _ask(judge, prompt: str, temperature: float) -> dict:
+    return await ask_json(judge, prompt, "pass", temperature)
 
 
 def _verdict(data: dict, need_evidence: bool) -> tuple[bool | None, str, str]:
@@ -179,12 +203,17 @@ async def _llm_full(g: dict, t: Trial) -> dict:
     votes = []
     for _ in range(n):
         votes.append(_verdict(await _ask(t.judge, prompt, 0.4 if n > 1 else 0), need))
-    yes = sum(1 for v in votes if v[0])
-    ok = yes * 2 > n
-    side = [v for v in votes if bool(v[0]) == ok and v[0] is not None] or votes
-    out = {"ok": ok, "detail": (f"{yes}/{n} 票：" if n > 1 else "") + side[0][1], "evidence": side[0][2]}
+    valid = [v for v in votes if v[0] is not None]
+    if not valid:      # the judge never answered: not the contestant's failure, and the result cannot be trusted
+        return {"ok": False, "judge_error": True, "detail": f"評鑑模型沒有給出判定（{n} 次都沒有回應或格式錯誤）"}
+    yes = sum(1 for v in valid if v[0])
+    ok = yes * 2 > len(valid)                 # the majority of the votes the judge actually gave; a tie fails
+    side = [v for v in valid if bool(v[0]) == ok] or valid
+    out = {"ok": ok, "detail": (f"{yes}/{len(valid)} 票：" if n > 1 else "") + side[0][1], "evidence": side[0][2]}
     if n > 1:
-        out["votes"] = [yes, n]
+        out["votes"] = [yes, len(valid)]
+    if len(valid) < n:
+        out["judge_missing"] = n - len(valid)
     if t.judge2 is not None:
         try:
             v2 = _verdict(await _ask(t.judge2, prompt, 0), need)

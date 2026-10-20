@@ -366,7 +366,8 @@ def summarize(tasks: list[dict]) -> dict:
             "input_tokens": sum(t.get("input_tokens", 0) for t in trials),
             "output_tokens": sum(t.get("output_tokens", 0) for t in trials),
             "score": round(100 * sum(sum(g["ok"] for g in t["grades"]) / (len(t["grades"]) or 1) for t in trials)
-                           / (len(trials) or 1), 1), **sfs_summary(tasks)}
+                           / (len(trials) or 1), 1),
+            "judge_errors": sum(1 for t in trials for g in t["grades"] if g.get("judge_error")), **sfs_summary(tasks)}
 
 
 def trial_scores(tasks: list[dict]) -> list[float]:
@@ -397,15 +398,12 @@ Reply with JSON only: {{"pass": true|false, "reason": "<one sentence>"}}"""
 async def check_judge(judge, anchors: list[dict]) -> dict:
     """Calibration: rubrics with a known answer, asked before the trials are graded. A judge that gets any wrong is
     reported (sinobee.ai marks the evaluation), so a lenient or confused judge cannot pass unnoticed."""
-    from ..learning.reflector import parse_json
-    from ..types import Message
+    from .graders import ask_json
     items = []
     for a in anchors or []:
         try:
-            resp = await judge.chat([Message("user", ANCHOR.format(rubric=str(a["rubric"])[:2000],
-                                                                   content=str(a["content"])[:8000]))],
-                                    None, temperature=0, max_tokens=300)
-            got = parse_json(resp.message.text()).get("pass")
+            got = (await ask_json(judge, ANCHOR.format(rubric=str(a["rubric"])[:2000],
+                                                       content=str(a["content"])[:8000]), "pass")).get("pass")
         except Exception as e:  # noqa: BLE001
             got = None
             log.warning("anchor check failed: %s", e)
@@ -466,6 +464,10 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
         if bench is not None and bench.get("anchors") and anchors:      # a campaign checks the judge once
             doc["judge_check"] = await check_judge(jprov, bench["anchors"])
             save()
+            if doc["judge_check"]["total"] and all(i["got"] is None for i in doc["judge_check"]["items"]):
+                # a judge that answers nothing would fail every rubric question: stop before the trials cost money
+                raise EvalError(f"評鑑模型 {doc['judge']} 對 {doc['judge_check']['total']} 題錨題都沒有給出判定"
+                                "（沒有回應、被截斷或不是 JSON）；沒有開始試驗。請換一個評鑑模型（--judge）或稍後再試。")
         for task in tasks:
             n = int(k or task["trials"])
             if emit:

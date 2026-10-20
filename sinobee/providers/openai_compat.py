@@ -13,6 +13,10 @@ from ..types import ChatResponse, ImagePart, Message, TextPart, ToolCall, Usage
 from .base import Provider, ProviderError
 
 _REASONING_MODEL = re.compile(r"^(o\d|gpt-5)", re.I)
+# models that think before answering, and count the thinking against the output limit: a short limit (a JSON verdict
+# asked with a few hundred tokens) leaves them nothing to answer with - Gemini 2.5 / 3 and their -latest aliases too
+_THINKS = re.compile(r"^(o\d|gpt-5|gemini-(2\.5|[3-9])|gemini-[\w.-]*latest)", re.I)
+THINKING_FLOOR = 2048
 
 
 def _parts_to_openai(content) -> str | list:
@@ -158,6 +162,8 @@ class OpenAICompatProvider(Provider):
         gemini = self.provider_name == "gemini" or "generativelanguage.googleapis.com" in self.base_url
         payload: dict = {"model": self.model, "messages": to_openai_messages(messages, self.vision, gemini)}
         reasoning = _REASONING_MODEL.match(self.model.split("/")[-1])
+        if _THINKS.match(self.model.split("/")[-1]) and max_tokens < THINKING_FLOOR:
+            max_tokens = THINKING_FLOOR        # the visible answer stays as short as the caller asked; only room to think
         if self.provider_name == "openai" or reasoning:
             payload["max_completion_tokens"] = max_tokens
         else:

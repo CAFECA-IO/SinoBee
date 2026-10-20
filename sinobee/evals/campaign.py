@@ -617,6 +617,11 @@ def checks(rt, c: dict, docs: list[dict], rep_rows: list[dict]) -> list[dict]:
                 "label": f"每個組合 n ≥ {MIN_TRIALS}" if not short else
                 f"{len(short)} 個組合不到 {MIN_TRIALS} 次，公開報告不會包含它們",
                 "detail": f"{len(rep_rows)} 組合"})
+    je = sum(1 for d in docs for t in d.get("tasks") or [] for x in t.get("trials") or [] for g in x.get("grades") or []
+             if g.get("judge_error"))
+    out.append({"id": "judge", "status": "ok" if not je else "fail",
+                "label": "評鑑模型每一題都有給出判定" if not je else f"評鑑模型有 {je} 題沒有給出判定，分數不可信，請換評鑑模型重跑",
+                "detail": ""})
     jc = [it["judge_check"] for it in c.get("items") or [] if it.get("judge_check")]
     if jc:
         tot, cor = sum(j["total"] for j in jc), sum(j["correct"] for j in jc)
@@ -670,7 +675,7 @@ def results(rt, cid: str) -> dict:
     rows, reps = [], []
     if docs:
         try:
-            reps = payloads(docs, home=None)
+            reps = payloads(docs, home=None, judge_errors_ok=True)
         except PublishError as e:
             return {"campaign": summary(c), "error": str(e), "board": None, "checks": []}
         rows = [_row(r) for r in reps]

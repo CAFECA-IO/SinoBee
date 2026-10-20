@@ -25,7 +25,10 @@ def allowed_roots(config) -> list[Path]:
 
 
 def resolve_file(config, path: str) -> Path:
-    p = Path(path).expanduser()
+    try:
+        p = Path(path).expanduser()
+    except RuntimeError:           # "~name" of a user that does not exist (e.g. "~250kg" in a sentence)
+        raise FileAccessError(404, "file not found") from None
     if not p.is_absolute():
         p = config.workspace / p
     p = p.resolve()

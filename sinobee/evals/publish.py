@@ -65,7 +65,7 @@ def _trial(home, doc: dict, task_id: str, t: dict, n: int, budget: list[int] | N
             [{k: o.get(k) for k in ("path", "kind", "bytes")} for o in t.get("outputs") or []]}
 
 
-def payloads(runs: list[dict], home=None) -> list[dict]:
+def payloads(runs: list[dict], home=None, judge_errors_ok: bool = False) -> list[dict]:
     if not runs:
         raise PublishError("no runs")
     bad = [r["id"] for r in runs if r.get("status") != "done"]
@@ -73,6 +73,12 @@ def payloads(runs: list[dict], home=None) -> list[dict]:
         raise PublishError(f"runs not finished: {', '.join(bad)}")
     if any(not r.get("bench") or "suite_hash" not in r for r in runs):
         raise PublishError("only runs of an evaluation suite (with a bench block) can be published")
+    bad_judge = [r["id"] for r in runs if (r.get("totals") or {}).get("judge_errors")
+                 or any(g.get("judge_error") for t in r.get("tasks") or [] for x in t.get("trials") or []
+                        for g in x.get("grades") or [])]
+    if bad_judge and not judge_errors_ok:
+        raise PublishError("the judge gave no verdict on some questions of runs " + ", ".join(bad_judge)
+                           + " - their scores are not the contestants'; run them again (the judge now has room to think)")
     for field, what in (("suite", "suites"), ("suite_hash", "suite versions"), ("judge", "judges")):
         vals = {r.get(field) for r in runs}
         if len(vals) > 1:

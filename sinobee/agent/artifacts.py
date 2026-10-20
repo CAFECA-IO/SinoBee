@@ -67,7 +67,7 @@ def collect(config, tool: str, args: dict, text: str, seen: set[str], since: flo
                 d = Path(tok).expanduser()
                 d = d if d.is_absolute() else config.workspace / d
                 is_file, is_dir = d.is_file(), d.is_dir()
-            except (OSError, ValueError):      # a sentence in write_file's content is not a path
+            except (OSError, ValueError, RuntimeError):   # a sentence is not a path; "~250" is no user's home
                 continue
             d = Path(tok).expanduser()
             d = d if d.is_absolute() else config.workspace / d
@@ -87,7 +87,7 @@ def collect(config, tool: str, args: dict, text: str, seen: set[str], since: flo
             continue
         try:
             p = resolve_file(config, raw)
-        except (FileAccessError, OSError, ValueError):
+        except (FileAccessError, OSError, ValueError, RuntimeError):
             continue
         key = str(p)
         if key in seen:

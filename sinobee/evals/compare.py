@@ -55,10 +55,8 @@ def _text(home, doc: dict, task_id: str, trial: dict, limit: int = 7000) -> str:
 
 
 async def _ask(judge, prompt: str) -> str | None:
-    from ..learning.reflector import parse_json
-    from ..types import Message
-    resp = await judge.chat([Message("user", prompt)], None, temperature=0, max_tokens=300)
-    w = str(parse_json(resp.message.text()).get("winner") or "").strip().upper()[:1]
+    from .graders import ask_json
+    w = str((await ask_json(judge, prompt, "winner")).get("winner") or "").strip().upper()[:1]
     return w if w in ("A", "B") else None
 
 
@@ -108,8 +106,9 @@ async def compare(rt, runs: list[dict], judge_spec: str | None = None, emit=None
                     emit("compare_progress", {"pairs": len(pairs)})
     cid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
     jlabel = judge_spec or getattr(judge, "label", "") or None
+    qualified_n = {k: sum(len(v) for v in q[k].values()) for k in groups}
     res = {"id": cid, "suite": runs[0].get("suite"), "judge": jlabel, "created": time.time(), "scores": score,
-           "pairs": pairs, "runs": [r["id"] for r in runs], "judge_usage": usage}
+           "pairs": pairs, "runs": [r["id"] for r in runs], "judge_usage": usage, "qualified": qualified_n}
     folder = evals_dir(home) / "results"
     (folder / f"compare-{cid}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
     for k, docs in groups.items():

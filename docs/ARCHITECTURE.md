@@ -1678,3 +1678,20 @@ SinoBee.ai 這一側：`BenchSuite` 題組庫、報告的 `visibility`、`Skill.
   - 對舊版 sinobee.ai 提交私人報告會變成公開：`supports_private()` 先確認伺服器支援，否則拒絕。
 - **結果**：模擬模型＋本機 SinoBee.ai 34/34 項通過（`/tmp/sinobee-e2e-*/report.md`）。
 - **評鑑技能撰寫指南**：`docs/EVAL_SKILLS.md`。
+
+## 38. 評鑑模型沒有回應判定（bench-pilot，2026-10-20）
+
+- **症狀**：bench-coding 的 9 次試驗沒有一次合格（最高 65 分），創造力比較每個組合都是 0/0。
+  - 所有 llm 題的結果都是「0/3 票：judge gave no verdict」，錨題 0/3 也都沒有判定。
+  - 評鑑模型平均每次只輸出約 17 個 tokens。
+- **原因**：`gemini-pro-latest` 這類模型會先思考再回答，而思考用的 tokens 也算在輸出上限內。評鑑呼叫只給 300–500 tokens，思考就用完了，沒有留下 JSON。
+  - 「沒有判定」又被當成「不通過」，所以每一題 llm 題都失分，沒有試驗合格，也就沒有可以比較創造力的試驗。
+- **修正**：
+  - `graders.ask_json()`：評鑑呼叫（評分、錨題、創造力比較）先給 2048 tokens；沒有拿到要的欄位，就附上提醒、以 8192 tokens 再問一次。
+  - 投票只計算評鑑模型實際給出的票。三票都沒有時，該題記為 `judge_error`，不算受測者失敗。
+    - `totals.judge_errors` 記錄次數；`publish` 拒絕發布有評鑑錯誤的 run；評鑑活動的提交前檢查會標為失敗。
+  - 錨題全部沒有判定時，在試驗開始前就停止（EvalError），不浪費受測模型的花費。
+  - `openai_compat`：會思考的模型（o 系列、gpt-5、gemini-2.5／3、gemini-*-latest）在呼叫的上限低於 2048 時，提高到 2048。這同時修正了 SinoBee 其他短呼叫（記憶整理、檢查等）在這類模型上拿到空回答的問題，包括經 SinoBee.ai 轉送的 Gemini。
+  - `eval compare`：顯示每個組合的合格試驗數；沒有任何配對時說明原因。
+- **另一個錯誤**：`artifacts.collect` 對「~250」這類字詞呼叫 `expanduser()` 時拋出 RuntimeError（查不到使用者「250」的家目錄）。現在略過這類字詞；`resolve_file` 也一樣處理，改回 404。
+- 測試：`tests/test_judge_robust.py`。
