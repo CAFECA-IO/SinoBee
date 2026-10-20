@@ -457,7 +457,7 @@ async def _author(rt, ev, *, target: str, target_version: str, skill_dir: Path |
     from ..agent.loop import Agent
     from . import runner
     from .sandbox import Sandbox
-    tmp = Path(tempfile.mkdtemp(prefix="sinobee-author-"))
+    tmp = Path(tempfile.mkdtemp(prefix="sinobee-author-")).resolve()     # macOS: /var is a link to /private/var
     home, ws = tmp / "home", tmp / "workspace"
     home.mkdir()
     ws.mkdir()

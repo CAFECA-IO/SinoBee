@@ -166,7 +166,7 @@ def _save_outputs(ws: Path, files: list[Path], globs: list[str] | None, dest: Pa
         ext, size = p.suffix.lower(), p.stat().st_size
         if not ((ext in TEXT_OUT and size <= 300_000) or (ext in IMG_OUT and size <= 3_000_000)):
             continue
-        rel = p.relative_to(ws)
+        rel = _rel(p, ws)
         (dest / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(p, dest / rel)
         out.append({"path": str(rel), "bytes": size, "kind": "image" if ext in IMG_OUT else "text"})
@@ -213,15 +213,27 @@ def _steps(home: Path, report_id: str | None) -> list[dict]:
             for s in (rep.get("step_costs") or [])][:150]
 
 
+def _rel(p: Path, base: Path) -> Path:
+    """p relative to base, whichever way either is spelled (a link such as macOS /var -> /private/var)."""
+    try:
+        return p.relative_to(base)
+    except ValueError:
+        return p.resolve().relative_to(base.resolve())
+
+
 async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: str | None = None,
                     judge=None, thinking: str | None = None, judge2=None, bench: dict | None = None,
-                    save_dir: Path | None = None) -> dict:
+                    save_dir: Path | None = None, activity=None) -> dict:
+    """activity(dict): told about each step of the trial (step number, tool, time) - a campaign shows it live."""
     from ..agent.loop import Agent
-    tmp = Path(tempfile.mkdtemp(prefix="sinobee-eval-"))
+    # resolved: on macOS the temp folder /var/folders/... is a link to /private/var/..., and paths from the two
+    # spellings never compare equal (every trial on a Mac failed at its end with "is not in the subpath of")
+    tmp = Path(tempfile.mkdtemp(prefix="sinobee-eval-")).resolve()
     home, ws = tmp / "home", tmp / "workspace"
     home.mkdir()
     ws.mkdir()
     started = time.time()
+    events: dict = {"tools": [], "end": {}}
     out = {"task": task["id"], "trial": trial, "passed": False, "grades": [], "status": "error", "steps": 0,
            "tool_calls": 0, "cost_usd": 0.0, "duration_s": 0.0, "input_tokens": 0, "output_tokens": 0,
            "cache_read_tokens": 0, "started": started}
@@ -254,11 +266,15 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
         child = child_runtime(rt, cfg)
         if child.provider_error:
             raise EvalError(f"model not available: {child.provider_error}")
-        events: dict = {"tools": [], "end": {}}
 
         def emit(kind, data):
             if kind == "tool_call":
                 events["tools"].append(data.get("name"))
+                if activity:
+                    try:
+                        activity({"step": len(events["tools"]), "tool": data.get("name"), "at": time.time()})
+                    except Exception:  # noqa: BLE001 - showing progress never breaks a trial
+                        pass
             elif kind == "turn_end":
                 events["end"] = data
 
@@ -304,7 +320,7 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
                    output_tokens=int((end.get("usage") or {}).get("output_tokens") or 0),
                    cache_read_tokens=int((end.get("usage") or {}).get("cache_read_tokens") or 0),
                    model=getattr(child.provider, "label", ""),
-                   answer=(answer or "")[:1500], files=[str(p.relative_to(ws)) for p in changed][:30])
+                   answer=(answer or "")[:1500], files=[str(_rel(p, ws)) for p in changed][:30])
     except EvalError as e:
         out["error"] = str(e)
     except Exception as e:  # noqa: BLE001 - one broken trial must not stop the run
@@ -312,6 +328,14 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
         out["error"] = f"{type(e).__name__}: {e}"
     finally:
         out["duration_s"] = round(time.time() - started, 1)
+        end = events.get("end") or {}
+        if out.get("error") and end and not out.get("input_tokens"):
+            # the trial ran and then something after it failed: its cost still counts (budget, report)
+            u = end.get("usage") or {}
+            out.update(steps=end.get("steps", 0), cost_usd=round(u.get("cost_usd") or 0, 5),
+                       input_tokens=int(u.get("input_tokens") or 0), output_tokens=int(u.get("output_tokens") or 0),
+                       cache_read_tokens=int(u.get("cache_read_tokens") or 0),
+                       tool_calls=len(events["tools"]))
         if child is not None:
             _copy_usage(child, rt, task["id"])
             try:
@@ -420,7 +444,7 @@ def _bench_task(task: dict) -> dict:
 
 async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[str] | None = None, emit=None,
               keep: bool = False, model: str | None = None, judge: str | None = None, thinking: str | None = None,
-              judge2: str | None = None, anchors: bool = True) -> dict:
+              judge2: str | None = None, anchors: bool = True, activity=None) -> dict:
     """model: the model under test - alone in every role (solo()), or with `thinking` the execution model of a
     combination (combo()); judge: the model that grades llm rubrics; judge2: a second judge (another family) whose
     agreement is reported."""
@@ -468,13 +492,18 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
                 # a judge that answers nothing would fail every rubric question: stop before the trials cost money
                 raise EvalError(f"評鑑模型 {doc['judge']} 對 {doc['judge_check']['total']} 題錨題都沒有給出判定"
                                 "（沒有回應、被截斷或不是 JSON）；沒有開始試驗。請換一個評鑑模型（--judge）或稍後再試。")
-        for task in tasks:
+        for ti, task in enumerate(tasks):
             n = int(k or task["trials"])
             if emit:
                 emit("eval_progress", {"id": rid, "task": task["id"], "done": doc["progress"]["done"],
                                        "total": len(tasks)})
+            act = None
+            if activity:
+                def act(d, _t=task["id"], _i=ti + 1):
+                    activity({**d, "task": _t, "task_index": _i, "tasks": len(tasks)})
+                act({"step": 0, "tool": None, "at": time.time()})
             trials = [await run_trial(rt, task, i + 1, keep=keep, model=model, judge=jprov, thinking=thinking,
-                                      judge2=j2prov, bench=bench, save_dir=save_dir) for i in range(n)]
+                                      judge2=j2prov, bench=bench, save_dir=save_dir, activity=act) for i in range(n)]
             entry = {}
             if bench is not None:
                 qs = [sfs.question(g) for g in task["graders"]]

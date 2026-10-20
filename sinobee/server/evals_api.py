@@ -235,7 +235,7 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
     @app.get("/api/evals/campaigns/{cid}")
     async def campaign_get(cid: str):
         try:
-            return C.get(rt_getter().config.home, cid)
+            return C.current(rt_getter().config.home, cid)
         except E.EvalError as e:
             bad(e, 404)
 

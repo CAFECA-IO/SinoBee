@@ -92,7 +92,19 @@ def listing(home, session_id: str | None = None, limit: int = 30) -> list[dict]:
     return out
 
 
+def _actual(c: dict) -> dict:
+    """A campaign the file says is running or queued, but this process does not run or queue (SinoBee restarted):
+    it is stopped, and can be resumed. The file is left as it is."""
+    cid = c.get("id")
+    if c.get("status") in ("running", "comparing", "queued") and cid not in LIVE and cid != QUEUE.current \
+            and not any(w[1] == cid for w in QUEUE.waiting):
+        c = {**c, "status": "stopped", "live": None,
+             "error": "評鑑在 SinoBee 重新啟動時中斷，已完成的試驗都保留；按「繼續」從下一次試驗接著跑"}
+    return c
+
+
 def summary(c: dict) -> dict:
+    c = _actual(c)
     return {k: c.get(k) for k in ("id", "skill", "skill_version", "suite", "suite_hash", "status", "session_id",
                                   "created", "updated", "budget_usd", "spent", "progress", "error", "k")}
 
@@ -321,6 +333,17 @@ def _expected(c: dict, ci: int) -> float:
     return float(rows[ci]["usd_per_trial"]) if ci < len(rows) else 0.0
 
 
+LIVE: dict[str, dict] = {}       # campaigns being executed in this process: their up-to-date state (live step)
+
+
+def current(home, cid: str) -> dict:
+    """The campaign as it is now: the running one from memory (its live step is newer than the file), else the
+    file. Adds the server's clock so a viewer can count the elapsed time."""
+    c = dict(LIVE.get(cid) or _actual(get(home, cid)))
+    c["now"] = time.time()
+    return c
+
+
 async def execute(rt, cid: str, emit=None) -> dict:
     """Run the campaign's remaining trials, then the creativity comparison. Stops (keeping what is done) when the
     budget would be exceeded; a cancel marks it stopped so it can be resumed."""
@@ -329,10 +352,24 @@ async def execute(rt, cid: str, emit=None) -> dict:
     c = get(home, cid)
     if c["status"] in ("done", "published"):
         return c
-    c.update(status="running", error=None)
-    save(home, c)
     started = time.time()
     base_elapsed = float(c.get("elapsed_s") or 0)
+    c.update(status="running", error=None, run_started=started, elapsed_base=base_elapsed, live=None)
+    save(home, c)
+    LIVE[cid] = c
+    last = {"tell": 0.0, "save": 0.0}
+
+    def activity(d: dict) -> None:
+        """A step of the trial in progress: shown live (at most every 2 s) and kept in the file (every 30 s), so a
+        reopened panel - or anyone reading the campaign - sees that it moves and where."""
+        c["live"] = {**(c.get("live") or {}), **d}
+        now = time.time()
+        if now - last["tell"] >= 2 or d.get("step") in (0, 1):      # a new input and its first step: always
+            last["tell"] = now
+            tell("campaign_progress", live=c["live"])
+        if now - last["save"] >= 30:
+            last["save"] = now
+            save(home, c)
 
     def tell(kind: str, **extra):
         if emit:
@@ -351,11 +388,13 @@ async def execute(rt, cid: str, emit=None) -> dict:
                 c["error"] = (f"已花費 ${c['spent']['total']:.2f}，下一次試驗預估 ${_expected(c, ci):.2f}，"
                               f"會超過預算 ${c['budget_usd']:.2f}；已完成的結果都保留")
                 break
-            tell("campaign_progress", running={"combo": ci, "trial": trial})
+            c["live"] = {"combo": ci, "trial": trial, "at": time.time(), "step": 0, "tool": None}
+            save(home, c)
+            tell("campaign_progress", running={"combo": ci, "trial": trial}, live=c["live"])
             doc = await run(rt, c["suite"], k=1, model=combo["execution"],
                             thinking=combo["thinking"] if combo["thinking"] != combo["execution"] else None,
                             judge=c.get("judge"), judge2=c.get("judge2"),
-                            anchors=not any(it.get("judge_check") for it in c["items"]))
+                            anchors=not any(it.get("judge_check") for it in c["items"]), activity=activity)
             t = doc.get("totals") or {}
             contestant = float(t.get("cost_usd") or 0)
             judges = _judge_cost(rt.config, doc)
@@ -392,6 +431,10 @@ async def execute(rt, cid: str, emit=None) -> dict:
         c["status"], c["error"] = "error", f"{type(e).__name__}: {e}"
     finally:
         c["elapsed_s"] = round(base_elapsed + time.time() - started, 1)
+        c["live"] = None
+        c.pop("run_started", None)
+        c.pop("elapsed_base", None)
+        LIVE.pop(cid, None)
         save(home, c)
         tell("campaign_done" if c["status"] != "running" else "campaign_progress", error=c.get("error"))
     return c

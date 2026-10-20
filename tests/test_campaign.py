@@ -252,3 +252,32 @@ def test_a_suite_shared_on_sinobee_ai_is_checked_and_kept(rt, monkeypatch):
         A.import_remote(rt.config, h)
     with pytest.raises(EvalError):
         A.import_remote(rt.config, "nothex")
+
+
+async def test_a_running_campaign_shows_where_it_is_and_an_orphan_is_stopped(rt, tmp_path, monkeypatch):
+    """A campaign's trial takes many minutes: its step, input and time are visible while it runs (2026-10-21); one
+    that the file says is running but no process runs (SinoBee restarted) shows as stopped and can be resumed."""
+    monkeypatch.setattr(runner, "child_runtime", _child([]))
+    c = C.new(rt, suite=_suite(tmp_path), combos=COMBOS[:1], k=1, budget_usd=5)
+    seen = []
+
+    def emit(kind, d):
+        if d.get("live"):
+            seen.append(dict(d["live"]))
+            cur = C.current(rt.config.home, c["id"])
+            seen[-1]["running"] = cur["status"] == "running" and bool(cur.get("run_started")) and "now" in cur
+    C.LIVE.clear()
+    await C.execute(rt, c["id"], emit=emit)
+    stepped = [x for x in seen if x.get("step")]
+    assert stepped and stepped[0]["tool"] == "write_file" and stepped[0]["task_index"] == 1 and stepped[0]["tasks"] == 2
+    assert all(x["running"] for x in seen)
+    after = C.current(rt.config.home, c["id"])
+    assert after["status"] == "done" and after.get("live") is None and "run_started" not in after
+    assert c["id"] not in C.LIVE
+
+    orphan = C.new(rt, suite=_suite(tmp_path), combos=COMBOS[:1], k=1, budget_usd=5, session_id="s9")
+    orphan["status"] = "running"
+    C.save(rt.config.home, orphan)
+    assert C.current(rt.config.home, orphan["id"])["status"] == "stopped"
+    assert C.listing(rt.config.home, "s9")[0]["status"] == "stopped"
+    assert C.get(rt.config.home, orphan["id"])["status"] == "running"       # the file is left as it was

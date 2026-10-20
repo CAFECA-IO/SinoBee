@@ -683,6 +683,9 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 .cklist li small{display:block;color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ckl-b{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);display:grid;place-items:center;margin-top:1px;font-size:11px;color:var(--muted)}
 .ckl-b svg.i{width:12px;height:12px}.ckl-b .spin{width:10px;height:10px;border-width:2px}
+.evlive{display:flex;gap:8px;align-items:flex-start;margin-top:8px;font-size:12.5px;color:var(--muted);line-height:1.5}.evlive:empty{display:none}
+.evlive .spin{width:12px;height:12px;margin-top:3px}.evlive .warn{color:var(--warn)}.evlive.stale .spin{animation:none;border-top-color:var(--warn)}
+button.ev-dot{border:0;background:none;padding:0;font:inherit;cursor:pointer;text-decoration:underline dotted}
 .ckl-stop{display:block;width:10px;height:10px;border:2px solid var(--warn);border-radius:50%;box-sizing:border-box}
 .cklist li.done .ckl-b{background:var(--accent-solid);border-color:var(--accent-solid);color:var(--on-accent)}
 .cklist li.doing .ckl-b{border-color:var(--accent)}.cklist li.dropped{color:var(--muted)}.cklist li.dropped>span:last-child{text-decoration:line-through}
@@ -2037,6 +2040,7 @@ async function openSession(s){
   const replayLast = PROC;
   if (!RUNNING[s.id]) procClose();
   REPLAY = false; if (replayLast && RUNNING[s.id]) { replayLast.live = true; }
+  evNoteRunning(s.id);
   for (const a of Array.isArray(arts) ? arts : []) showArtifacts(a.id, a.files);
   if (!RUNNING[s.id]) api('/api/sessions/' + s.id + '/interrupted').then(r => { if (r?.interrupted && sessionId === s.id) interruptedCard(r); }).catch(() => {});
   api('/api/sessions/' + s.id + '/milestones').then(r => { if (r?.plan && sessionId === s.id && (r.running || r.plan.done < r.plan.total)) { msEl = null; msShow({...r.plan, phase: r.running ? 'running' : r.plan.phase}); } }).catch(() => {});
@@ -2571,13 +2575,15 @@ async function evStep3(){
     return `<div class="evrow" style="--n:${k}"><span>${cbx(x.thinking, x.execution)}${x.baseline ? '<span class="chip">基準</span>' : ''}</span>${cells}</div>`; }).join('');
   const st = {queued: '排隊中：前一個評鑑跑完後開始', running: '背景執行中，可以關掉這個面板', comparing: '創造力盲比中（兩兩配對、左右對調各問一次）',
     budget: c.error || '已達預算上限', stopped: '已停止，已完成的結果都保留', error: '發生錯誤：' + (c.error || ''), done: '完成', published: '已提交'}[c.status] || c.status;
+  EV.clockSkew = (c.now || Date.now() / 1000) - Date.now() / 1000;
   const canResume = ['stopped', 'budget', 'error'].includes(c.status) && done < total;
   const hasResults = c.items.length > 0 && !['running', 'queued', 'comparing'].includes(c.status);
   evShell(`<div class="evstats"><div><div class="k">進度</div><div class="v">${done}/${total}</div><div class="s">次試驗</div></div>
       <div><div class="k">已花費</div><div class="v">${fmtUsd(c.spent.total)}</div><div class="s">上限 ${fmtUsd(c.budget_usd)}</div></div>
-      <div><div class="k">經過</div><div class="v">${fmtSec(c.elapsed_s)}</div><div class="s">預估 ${fmtSec(c.estimate?.seconds)}</div></div></div>
+      <div><div class="k">經過</div><div class="v" id="evElapsed">${fmtSec(evElapsed(c))}</div><div class="s">預估 ${fmtSec(c.estimate?.seconds)}</div></div></div>
     <div class="evbar"><i style="width:${total ? 100 * done / total : 0}%"></i></div>
     <div class="evbox ${['budget', 'error'].includes(c.status) ? 'warn' : c.status === 'done' ? 'ok' : ''}">${esc(st)}</div>
+    <div id="evLive" class="evlive"></div>
     <div class="evrow" style="--n:${k};border:0;color:var(--muted);font-size:11px;margin-top:8px"><span>組合（思維＋執行）</span>${Array.from({length: k}, (_, j) => `<span class="cell" style="background:none">第 ${j + 1} 次</span>`).join('')}</div>
     ${rows}
     <div style="font-size:12px;color:var(--muted);margin-top:8px">每格是一次試驗在整份題組（${esc(String(c.estimate?.tasks || ''))} 份輸入）的平均分；綠色＝合格。</div>
@@ -2590,6 +2596,30 @@ async function evStep3(){
     try { await evJson(`/api/evals/campaigns/${EV.campaign}/resume`, {budget_usd: +($('#evMore')?.value || c.budget_usd)}); evStep3(); }
     catch (e) { uiAlert(e.message); } });
   $('#evFoot [data-a=res]').onclick = () => evGo(4);
+  evLiveRender();
+  clearInterval(EV.tick);
+  if (['running', 'comparing'].includes(c.status)) EV.tick = setInterval(() => {
+    if (!EV.open || EV.step !== 3 || !$('#evElapsed')) return clearInterval(EV.tick);
+    $('#evElapsed').textContent = fmtSec(evElapsed(EV.data.c)); evLiveRender(); }, 1000);
+}
+// time on the server's clock; a running campaign counts from when this run of it started
+function evElapsed(c){
+  if (!c) return 0;
+  if (['running', 'comparing'].includes(c.status) && c.run_started) return (c.elapsed_base || 0) + Math.max(0, Date.now() / 1000 + (EV.clockSkew || 0) - c.run_started);
+  return c.elapsed_s;
+}
+// what the trial in progress is doing now: which combination, which input, which step, and how long ago it moved
+function evLiveRender(){
+  const el = $('#evLive'), c = EV.data.c; if (!el || !c) return;
+  const L = c.live;
+  if (!L || !['running', 'comparing'].includes(c.status)) { el.innerHTML = ''; return; }
+  const x = (c.combos || [])[L.combo] || {}, ago = Math.max(0, Date.now() / 1000 + (EV.clockSkew || 0) - (L.at || c.now));
+  const stale = ago > 300;
+  el.innerHTML = `<span class="spin"></span><span>正在跑：${cbx(x.thinking, x.execution)} 第 ${L.trial} 次`
+    + (L.tasks ? ` · 輸入 ${L.task_index}/${L.tasks}${L.task ? `（${esc(L.task)}）` : ''}` : ' · 準備中（考評鑑模型錨題、建立試驗環境）')
+    + (L.step ? ` · 第 ${L.step} 步${L.tool ? ` <code>${esc(L.tool)}</code>` : ''}` : '')
+    + ` · <b class="${stale ? 'warn' : ''}">${fmtSec(ago)}前有動作</b>${stale ? '（超過 5 分鐘沒有新步驟：模型可能正在寫很長的內容，或卡住了）' : ''}</span>`;
+  el.classList.toggle('stale', stale);
 }
 // ---- 5. results and submitting
 async function evStep4(){
@@ -2654,7 +2684,10 @@ function onEvalEvent(ev){
     else delete EV_RUN[ev.session_id];
     markEvalSide();
   }
-  if (EV.open && EV.campaign === ev.id && EV.step === 3) evStep3();
+  if (EV.open && EV.campaign === ev.id && EV.step === 3) {
+    if (ev.live && !ev.item && EV.data.c && EV.data.c.id === ev.id && EV.data.c.status === ev.status) { EV.data.c.live = ev.live; evLiveRender(); }
+    else evStep3();
+  }
   if (ev.type === 'campaign_done' && ev.session_id === sessionId) {
     const msg = {done: '完成', budget: '因預算停止', stopped: '已停止', error: '發生錯誤'}[ev.status] || ev.status;
     add(`⚖ 技能評鑑${msg}：${ev.progress?.done || 0}/${ev.progress?.total || 0} 次試驗，花費 ${fmtUsd(ev.spent?.total)}。<a href="#" data-evopen="${esc(ev.id)}">看結果</a>`, 'note');
@@ -2665,8 +2698,25 @@ function markEvalSide(){
   document.querySelectorAll('#side .item[data-sid]').forEach(d => {
     d.querySelector('.ev-dot')?.remove();
     const r = EV_RUN[d.dataset.sid];
-    if (r) d.querySelector('small')?.insertAdjacentHTML('beforebegin', `<span class="run-dot ev-dot">⚖ ${r.status === 'queued' ? '評鑑排隊中' : `評鑑中 ${r.done}/${r.total}`}</span>`);
+    if (r) d.querySelector('small')?.insertAdjacentHTML('beforebegin', `<button type="button" class="run-dot ev-dot" title="查看評鑑進度">⚖ ${r.status === 'queued' ? '評鑑排隊中' : `評鑑中 ${r.done}/${r.total}`}</button>`);
+    const b = d.querySelector('.ev-dot');
+    if (b) b.onclick = e => { e.stopPropagation(); evOpenCampaign(d.dataset.sid, d.firstChild?.textContent || ''); };
   });
+}
+// the campaign of a conversation: from the sidebar badge, or the note shown when the conversation is opened
+async function evOpenCampaign(sid, title){
+  if (sid !== sessionId) await openSession({id: sid, title});
+  let c;
+  try { const {campaigns} = await api(`/api/evals/campaigns?session_id=${encodeURIComponent(sid)}`); c = (campaigns || [])[0]; } catch {}
+  if (!c) return;
+  Object.assign(EV, {sid, campaign: c.id, suite: c.suite, skill: c.skill, version: c.skill_version, turnId: EV.sid === sid ? EV.turnId : null});
+  if (!EV.skills?.includes(c.skill)) EV.skills = [c.skill];
+  evPanel(true); evGo(['done', 'published'].includes(c.status) ? 4 : 3);
+}
+function evNoteRunning(sid){
+  const r = EV_RUN[sid]; if (!r) return;
+  add(`⚖ 技能評鑑${r.status === 'queued' ? '排隊中' : `進行中 ${r.done}/${r.total}`}：在背景執行，關掉面板也不會停。<a href="#" data-evsid="${esc(sid)}">查看進度</a>`, 'note');
+  document.querySelectorAll('[data-evsid]').forEach(a => a.onclick = e => { e.preventDefault(); evOpenCampaign(a.dataset.evsid); });
 }
 (async () => { try { const {campaigns} = await api('/api/evals/campaigns');
   for (const c of campaigns || []) if (c.session_id && ['running', 'queued', 'comparing'].includes(c.status)) EV_RUN[c.session_id] = {done: c.progress?.done || 0, total: c.progress?.total || 0, status: c.status};

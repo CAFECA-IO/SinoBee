@@ -243,7 +243,7 @@ class Sandbox:
                 continue
             try:
                 if p.is_file() and p.stat().st_size <= 2_000_000:
-                    texts.append((str(p.relative_to(self.workspace)) if self.workspace in p.resolve().parents else p.name,
+                    texts.append((str(p.resolve().relative_to(self.workspace)) if self.workspace in p.resolve().parents else p.name,
                                    p.read_text(encoding="utf-8", errors="replace")))
             except OSError:
                 continue
