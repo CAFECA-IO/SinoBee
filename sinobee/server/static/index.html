@@ -277,6 +277,7 @@ input:disabled,select:disabled{opacity:.6;cursor:not-allowed}
 .memact{display:none;gap:6px;margin-top:4px}.item:hover .memact{display:flex}@media (hover:none){.memact{display:flex}}.memact button{font-size:11px;padding:1px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:inherit;cursor:pointer}
 .item.dim{opacity:.55}.item.pend{background:var(--user)}
 .skhead{padding:8px 10px 10px;border-bottom:1px solid var(--line);margin-bottom:6px;font-size:12px;color:var(--muted)}
+.sk-row{display:flex;align-items:center;gap:6px}.sk-proj{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sk-row .tb{flex:none}
 .btn.sm{padding:3px 8px;font-size:12px}
 .krow{display:grid;grid-template-columns:150px minmax(0,1fr) 240px 270px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--line);font-size:13px}
 .badge{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--tool);color:var(--muted);white-space:nowrap}
@@ -2119,9 +2120,10 @@ async function fillSide(side){
     const data = await api('/api/skills');
     const pj = data.project || {};
     const head = document.createElement('div'); head.className = 'skhead';
-    head.innerHTML = `<div class="sk-proj" title="${esc(pj.dir || '')}">專案：${esc((pj.dir || '未設定').split('/').slice(-2).join('/'))}
-      ${pj.dir ? (pj.trusted ? '<span class="tb t-project">已信任</span>' : `<button class="btn icon sm" id="trustProj" aria-label="信任此專案">${ic('shield')}</button>`) : ''}</div>
-      <div style="display:flex;gap:6px;margin-top:6px"><button class="btn icon sm" id="skInstall" aria-label="安裝技能">${ic('download')}</button><button class="btn icon sm" id="skLearnHelp" aria-label="如何學習技能？">${ic('help')}</button></div>`;
+    // one row: the project (cut with … when long), its trust, then the actions - all on one centre line
+    head.innerHTML = `<div class="sk-row"><span class="sk-proj" title="${esc(pj.dir || '')}">專案：${esc((pj.dir || '未設定').split('/').filter(Boolean).pop() || '未設定')}</span>
+      ${pj.dir ? (pj.trusted ? '<span class="tb t-project">已信任</span>' : `<button class="btn icon sm" id="trustProj" aria-label="信任此專案" title="信任此專案">${ic('shield')}</button>`) : ''}
+      <button class="btn icon sm" id="skInstall" aria-label="安裝技能" title="安裝技能">${ic('download')}</button><button class="btn icon sm" id="skLearnHelp" aria-label="如何學習技能？" title="如何學習技能？">${ic('help')}</button></div>`;
     side.appendChild(head);
     head.querySelector('#trustProj')?.addEventListener('click', async () => { if (await uiConfirm('信任此專案後，其 .sinobee/skills 與 .agents/skills 中的技能會載入給 agent 使用。之後新增或變更的技能需再次核准。確定？')) { await post('/api/skills/project/trust', {trusted: true}); loadSide(); } });
     head.querySelector('#skInstall').onclick = installSkill;
