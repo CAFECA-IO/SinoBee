@@ -629,3 +629,40 @@ def suite_checks(suite: dict, texts: dict[str, str]) -> list[dict]:
         {"ok": leaks == 0, "label": "測試輸入已去識別" + (f"（發現 {leaks} 處）" if leaks else "")},
         {"ok": True, "label": "題目沒有照抄原始成果、沒有對評鑑模型下指令"},
     ]
+
+
+# ---------------------------------------------------------------- suites shared on sinobee.ai
+
+def remote_suites(config, skill: str) -> list[dict]:
+    """Suites of `skill` shared on sinobee.ai (most used first); nothing when offline."""
+    try:
+        import httpx
+        from .. import account
+        r = httpx.get(f"{account.base_url(config)}/api/v1/evals/suites", params={"skill": skill}, timeout=8)
+        return list(r.json().get("items") or []) if r.status_code == 200 else []
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def import_remote(config, h: str) -> dict:
+    """Download a shared suite, check that it is what its hash says and passes the same rules, and keep it here so it
+    runs as suite:<hash> - reports on it join the same ranking on sinobee.ai."""
+    import httpx
+    from .. import account
+    if not re.fullmatch(r"[0-9a-f]{64}", h or ""):
+        raise AuthoringError("題組編號不正確")
+    try:
+        r = httpx.get(f"{account.base_url(config)}/api/v1/evals/suites/{h}", timeout=30)
+    except httpx.HTTPError as e:
+        raise AuthoringError(f"連不到 sinobee.ai：{e}") from None
+    if r.status_code != 200:
+        raise AuthoringError(f"sinobee.ai 上沒有這份題組（HTTP {r.status_code}）")
+    d = r.json()
+    suite, texts = d.get("suite") or {}, {str(k): str(v) for k, v in (d.get("inputs") or {}).items()}
+    if not isinstance(suite, dict) or not d.get("skill"):
+        raise AuthoringError("sinobee.ai 回傳的題組格式不正確")
+    if package_hash(_fixed(suite, d["skill"]), texts) != h:
+        raise AuthoringError("下載的題組與編號不符，已捨棄")
+    return save(config.home, suite, texts, {"skill": d["skill"], "skill_version": d.get("skill_version") or "",
+                                            "evaluator": d.get("evaluator") or "", "source": "sinobee.ai",
+                                            "evaluator_version": d.get("evaluator_version") or ""})

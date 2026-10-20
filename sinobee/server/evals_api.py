@@ -57,7 +57,26 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
                         "security": {k: st[k] for k in ("static", "behavior", "suite", "review", "passed", "total",
                                                         "blocked")},
                         "suites": counts.get(s.name, 0)})
-        return {"skill": skill, "evaluators": out}
+        installed = {s.name for s in rt.skills.skills.values()}
+        remote = []
+        try:
+            import httpx
+            from .. import account
+            r = await asyncio.to_thread(httpx.get, f"{account.base_url(rt.config)}/api/v1/skills",
+                                        params={"kind": "evaluation", "target": skill}, timeout=8)
+            for it in (r.json().get("items") or []) if r.status_code == 200 else []:
+                if it.get("name") in installed:
+                    continue
+                sec = it.get("security") or {}
+                remote.append({"ref": f"hub:{it.get('id')}", "name": it.get("name"), "version": it.get("latest"),
+                               "description": it.get("description"), "publisher": it.get("publisher"),
+                               "trust": it.get("trust"), "targets": it.get("targets"), "reviewed": bool(it.get("reviewed")),
+                               "security": sec, "downloads": it.get("downloads"),
+                               # decision 2: only reviewed ones that passed every security check are listed by default
+                               "recommended": bool(it.get("reviewed")) and sec.get("passed") == 4})
+        except Exception:  # noqa: BLE001 - offline: only what is installed
+            pass
+        return {"skill": skill, "evaluators": out, "remote": remote}
 
     @app.get("/api/evals/suites")
     async def suites(skill: str, version: str | None = None):
@@ -67,7 +86,18 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
         for m in items:
             m["same_version"] = not version or m.get("skill_version") == version
             m["campaigns"] = sum(1 for c in camps if c.get("suite_hash") == m["hash"])
-        return {"skill": skill, "suites": items}
+        have = {m["hash"] for m in items}
+        remote = [{**m, "source": "remote"} for m in await asyncio.to_thread(A.remote_suites, rt.config, skill)
+                  if m.get("hash") not in have]
+        return {"skill": skill, "suites": items, "remote": remote}
+
+    @app.post("/api/evals/suites/import")
+    async def suite_import(body: dict):
+        """Use a suite shared on sinobee.ai: downloaded, checked against its hash, kept here."""
+        try:
+            return await asyncio.to_thread(A.import_remote, rt_getter().config, str(body.get("hash") or ""))
+        except E.EvalError as e:
+            bad(e)
 
     @app.get("/api/evals/suites/jobs/{job}")
     async def suite_job(job: str):

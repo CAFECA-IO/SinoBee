@@ -2359,8 +2359,10 @@ async function evStep0(){
   try { [ev, su] = await Promise.all([api(`/api/evals/evaluators?skill=${encodeURIComponent(EV.skill)}`),
                                       api(`/api/evals/suites?skill=${encodeURIComponent(EV.skill)}`)]); }
   catch (e) { return evError(e); }
-  EV.data.evaluators = ev.evaluators || []; EV.data.suites = su.suites || [];
-  if (!EV.data.suites.length) EV.source = 'new';
+  EV.data.evaluators = ev.evaluators || []; EV.data.suites = su.suites || []; EV.data.remoteSuites = su.remote || [];
+  EV.data.remoteEv = ev.remote || [];
+  const anySuite = EV.data.suites.length + EV.data.remoteSuites.length;
+  if (!anySuite) EV.source = 'new';
   if (!EV.data.evaluators.some(x => x.name === EV.evaluator && !x.security.blocked))
     EV.evaluator = (EV.data.evaluators.find(x => !x.security.blocked) || {}).name || '';
   const secChip = s => `<span class="chip ${s.passed === 4 ? 'ok' : s.blocked ? 'bad' : 'warn'}" title="靜態掃描、沙箱行為、題組檢查、人工審核">安全性評鑑 ${s.passed}/4</span>`;
@@ -2374,26 +2376,50 @@ async function evStep0(){
       <div class="nm">${esc(m.title || m.skill)} <span class="chip">sha ${esc(m.hash.slice(0, 8))}</span>${m.same_version ? '' : `<span class="chip warn">技能 ${esc(m.skill_version || '?')}</span>`}${m.campaigns ? `<span class="chip ok">${m.campaigns} 次評鑑</span>` : ''}</div>
       <div class="by">由 ${esc(m.evaluator || '?')} ${esc(m.evaluator_version || '')} 出題 · ${new Date((m.created || 0) * 1000).toLocaleDateString()}</div>
       <div class="facts">${m.inputs} 份輸入 · ${m.questions} 題 · ${esc((m.categories || []).join('、'))}${m.derived_from ? ' · 修改自 ' + esc(m.derived_from.slice(0, 8)) : ''}</div></div></div>`).join('');
+  const rsus = EV.data.remoteSuites.map(m => `<div class="evopt ${EV.remoteSel === m.hash ? 'sel' : ''}" data-rsu="${esc(m.hash)}" role="radio" tabindex="0"><span class="rad"></span><div>
+      <div class="nm">${esc(m.title || m.subject)} <span class="chip">sha ${esc(m.hash.slice(0, 8))}</span><span class="chip ok">sinobee.ai · ${m.reportCount || 0} 份報告</span>${m.same_version === false ? `<span class="chip warn">技能 ${esc(m.subjectVersion || '?')}</span>` : ''}</div>
+      <div class="by">由 ${esc(m.evaluator || '?')} ${esc(m.evaluatorVersion || '')} 出題 · @${esc(m.by || '')}</div>
+      <div class="facts">${m.inputs} 份輸入 · ${m.questions} 題 · ${esc((m.categories || []).join('、'))} · 沿用它，結果直接加入現有排行；已測過的組合不必重跑</div></div></div>`).join('');
+  const rec = EV.data.remoteEv.filter(x => x.recommended), more = EV.data.remoteEv.filter(x => !x.recommended);
+  const rcard = x => `<div class="evopt" style="cursor:default"><span class="rad" style="visibility:hidden"></span><div>
+      <div class="nm">${esc(x.name)}<span class="chip">${x.trust === 'verified' ? '官方驗證' : '社群'}</span>${x.reviewed ? '<span class="chip ok">已審核</span>' : '<span class="chip warn">未審核</span>'}<span class="chip">${esc(x.version || '')}</span>${x.security?.total ? `<span class="chip ${x.security.passed === 4 ? 'ok' : x.security.blocked ? 'bad' : 'warn'}">安全性評鑑 ${x.security.passed}/4</span>` : ''}</div>
+      <div class="by">@${esc(x.publisher || '')} · 適用：${esc(x.targets === '*' ? '所有技能' : x.targets || '')}</div>
+      <div class="facts">${esc(x.description || '')}</div>
+      <button class="btn sm" type="button" data-inst="${esc(x.ref)}" style="margin-top:6px" ${x.security?.blocked ? 'disabled' : ''}>安裝</button></div></div>`;
+  const hubEv = EV.data.remoteEv.length ? `<h4>Skill Hub 上的評鑑技能 <small>安裝後即可選用；在沙箱中執行</small></h4>${rec.map(rcard).join('') || '<div style="font-size:12px;color:var(--muted)">沒有通過審核與安全性評鑑的評鑑技能。</div>'}
+      ${more.length ? (EV.showMore ? more.map(rcard).join('') : `<button class="btn sm" type="button" id="evMore" style="margin-top:8px">顯示 ${more.length} 個未審核或未通過安全性評鑑的評鑑技能</button>`) : ''}` : '';
   const multi = EV.skills.length > 1 ? `<label class="fld"><span>要評鑑的技能（這次用了 ${EV.skills.length} 個）</span><select class="inp" id="evSkill">${EV.skills.map(s => `<option ${s === EV.skill ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>` : '';
   evShell(`${multi}<h4>題組來源</h4>
-    <div class="evseg"><button type="button" data-src="reuse" class="${EV.source === 'reuse' ? 'on' : ''}" ${EV.data.suites.length ? '' : 'disabled'}>沿用已有的題組</button><button type="button" data-src="new" class="${EV.source === 'new' ? 'on' : ''}">產生新題組</button></div>
-    ${EV.source === 'reuse' ? `<div class="pkhint" style="margin-top:6px;color:var(--muted);font-size:12px">沿用同一份題組，結果才能和之前的評鑑放在同一個排行。</div>${sus}`
+    <div class="evseg"><button type="button" data-src="reuse" class="${EV.source === 'reuse' ? 'on' : ''}" ${anySuite ? '' : 'disabled'}>沿用已有的題組</button><button type="button" data-src="new" class="${EV.source === 'new' ? 'on' : ''}">產生新題組</button></div>
+    ${EV.source === 'reuse' ? `<div class="pkhint" style="margin-top:6px;color:var(--muted);font-size:12px">沿用同一份題組，結果才能和之前的評鑑放在同一個排行。</div>${sus}${rsus ? `<h4>SinoBee.ai 上分享的題組</h4>${rsus}` : ''}`
       : `${EV.data.suites.length ? '' : `<div style="margin-top:6px;color:var(--muted);font-size:12px">${esc(EV.skill)} 還沒有題組，這次評鑑會建立第一份。</div>`}
-      <h4>由哪個評鑑技能出題</h4>${evs}
+      <h4>由哪個評鑑技能出題</h4>${evs}${hubEv}
       <div class="evbox warn"><b>提醒</b>不同評鑑技能出的題組不同，只有同一份題組的報告會放在同一個排行。評鑑技能在沙箱中執行，只讀取這個技能與本次任務去識別後的輸入、成果。</div>
       <h4>本次任務帶進評鑑</h4>
       <div class="pkfile"><span>需求、回答與成果<small>去識別後當原題（人名、Email、路徑會換成代稱）</small></span><span class="chip ok">必要</span></div>`}
     <div class="pkfile"><span>本次的模型組合當基準<small>基準組合也在題組上跑同樣次數，才能公平比較</small></span><input type="checkbox" class="sw" id="evBase" ${EV.useBase !== false ? 'checked' : ''} aria-label="本次的模型組合當基準"></div>`,
     `<button class="btn" type="button" data-a="close">取消</button>` + (EV.source === 'reuse'
-      ? `<button class="btn primary" type="button" data-a="next" ${EV.suite ? '' : 'disabled'}>下一步：題組</button>`
+      ? `<button class="btn primary" type="button" data-a="next" ${EV.suite || EV.remoteSel ? '' : 'disabled'}>下一步：題組</button>`
       : `<button class="btn primary" type="button" data-a="gen" ${EV.evaluator ? '' : 'disabled'}>用 ${esc(EV.evaluator || '評鑑技能')} 出題</button>`));
   $('#evSkill')?.addEventListener('change', e => { EV.skill = e.target.value; EV.suite = null; evStep0(); });
   $('#evBody').querySelectorAll('[data-src]').forEach(b => b.onclick = () => { EV.source = b.dataset.src; evStep0(); });
   $('#evBody').querySelectorAll('[data-ev]').forEach(d => d.onclick = () => { if (d.classList.contains('off')) return; EV.evaluator = d.dataset.ev; evStep0(); });
-  $('#evBody').querySelectorAll('[data-su]').forEach(d => d.onclick = () => { EV.suite = 'suite:' + d.dataset.su; evStep0(); });
+  $('#evBody').querySelectorAll('[data-su]').forEach(d => d.onclick = () => { EV.suite = 'suite:' + d.dataset.su; EV.remoteSel = null; evStep0(); });
+  $('#evBody').querySelectorAll('[data-rsu]').forEach(d => d.onclick = () => { EV.remoteSel = d.dataset.rsu; EV.suite = null; evStep0(); });
+  $('#evMore')?.addEventListener('click', async () => { if (await uiConfirm('這些評鑑技能還沒有通過審核或安全性評鑑。它們會在沙箱中執行，但出的題目可能不公平。仍要顯示嗎？', {ok: '顯示'})) { EV.showMore = true; evStep0(); } });
+  $('#evBody').querySelectorAll('[data-inst]').forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = '安裝中…';
+    try { await evJson('/api/skills/install', {ref: b.dataset.inst, scope: 'global'}); evStep0(); }
+    catch (e) { b.disabled = false; b.textContent = '安裝'; uiAlert(e.message); } });
   $('#evBase').onchange = e => { EV.useBase = e.target.checked; };
   $('#evFoot [data-a=close]').onclick = () => evPanel(false);
-  $('#evFoot [data-a=next]')?.addEventListener('click', () => evGo(1));
+  $('#evFoot [data-a=next]')?.addEventListener('click', async e => {
+    if (EV.remoteSel) {           // a suite shared on sinobee.ai: download, check its hash, keep it here
+      e.target.disabled = true;
+      try { const r = await evJson('/api/evals/suites/import', {hash: EV.remoteSel}); EV.suite = 'suite:' + r.hash; EV.remoteSel = null; }
+      catch (err) { e.target.disabled = false; return uiAlert(err.message); }
+    }
+    evGo(1); });
   $('#evFoot [data-a=gen]')?.addEventListener('click', async () => {
     try { const j = await evJson('/api/evals/suites/generate', {skill: EV.skill, session_id: EV.sid, turn_id: EV.turnId, evaluator: EV.evaluator});
       EV.job = {id: j.job, steps: 0, status: 'running'}; evGenerating(); }

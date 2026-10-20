@@ -1623,3 +1623,25 @@ M2 讓「評鑑技能」為其他技能出題，並把安全性變成每份題�
 - `publish.publish(config, runs, extra=)`：每份報告加上 `visibility`、`evaluator`、`suite_ref`、`campaign`。sinobee.ai 在 M4 才會儲存這些欄位；目前的 zod 會略過未知欄位。
 
 測試：`tests/test_campaign.py`（7 個）。
+
+## 36. 與 SinoBee.ai 的題組庫、評鑑技能分類串接（M4，2026-10-20）
+
+SinoBee.ai 這一側：`BenchSuite` 題組庫、報告的 `visibility`、`Skill.kind`／`targets`、評鑑技能的 `securityReport`（詳見 SinoBee.ai repo 的 `src/lib/bench-suites.ts`）。SinoBee 這一側：
+
+- **沿用 SinoBee.ai 上分享的題組**：
+  - `authoring.remote_suites(config, skill)` 讀取 `GET /api/v1/evals/suites?skill=`。
+  - `authoring.import_remote(config, hash)` 下載題組，用 `package_hash` 驗證與編號相符，通過 `sfs.lint` 後存到本機，`meta.source` 記為 `sinobee.ai`，之後就能用 `suite:<hash>` 執行。在同一份題組上跑出的報告會進入 SinoBee.ai 上同一個排行。
+  - `/api/evals/suites` 回傳本機題組和 `remote` 清單；`POST /api/evals/suites/import {hash}`。
+  - 評鑑面板第 1 步：「沿用已有的題組」下方列出「SinoBee.ai 上分享的題組」，顯示報告數與出題的評鑑技能。
+- **Skill Hub 上的評鑑技能**：
+  - `/api/evals/evaluators` 另外回傳 `remote`，讀取 `GET /api/v1/skills?kind=evaluation&target=<skill>`，已安裝的不列出。
+  - 決定 2：預設只列出已審核且安全性評鑑 4/4 的（`recommended`）；其他的要按「顯示未審核…」並確認後才出現。
+  - 安裝後即可選用；被封鎖的不能安裝。
+- **雜湊一致**：
+  - SinoBee.ai 以 TypeScript 重算 `sfs.suite_hash`，包括 Python `json.dumps(sort_keys=True, ensure_ascii=False)` 的輸出、`expand`、`normalize` 與 `_bench_task`。
+  - 兩邊是否一致，由 SinoBee 產生的 fixture（`tests/fixtures/bench-suite.json`）驗證。
+  - 已知限制：題組 JSON 裡的浮點整數（如 `35.0`）經 JS 解析後會變成 `35`，雜湊就會不同。評鑑技能應寫成整數權重；範本已是整數。
+- **公開與私人報告**：
+  - 公開報告需要 SinoBee.ai 上已有這份題組，技能也已發布（連到該版本）。`campaign.publish("public")` 會先發布技能、上傳題組再送報告。
+  - 私人報告不上傳題組，只有發布者看得到，之後可在報告頁改成公開。
+  - `remote_tested()` 依 `suite_hash` 查詢，現在由伺服器過濾。

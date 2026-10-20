@@ -214,3 +214,33 @@ def _api_checks(c, rt, saved, tmp_path):
     assert len(res["board"]["rows"]) == 2 and res["checks"]
     assert c.post(f"/api/evals/campaigns/{made['id']}/publish", json={"visibility": "public"}).status_code == 400
     assert c.post("/api/evals/campaigns", json={"suite": suite, "combos": []}).status_code == 400
+
+
+def test_a_suite_shared_on_sinobee_ai_is_checked_and_kept(rt, monkeypatch):
+    import httpx
+    from sinobee.evals import authoring as A
+    import test_eval_authoring as T
+    s = A._fixed(T.suite(), "meeting-minutes")
+    h = A.package_hash(s, T.TEXTS)
+
+    class R:
+        def __init__(self, code, data):
+            self.status_code, self._d = code, data
+
+        def json(self):
+            return self._d
+    body = {"skill": "meeting-minutes", "skill_version": "0.1.0", "evaluator": "eval-authoring", "evaluator_version": "1.0.0",
+            "suite": s, "inputs": T.TEXTS}
+    monkeypatch.setattr(httpx, "get", lambda url, **k: R(200, body) if url.endswith(h) else
+                        R(200, {"items": [{"hash": h, "title": "x", "reportCount": 7}]}) if url.endswith("/suites") else R(404, {}))
+    assert A.remote_suites(rt.config, "meeting-minutes")[0]["reportCount"] == 7
+    saved = A.import_remote(rt.config, h)
+    assert saved["hash"] == h
+    meta = A.load_ref(rt.config.home, h)[3]
+    assert meta["source"] == "sinobee.ai" and meta["evaluator"] == "eval-authoring"
+    tampered = {**body, "inputs": {**T.TEXTS, "inputs/orig/transcript.txt": "改過的內容"}}
+    monkeypatch.setattr(httpx, "get", lambda url, **k: R(200, tampered))
+    with pytest.raises(EvalError, match="不符"):
+        A.import_remote(rt.config, h)
+    with pytest.raises(EvalError):
+        A.import_remote(rt.config, "nothex")
