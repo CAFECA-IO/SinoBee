@@ -585,3 +585,47 @@ def task_material(rt, session_id: str, turn_id=None) -> dict:
             break
     return {"request": rep.get("request") or "", "answer": rep.get("final_answer") or "", "outputs": outputs,
             "skills": rep.get("skills") or [], "turn_id": rep.get("turn_id"), "session_id": session_id}
+
+
+def describe(home, ref: str) -> dict:
+    """What the evaluation panel shows of a suite: its inputs, questions and the checks it passed."""
+    folder = find(home, ref)
+    suite, texts = read_package(folder)
+    meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+    graders = suite.get("graders") or []
+    qs = [sfs.question(g) for g in graders]
+    w = sfs.weights(suite.get("bench") or {}, qs)
+    inputs = []
+    for x in suite.get("inputs") or []:
+        files = [{"path": f, "chars": len(texts.get(f, ""))} for f in x.get("files") or []]
+        inputs.append({"id": x.get("id"), "title": x.get("title") or x.get("id"), "args": x.get("args") or "",
+                       "files": files, "chars": sum(f["chars"] for f in files), "inject": bool(x.get("inject"))})
+    return {"meta": meta, "title": suite.get("title"), "inputs": inputs, "weights": w,
+            "questions": [{**q, "type": g.get("type")} for q, g in zip(qs, graders)],
+            "anchors": len(suite.get("anchors") or []), "checks": suite_checks(suite, texts)}
+
+
+def suite_checks(suite: dict, texts: dict[str, str]) -> list[dict]:
+    """The rules of sfs.lint as a checklist (all pass for a saved suite; shown so the reader sees what was checked)."""
+    graders = suite.get("graders") or []
+    qs = [sfs.question(g) for g in graders]
+    cats: dict[str, int] = {}
+    for q in qs:
+        cats[q["category"]] = cats.get(q["category"], 0) + 1
+    share = sfs.det_share(suite.get("bench") or {}, graders)
+    crit = sum(1 for q in qs if q["critical"] and q["category"] != sfs.SECURITY_CATEGORY)
+    sec = [g for g, q in zip(graders, qs) if q["category"] == sfs.SECURITY_CATEGORY]
+    leaks = sum(len(privacy.scan(t)) for t in texts.values())
+    anchors = len(suite.get("anchors") or [])
+    inj = sum(1 for x in suite.get("inputs") or [] if x.get("inject"))
+    return [
+        {"ok": share >= sfs.MIN_DET_SHARE, "label": f"確定性題權重 {share:.0%}（≥ {sfs.MIN_DET_SHARE:.0%}）"},
+        {"ok": all(n >= 2 for n in cats.values()), "label": f"每個分類至少 2 題（{len(cats)} 個分類）"},
+        {"ok": crit <= sfs.MAX_CRITICAL, "label": f"關鍵題 {crit} 題（≤ {sfs.MAX_CRITICAL}，安全性另計）"},
+        {"ok": anchors >= sfs.MIN_ANCHORS, "label": f"錨題 {anchors} 題（≥ {sfs.MIN_ANCHORS}）"},
+        {"ok": len(sec) >= 3 and any(g.get("critical") for g in sec),
+         "label": f"安全性 {len(sec)} 題，含關鍵題與沙箱判定"},
+        {"ok": inj >= 1, "label": f"{inj} 份輸入含提示注入測試"},
+        {"ok": leaks == 0, "label": "測試輸入已去識別" + (f"（發現 {leaks} 處）" if leaks else "")},
+        {"ok": True, "label": "題目沒有照抄原始成果、沒有對評鑑模型下指令"},
+    ]

@@ -185,16 +185,16 @@ details.tool img{max-width:100%;border-radius:6px;margin-top:6px;border:1px soli
 .pkoffer{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:-6px 0 16px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:10px;background:var(--panel);font-size:13px}
 .pkoffer .ico{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:var(--tool);color:var(--accent);flex:none}
 .pkoffer .ico svg{width:18px;height:18px}.pkoffer .t{flex:1;min-width:180px}.pkoffer .t div{color:var(--muted);margin-top:2px}
-#pkgPanel{position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);background:var(--panel);border-left:1px solid var(--line);z-index:60;display:flex;flex-direction:column;transform:translateX(105%);transition:transform .2s ease;box-shadow:-12px 0 30px rgba(0,0,0,.25)}
-#pkgPanel.open{transform:none}
-#pkgPanel .ph{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
-#pkgPanel .ph>svg{width:18px;height:18px;color:var(--accent);flex:none}#pkgPanel .ph b{flex:1}
-#pkgPanel .pb{flex:1;overflow:auto;padding:14px;font-size:13px}
-#pkgPanel .pf{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:10px 14px;border-top:1px solid var(--line)}
-#pkgPanel h4{margin:16px 0 6px;font-size:13px}#pkgPanel h4 small{font-weight:400;color:var(--muted)}
-#pkgPanel .fld{display:block;margin-bottom:10px}#pkgPanel .fld>span{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
-#pkgPanel .inp{width:100%;box-sizing:border-box}#pkgPanel textarea.inp{resize:vertical;line-height:1.5}
-#pkgPanel textarea.code,#pkgPanel .code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.sidep{position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);background:var(--panel);border-left:1px solid var(--line);z-index:60;display:flex;flex-direction:column;transform:translateX(105%);transition:transform .2s ease;box-shadow:-12px 0 30px rgba(0,0,0,.25)}
+.sidep.open{transform:none}
+.sidep .ph{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.sidep .ph>svg{width:18px;height:18px;color:var(--accent);flex:none}.sidep .ph b{flex:1}
+.sidep .pb{flex:1;overflow:auto;padding:14px;font-size:13px}
+.sidep .pf{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:10px 14px;border-top:1px solid var(--line)}
+.sidep h4{margin:16px 0 6px;font-size:13px}.sidep h4 small{font-weight:400;color:var(--muted)}
+.sidep .fld{display:block;margin-bottom:10px}.sidep .fld>span{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.sidep .inp{width:100%;box-sizing:border-box}.sidep textarea.inp{resize:vertical;line-height:1.5}
+.sidep textarea.code,.sidep .code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
 .pkprm{display:grid;grid-template-columns:minmax(90px,130px) 1fr auto auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--line)}
 .pkprm .inp{padding:5px 7px;font-size:12.5px}.pkprm .rq{display:flex;align-items:center;gap:4px;font-size:11.5px;color:var(--muted);white-space:nowrap}
 .pkprm .ex{grid-column:2/-1;font-size:11.5px;color:var(--muted)}
@@ -203,7 +203,42 @@ details.tool img{max-width:100%;border-radius:6px;margin-top:6px;border:1px soli
 .pkbox{margin-top:12px;padding:9px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel2)}
 .pkbox.warn{border-color:var(--warn)}.pkbox b{display:block;margin-bottom:3px}.pkbox ul{margin:4px 0 0;padding-left:18px;color:var(--muted)}
 .pkload{display:flex;flex-direction:column;align-items:center;gap:10px;padding:40px 10px;color:var(--muted);text-align:center}
-#pkgPanel .btn svg.i{width:14px;height:14px;vertical-align:-2px}#pkAddPrm{display:inline-flex;flex-direction:row;align-items:center;gap:4px;white-space:nowrap}
+.sidep .btn svg.i{width:14px;height:14px;vertical-align:-2px}#pkAddPrm{display:inline-flex;flex-direction:row;align-items:center;gap:4px;white-space:nowrap}
+/* skill evaluation panel (#evalPanel): steps, option cards, matrix, progress, results */
+.evsteps{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}.evsteps span{flex:1;min-width:58px;text-align:center;font-size:11.5px;padding:4px 2px;border-radius:7px;background:var(--panel2);color:var(--muted);border:1px solid var(--line)}
+.evsteps span.on{color:var(--ink);border-color:var(--accent);background:var(--tool)}.evsteps span.done{color:var(--ok)}
+.evseg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}.evseg button{flex:1;background:var(--panel2);border:0;color:var(--muted);padding:7px 8px;font:inherit;font-size:12.5px;cursor:pointer}
+.evseg button.on{background:var(--tool);color:var(--ink);font-weight:600}.evseg button:disabled{opacity:.45;cursor:not-allowed}
+.evopt{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;padding:10px;border:1px solid var(--line);border-radius:10px;margin-top:8px;cursor:pointer;background:var(--panel2)}
+.evopt.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}.evopt.off{opacity:.55;cursor:not-allowed}
+.evopt .rad{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);margin-top:2px}.evopt.sel .rad{border-color:var(--accent);background:radial-gradient(var(--accent) 45%,transparent 50%)}
+.evopt .nm{font-weight:600;word-break:break-all}.evopt .by,.evopt .facts{font-size:12px;color:var(--muted);margin-top:3px}
+.chip{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:999px;background:var(--tool);color:var(--muted);margin-left:4px;font-weight:400;white-space:nowrap}
+.chip.ok{color:var(--ok)}.chip.warn{color:var(--warn)}.chip.bad{color:var(--err)}.chip.det{color:var(--accent)}.chip.judge{color:var(--warn)}.chip.crit{color:var(--err)}
+.evbox{margin-top:10px;padding:9px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);font-size:12.5px}.evbox.warn{border-color:var(--warn)}.evbox.ok{border-color:var(--ok)}.evbox.bad{border-color:var(--err)}
+.evbox b{display:block;margin-bottom:2px}.evbox ul{margin:4px 0 0;padding-left:18px}
+.evtbl{width:100%;border-collapse:collapse;font-size:12.5px}.evtbl td,.evtbl th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.evtbl .r{text-align:right;white-space:nowrap}
+.evtbl tr.grp td{background:var(--panel2);font-weight:600}.evtbl small{display:block;color:var(--muted)}
+.evchk{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:6px;padding:5px 0;font-size:12.5px;border-bottom:1px dashed var(--line)}
+.evchk .y{color:var(--ok)}.evchk .w{color:var(--warn);font-weight:700}.evchk .n{color:var(--err);font-weight:700}.evchk small{color:var(--muted)}
+.evmx{border-collapse:separate;border-spacing:4px;font-size:11.5px}.evmx th{color:var(--muted);font-weight:500;padding:2px;text-align:center;max-width:90px;word-break:break-all}
+.evmx th.rh{text-align:right}.evmx td>div{min-width:64px;padding:6px 4px;border:1px solid var(--line);border-radius:8px;text-align:center;cursor:pointer;background:var(--panel2)}
+.evmx td>div b{display:block;font-size:12px}.evmx td>div small{color:var(--muted);font-size:10.5px}
+.evmx td>div.sel{border-color:var(--accent);background:var(--tool)}.evmx td>div.sel b{color:var(--accent)}.evmx td>div.me{border:1.5px dashed var(--accent);cursor:default}
+.evmx td>div.tested{border-style:dotted}
+.cbx{white-space:nowrap}.cbx i{font-style:normal;padding:0 5px;border-radius:5px;font-size:11.5px}.cbx .th{background:color-mix(in srgb,var(--warn) 18%,transparent)}.cbx .ex{background:color-mix(in srgb,var(--accent) 18%,transparent)}
+.evstats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:10px}.evstats>div{border:1px solid var(--line);border-radius:9px;padding:7px 9px;background:var(--panel2)}
+.evstats .k{font-size:11px;color:var(--muted)}.evstats .v{font-size:17px;font-weight:700;margin-top:2px}.evstats .s{font-size:11px;color:var(--muted)}
+.evbar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:10px 0}.evbar i{display:block;height:100%;background:var(--accent);transition:width .3s}
+.evrow{display:grid;grid-template-columns:minmax(0,1fr) repeat(var(--n,3),44px);gap:4px;align-items:center;padding:4px 0;border-bottom:1px dashed var(--line);font-size:12px}
+.evrow .cell{text-align:center;border-radius:6px;padding:3px 0;font-size:11.5px;background:var(--panel2);color:var(--muted)}
+.evrow .cell.okc{background:color-mix(in srgb,var(--ok) 20%,transparent);color:var(--ok);font-weight:600}.evrow .cell.badc{background:color-mix(in srgb,var(--err) 18%,transparent);color:var(--err);font-weight:600}
+.evrow .cell.run{outline:1.5px solid var(--accent)}.evrow .cell.skip{opacity:.5}
+.evans td:first-child{white-space:nowrap}.evans .tie{color:var(--muted);font-size:11.5px}
+.evvis label{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;margin-top:6px;cursor:pointer}
+.evvis label.sel{border-color:var(--accent)}.evvis small{display:block;color:var(--muted);margin-top:2px}
+.pkfile>.chip{flex:none}
+.evbtn{display:inline-flex;align-items:center;gap:5px;margin-left:10px}.evbtn svg.i{width:14px;height:14px}
 .skgrp{font-size:11px;color:var(--muted);letter-spacing:.04em;margin:10px 4px 2px}
 .pill.exp{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
 @media (max-width:520px){.pkprm{grid-template-columns:1fr auto auto}.pkprm .nm{grid-column:1/-1}.pkprm .ex{grid-column:1/-1}}
@@ -969,10 +1004,15 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   <div id="pubMsg" style="font-size:13px;margin-top:10px"></div>
   <div class="row"><button class="btn" id="pubClose" type="button">關閉</button><button class="btn primary" id="pubGo" type="button">登錄</button></div>
 </div></div>
-<aside id="pkgPanel" role="dialog" aria-modal="false" aria-labelledby="pkgTitle" aria-hidden="true">
+<aside id="pkgPanel" class="sidep" role="dialog" aria-modal="false" aria-labelledby="pkgTitle" aria-hidden="true">
   <div class="ph"><span id="pkgIco"></span><b id="pkgTitle">打包成技能</b><button class="btn icon sm" type="button" id="pkgClose" aria-label="關閉"></button></div>
   <div class="pb" id="pkgBody"></div>
   <div class="pf" id="pkgFoot" hidden><button class="btn" type="button" data-a="cancel">取消</button><button class="btn" type="button" data-a="publish">儲存並發布到 Skill Hub</button><button class="btn primary" type="button" data-a="save">儲存技能</button></div>
+</aside>
+<aside id="evalPanel" class="sidep" role="dialog" aria-modal="false" aria-labelledby="evTitle" aria-hidden="true">
+  <div class="ph"><span id="evIco"></span><b id="evTitle">評鑑技能</b><button class="btn icon sm" type="button" id="evClose" aria-label="關閉"></button></div>
+  <div class="pb" id="evBody"></div>
+  <div class="pf" id="evFoot"></div>
 </aside>
 <div class="modal" id="skillModal"><div class="card wide"><h3 id="skTitle" style="margin-top:0"></h3><div id="skInfo"></div>
   <pre id="skBody" style="max-height:45vh;margin-top:12px"></pre><div class="row" id="skActs"></div></div></div>
@@ -1036,6 +1076,7 @@ const ICONS = {
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   play: '<path d="M7 4.5v15l12.5-7.5z"/>',
   monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  scale: '<path d="M12 3v18M7 21h10M5 7h14M5 7l-3 7a3 3 0 0 0 6 0zM19 7l-3 7a3 3 0 0 0 6 0z"/>',
   box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
   sparkles: '<path d="M11 3l1.8 4.9L17.5 9.5l-4.7 1.7L11 16l-1.8-4.8L4.5 9.5l4.7-1.6z"/><path d="M18.5 14.5l.8 2 2.2.8-2.2.8-.8 2.1-.8-2.1-2.2-.8 2.2-.8z"/>',
   chart: '<path d="M3 3v18h18"/><path d="M8 17v-5M13 17V7M18 17v-8"/>',
@@ -1468,6 +1509,12 @@ function quotaShare(u){
     <span class="qs-bar"><i class="qs-before" style="width:${before}%"></i><i class="qs-me" style="left:${before}%;width:${Math.min(me, 100 - before)}%"></i></span>
     <span>已用 ${fmtPct(used)}</span></span>`;
 }
+function evalButton(card, skills, turnId){       // B1: a task that used a skill can evaluate it
+  if (!turnId || !skills?.length || card.querySelector('.evbtn')) return;
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm evbtn';
+  b.innerHTML = ic('scale') + ' 評鑑這個技能'; b.title = '用同一份題組讓其他模型組合也做一次，比較誰最快、最省、品質最好、最有創意';
+  b.onclick = () => openEval({skills, turnId}); card.appendChild(b);
+}
 function resultCard(ev){
   const u = ev.usage || {};
   const meta = [ev.steps ? `${ev.steps} 步` : '', ev.duration_s != null ? fmtDur(ev.duration_s) : '',
@@ -1477,7 +1524,9 @@ function resultCard(ev){
     ev.run_report ? `<a href="#" data-rr="${esc(ev.run_report)}" title="每一步用了多少 tokens、時間與重送次數">每步花費</a>` : ''].filter(Boolean).join(' · ');
   const st = ev.status || 'done';
   const rr = c => { c.querySelectorAll('[data-rr]').forEach(a => a.onclick = e => { e.preventDefault(); showRunReport(a.dataset.rr); }); return c; };
-  if (st === 'done') { const c = rr(add(`<b>✓ 完成</b>${meta ? ' · ' + meta : ''}`, 'result done')); if (ev.package_hint) c.dataset.pkg = '1'; if (ev.turn_id) attachFeedback(c, ev.turn_id, null); return c; }
+  if (st === 'done') { const c = rr(add(`<b>✓ 完成</b>${meta ? ' · ' + meta : ''}`, 'result done')); if (ev.package_hint) c.dataset.pkg = '1'; if (ev.turn_id) attachFeedback(c, ev.turn_id, null);
+    evalButton(c, ev.skills, ev.turn_id);
+    return c; }
   if (st === 'stopped') return rr(add(`<b>■ 已停止</b>${meta ? ' · ' + meta : ''}`, 'result stopped'));
   const er = ev.error || {};
   const head = {error: '✕ 任務中斷', incomplete: '△ 任務未完成', blocked: '⏸ 已暫停', failed: '✕ 任務失敗'}[st] || '✕ 任務中斷';
@@ -1672,6 +1721,7 @@ function askDone(d, ev){
 function handle(ev, replay = false){
   if (ev.type === 'local_progress' || ev.type === 'local_changed') { onLocalEvent(ev); return; }
   if (ev.type === 'work') { onWorkEvent(ev); return; }
+  if (/^(campaign|suite)_/.test(ev.type || '')) { if (!replay) onEvalEvent(ev); return; }
   if (ev.type === 'subagent' && !replay) {
     const r = RUNNING[ev.session_id];
     if (r && ev.event === 'tool_call') Object.assign(r, {activity: `子代理（${ev.role_label}）`, tool: ev.tool});
@@ -2002,6 +2052,7 @@ async function openSession(s){
     card.innerHTML = ok ? `<b>✓ 完成</b>${meta ? ' · ' + meta : ''}` : `<b>${head}</b>${meta ? `<div class="rmeta">${meta}</div>` : ''}`;
     anchor.after(card);
     if (t.status !== 'error') attachFeedback(card, t.id, t.rating, t.fb_comment);
+    if (ok) evalButton(card, t.skills, t.id);
   }
   if (!RUNNING[s.id]) document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
   setBusy();
@@ -2051,6 +2102,7 @@ async function fillSide(side){
       d.innerHTML = `${esc(s.title || s.id)}${RUNNING[s.id] ? '<span class="run-dot">● 執行中</span>' : ''}<small>${new Date(s.updated_at * 1000).toLocaleString()} · ${s.message_count} 則</small>`;
       d.onclick = () => openSession(s); side.appendChild(d);
     }
+    markEvalSide();
   } else if (tab === 'memory') {
     await fillMemory(side);
   } else if (tab === 'data') {
@@ -2169,7 +2221,7 @@ function offerPackage(card, turnId){
   (card.nextElementSibling?.classList.contains('fbpanel') ? card.nextElementSibling : card).after(o);
 }
 const PKG = {draft: null, busy: false};
-function pkgOpen(on){ const p = $('#pkgPanel'); p.classList.toggle('open', on); p.setAttribute('aria-hidden', on ? 'false' : 'true'); }
+function pkgOpen(on){ if (on && typeof evPanel === 'function' && EV.open) evPanel(false); const p = $('#pkgPanel'); p.classList.toggle('open', on); p.setAttribute('aria-hidden', on ? 'false' : 'true'); }
 $('#pkgIco').outerHTML = ic('box');
 $('#pkgClose').innerHTML = ic('x');
 $('#pkgClose').onclick = () => pkgOpen(false);
@@ -2248,6 +2300,347 @@ $('#pkgFoot').querySelectorAll('button').forEach(b => b.onclick = async () => {
   finally { PKG.busy = false; $('#pkgFoot').querySelectorAll('button').forEach(x => x.disabled = false); }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#pkgPanel').classList.contains('open') && !document.querySelector('.modal.open')) pkgOpen(false); });
+
+// ---------------- evaluate a skill after a task used it (sinobee/evals/campaign.py, authoring.py) ----------------
+// Steps: 評鑑技能 (which suite / evaluation skill) → 題組 → 對手組合 → 執行 → 結果. One campaign runs at a time in the
+// background; the panel can be closed and opened again from the result card or the sidebar.
+const EV = {open: false, step: 0, skill: null, skills: [], version: '', sid: null, turnId: null, source: 'new',
+  evaluator: 'eval-authoring', suite: null, job: null, cand: null, rows: [], cols: [], sel: new Set(), base: null,
+  k: 3, judge: '', judge2: '', budget: null, budgetEdited: false, est: null, tested: {}, campaign: null, data: {}};
+const EV_RUN = {};       // session id -> {done, total, status} of a campaign that is running or queued
+const EV_STEPS = ['評鑑技能', '題組', '對手組合', '執行', '結果'];
+const mshort = s => String(s || '').split('/').pop().replace(/^(claude|gemini)-/, '').replace(/-latest$/, '');
+const cbx = (t, e) => `<span class="cbx"><i class="th" title="思維：${esc(t)}">${esc(mshort(t))}</i>＋<i class="ex" title="執行：${esc(e)}">${esc(mshort(e))}</i></span>`;
+const ckey = (t, e) => `${t}+${e}`;
+const fam = m => { const x = String(m || '').toLowerCase().split('/').pop();
+  for (const f of ['claude', 'gemini', 'gpt', 'gemma', 'llama', 'qwen', 'mistral', 'deepseek', 'grok']) if (x.includes(f)) return f;
+  return x.split(/[-:]/)[0]; };
+const fmtSec = s => s == null ? '–' : s >= 3600 ? `${(s / 3600).toFixed(1)} 小時` : s >= 60 ? `${Math.round(s / 60)} 分` : `${Math.round(s)} 秒`;
+const evJson = (p, body, method = 'POST') => fetch(p + (p.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token),
+  {method, headers: {'Content-Type': 'application/json'}, body: body === undefined ? undefined : JSON.stringify(body)})
+  .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`); return j; });
+function evPanel(on){ if (on) pkgOpen(false); const p = $('#evalPanel'); EV.open = on; p.classList.toggle('open', on); p.setAttribute('aria-hidden', on ? 'false' : 'true'); }
+$('#evIco').outerHTML = ic('scale');
+$('#evClose').innerHTML = ic('x');
+$('#evClose').onclick = () => evPanel(false);
+function evShell(body, foot){
+  $('#evTitle').textContent = `評鑑 ${EV.skill || ''}${EV.version ? ' ' + EV.version : ''}`;
+  $('#evBody').innerHTML = `<div class="evsteps">${EV_STEPS.map((s, i) => `<span class="${i < EV.step ? 'done' : i === EV.step ? 'on' : ''}">${i < EV.step ? '✓ ' : ''}${s}</span>`).join('')}</div>` + body;
+  $('#evFoot').innerHTML = foot || '';
+}
+function evLoading(text){ evShell(`<div class="pkload"><div class="spin"></div>${text}</div>`, '<button class="btn" type="button" data-a="close">關閉</button>');
+  $('#evFoot [data-a=close]').onclick = () => evPanel(false); }
+function evError(e, back){ evShell(`<div class="evbox bad"><b>沒有完成</b>${esc(e.message || String(e))}</div>`,
+  `<button class="btn" type="button" data-a="back">上一步</button><button class="btn" type="button" data-a="close">關閉</button>`);
+  $('#evFoot [data-a=back]').onclick = back || (() => evGo(Math.max(0, EV.step - 1)));
+  $('#evFoot [data-a=close]').onclick = () => evPanel(false); }
+async function openEval({skills = [], turnId = null} = {}){
+  if (!sessionId) return;
+  const fresh = EV.sid !== sessionId || EV.turnId !== turnId;
+  Object.assign(EV, {sid: sessionId, turnId, skills: skills.length ? skills : EV.skills});
+  if (fresh || !EV.skill || !EV.skills.includes(EV.skill)) EV.skill = EV.skills[0] || null;
+  evPanel(true);
+  if (!EV.skill) return evError(new Error('這個任務沒有使用技能，沒有可以評鑑的對象'));
+  if (fresh) Object.assign(EV, {step: 0, suite: null, job: null, campaign: null, sel: new Set(), base: null, est: null, budgetEdited: false});
+  evLoading('讀取評鑑狀態…');
+  try {   // a campaign of this session and skill already exists: show it
+    const {campaigns} = await api(`/api/evals/campaigns?session_id=${encodeURIComponent(sessionId)}`);
+    const c = (campaigns || []).find(x => x.skill === EV.skill && x.status !== 'ready');
+    if (c && fresh) { EV.campaign = c.id; EV.suite = c.suite; return evGo(['done', 'published'].includes(c.status) ? 4 : 3); }
+  } catch {}
+  evGo(EV.step);
+}
+function evGo(n){ EV.step = n; return [evStep0, evStep1, evStep2, evStep3, evStep4][n](); }
+// ---- 1. which suite: an existing one, or a new one written by an evaluation skill
+async function evStep0(){
+  if (EV.job) return evGenerating();
+  evLoading('讀取評鑑技能與題組…');
+  let ev, su;
+  try { [ev, su] = await Promise.all([api(`/api/evals/evaluators?skill=${encodeURIComponent(EV.skill)}`),
+                                      api(`/api/evals/suites?skill=${encodeURIComponent(EV.skill)}`)]); }
+  catch (e) { return evError(e); }
+  EV.data.evaluators = ev.evaluators || []; EV.data.suites = su.suites || [];
+  if (!EV.data.suites.length) EV.source = 'new';
+  if (!EV.data.evaluators.some(x => x.name === EV.evaluator && !x.security.blocked))
+    EV.evaluator = (EV.data.evaluators.find(x => !x.security.blocked) || {}).name || '';
+  const secChip = s => `<span class="chip ${s.passed === 4 ? 'ok' : s.blocked ? 'bad' : 'warn'}" title="靜態掃描、沙箱行為、題組檢查、人工審核">安全性評鑑 ${s.passed}/4</span>`;
+  const evs = EV.data.evaluators.map(x => `<div class="evopt ${x.name === EV.evaluator ? 'sel' : ''} ${x.security.blocked ? 'off' : ''}" data-ev="${esc(x.name)}" role="radio" aria-checked="${x.name === EV.evaluator}" tabindex="0">
+      <span class="rad"></span><div><div class="nm">${esc(x.name)}${x.default ? '<span class="chip ok">預設</span>' : ''}<span class="chip">${esc(x.trust_label)}</span><span class="chip">${esc(x.version)}</span>${secChip(x.security)}</div>
+      <div class="by">適用：${x.targets.includes('*') ? '所有技能' : esc(x.targets.join('、'))}</div>
+      <div class="facts">${esc(x.description || '')}${x.suites ? ` · 已為這個技能出過 <b>${x.suites}</b> 份題組` : ''}</div>
+      ${x.security.blocked ? `<div class="facts" style="color:var(--err)">沒有通過安全性評鑑，不能使用${x.security.static.issues?.length ? '：' + esc(x.security.static.issues[0]) : ''}</div>` : ''}</div></div>`).join('')
+    || '<div class="evbox warn">沒有適用的評鑑技能。</div>';
+  const sus = EV.data.suites.map(m => `<div class="evopt ${EV.suite === 'suite:' + m.hash ? 'sel' : ''}" data-su="${esc(m.hash)}" role="radio" tabindex="0"><span class="rad"></span><div>
+      <div class="nm">${esc(m.title || m.skill)} <span class="chip">sha ${esc(m.hash.slice(0, 8))}</span>${m.same_version ? '' : `<span class="chip warn">技能 ${esc(m.skill_version || '?')}</span>`}${m.campaigns ? `<span class="chip ok">${m.campaigns} 次評鑑</span>` : ''}</div>
+      <div class="by">由 ${esc(m.evaluator || '?')} ${esc(m.evaluator_version || '')} 出題 · ${new Date((m.created || 0) * 1000).toLocaleDateString()}</div>
+      <div class="facts">${m.inputs} 份輸入 · ${m.questions} 題 · ${esc((m.categories || []).join('、'))}${m.derived_from ? ' · 修改自 ' + esc(m.derived_from.slice(0, 8)) : ''}</div></div></div>`).join('');
+  const multi = EV.skills.length > 1 ? `<label class="fld"><span>要評鑑的技能（這次用了 ${EV.skills.length} 個）</span><select class="inp" id="evSkill">${EV.skills.map(s => `<option ${s === EV.skill ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>` : '';
+  evShell(`${multi}<h4>題組來源</h4>
+    <div class="evseg"><button type="button" data-src="reuse" class="${EV.source === 'reuse' ? 'on' : ''}" ${EV.data.suites.length ? '' : 'disabled'}>沿用已有的題組</button><button type="button" data-src="new" class="${EV.source === 'new' ? 'on' : ''}">產生新題組</button></div>
+    ${EV.source === 'reuse' ? `<div class="pkhint" style="margin-top:6px;color:var(--muted);font-size:12px">沿用同一份題組，結果才能和之前的評鑑放在同一個排行。</div>${sus}`
+      : `${EV.data.suites.length ? '' : `<div style="margin-top:6px;color:var(--muted);font-size:12px">${esc(EV.skill)} 還沒有題組，這次評鑑會建立第一份。</div>`}
+      <h4>由哪個評鑑技能出題</h4>${evs}
+      <div class="evbox warn"><b>提醒</b>不同評鑑技能出的題組不同，只有同一份題組的報告會放在同一個排行。評鑑技能在沙箱中執行，只讀取這個技能與本次任務去識別後的輸入、成果。</div>
+      <h4>本次任務帶進評鑑</h4>
+      <div class="pkfile"><span>需求、回答與成果<small>去識別後當原題（人名、Email、路徑會換成代稱）</small></span><span class="chip ok">必要</span></div>`}
+    <div class="pkfile"><span>本次的模型組合當基準<small>基準組合也在題組上跑同樣次數，才能公平比較</small></span><input type="checkbox" class="sw" id="evBase" ${EV.useBase !== false ? 'checked' : ''} aria-label="本次的模型組合當基準"></div>`,
+    `<button class="btn" type="button" data-a="close">取消</button>` + (EV.source === 'reuse'
+      ? `<button class="btn primary" type="button" data-a="next" ${EV.suite ? '' : 'disabled'}>下一步：題組</button>`
+      : `<button class="btn primary" type="button" data-a="gen" ${EV.evaluator ? '' : 'disabled'}>用 ${esc(EV.evaluator || '評鑑技能')} 出題</button>`));
+  $('#evSkill')?.addEventListener('change', e => { EV.skill = e.target.value; EV.suite = null; evStep0(); });
+  $('#evBody').querySelectorAll('[data-src]').forEach(b => b.onclick = () => { EV.source = b.dataset.src; evStep0(); });
+  $('#evBody').querySelectorAll('[data-ev]').forEach(d => d.onclick = () => { if (d.classList.contains('off')) return; EV.evaluator = d.dataset.ev; evStep0(); });
+  $('#evBody').querySelectorAll('[data-su]').forEach(d => d.onclick = () => { EV.suite = 'suite:' + d.dataset.su; evStep0(); });
+  $('#evBase').onchange = e => { EV.useBase = e.target.checked; };
+  $('#evFoot [data-a=close]').onclick = () => evPanel(false);
+  $('#evFoot [data-a=next]')?.addEventListener('click', () => evGo(1));
+  $('#evFoot [data-a=gen]')?.addEventListener('click', async () => {
+    try { const j = await evJson('/api/evals/suites/generate', {skill: EV.skill, session_id: EV.sid, turn_id: EV.turnId, evaluator: EV.evaluator});
+      EV.job = {id: j.job, steps: 0, status: 'running'}; evGenerating(); }
+    catch (e) { uiAlert(e.message); }
+  });
+}
+function evGenerating(){
+  const j = EV.job;
+  if (j.status === 'running') {
+    evShell(`<div class="pkload"><div class="spin"></div><b>${esc(EV.evaluator)} 正在出題</b>
+      <span>讀技能與本次任務、寫測試輸入與是非題、自我檢查（沙箱：只能讀寫評鑑工作區，不能連網）</span><small id="evJobSteps">${j.steps} 個動作</small></div>`,
+      '<button class="btn" type="button" data-a="close">關閉（完成時會通知）</button>');
+    $('#evFoot [data-a=close]').onclick = () => evPanel(false);
+    return;
+  }
+  const rows = [...(j.problems || []).map(p => `<li>${esc(p)}</li>`), ...(j.violations || []).map(v => `<li>沙箱擋下：${esc(v.tool)} ${esc(v.what)}</li>`)].join('');
+  EV.job = null;
+  if (j.status === 'ok') { EV.suite = 'suite:' + j.hash; EV.source = 'reuse'; return evGo(1); }
+  evShell(`<div class="evbox bad"><b>${j.status === 'violation' ? '評鑑技能試圖越界，題組作廢' : '題組沒有通過檢查'}</b><ul>${rows}</ul>
+    ${j.status === 'violation' ? '<div style="margin-top:6px">這個版本的評鑑技能已標為沙箱行為不通過，之後不能再使用。</div>' : ''}</div>`,
+    `<button class="btn" type="button" data-a="back">上一步</button><button class="btn primary" type="button" data-a="retry" ${j.status === 'violation' ? 'disabled' : ''}>再出一次題</button>`);
+  $('#evFoot [data-a=back]').onclick = () => evGo(0);
+  $('#evFoot [data-a=retry]').onclick = () => evGo(0);
+}
+// ---- 2. the suite
+async function evStep1(){
+  evLoading('讀取題組…');
+  let d;
+  try { d = await api(`/api/evals/suites/${encodeURIComponent(EV.suite.replace('suite:', ''))}`); if (d.detail) throw new Error(d.detail); }
+  catch (e) { return evError(e, () => evGo(0)); }
+  EV.version = d.meta.skill_version || EV.version;
+  let pc = '';
+  const qs = d.questions.map((q, i) => { const h = q.category !== pc ? `<tr class="grp"><td colspan="3">${esc(q.category)} <small style="display:inline">權重 ${Math.round(d.weights[q.category] || 0)}</small></td></tr>` : ''; pc = q.category;
+    return h + `<tr><td style="color:var(--muted)">${i + 1}</td><td>${esc(q.label)}</td><td class="r"><span class="chip ${q.kind}">${q.type === 'security' ? '沙箱' : q.kind === 'det' ? '確定性' : '評鑑模型'}</span>${q.critical ? '<span class="chip crit">關鍵</span>' : ''}</td></tr>`; }).join('');
+  evShell(`<div class="evbox"><b>出題：${esc(d.meta.evaluator || '?')} ${esc(d.meta.evaluator_version || '')}</b>題組 sha ${esc(d.meta.hash.slice(0, 12))} · ${d.questions.length} 題 · ${Object.keys(d.weights).length} 個分類 · 錨題 ${d.anchors} 題</div>
+    <h4>測試輸入 <small>${d.inputs.length} 份，所有組合讀同一份</small></h4>
+    <table class="evtbl">${d.inputs.map(x => `<tr><td><b>${esc(x.title)}</b>${x.inject ? '<span class="chip warn" title="SinoBee 會在這份輸入插入提示注入指令">注入測試</span>' : ''}<small>/${esc(EV.skill)} ${esc(x.args)}</small></td><td class="r">${x.chars.toLocaleString()} 字</td></tr>`).join('')}</table>
+    <h4>題組檢查</h4>${d.checks.map(c => `<div class="evchk"><span class="${c.ok ? 'y' : 'n'}">${c.ok ? '✓' : '✕'}</span><span>${esc(c.label)}</span><span></span></div>`).join('')}
+    <h4>是非題 <small>每份輸入都用這組題目評分</small></h4><table class="evtbl">${qs}</table>`,
+    `<button class="btn" type="button" data-a="back">上一步</button><button class="btn primary" type="button" data-a="next">下一步：對手組合</button>`);
+  $('#evFoot [data-a=back]').onclick = () => evGo(0);
+  $('#evFoot [data-a=next]').onclick = () => evGo(2);
+}
+// ---- 3. the combinations: thinking × execution
+async function evStep2(){
+  evLoading('讀取可用的模型…');
+  try {
+    const [cand, tested] = await Promise.all([api(`/api/evals/candidates?session_id=${encodeURIComponent(EV.sid)}${EV.turnId ? '&turn_id=' + EV.turnId : ''}`),
+      api(`/api/evals/tested?skill=${encodeURIComponent(EV.skill)}&suite=${encodeURIComponent(EV.suite)}`).catch(() => ({tested: {}}))]);
+    EV.cand = cand; EV.tested = tested.tested || {};
+  } catch (e) { return evError(e); }
+  const m = EV.cand.models || [];
+  EV.base = EV.useBase !== false ? EV.cand.baseline : null;
+  if (!EV.rows.length) EV.rows = [...new Set([EV.base?.thinking, ...m].filter(Boolean))].slice(0, 3);
+  if (!EV.cols.length) EV.cols = [...new Set([EV.base?.execution, ...m].filter(Boolean))].slice(0, 4);
+  if (!EV.sel.size) {
+    if (EV.base) EV.sel.add(ckey(EV.base.thinking, EV.base.execution));
+    for (const e of EV.cols) if (EV.sel.size < 4 && !(EV.tested[ckey(EV.rows[0], e)] >= EV.k)) EV.sel.add(ckey(EV.rows[0], e));
+  }
+  if (!EV.judge) EV.judge = EV.cand.judge || m[0] || '';
+  evMatrix();
+}
+function evMatrix(){
+  const m = EV.cand.models || [];
+  const baseK = EV.base ? ckey(EV.base.thinking, EV.base.execution) : null;
+  const addOpt = list => `<option value="">＋ 加入模型…</option>` + m.filter(x => !list.includes(x)).map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+  let h = `<tr><th></th><th colspan="${EV.cols.length}" style="color:var(--accent)">執行 →</th></tr><tr><th class="rh" style="color:var(--warn)">思維 ↓</th>${EV.cols.map(e => `<th title="${esc(e)}">${esc(mshort(e))}</th>`).join('')}</tr>`;
+  for (const t of EV.rows) {
+    h += `<tr><th class="rh" title="${esc(t)}">${esc(mshort(t))}</th>` + EV.cols.map(e => { const k = ckey(t, e), me = k === baseK, on = EV.sel.has(k), n = EV.tested[k] || 0;
+      const row = (EV.est?.combos || []).find(r => r.key === k);
+      return `<td><div data-k="${esc(k)}" class="${me ? 'me' : on ? 'sel' : ''} ${n ? 'tested' : ''}" role="checkbox" aria-checked="${on || me}" tabindex="0" title="${esc(t)} ＋ ${esc(e)}">
+        <b>${me ? '基準' : on ? '✓' : '＋'}</b><small>${me ? '本次組合' : n ? `已發布 ${n} 次` : row ? '$' + row.usd.toFixed(2) : ''}</small></div></td>`; }).join('') + '</tr>';
+  }
+  const fams = new Set([...EV.sel].flatMap(k => k.split('+').map(fam)));
+  const sameJ = EV.judge && fams.has(fam(EV.judge));
+  const j2ok = EV.judge2 && fam(EV.judge2) !== fam(EV.judge);
+  const est = EV.est;
+  const budget = EV.budgetEdited ? EV.budget : (est ? est.suggested_budget : EV.budget);
+  evShell(`<div style="font-size:12.5px">題組 <b>sha ${esc(EV.suite.replace('suite:', '').slice(0, 12))}</b>${Object.keys(EV.tested).length ? ` · sinobee.ai 上已有 ${Object.keys(EV.tested).length} 個組合的報告` : '（還沒有公開報告）'}</div>
+    <h4>點選要比較的組合</h4>
+    <div style="overflow-x:auto"><table class="evmx" id="evMx">${h}</table></div>
+    <div style="display:flex;gap:6px;margin-top:6px"><select class="inp" id="evAddRow" style="font-size:12px">${addOpt(EV.rows).replace('加入模型', '加入思維模型')}</select><select class="inp" id="evAddCol" style="font-size:12px">${addOpt(EV.cols).replace('加入模型', '加入執行模型')}</select></div>
+    ${baseK ? '<div style="font-size:12px;color:var(--muted);margin-top:6px">虛線框是本次任務的組合（基準），在題組上跑同樣的次數。</div>' : ''}
+    <label class="fld" style="margin-top:12px"><span>每個組合的試驗次數</span><select class="inp" id="evK"><option value="1" ${EV.k === 1 ? 'selected' : ''}>1（試跑，不進排行）</option><option value="3" ${EV.k === 3 ? 'selected' : ''}>3（最少，可進排行）</option><option value="5" ${EV.k === 5 ? 'selected' : ''}>5</option></select></label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <label class="fld"><span>評鑑模型</span><select class="inp" id="evJudge">${m.map(x => `<option ${x === EV.judge ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+      <label class="fld"><span>第二評鑑（另一家族）</span><select class="inp" id="evJudge2"><option value="">不用</option>${m.map(x => `<option ${x === EV.judge2 ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label></div>
+    ${sameJ && !j2ok ? `<div style="font-size:12px;color:var(--warn)">評鑑模型和受測組合同家族（${esc(fam(EV.judge))}），報告會被標「同源」；建議加另一家族的第二評鑑。</div>` : ''}
+    <label class="fld"><span>預算上限（US$，含評鑑）</span><input class="inp" id="evBudget" type="number" min="0.5" step="0.5" value="${budget != null ? budget : ''}"></label>
+    <div class="evstats"><div><div class="k">要跑的試驗</div><div class="v">${est ? est.trials : '…'}</div><div class="s">${est ? est.tasks + ' 份輸入 / 次' : ''}</div></div>
+      <div><div class="k">預估花費</div><div class="v">${est ? fmtUsd(est.usd) : '…'}</div><div class="s">含評鑑</div></div>
+      <div><div class="k">預估時間</div><div class="v">${est ? fmtSec(est.seconds) : '…'}</div><div class="s">背景執行</div></div></div>
+    ${est?.unpriced?.length ? `<div style="font-size:12px;color:var(--warn);margin-top:6px">沒有費率：${esc(est.unpriced.join('、'))}（以 $0 估算）</div>` : ''}
+    ${est && est.basis !== 'suite' ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">${est.basis === 'task' ? '依本次任務的用量估算' : '還沒有用量紀錄，以一般任務估算'}，實際花費可能不同；超過預算會自動停止。</div>` : ''}`,
+    `<button class="btn" type="button" data-a="back">上一步</button><button class="btn primary" type="button" data-a="go" ${EV.sel.size ? '' : 'disabled'}>開始評鑑</button>`);
+  $('#evMx').querySelectorAll('div[data-k]').forEach(d => d.onclick = () => { const k = d.dataset.k; if (k === baseK) return;
+    EV.sel.has(k) ? EV.sel.delete(k) : EV.sel.add(k); evEstimate(); });
+  $('#evAddRow').onchange = e => { if (e.target.value) { EV.rows.push(e.target.value); evMatrix(); } };
+  $('#evAddCol').onchange = e => { if (e.target.value) { EV.cols.push(e.target.value); evMatrix(); } };
+  $('#evK').onchange = e => { EV.k = +e.target.value; evEstimate(); };
+  $('#evJudge').onchange = e => { EV.judge = e.target.value; evEstimate(); };
+  $('#evJudge2').onchange = e => { EV.judge2 = e.target.value; evEstimate(); };
+  $('#evBudget').oninput = e => { EV.budget = e.target.value === '' ? null : +e.target.value; EV.budgetEdited = true; };
+  $('#evFoot [data-a=back]').onclick = () => evGo(1);
+  $('#evFoot [data-a=go]').onclick = evStart;
+  if (!EV.est) evEstimate();
+}
+let evEstT = null;
+function evCombos(){ return [...EV.sel].map(k => { const [t, e] = k.split('+'); return {thinking: t, execution: e,
+  baseline: !!EV.base && k === ckey(EV.base.thinking, EV.base.execution)}; }); }
+function evEstimate(){
+  clearTimeout(evEstT);
+  evEstT = setTimeout(async () => {
+    try { EV.est = await evJson('/api/evals/estimate', {suite: EV.suite, combos: evCombos().filter(c => !(EV.tested[ckey(c.thinking, c.execution)] >= EV.k) || c.baseline),
+      k: EV.k, judge: EV.judge, judge2: EV.judge2 || null, session_id: EV.sid, turn_id: EV.turnId}); }
+    catch { EV.est = null; }
+    if (EV.step === 2 && EV.open) evMatrix();
+  }, 250);
+}
+async function evStart(){
+  const btn = $('#evFoot [data-a=go]'); btn.disabled = true;
+  try {
+    const c = await evJson('/api/evals/campaigns', {suite: EV.suite, combos: evCombos(), k: EV.k, judge: EV.judge, judge2: EV.judge2 || null,
+      budget_usd: EV.budgetEdited ? EV.budget : null, session_id: EV.sid, turn_id: EV.turnId});
+    EV.campaign = c.id; EV_RUN[EV.sid] = {done: 0, total: c.progress.total, status: c.status};
+    markEvalSide(); evGo(3);
+  } catch (e) { btn.disabled = false; uiAlert(e.message); }
+}
+// ---- 4. running
+async function evStep3(){
+  let c;
+  try { c = await api(`/api/evals/campaigns/${encodeURIComponent(EV.campaign)}`); if (c.detail) throw new Error(c.detail); }
+  catch (e) { return evError(e); }
+  EV.data.c = c; EV.skill = c.skill || EV.skill; EV.version = c.skill_version || EV.version; EV.suite = c.suite;
+  const k = c.k, done = c.progress.done, total = c.progress.total;
+  const running = (c.plan || [])[c.next];
+  const rows = c.combos.map((x, i) => {
+    const cells = Array.from({length: k}, (_, j) => {
+      const it = c.items.find(t => t.combo === i && t.trial === j + 1);
+      if (x.skip) return `<div class="cell skip" title="已發布 ${x.published_trials} 次">已測</div>`;
+      if (it) return `<div class="cell ${it.qualified ? 'okc' : 'badc'}" title="${it.status} · $${(it.cost_usd + it.judge_usd).toFixed(3)} · ${fmtSec(it.duration_s)}">${it.q != null ? Math.round(it.q) : '–'}</div>`;
+      const isRun = c.status === 'running' && running && running[0] === i && running[1] === j + 1;
+      return `<div class="cell ${isRun ? 'run' : ''}">${isRun ? '…' : ''}</div>`; }).join('');
+    return `<div class="evrow" style="--n:${k}"><span>${cbx(x.thinking, x.execution)}${x.baseline ? '<span class="chip">基準</span>' : ''}</span>${cells}</div>`; }).join('');
+  const st = {queued: '排隊中：前一個評鑑跑完後開始', running: '背景執行中，可以關掉這個面板', comparing: '創造力盲比中（兩兩配對、左右對調各問一次）',
+    budget: c.error || '已達預算上限', stopped: '已停止，已完成的結果都保留', error: '發生錯誤：' + (c.error || ''), done: '完成', published: '已提交'}[c.status] || c.status;
+  const canResume = ['stopped', 'budget', 'error'].includes(c.status) && done < total;
+  const hasResults = c.items.length > 0 && !['running', 'queued', 'comparing'].includes(c.status);
+  evShell(`<div class="evstats"><div><div class="k">進度</div><div class="v">${done}/${total}</div><div class="s">次試驗</div></div>
+      <div><div class="k">已花費</div><div class="v">${fmtUsd(c.spent.total)}</div><div class="s">上限 ${fmtUsd(c.budget_usd)}</div></div>
+      <div><div class="k">經過</div><div class="v">${fmtSec(c.elapsed_s)}</div><div class="s">預估 ${fmtSec(c.estimate?.seconds)}</div></div></div>
+    <div class="evbar"><i style="width:${total ? 100 * done / total : 0}%"></i></div>
+    <div class="evbox ${['budget', 'error'].includes(c.status) ? 'warn' : c.status === 'done' ? 'ok' : ''}">${esc(st)}</div>
+    <div class="evrow" style="--n:${k};border:0;color:var(--muted);font-size:11px;margin-top:8px"><span>組合（思維＋執行）</span>${Array.from({length: k}, (_, j) => `<span class="cell" style="background:none">第 ${j + 1} 次</span>`).join('')}</div>
+    ${rows}
+    <div style="font-size:12px;color:var(--muted);margin-top:8px">每格是一次試驗在整份題組（${esc(String(c.estimate?.tasks || ''))} 份輸入）的平均分；綠色＝合格。</div>
+    ${canResume ? `<label class="fld" style="margin-top:10px"><span>調整預算後繼續（US$）</span><input class="inp" id="evMore" type="number" step="0.5" value="${Math.max(c.budget_usd, Math.ceil(c.spent.total + 1))}"></label>` : ''}`,
+    (['running', 'queued'].includes(c.status) ? `<button class="btn" type="button" data-a="stop">停止（保留已完成的）</button>` : '')
+    + (canResume ? `<button class="btn" type="button" data-a="resume">繼續</button>` : '')
+    + `<button class="btn primary" type="button" data-a="res" ${hasResults ? '' : 'disabled'}>看結果</button>`);
+  $('#evFoot [data-a=stop]')?.addEventListener('click', async () => { await evJson(`/api/evals/campaigns/${EV.campaign}/stop`, {}); evStep3(); });
+  $('#evFoot [data-a=resume]')?.addEventListener('click', async () => {
+    try { await evJson(`/api/evals/campaigns/${EV.campaign}/resume`, {budget_usd: +($('#evMore')?.value || c.budget_usd)}); evStep3(); }
+    catch (e) { uiAlert(e.message); } });
+  $('#evFoot [data-a=res]').onclick = () => evGo(4);
+}
+// ---- 5. results and submitting
+async function evStep4(){
+  evLoading('整理結果…');
+  let r;
+  try { r = await api(`/api/evals/campaigns/${encodeURIComponent(EV.campaign)}/results`); if (r.detail) throw new Error(r.detail); }
+  catch (e) { return evError(e, () => evGo(3)); }
+  const c = r.campaign, b = r.board || {rows: [], awards: {}}, rows = Object.fromEntries(b.rows.map(x => [x.key, x]));
+  const name = k => { const x = rows[k]; return x ? cbx(x.thinking, x.execution) : '–'; };
+  const aw = b.awards;
+  const ans = [['誰最快？', 'speed', v => fmtSec(v), '合格試驗的時間中位數'], ['誰最省？', 'cost', v => fmtUsd(v), '每次合格的花費'],
+    ['誰品質最好？', 'quality', v => v.toFixed(1), '公平分（平均 − 標準誤）'], ['誰最有創意？', 'creativity', v => Math.round(v * 100) + '%', '盲比勝率']]
+    .map(([q, a, f, hint]) => { const w = aw[a]; return `<tr><td><b>${q}</b><small>${hint}</small></td><td>${w?.winner ? name(w.winner) : '<span style="color:var(--muted)">沒有合格的組合</span>'}${w?.tied?.length ? `<div class="tie">不分軒輊：${w.tied.map(name).join('、')}</div>` : ''}</td><td class="r"><b>${w?.winner && w.value != null ? f(w.value) : '–'}</b></td></tr>`; }).join('');
+  const why = {trial: `不到 3 次`, critical: '關鍵題失敗太多', rate: '合格率低於 2/3'};
+  const out = b.rows.filter(x => !x.eligible).map(x => `${cbx(x.thinking, x.execution)}（${why[x.out]}，合格 ${x.qualified}/${x.observations}）`).join('、');
+  const secTot = k => { const s = r.security[k] || {}; const v = Object.values(s); const ok = v.reduce((a, x) => a + x.ok, 0), tot = v.reduce((a, x) => a + x.total, 0); return tot ? `${ok}/${tot}` : '–'; };
+  const table = b.rows.map(x => `<tr><td>${cbx(x.thinking, x.execution)}${x.key === r.baseline ? '<span class="chip">基準</span>' : ''}${x.eligible ? '' : '<span class="chip warn">不進排行</span>'}</td>
+    <td class="r">${x.mean.toFixed(1)}<small>±${x.se.toFixed(1)}</small></td><td class="r">${x.qualified}/${x.observations}</td><td class="r">${fmtSec(x.median_s)}</td>
+    <td class="r">${x.cost_per_pass != null ? fmtUsd(x.cost_per_pass) : '–'}</td><td class="r">${x.creativity != null ? Math.round(x.creativity * 100) + '%' : '–'}</td><td class="r">${secTot(x.key)}</td></tr>`).join('');
+  const checks = (r.checks || []).map(x => `<div class="evchk"><span class="${x.status === 'ok' ? 'y' : x.status === 'warn' ? 'w' : 'n'}">${x.status === 'ok' ? '✓' : x.status === 'warn' ? '!' : '✕'}</span><span>${esc(x.label)}</span><small>${esc(x.detail || '')}</small></div>`).join('');
+  const fail = (r.checks || []).some(x => x.status === 'fail');
+  const nPublic = b.rows.filter(x => x.trials >= 3).length;
+  const pubs = (c.published || []).flatMap(p => (p.reports || []).map(x => ({...x, visibility: p.visibility})));
+  EV.vis = EV.vis || (fail || !nPublic ? 'private' : 'public');
+  evShell(`<div class="evbox ${c.status === 'done' || c.status === 'published' ? 'ok' : 'warn'}"><b>${c.status === 'budget' ? '因預算停止' : c.status === 'stopped' ? '已停止' : '評鑑完成'}：${b.rows.length} 個組合</b>
+      題組 sha ${esc(String(c.suite_hash || '').slice(0, 12))}${c.evaluator ? `（${esc(c.evaluator)}）` : ''} · 評鑑 ${esc(mshort(c.judge || ''))}${c.judge2 ? ' ＋ 第二評鑑 ' + esc(mshort(c.judge2)) : ''} · 花費 ${fmtUsd(c.spent?.total)}</div>
+    <h4>用 ${esc(c.skill || '')} 時，該配哪個組合？</h4>
+    <table class="evtbl evans">${ans}</table>
+    ${out ? `<div style="font-size:12px;color:var(--muted);margin-top:6px">不進排行：${out}</div>` : ''}
+    <h4>各組合</h4>
+    <div style="overflow-x:auto"><table class="evtbl"><tr><th>組合</th><th class="r">分數</th><th class="r">合格</th><th class="r">時間</th><th class="r">每次合格</th><th class="r">創意</th><th class="r" title="安全性題目通過數">安全</th></tr>${table}</table></div>
+    <h4>提交前檢查</h4>${checks}
+    <h4>發布到</h4>
+    <div class="evvis"><label class="${EV.vis === 'public' ? 'sel' : ''}"><input type="radio" name="evVis" value="public" ${EV.vis === 'public' ? 'checked' : ''} ${fail || !nPublic ? 'disabled' : ''}><span><b>公開評鑑報告</b><small>每個組合一份（${nPublic} 份，需 n ≥ 3），出現在 SinoBee.ai 的 ${esc(c.skill || '')} 評鑑頁；標明評鑑技能與題組 sha</small></span></label>
+      <label class="${EV.vis === 'private' ? 'sel' : ''}"><input type="radio" name="evVis" value="private" ${EV.vis === 'private' ? 'checked' : ''}><span><b>私人報告</b><small>只有你登入時看得到，不進排行；之後可改公開。題組不上傳</small></span></label></div>
+    ${pubs.length ? `<h4>已提交</h4>${pubs.map(x => `<div class="evchk"><span class="y">✓</span><span>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.url)}</a>` : esc(JSON.stringify(x))}</span><small>${x.visibility === 'public' ? '公開' : '私人'}</small></div>`).join('')}` : ''}`,
+    `<button class="btn" type="button" data-a="back">回到執行</button><button class="btn primary" type="button" data-a="pub" ${b.rows.length ? '' : 'disabled'}>${EV.vis === 'public' ? `提交 ${nPublic} 份公開報告` : '存成私人報告'}</button>`);
+  $('#evBody').querySelectorAll('input[name=evVis]').forEach(x => x.onchange = () => { EV.vis = x.value; evStep4(); });
+  $('#evFoot [data-a=back]').onclick = () => evGo(3);
+  $('#evFoot [data-a=pub]').onclick = async e => {
+    if (EV.vis === 'public' && !await uiConfirm(`提交 ${nPublic} 份公開評鑑報告到 SinoBee.ai？${(r.checks || []).some(x => x.id === 'skill' && x.status === 'warn') ? `\n${c.skill} 會一起發布到 Skill Hub。` : ''}`)) return;
+    e.target.disabled = true;
+    try { const res = await evJson(`/api/evals/campaigns/${EV.campaign}/publish`, {visibility: EV.vis});
+      add(`⚖ 已提交 ${res.reports.length} 份${EV.vis === 'public' ? '公開' : '私人'}評鑑報告：${esc(c.skill || '')}${res.skill_published ? '（技能已一起發布到 Skill Hub）' : ''}`, 'note learn');
+      evStep4(); }
+    catch (err) { e.target.disabled = false; uiAlert(err.message); }
+  };
+}
+function onEvalEvent(ev){
+  if (ev.type === 'suite_progress') {
+    if (EV.job && EV.job.id === ev.job) { EV.job.steps = ev.steps; const s = $('#evJobSteps'); if (s) s.textContent = `${ev.steps} 個動作`; }
+    return;
+  }
+  if (ev.type === 'suite_done') {
+    if (EV.job && EV.job.id === ev.job) { Object.assign(EV.job, {status: ev.status, hash: ev.hash, problems: ev.problems, violations: ev.violations});
+      if (EV.open && EV.step === 0) evGenerating(); else if (ev.status === 'ok') { EV.suite = 'suite:' + ev.hash; EV.job = null; } }
+    if (ev.session_id === sessionId) add(ev.status === 'ok' ? `⚖ 評鑑題組完成（sha ${esc(String(ev.hash).slice(0, 8))}），可以在評鑑面板選擇對手組合。` : `⚖ 評鑑題組沒有完成：${esc((ev.problems || [])[0] || ev.status)}`, 'note');
+    return;
+  }
+  if (ev.session_id) {
+    if (['running', 'queued', 'comparing'].includes(ev.status)) EV_RUN[ev.session_id] = {done: ev.progress?.done || 0, total: ev.progress?.total || 0, status: ev.status};
+    else delete EV_RUN[ev.session_id];
+    markEvalSide();
+  }
+  if (EV.open && EV.campaign === ev.id && EV.step === 3) evStep3();
+  if (ev.type === 'campaign_done' && ev.session_id === sessionId) {
+    const msg = {done: '完成', budget: '因預算停止', stopped: '已停止', error: '發生錯誤'}[ev.status] || ev.status;
+    add(`⚖ 技能評鑑${msg}：${ev.progress?.done || 0}/${ev.progress?.total || 0} 次試驗，花費 ${fmtUsd(ev.spent?.total)}。<a href="#" data-evopen="${esc(ev.id)}">看結果</a>`, 'note');
+    document.querySelectorAll('[data-evopen]').forEach(a => a.onclick = e => { e.preventDefault(); EV.campaign = a.dataset.evopen; EV.sid = sessionId; evPanel(true); evGo(4); });
+  }
+}
+function markEvalSide(){
+  document.querySelectorAll('#side .item[data-sid]').forEach(d => {
+    d.querySelector('.ev-dot')?.remove();
+    const r = EV_RUN[d.dataset.sid];
+    if (r) d.querySelector('small')?.insertAdjacentHTML('beforebegin', `<span class="run-dot ev-dot">⚖ ${r.status === 'queued' ? '評鑑排隊中' : `評鑑中 ${r.done}/${r.total}`}</span>`);
+  });
+}
+(async () => { try { const {campaigns} = await api('/api/evals/campaigns');
+  for (const c of campaigns || []) if (c.session_id && ['running', 'queued', 'comparing'].includes(c.status)) EV_RUN[c.session_id] = {done: c.progress?.done || 0, total: c.progress?.total || 0, status: c.status};
+  markEvalSide(); } catch {} })();
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && EV.open && !document.querySelector('.modal.open')) evPanel(false); });
 
 // ---------------- formatting ----------------
 let CUR = {code: 'USD', rate: null}, NEEDS_SETUP = false;

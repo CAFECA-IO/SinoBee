@@ -422,7 +422,7 @@ def _bench_task(task: dict) -> dict:
 
 async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[str] | None = None, emit=None,
               keep: bool = False, model: str | None = None, judge: str | None = None, thinking: str | None = None,
-              judge2: str | None = None) -> dict:
+              judge2: str | None = None, anchors: bool = True) -> dict:
     """model: the model under test - alone in every role (solo()), or with `thinking` the execution model of a
     combination (combo()); judge: the model that grades llm rubrics; judge2: a second judge (another family) whose
     agreement is reported."""
@@ -463,7 +463,7 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
 
     save()
     try:
-        if bench is not None and bench.get("anchors"):
+        if bench is not None and bench.get("anchors") and anchors:      # a campaign checks the judge once
             doc["judge_check"] = await check_judge(jprov, bench["anchors"])
             save()
         for task in tasks:

@@ -1,6 +1,6 @@
 ---
 name: eval-authoring
-description: Writes a fair evaluation suite (yes/no questions, test inputs, anchors) for another skill from one task it completed, so different model combinations can run that skill and be compared. The default evaluation skill of SinoBee.
+description: 依技能完成過的一次任務，出一份公平、可重複、含安全性題目的評鑑題組（是非題、測試輸入、錨題），讓不同模型組合跑同一份題目比較。SinoBee 預設的評鑑技能。Writes a fair evaluation suite for another skill from one task it completed.
 license: MIT
 allowed-tools: read_file write_file edit_file list_dir search_files skill_view eval_suite_check task_checklist
 metadata:

@@ -123,8 +123,13 @@ def payloads(runs: list[dict], home=None) -> list[dict]:
     return out
 
 
-def publish(config, runs: list[dict]) -> list[dict]:
+def publish(config, runs: list[dict], extra: dict | None = None) -> list[dict]:
+    """extra: fields added to every report (a campaign's visibility, evaluation skill, suite reference)."""
     data = payloads(runs, home=config.home)
+    for body in data:
+        for k, v in (extra or {}).items():
+            if v not in (None, "") or k not in body:
+                body[k] = v
     acc = account.account(config)
     if not acc:
         raise PublishError("sign in to sinobee.ai first (Settings > SinoBee.ai account, or `sinobee login`)")

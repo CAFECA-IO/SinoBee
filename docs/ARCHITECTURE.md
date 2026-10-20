@@ -1557,3 +1557,69 @@ M2 讓「評鑑技能」為其他技能出題，並把安全性變成每份題�
 - 結果存在 `$SINOBEE_HOME/evals/evaluator_checks.json`，以「名稱@版本」為 key。
 
 測試：`tests/test_eval_authoring.py`（16 個）。
+
+## 35. 評鑑活動與評鑑面板（M3，2026-10-20）
+
+用過技能的任務完成後，結果列出現「⚖ 評鑑這個技能」：即時結果和重新開啟的對話都有。右側 `#evalPanel` 分五步。
+
+1. **評鑑技能**：
+   - 題組來源：沿用這台電腦上已有的題組，或產生新題組。
+   - 產生新題組時選評鑑技能：卡片顯示適用範圍、信任、版本、「安全性評鑑 n/4」與已出題數；被封鎖的不能選。
+   - 本次任務的需求、回答與成果去識別後帶進出題。
+   - 「本次組合當基準」開關。
+2. **題組**：出題者、sha、題數、分類、錨題，測試輸入（標示注入測試），題組檢查清單（`authoring.suite_checks`），是非題依分類列出（確定性／評鑑模型／沙箱／關鍵）。
+3. **對手組合**：
+   - 思維 × 執行矩陣。候選模型來自使用者各角色設定的模型、fallbacks，以及已連線 provider 的推薦模型；基準是任務的執行報告 `models` 記錄的組合，以虛線框標示。
+   - 可另外加入思維或執行模型。sinobee.ai 上已發布的組合標示「已發布 n 次」，預設不選。
+   - 試驗次數、評鑑模型、第二評鑑；同家族時提醒加第二評鑑。
+   - 預算預設為估算的 1.5 倍，上限 $20，可修改。
+   - 即時估算試驗次數、花費與時間（`/api/evals/estimate`）。
+4. **執行**：
+   - 進度、花費與預算、經過時間。
+   - 每個組合 × 每次試驗一格，顯示整份題組的平均分；綠色表示合格。
+   - 可停止（保留已完成的），停止後可調整預算繼續。
+   - 側欄對話項目顯示「⚖ 評鑑中 n/N」；完成時在對話裡通知。
+5. **結果**：
+   - 四個問題：最快（合格試驗的時間中位數）、最省（每次合格的花費）、品質最好（公平分）、最有創意（盲比勝率）。並列結果標示「不分軒輊」，不進排行的組合會說明原因。
+   - 各組合表，含安全性題通過數。
+   - 提交前檢查，結果分 ok／warn／fail，fail 會擋下公開提交：
+     - 測試輸入去識別。
+     - 成果沒有個資或金鑰；沙箱植入的假資料不算。
+     - 每個組合 n ≥ 3。
+     - 錨題。
+     - 同源評鑑與第二評鑑。
+     - 技能是否已發布。
+   - 公開或私人：
+     - 公開：只送 n ≥ 3 的組合；技能未發布時一起 `hub.publish`；題組上傳到 `POST /api/v1/evals/suites`（舊版 sinobee.ai 回 404 時略過）。
+     - 私人：題組不上傳。
+
+### 評鑑活動（`sinobee/evals/campaign.py`）
+- **一次試驗**：對整份題組跑一次 `runner.run(k=1)`，每份輸入跑一次。
+- **排程**：交錯執行，先跑每個組合的第 1 次，再跑第 2 次。基準組合也在題組上跑 k 次。
+- **預算**：每次試驗前檢查「已花費（受測＋評鑑）＋這次預估」是否超過預算；超過就停在 `budget`，已完成的都保留。
+  - 評鑑費用依 `judge_usage` 的 tokens 乘以評鑑模型牌價計算。
+  - 錨題只在第一次試驗檢查（`runner.run(anchors=False)`）。
+- **收尾**：全部跑完後做創造力盲比（`compare.compare`）。
+- **估算**（`estimate`），每份輸入的用量依下列優先序：
+  1. 同一份題組的歷史試驗（依執行模型）。
+  2. 本次任務的執行報告。
+  3. 預設 30 萬 tokens、240 秒。
+  - 思維模型佔 25%（思維＝執行時為 0），輸出佔 15%，依牌價計算；時間依各模型的歷史速度。
+  - 評鑑費用：llm 題 × 3 票 ×（8000 in＋250 out），第二評鑑每題 1 票，錨題另計。
+- **已測過的組合**：`remote_tested()` 讀 `GET /api/v1/evals?kind=skill&subject=&suite_hash=`，離線時視為沒有。sinobee.ai 上已有 n ≥ k 的組合預設略過，基準組合除外。
+- **排隊**：`Queue` 一次只跑一個活動，其餘排隊；停止會取消正在執行的試驗，可從中斷處繼續。舊的 `/api/evals/run` 在活動執行中回 409。
+- **結果**：`results()` 合併各次 run（`publish.payloads`），再用移植自 sinobee.ai `reportStats`／`board` 的邏輯算出四個答案，規則與網站相同。
+- **儲存**：`$SINOBEE_HOME/evals/campaigns/<id>.json`，內含 plan、next、items（每次試驗的分數、合格與否、花費、時間）、spent、estimate、creativity、published。
+
+### API（`sinobee/server/evals_api.py`）
+- `GET /api/evals/evaluators?skill=`
+- `GET /api/evals/suites?skill=&version=`、`GET /api/evals/suites/{ref}`
+- `POST /api/evals/suites/generate`（背景執行，事件 `suite_progress`／`suite_done`）、`GET /api/evals/suites/jobs/{job}`
+- `GET /api/evals/candidates?session_id=`、`GET /api/evals/tested?skill=&suite=`、`POST /api/evals/estimate`
+- `POST /api/evals/campaigns`、`GET /api/evals/campaigns[?session_id=]`、`GET /api/evals/campaigns/{id}`、`GET …/{id}/results`
+- `POST …/{id}/stop`、`POST …/{id}/resume {budget_usd?}`、`POST …/{id}/publish {visibility}`
+- 事件 `campaign_progress`／`campaign_done`
+
+- `publish.publish(config, runs, extra=)`：每份報告加上 `visibility`、`evaluator`、`suite_ref`、`campaign`。sinobee.ai 在 M4 才會儲存這些欄位；目前的 zod 會略過未知欄位。
+
+測試：`tests/test_campaign.py`（7 個）。

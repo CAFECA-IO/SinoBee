@@ -65,7 +65,8 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
     @app.post("/api/evals/run")
     async def evals_start(body: dict):
         from ..evals.runner import run
-        if state["eval_task"] is not None and not state["eval_task"].done():
+        from ..evals.campaign import QUEUE
+        if (state["eval_task"] is not None and not state["eval_task"].done()) or QUEUE.busy():
             raise HTTPException(409, "an evaluation is already running")
         rt = rt_getter()
         suite = str(body.get("suite") or "core")
