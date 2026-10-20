@@ -73,7 +73,7 @@ async def test_thinking_models_get_room_in_short_calls(monkeypatch):
     from sinobee.providers.openai_compat import OpenAICompatProvider
     sent = []
 
-    async def post(self, url, payload, headers):
+    async def post(self, url, payload, headers, **_kw):
         sent.append(payload.get("max_tokens") or payload.get("max_completion_tokens"))
         return {"choices": [{"message": {"content": "{}"}}], "usage": {}}
     monkeypatch.setattr(OpenAICompatProvider, "_post", post)

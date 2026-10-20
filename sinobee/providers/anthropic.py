@@ -150,7 +150,8 @@ class AnthropicProvider(Provider):
             payload["tools"] = [{"name": t.name, "description": t.description, "input_schema": t.parameters}
                                 for t in tools]
             payload["tools"][-1]["cache_control"] = CACHE
-        data = await self._post(f"{self.base_url}/v1/messages", payload, self._headers())
+        data = await self._post(f"{self.base_url}/v1/messages", payload, self._headers(),
+                                timeout=self.call_timeout(max_tokens))
         texts, calls = [], []
         for b in data.get("content", []):
             if b.get("type") == "text":

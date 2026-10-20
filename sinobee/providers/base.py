@@ -202,7 +202,13 @@ class Provider(ABC):
             raise ProviderError(f"{self.label} HTTP {r.status_code}: {r.text[:500]}", r.status_code)
         return r.json()
 
-    async def _post(self, url: str, payload: dict, headers: dict) -> dict:
+    def call_timeout(self, max_tokens: int | None) -> float:
+        """Seconds to wait for an answer of up to `max_tokens`. A model that is not streamed sends nothing until it has
+        finished thinking and writing, so a long answer (a whole HTML page, 16-32k tokens with hidden reasoning) needs
+        more than the default: about 50 tokens/s, never less than the configured timeout."""
+        return max(float(self.timeout), 60.0 + int(max_tokens or 0) / 50.0)
+
+    async def _post(self, url: str, payload: dict, headers: dict, timeout: float | None = None) -> dict:
         """POST a JSON request. With payload["stream"] the answer is read as server-sent events (_read_stream) and
         returned in the same shape as a plain answer: bytes keep arriving while the model writes, so a proxy that cuts
         requests which stay silent for ~100 s (Cloudflare in front of the SinoBee.ai relay) never cuts a long answer."""
@@ -216,7 +222,7 @@ class Provider(ABC):
         else:
             headers = {**{k: v for k, v in headers.items() if k.lower() != "content-type"}, **self.extra_headers,
                        "Content-Type": "application/json"}
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout or self.timeout) as client:
             if not stream:
                 r = await client.post(url, content=body, headers=headers)
                 if r.status_code >= 400:

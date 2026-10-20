@@ -32,6 +32,9 @@ RULES = [
     (r"HTTP 5[02]4\b[\s\S]{0,800}?(?:gateway time-?out|timeout occurred)|HTTP 524",
      "模型回覆太久，被中間的代理伺服器切斷（504 閘道逾時）",
      "通常是一次要寫很長的內容（例如整頁 HTML）。新版 SinoBee 改用串流，不會再遇到；重試時可請它分段寫檔。"),
+    (r"timed out: (?:ReadTimeout|ReadError)",
+     "模型在時限內沒有回完（通常是一次要寫很長的內容，例如整頁 HTML）",
+     "不一定是網路問題。重試時請它分段寫檔；新版 SinoBee 會依輸出上限延長等待時間，並在輸出被截斷時要求分段。"),
     (r"network error|ConnectError|Timeout|timed out|Name or service not known|HTTP 50[234]",
      "連不到模型服務（網路或供應商暫時故障）", "確認網路與供應商狀態後重試；可設定備援模型自動切換。"),
     (r"HTTP 4(?:00|22).{0,200}?(?:(?:temperature|top_p|top_k|max_tokens|max_completion_tokens|tool_choice|"

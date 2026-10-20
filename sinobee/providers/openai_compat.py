@@ -177,7 +177,8 @@ class OpenAICompatProvider(Provider):
         if self.stream:
             payload["stream"] = True
             payload["stream_options"] = {"include_usage": True}
-        data = await self._post(f"{self.base_url}/chat/completions", payload, self._headers())
+        data = await self._post(f"{self.base_url}/chat/completions", payload, self._headers(),
+                                timeout=self.call_timeout(max_tokens))
         choice = (data.get("choices") or [{}])[0]
         msg = choice.get("message") or {}
         calls = []

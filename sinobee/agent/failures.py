@@ -82,6 +82,7 @@ def build(agent, *, status: str, error_info: dict | None, final_text: str, query
                     "review": stats.get("review"), "level": (stats.get("quality") or [None])[0],
                     "skipped": stats.get("quality_skipped") or []},
         "control_log": stats.get("control_log") or [],
+        "empty_replies": stats.get("empty_replies") or [],
         "partial": stats.get("partial"),
         "budget": agent._guard.summary() if getattr(agent, "_guard", None) else None,
         "progress": (stats.get("progress_trace") or [])[-80:],
@@ -152,6 +153,10 @@ def summary_text(r: dict, limit: int = 30000) -> str:
         from .progress import describe
         parts.append("CONTROL DECISIONS (what stopped or questioned the execution, with the exact trigger):\n" +
                      "\n".join(describe(e) for e in r["control_log"][-20:]))
+    if r.get("empty_replies"):
+        parts.append("EMPTY REPLIES (the model answered nothing; finish=length means its output budget ran out first):\n"
+                     + "\n".join(f"#{e.get('step')} finish={e.get('finish')} max_tokens={e.get('max_tokens')} "
+                                  f"output_tokens={e.get('output_tokens')} {e.get('seconds')}s" for e in r["empty_replies"][-10:]))
     if r.get("progress"):
         parts.append("PROGRESS PER STEP (✓ progress, · none):\n" + "\n".join(
             f"#{t['step']} {'✓' if t.get('progress') else '·'} {t.get('why', '')[:160]}{cost_text(t.get('cost'))}"
@@ -186,6 +191,9 @@ RULES = [
     (r"HTTP 40[13]|invalid[_ ]api[_ ]key|unauthorized|sign-in expired", "environment",
      "模型服務的金鑰或登入無效", {"target": "settings", "change": "重新設定金鑰或登入 SinoBee.ai"},
      "到設定重新貼上金鑰或重新登入後再試。"),
+    (r"timed out: (?:ReadTimeout|ReadError)", "execution_capability", "模型在時限內沒有回完：一次要產生的內容太長",
+     {"target": "skill", "change": "大型檔案分段寫入（先寫骨架，再逐段 edit_file），不要一次寫完整頁"},
+     "重試時請它分段寫檔。"),
     (r"network error|ConnectError|timed out|Timeout|HTTP 50[234]", "environment", "連不到模型服務或服務暫時故障",
      {"target": "settings", "change": "設定備援模型，網路不穩時自動切換"}, "確認網路與供應商狀態後重試。"),
     (r"context.{0,20}(length|window)|maximum context|prompt is too long", "system_bug", "對話內容超過模型的上下文長度",

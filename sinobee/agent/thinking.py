@@ -117,6 +117,9 @@ Categories:
   system_bug            SinoBee itself misbehaved (crash, wrong guard, bad prompt)
   provider_compat       the model service rejected what SinoBee sent (a parameter or format this model no longer
                         accepts)
+A model timeout (ReadTimeout) after EMPTY REPLIES with finish=length is not an outage: the model was producing more
+than one call can hold (typically a whole page or report in a single write_file) - execution_capability, or
+skill_defect when a skill asks for one huge file; the fix is to write large files in parts.
 Reply with JSON only:
 {{"category": "<one of the above>", "summary": "<what happened, 1-2 sentences, user's language>",
   "failed_at": "<the step or moment it went wrong>", "evidence": ["<quotes from the record>"],

@@ -35,7 +35,7 @@ async def test_history_is_append_only_and_the_volatile_context_rides_at_the_end(
 def test_anthropic_cache_breakpoint_skips_the_volatile_tail(monkeypatch):
     sent = {}
 
-    async def post(self, url, payload, headers):
+    async def post(self, url, payload, headers, **_kw):
         sent.update(payload)
         return {"content": [{"type": "text", "text": "ok"}], "usage": {}, "stop_reason": "end_turn"}
     monkeypatch.setattr(AnthropicProvider, "_post", post)

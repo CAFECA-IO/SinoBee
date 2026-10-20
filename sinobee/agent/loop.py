@@ -52,7 +52,13 @@ Do this:
    material in references/ and helpers in scripts/ with skill_write_file.
 5. Reply with the skill name, scope and a 2-line summary of when it will be used."""
 
-REASONING_MODEL_RE = re.compile(r"(^|/)(o\d|gpt-5|gemini-(2\.5|3)|.*thinking|.*reasoner|deepseek-r|qwq|.*-r1)", re.I)
+REASONING_MODEL_RE = re.compile(r"(^|/)(o\d|gpt-5|gemini-(2\.5|[3-9])|gemini-[\w.-]*latest|.*thinking|.*reasoner|deepseek-r|"
+                                r"qwq|.*-r1)", re.I)
+TRUNCATED_NUDGE = ("[SinoBee notice] Your previous reply ran out of output tokens (finish_reason=length) before any "
+                   "tool call or text came out: the budget went to thinking and/or one very large tool argument. Do "
+                   "not write a large file in one call. Write a short skeleton with write_file first, then add one "
+                   "section per edit_file call (replace a placeholder comment such as <!-- SECTION 2 --> with that "
+                   "section, under ~250 lines each). Keep your reasoning short and call the next tool now.")
 EMPTY_NUDGE = ("[SinoBee notice] Your previous reply was empty. Continue the task now: call the next tool you need, "
                "or - if you already have enough information - write the complete answer for the user in their "
                "language. Do not reply with an empty message.")
@@ -1124,7 +1130,7 @@ class Agent:
             tail = [context_block, self._active_skill_notes(), self._checklist_tail(stats, steps),
                     self._msr.panel() if self._msr else ""]
             if nudge:
-                tail.append(EMPTY_NUDGE)
+                tail.append(TRUNCATED_NUDGE if nudge == "length" else EMPTY_NUDGE)
                 nudge = False
             request.append(Message("user", [TextPart("\n\n".join(t for t in tail if t), volatile=True)]))
             hs = self._progress.health_steps
@@ -1140,8 +1146,10 @@ class Agent:
                                           f"已執行 {steps - 1} 步，沒有驗收清單，最近 {hs} 步也沒有寫出任何檔案"
                                           f"（健康水位每 {hs} 步檢查一次）")
             self._emit("thinking", {"iteration": iteration, "step": steps, "model": self._prov.label})
+            t_call = time.monotonic()
             try:
                 resp = await self._step_chat(request, tool_specs, max_tokens, stats)
+                stats["last_call_s"] = time.monotonic() - t_call
             except Exception as e:
                 for qe in current_scope.get().drain_quota_events():
                     if qe.get("window") == "6h":
@@ -1192,12 +1200,16 @@ class Agent:
                 # model stalled after a tool result. Never accept it as the final answer.
                 empty_replies += 1
                 truncated = str(resp.stop_reason).lower() in ("length", "max_tokens", "max_output_tokens")
+                stats.setdefault("empty_replies", []).append(
+                    {"step": steps, "finish": resp.stop_reason or "", "max_tokens": max_tokens,
+                     "output_tokens": getattr(resp.usage, "output_tokens", None),
+                     "seconds": round((stats.get("last_call_s") or 0), 1)})
                 if truncated:
                     max_tokens = min(max_tokens * 2, 32768)
                 if empty_replies <= 2:
                     self._emit("status", {"message": f"模型回傳空白回覆（finish_reason={resp.stop_reason or 'n/a'}），"
-                                                     f"{'提高輸出上限並' if truncated else ''}要求繼續"})
-                    nudge = True
+                                                     f"{'提高輸出上限並請它分段寫檔' if truncated else '要求繼續'}"})
+                    nudge = "length" if truncated else True
                     continue
                 final_text = (f"⚠︎ 模型 {resp.model or self._prov.label} 連續 {empty_replies} 次回傳空白回覆"
                               f"（finish_reason={resp.stop_reason or 'n/a'}），任務沒有完成，已保存失敗報告。建議換用能力較強的執行模型，"
