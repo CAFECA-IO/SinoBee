@@ -316,7 +316,7 @@ details.tool .dur{color:var(--muted);font-size:12px;margin-left:6px}
 .result.error b,.result.incomplete b,.result.blocked b{color:var(--err)}
 .result.stopped b{color:var(--muted)}
 .result .hint{margin-top:4px}.result details{margin-top:6px;color:var(--muted)}.result pre{white-space:pre-wrap;font-size:12px;max-height:240px;overflow:auto}
-.run-dot{color:var(--accent);font-size:11px;margin-left:4px}
+.run-dot{color:var(--accent);font-size:11px;margin-left:4px;white-space:nowrap}
 /* ---------- database browser ---------- */
 .dbwrap{display:grid;grid-template-columns:248px minmax(0,1fr);height:min(76vh,760px);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:12px}
 .dbtree{overflow:auto;border-right:1px solid var(--line);padding:6px;background:var(--panel2);font-size:13px}
@@ -679,7 +679,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 .ckl-h{display:flex;align-items:center;gap:8px;font-size:12.5px}.ckl-h span{color:var(--muted);font-variant-numeric:tabular-nums}
 .ckl-h i{flex:1;height:4px;border-radius:2px;background:linear-gradient(90deg,var(--accent-solid) var(--p),var(--line) var(--p));max-width:180px;margin-left:auto}
 .cklist ol{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:5px}
-.cklist li{display:grid;grid-template-columns:18px 1fr;gap:8px;align-items:start;font-size:13px;line-height:1.45}
+.cklist li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;align-items:start;font-size:13px;line-height:1.45}
 .cklist li small{display:block;color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ckl-b{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);display:grid;place-items:center;margin-top:1px;font-size:11px;color:var(--muted)}
 .ckl-b svg.i{width:12px;height:12px}.ckl-b .spin{width:10px;height:10px;border-width:2px}
@@ -689,7 +689,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 .evl-steps span{padding:1px 7px;border-radius:99px;border:1px solid var(--line)}.evl-steps .now{border-color:var(--accent);color:var(--accent)}.evl-steps .done{color:var(--ok)}
 .evl-d{margin-top:4px}.evlive .spin{width:12px;height:12px}.evlive .warn{color:var(--warn)}.evlive.stale{border-color:var(--warn)}.evlive.stale .spin{animation:none;border-top-color:var(--warn)}
 .evbox.live{border-color:var(--accent)}.evbtn.running{border-color:var(--accent);color:var(--accent)}.evbtn .spin{display:inline-block;width:11px;height:11px;vertical-align:-1px}
-button.ev-dot{border:0;background:none;padding:0;font:inherit;cursor:pointer;text-decoration:underline dotted}
+button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-width:100%;margin:5px 0 3px;padding:1px 8px;border:1px solid var(--accent);border-radius:99px;background:none;font:inherit;font-size:11.5px;line-height:1.6;white-space:nowrap;cursor:pointer}button.ev-dot:hover{background:color-mix(in srgb,var(--accent) 14%,transparent)}
 .ckl-stop{display:block;width:10px;height:10px;border:2px solid var(--warn);border-radius:50%;box-sizing:border-box}
 .cklist li.done .ckl-b{background:var(--accent-solid);border-color:var(--accent-solid);color:var(--on-accent)}
 .cklist li.doing .ckl-b{border-color:var(--accent)}.cklist li.dropped{color:var(--muted)}.cklist li.dropped>span:last-child{text-decoration:line-through}
