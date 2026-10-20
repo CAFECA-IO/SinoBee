@@ -688,7 +688,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 .evl-steps{margin-left:auto;display:flex;gap:4px;align-items:center;font-size:11.5px}.evl-steps i{font-style:normal;opacity:.5}
 .evl-steps span{padding:1px 7px;border-radius:99px;border:1px solid var(--line)}.evl-steps .now{border-color:var(--accent);color:var(--accent)}.evl-steps .done{color:var(--ok)}
 .evl-d{margin-top:4px}.evlive .spin{width:12px;height:12px}.evlive .warn{color:var(--warn)}.evlive.stale{border-color:var(--warn)}.evlive.stale .spin{animation:none;border-top-color:var(--warn)}
-.evbox.live{border-color:var(--accent)}.evbtn.running{border-color:var(--accent);color:var(--accent)}.evbtn .spin{display:inline-block;width:11px;height:11px;vertical-align:-1px}
+.evbox.live{border-color:var(--accent)}.evbtn.running{border-color:var(--accent);color:var(--accent)}.evbtn.paused,button.ev-dot.paused{border-color:var(--warn);color:var(--warn)}.evbtn .spin{display:inline-block;width:11px;height:11px;vertical-align:-1px}
 button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-width:100%;margin:5px 0 3px;padding:1px 8px;border:1px solid var(--accent);border-radius:99px;background:none;font:inherit;font-size:11.5px;line-height:1.6;white-space:nowrap;cursor:pointer}button.ev-dot:hover{background:color-mix(in srgb,var(--accent) 14%,transparent)}
 .ckl-stop{display:block;width:10px;height:10px;border:2px solid var(--warn);border-radius:50%;box-sizing:border-box}
 .cklist li.done .ckl-b{background:var(--accent-solid);border-color:var(--accent-solid);color:var(--on-accent)}
@@ -1532,10 +1532,13 @@ function evButtons(){
   document.querySelectorAll('.evbtn[data-turn]').forEach(b => {
     const on = r && String(r.turn_id) === b.dataset.turn;
     if (on === b.classList.contains('running') && (!on || b.dataset.p === `${r.done}/${r.total}/${r.status}`)) return;
-    b.classList.toggle('running', !!on);
+    b.classList.toggle('running', !!on); b.classList.toggle('paused', !!on && !!r.paused);
     if (on) { b.dataset.p = `${r.done}/${r.total}/${r.status}`;
-      b.innerHTML = `<span class="spin"></span> ${r.status === 'queued' ? '評鑑排隊中' : `正在評鑑這個技能 ${r.done}/${r.total}`} · 查看進度`;
-      b.title = '在背景執行中：讓其他模型組合用同一份題組各做幾次並評分。按一下看進度';
+      b.innerHTML = r.paused
+        ? `${ic('scale')} 評鑑未完成 ${r.done}/${r.total} · 繼續`
+        : `<span class="spin"></span> ${r.status === 'queued' ? '評鑑排隊中' : `正在評鑑這個技能 ${r.done}/${r.total}`} · 查看進度`;
+      b.title = r.paused ? '這個技能的評鑑停在一半（已完成的試驗都保留）。按一下查看，並從下一次試驗繼續'
+        : '在背景執行中：讓其他模型組合用同一份題組各做幾次並評分。按一下看進度';
       b.onclick = () => evOpenCampaign(sessionId); }
     else { delete b.dataset.p; b.innerHTML = ic('scale') + ' 評鑑這個技能';
       b.title = '用同一份題組讓其他模型組合也做一次，比較誰最快、最省、品質最好、最有創意'; b.onclick = () => b._open?.(); }
@@ -2336,7 +2339,18 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#pkgPan
 const EV = {open: false, step: 0, skill: null, skills: [], version: '', sid: null, turnId: null, source: 'new',
   evaluator: 'eval-authoring', suite: null, job: null, cand: null, rows: [], cols: [], sel: new Set(), base: null,
   k: 3, judge: '', judge2: '', budget: null, budgetEdited: false, est: null, tested: {}, campaign: null, data: {}};
-const EV_RUN = {};       // session id -> {done, total, status} of a campaign that is running or queued
+const EV_RUN = {};       // session id -> {done, total, status, turn_id} of its latest campaign: running, queued, or unfinished
+const EV_ACTIVE = ['running', 'queued', 'comparing'];
+// a campaign worth showing on its conversation: one that runs, or one that stopped half-way (it can be resumed)
+function evTrack(sid, c){
+  if (!sid) return;
+  const done = c.progress?.done || 0, total = c.progress?.total || 0;
+  const paused = ['stopped', 'budget', 'error'].includes(c.status) && done < total;
+  if (EV_ACTIVE.includes(c.status) || paused)
+    EV_RUN[sid] = {done, total, status: c.status, paused, turn_id: c.turn_id ?? EV_RUN[sid]?.turn_id};
+  else delete EV_RUN[sid];
+}
+const evLabel = r => r.status === 'queued' ? '評鑑排隊中' : r.paused ? `評鑑未完成 ${r.done}/${r.total}` : `評鑑中 ${r.done}/${r.total}`;
 const EV_STEPS = ['評鑑技能', '題組', '對手組合', '執行', '結果'];
 const mshort = s => String(s || '').split('/').pop().replace(/^(claude|gemini)-/, '').replace(/-latest$/, '');
 const cbx = (t, e) => `<span class="cbx"><i class="th" title="思維：${esc(t)}">${esc(mshort(t))}</i>＋<i class="ex" title="執行：${esc(e)}">${esc(mshort(e))}</i></span>`;
@@ -2573,7 +2587,7 @@ async function evStart(){
   try {
     const c = await evJson('/api/evals/campaigns', {suite: EV.suite, combos: evCombos(), k: EV.k, judge: EV.judge, judge2: EV.judge2 || null,
       budget_usd: EV.budgetEdited ? EV.budget : null, session_id: EV.sid, turn_id: EV.turnId});
-    EV.campaign = c.id; EV_RUN[EV.sid] = {done: 0, total: c.progress.total, status: c.status};
+    EV.campaign = c.id; evTrack(EV.sid, {...c, turn_id: EV.turnId});
     markEvalSide(); evGo(3);
   } catch (e) { btn.disabled = false; uiAlert(e.message); }
 }
@@ -2723,8 +2737,7 @@ function onEvalEvent(ev){
     return;
   }
   if (ev.session_id) {
-    if (['running', 'queued', 'comparing'].includes(ev.status)) EV_RUN[ev.session_id] = {done: ev.progress?.done || 0, total: ev.progress?.total || 0, status: ev.status, turn_id: ev.turn_id ?? EV_RUN[ev.session_id]?.turn_id};
-    else delete EV_RUN[ev.session_id];
+    evTrack(ev.session_id, ev);
     markEvalSide();
   }
   if (EV.open && EV.campaign === ev.id && EV.step === 3) {
@@ -2741,7 +2754,7 @@ function markEvalSide(){
   document.querySelectorAll('#side .item[data-sid]').forEach(d => {
     d.querySelector('.ev-dot')?.remove();
     const r = EV_RUN[d.dataset.sid];
-    if (r) d.querySelector('small')?.insertAdjacentHTML('beforebegin', `<button type="button" class="run-dot ev-dot" title="查看評鑑進度">⚖ ${r.status === 'queued' ? '評鑑排隊中' : `評鑑中 ${r.done}/${r.total}`}</button>`);
+    if (r) d.querySelector('small')?.insertAdjacentHTML('beforebegin', `<button type="button" class="run-dot ev-dot ${r.paused ? 'paused' : ''}" title="${r.paused ? '評鑑停在一半，按一下可以繼續' : '查看評鑑進度'}">⚖ ${evLabel(r)}</button>`);
     const b = d.querySelector('.ev-dot');
     if (b) b.onclick = e => { e.stopPropagation(); evOpenCampaign(d.dataset.sid, d.firstChild?.textContent || ''); };
   });
@@ -2759,11 +2772,13 @@ async function evOpenCampaign(sid, title){
 }
 function evNoteRunning(sid){
   const r = EV_RUN[sid]; if (!r) return;
-  add(`⚖ 技能評鑑${r.status === 'queued' ? '排隊中' : `進行中 ${r.done}/${r.total}`}：在背景執行，關掉面板也不會停。<a href="#" data-evsid="${esc(sid)}">查看進度</a>`, 'note');
+  add(r.paused ? `⚖ 技能評鑑停在一半（${r.done}/${r.total} 次試驗完成，${{budget: '達到預算上限', error: '發生錯誤'}[r.status] || '已停止'}）：已完成的結果都保留。<a href="#" data-evsid="${esc(sid)}">查看並繼續</a>`
+    : `⚖ 技能評鑑${r.status === 'queued' ? '排隊中' : `進行中 ${r.done}/${r.total}`}：在背景執行，關掉面板也不會停。<a href="#" data-evsid="${esc(sid)}">查看進度</a>`, 'note');
   document.querySelectorAll('[data-evsid]').forEach(a => a.onclick = e => { e.preventDefault(); evOpenCampaign(a.dataset.evsid); });
 }
 (async () => { try { const {campaigns} = await api('/api/evals/campaigns');
-  for (const c of campaigns || []) if (c.session_id && ['running', 'queued', 'comparing'].includes(c.status)) EV_RUN[c.session_id] = {done: c.progress?.done || 0, total: c.progress?.total || 0, status: c.status, turn_id: c.turn_id};
+  const seen = new Set();          // newest first: a conversation shows its latest campaign
+  for (const c of campaigns || []) if (c.session_id && !seen.has(c.session_id)) { seen.add(c.session_id); evTrack(c.session_id, c); }
   markEvalSide(); } catch {} })();
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && EV.open && !document.querySelector('.modal.open')) evPanel(false); });
 
