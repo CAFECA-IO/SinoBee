@@ -266,7 +266,12 @@ def remote_tested(config, skill: str | None, suite_hash: str | None) -> dict[str
 
 def new(rt, *, suite: str, combos: list[dict], k: int = MIN_TRIALS, judge: str | None = None,
         judge2: str | None = None, budget_usd: float | None = None, session_id: str | None = None, turn_id=None,
-        rerun_tested: bool = False, tested: dict[str, int] | None = None) -> dict:
+        rerun_tested: bool = False, tested: dict[str, int] | None = None, source: dict | None = None) -> dict:
+    """session_id: the conversation the campaign belongs to (a skill evaluation is its own conversation);
+    source: {session_id, turn_id} of a finished task that used the skill - the suite's material, the baseline's
+    models and the cost basis of the estimate."""
+    src = {"session_id": (source or {}).get("session_id"), "turn_id": (source or {}).get("turn_id")} \
+        if source and source.get("session_id") else None
     home = rt.config.home
     _name, tasks = load(suite, home=home, skills=rt.skills)
     meta = bench_meta(suite, home)
@@ -297,11 +302,12 @@ def new(rt, *, suite: str, combos: list[dict], k: int = MIN_TRIALS, judge: str |
         c["published_trials"] = n
         if n >= k and not rerun_tested and not c["baseline"]:
             c["skip"] = True
-    est = estimate(rt, suite, clean, judge=judge, judge2=judge2, session_id=session_id, turn_id=turn_id)
+    est = estimate(rt, suite, clean, judge=judge, judge2=judge2,
+                   session_id=(src or {}).get("session_id") or session_id, turn_id=(src or {}).get("turn_id") if src else turn_id)
     budget = float(budget_usd) if budget_usd not in (None, "") else est["suggested_budget"]
     cid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     plan = schedule(clean)
-    c = {"id": cid, "created": time.time(), "status": "ready", "session_id": session_id, "turn_id": turn_id,
+    c = {"id": cid, "created": time.time(), "status": "ready", "session_id": session_id, "turn_id": turn_id, "source": src,
          "skill": bench.get("skill"), "skill_version": "", "suite": suite, "suite_hash": suite_hash,
          "evaluator": bench.get("evaluator"), "title": meta.get("title"), "k": k, "judge": judge, "judge2": judge2,
          "budget_usd": round(max(0.0, budget), 2), "combos": clean, "plan": plan, "next": 0, "items": [],
@@ -358,6 +364,25 @@ def _abandon(c: dict) -> float:
         _retotal(c)
     c["live"] = None
     return usd
+
+
+ABANDONED: set[str] = set()     # campaigns given up while their run was being cancelled
+
+
+def abandon(home, cid: str) -> dict:
+    """Give a campaign up: it stops (if it runs or waits) and is no longer shown or resumed; the file and the
+    results stay (a later evaluation can still see what was spent)."""
+    c = get(home, cid)
+    if c["status"] in ("done", "published"):
+        raise EvalError("已完成的評鑑不能放棄")
+    ABANDONED.add(cid)
+    QUEUE.stop(home, cid)
+    c = get(home, cid)
+    if cid not in LIVE:
+        _abandon(c)
+        c.update(status="abandoned", error=None)
+        save(home, c)
+    return c
 
 
 LIVE: dict[str, dict] = {}       # campaigns being executed in this process: their up-to-date state (live step)
@@ -454,7 +479,7 @@ async def execute(rt, cid: str, emit=None) -> dict:
             c["creativity"] = await _creativity(rt, c)
             c["status"] = "done"
     except asyncio.CancelledError:
-        c["status"] = "stopped"
+        c["status"] = "abandoned" if cid in ABANDONED else "stopped"
         raise
     except Exception as e:  # noqa: BLE001
         log.exception("campaign failed")

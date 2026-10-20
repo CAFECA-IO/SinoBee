@@ -206,7 +206,7 @@ def _api_checks(c, rt, saved, tmp_path):
     assert {q["type"] for q in d["questions"]} >= {"security", "llm", "command"}
     assert c.get("/api/evals/suites/00000000").status_code == 404
     cand = c.get("/api/evals/candidates").json()
-    assert "models" in cand and cand["baseline"] is None
+    assert "models" in cand and (cand["baseline"] is None or cand["baseline"].get("current"))   # no task: models in use
     assert c.post("/api/evals/suites/generate", json={"skill": "x"}).status_code == 400
     suite = _suite(tmp_path)
     est = c.post("/api/evals/estimate", json={"suite": suite, "combos": COMBOS[:2], "k": 3}).json()
@@ -307,3 +307,47 @@ async def test_a_run_cut_off_half_way_still_counts_what_it_cost(rt, tmp_path, mo
     assert after["live"] is None and after["status"] == "done"
     assert any(x and x.get("cost", 0) > 0 and x["usd"] >= x["cost"] for x in seen)   # the run in progress: its cost
     assert C._live_usd(rt.config, {"judge": None}, {"cost": 0.2, "judge_tokens": [0, 0]}) == 0.2
+
+
+def test_a_skill_evaluation_is_its_own_conversation_from_the_skill_menu(rt, tmp_path, monkeypatch):
+    """2026-10-21: the evaluation started under an output read as "grade this output". It starts from the skill
+    menu as its own conversation; the suite's material is a finished task picked from the ones that used the skill;
+    a campaign can be given up."""
+    import time
+    from fastapi.testclient import TestClient
+    from sinobee.agent import runreport
+    from sinobee.server import create_app
+    monkeypatch.setattr(runner, "child_runtime", _child([]))
+    name = next(iter(rt.skills.skills)) if hasattr(rt.skills, "skills") else None
+    d = runreport._dir(rt.config.home)
+    (d / "r1.json").write_text(json.dumps({"id": "r1", "status": "done", "session_id": "work1", "turn_id": 4,
+        "request": "用動畫介紹風力發電機", "skills": ["greeter"], "models": {"execution": FAST, "thinking": SLOW},
+        "outputs": {"n_files": 1}}), encoding="utf-8")
+    (d / "r2.json").write_text(json.dumps({"id": "r2", "status": "error", "session_id": "work2", "turn_id": 1,
+        "skills": ["greeter"]}), encoding="utf-8")
+    with TestClient(create_app(rt)) as c:
+        assert name
+        s = c.post("/api/evals/sessions", json={"skill": name}).json()
+        assert s["id"].startswith("ev-") and s["title"] == f"技能評鑑：{name}"
+        assert any(x["id"] == s["id"] for x in c.get("/api/sessions").json())    # a conversation in the sidebar
+        assert c.post("/api/evals/sessions", json={"skill": "no-such-skill"}).status_code == 404
+        src = c.get("/api/evals/source-tasks", params={"skill": "greeter"}).json()["tasks"]
+        assert [(t["session_id"], t["turn_id"]) for t in src] == [("work1", 4)]          # finished tasks only
+        cand = c.get("/api/evals/candidates", params={"session_id": "work1", "turn_id": 4}).json()
+        assert cand["baseline"]["execution"] == FAST and cand["baseline"]["thinking"] == SLOW
+        made = c.post("/api/evals/campaigns", json={"suite": _suite(tmp_path), "combos": COMBOS[:1], "k": 1,
+                                                    "budget_usd": 3, "session_id": "ev-x",
+                                                    "source": {"session_id": "work1", "turn_id": 4}}).json()
+        assert made["session_id"] == "ev-x" and made["source"] == {"session_id": "work1", "turn_id": 4}
+        for _ in range(200):
+            time.sleep(0.05)
+            if c.get(f"/api/evals/campaigns/{made['id']}").json()["status"] == "done":
+                break
+        assert c.post(f"/api/evals/campaigns/{made['id']}/abandon").status_code == 400     # a finished one stays
+
+    half = C.new(rt, suite=_suite(tmp_path), combos=COMBOS[:1], k=2, budget_usd=5, session_id="ev-y")
+    half.update(status="stopped", live={"usd": 0.3})
+    C.save(rt.config.home, half)
+    out = C.abandon(rt.config.home, half["id"])
+    assert out["status"] == "abandoned" and out["spent"]["abandoned"] == pytest.approx(0.3)
+    assert C.current(rt.config.home, half["id"])["status"] == "abandoned"

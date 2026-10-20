@@ -238,7 +238,8 @@ details.tool img{max-width:100%;border-radius:6px;margin-top:6px;border:1px soli
 .evvis label{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;margin-top:6px;cursor:pointer}
 .evvis label.sel{border-color:var(--accent)}.evvis small{display:block;color:var(--muted);margin-top:2px}
 .pkfile>.chip{flex:none}
-.rmore{position:relative;display:inline-block;margin-left:6px;vertical-align:middle;line-height:1}.rmore-b{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:999px;width:30px;height:24px;padding:0;cursor:pointer;font-size:15px;line-height:1}.rmore-b:hover,.rmore-b[aria-expanded=true]{color:var(--accent);border-color:var(--accent2)}.rmenu{position:absolute;left:0;top:calc(100% + 6px);z-index:30;width:min(340px,80vw);padding:5px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 8px 24px rgba(0,0,0,.35)}.rmenu button{display:flex;gap:9px;align-items:flex-start;width:100%;text-align:left;border:0;background:none;color:var(--ink);font:inherit;font-size:13px;line-height:1.45;padding:8px 9px;border-radius:7px;cursor:pointer}.rmenu button:hover,.rmenu button:focus-visible{background:var(--panel2);outline:none}.rmenu svg.i{width:15px;height:15px;margin-top:2px;flex:none;color:var(--accent)}.rmenu b{display:block;font-weight:600}.rmenu small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+.evcard{display:flex;gap:12px;align-items:flex-start;margin:10px 0 14px;padding:12px 14px;border:1px solid var(--accent2);border-radius:12px;background:var(--panel);font-size:13px;line-height:1.55}
+.evcard .ico svg{width:20px;height:20px;color:var(--accent);margin-top:2px}.evcard>div{flex:1}.evcard small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}.evcard b small{display:inline;margin:0}
 .skgrp{font-size:11px;color:var(--muted);letter-spacing:.04em;margin:10px 4px 2px}
 .pill.exp{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
 @media (max-width:520px){.pkprm{grid-template-columns:1fr auto auto}.pkprm .nm{grid-column:1/-1}.pkprm .ex{grid-column:1/-1}}
@@ -1519,31 +1520,6 @@ function quotaShare(u){
     <span class="qs-bar"><i class="qs-before" style="width:${before}%"></i><i class="qs-me" style="left:${before}%;width:${Math.min(me, 100 - before)}%"></i></span>
     <span>已用 ${fmtPct(used)}</span></span>`;
 }
-// B1: a task that used a skill can start a skill evaluation - from a secondary menu (⋯), not a button under the
-// output: placed there it read as "grade this output", which it does not do (it reruns the task with other models)
-function evalButton(card, skills, turnId){
-  if (!turnId || !skills?.length || card.querySelector('.rmore')) return;
-  const w = document.createElement('span'); w.className = 'rmore';
-  w.innerHTML = `<button type="button" class="rmore-b" aria-haspopup="menu" aria-expanded="false" aria-label="更多" title="更多">⋯</button>`;
-  const btn = w.firstChild;
-  const close = () => { w.querySelector('.rmenu')?.remove(); btn.setAttribute('aria-expanded', 'false'); document.removeEventListener('click', away, true); document.removeEventListener('keydown', esc_); };
-  const away = e => { if (!w.contains(e.target)) close(); };
-  const esc_ = e => { if (e.key === 'Escape') { close(); btn.focus(); } };
-  btn.onclick = () => {
-    if (w.querySelector('.rmenu')) return close();
-    const r = EV_RUN[sessionId], mine = r && String(r.turn_id) === String(turnId);
-    const m = document.createElement('div'); m.className = 'rmenu'; m.setAttribute('role', 'menu');
-    m.innerHTML = mine
-      ? `<button type="button" role="menuitem">${ic('scale')}<span><b>${r.paused ? `技能評鑑未完成 ${r.done}/${r.total} · 繼續` : r.status === 'queued' ? '技能評鑑排隊中 · 查看' : `技能評鑑進行中 ${r.done}/${r.total} · 查看進度`}</b>
-          <small>${esc(skills.join('、'))}：其他模型組合用這次任務出的題目重做並評分</small></span></button>`
-      : `<button type="button" role="menuitem">${ic('scale')}<span><b>評鑑技能：比較模型組合…</b>
-          <small>讓其他模型組合用這次任務出的題目重做並評分，比較誰最快、最省、品質最好（${esc(skills.join('、'))}）。不會為上面的成果打分；需數小時，花費有上限</small></span></button>`;
-    m.querySelector('button').onclick = () => { close(); mine ? evOpenCampaign(sessionId) : openEval({skills, turnId}); };
-    w.appendChild(m); btn.setAttribute('aria-expanded', 'true'); m.querySelector('button').focus();
-    setTimeout(() => { document.addEventListener('click', away, true); document.addEventListener('keydown', esc_); });
-  };
-  card.appendChild(w);
-}
 function resultCard(ev){
   const u = ev.usage || {};
   const meta = [ev.steps ? `${ev.steps} 步` : '', ev.duration_s != null ? fmtDur(ev.duration_s) : '',
@@ -1554,7 +1530,6 @@ function resultCard(ev){
   const st = ev.status || 'done';
   const rr = c => { c.querySelectorAll('[data-rr]').forEach(a => a.onclick = e => { e.preventDefault(); showRunReport(a.dataset.rr); }); return c; };
   if (st === 'done') { const c = rr(add(`<b>✓ 完成</b>${meta ? ' · ' + meta : ''}`, 'result done')); if (ev.package_hint) c.dataset.pkg = '1'; if (ev.turn_id) attachFeedback(c, ev.turn_id, null);
-    evalButton(c, ev.skills, ev.turn_id);
     return c; }
   if (st === 'stopped') return rr(add(`<b>■ 已停止</b>${meta ? ' · ' + meta : ''}`, 'result stopped'));
   const er = ev.error || {};
@@ -2063,7 +2038,7 @@ async function openSession(s){
   const replayLast = PROC;
   if (!RUNNING[s.id]) procClose();
   REPLAY = false; if (replayLast && RUNNING[s.id]) { replayLast.live = true; }
-  evNoteRunning(s.id);
+  evSessionCard(s.id);
   for (const a of Array.isArray(arts) ? arts : []) showArtifacts(a.id, a.files);
   if (!RUNNING[s.id]) api('/api/sessions/' + s.id + '/interrupted').then(r => { if (r?.interrupted && sessionId === s.id) interruptedCard(r); }).catch(() => {});
   api('/api/sessions/' + s.id + '/milestones').then(r => { if (r?.plan && sessionId === s.id && (r.running || r.plan.done < r.plan.total)) { msEl = null; msShow({...r.plan, phase: r.running ? 'running' : r.plan.phase}); } }).catch(() => {});
@@ -2084,7 +2059,6 @@ async function openSession(s){
     card.innerHTML = ok ? `<b>✓ 完成</b>${meta ? ' · ' + meta : ''}` : `<b>${head}</b>${meta ? `<div class="rmeta">${meta}</div>` : ''}`;
     anchor.after(card);
     if (t.status !== 'error') attachFeedback(card, t.id, t.rating, t.fb_comment);
-    if (ok) evalButton(card, t.skills, t.id);
   }
   if (!RUNNING[s.id]) document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
   setBusy();
@@ -2215,6 +2189,7 @@ async function openSkill(s){
   const acts = [];
   if (['agent', 'community', 'untrusted'].includes(r.trust) || r.modified) acts.push(['approve', r.trust === 'agent' ? '核准（升為本機）' : '我已檢視，信任此技能']);
   if (r.effective) acts.push(['disable', r.disabled ? '啟用' : '停用']);
+  if (r.effective && r.trust !== 'blocked' && r.kind !== 'evaluation') acts.push(['evaluate', '評鑑技能…']);
   if (r.effective && r.trust !== 'blocked') acts.push(['export', '匯出']);
   if (r.versions && r.versions.length) acts.push(['rollback', '回復上一版']);
   if (r.effective && r.scope !== 'extra') acts.push(['delete', '刪除']);
@@ -2224,6 +2199,7 @@ async function openSkill(s){
     if (a === 'close') return $('#skillModal').classList.remove('open');
     if (a === 'approve') await post(`/api/skills/${n}/approve`, {path: r.effective ? null : r.location});
     if (a === 'disable') await post(`/api/skills/${n}/disable`, {disabled: !r.disabled});
+    if (a === 'evaluate') { $('#skillModal').classList.remove('open'); return startSkillEval(r.name); }
     if (a === 'export') { location.href = `/api/skills/${n}/export?token=${encodeURIComponent(token)}`; return; }
     if (a === 'rollback') await post(`/api/skills/${n}/rollback`, {});
     if (a === 'delete') { if (!await uiConfirm(`刪除技能 ${r.name}？（可從歷史備份還原）`)) return; await post(`/api/skills/${n}`, {}, 'DELETE'); }
@@ -2377,9 +2353,18 @@ function evError(e, back){ evShell(`<div class="evbox bad"><b>沒有完成</b>${
   `<button class="btn" type="button" data-a="back">上一步</button><button class="btn" type="button" data-a="close">關閉</button>`);
   $('#evFoot [data-a=back]').onclick = back || (() => evGo(Math.max(0, EV.step - 1)));
   $('#evFoot [data-a=close]').onclick = () => evPanel(false); }
+// A skill evaluation starts from the skill menu and is a conversation of its own ("技能評鑑：<skill>"); it is not
+// attached to any output (2026-10-21: under an output it read as "grade this output", which it does not do).
+async function startSkillEval(name){
+  let s;
+  try { s = await evJson('/api/evals/sessions', {skill: name}); } catch (e) { return uiAlert(e.message); }
+  await openSession(s); loadSide();
+  openEval({skills: [name]});
+}
 async function openEval({skills = [], turnId = null} = {}){
   if (!sessionId) return;
   const fresh = EV.sid !== sessionId || EV.turnId !== turnId;
+  if (fresh) EV.src = null;
   Object.assign(EV, {sid: sessionId, turnId, skills: skills.length ? skills : EV.skills});
   if (fresh || !EV.skill || !EV.skills.includes(EV.skill)) EV.skill = EV.skills[0] || null;
   evPanel(true);
@@ -2388,7 +2373,7 @@ async function openEval({skills = [], turnId = null} = {}){
   evLoading('讀取評鑑狀態…');
   try {   // a campaign of this session and skill already exists: show it
     const {campaigns} = await api(`/api/evals/campaigns?session_id=${encodeURIComponent(sessionId)}`);
-    const c = (campaigns || []).find(x => x.skill === EV.skill && x.status !== 'ready');
+    const c = (campaigns || []).find(x => x.skill === EV.skill && !['ready', 'abandoned'].includes(x.status));
     if (c && fresh) { EV.campaign = c.id; EV.suite = c.suite; return evGo(['done', 'published'].includes(c.status) ? 4 : 3); }
   } catch {}
   evGo(EV.step);
@@ -2399,9 +2384,13 @@ async function evStep0(){
   if (EV.job) return evGenerating();
   evLoading('讀取評鑑技能與題組…');
   let ev, su;
-  try { [ev, su] = await Promise.all([api(`/api/evals/evaluators?skill=${encodeURIComponent(EV.skill)}`),
-                                      api(`/api/evals/suites?skill=${encodeURIComponent(EV.skill)}`)]); }
+  let src;
+  try { [ev, su, src] = await Promise.all([api(`/api/evals/evaluators?skill=${encodeURIComponent(EV.skill)}`),
+                                      api(`/api/evals/suites?skill=${encodeURIComponent(EV.skill)}`),
+                                      EV.turnId ? Promise.resolve({tasks: []}) : api(`/api/evals/source-tasks?skill=${encodeURIComponent(EV.skill)}`)]); }
   catch (e) { return evError(e); }
+  EV.data.sources = src.tasks || [];
+  if (EV.turnId && !EV.src) EV.src = {session_id: EV.sid, turn_id: EV.turnId};
   EV.data.evaluators = ev.evaluators || []; EV.data.suites = su.suites || []; EV.data.remoteSuites = su.remote || [];
   EV.data.remoteEv = ev.remote || [];
   const anySuite = EV.data.suites.length + EV.data.remoteSuites.length;
@@ -2437,13 +2426,17 @@ async function evStep0(){
     ${EV.source === 'reuse' ? `<div class="pkhint" style="margin-top:6px;color:var(--muted);font-size:12px">沿用同一份題組，結果才能和之前的評鑑放在同一個排行。</div>${sus}${rsus ? `<h4>SinoBee.ai 上分享的題組</h4>${rsus}` : ''}`
       : `${EV.data.suites.length ? '' : `<div style="margin-top:6px;color:var(--muted);font-size:12px">${esc(EV.skill)} 還沒有題組，這次評鑑會建立第一份。</div>`}
       <h4>由哪個評鑑技能出題</h4>${evs}${hubEv}
-      <div class="evbox warn"><b>提醒</b>不同評鑑技能出的題組不同，只有同一份題組的報告會放在同一個排行。評鑑技能在沙箱中執行，只讀取這個技能與本次任務去識別後的輸入、成果。</div>
-      <h4>本次任務帶進評鑑</h4>
-      <div class="pkfile"><span>需求、回答與成果<small>去識別後當原題（人名、Email、路徑會換成代稱）</small></span><span class="chip ok">必要</span></div>`}
-    <div class="pkfile"><span>本次的模型組合當基準<small>基準組合也在題組上跑同樣次數，才能公平比較</small></span><input type="checkbox" class="sw" id="evBase" ${EV.useBase !== false ? 'checked' : ''} aria-label="本次的模型組合當基準"></div>`,
+      <div class="evbox warn"><b>提醒</b>不同評鑑技能出的題組不同，只有同一份題組的報告會放在同一個排行。評鑑技能在沙箱中執行，只讀取這個技能與所選任務去識別後的輸入、成果。</div>
+      <h4>依哪個任務出題 <small>用過 ${esc(EV.skill)} 的任務；需求、回答與成果去識別後當原題</small></h4>
+      ${EV.turnId ? '' : (EV.data.sources.map((t, i) => `<div class="evopt ${EV.src && EV.src.session_id === t.session_id && EV.src.turn_id === t.turn_id ? 'sel' : ''}" data-srci="${i}" role="radio" tabindex="0"><span class="rad"></span><div>
+          <div class="nm">${esc(t.request || '（沒有需求文字）')}</div>
+          <div class="by">${new Date((t.created || 0) * 1000).toLocaleString()} · ${t.files || 0} 個成果檔 · ${esc(mshort(t.thinking || ''))}＋${esc(mshort(t.execution || ''))}</div></div></div>`).join('')
+        || `<div class="evbox warn">還沒有用 ${esc(EV.skill)} 完成的任務。先用這個技能完成一個任務，評鑑技能才有材料出題；或改用「沿用已有的題組」。</div>`)}`}
+    <div class="pkfile"><span>${EV.src ? '出題任務的模型組合當基準' : '你目前的模型組合當基準'}<small>基準組合也在題組上跑同樣次數，才能公平比較</small></span><input type="checkbox" class="sw" id="evBase" ${EV.useBase !== false ? 'checked' : ''} aria-label="基準組合"></div>`,
     `<button class="btn" type="button" data-a="close">取消</button>` + (EV.source === 'reuse'
       ? `<button class="btn primary" type="button" data-a="next" ${EV.suite || EV.remoteSel ? '' : 'disabled'}>下一步：題組</button>`
-      : `<button class="btn primary" type="button" data-a="gen" ${EV.evaluator ? '' : 'disabled'}>用 ${esc(EV.evaluator || '評鑑技能')} 出題</button>`));
+      : `<button class="btn primary" type="button" data-a="gen" ${EV.evaluator && EV.src ? '' : 'disabled'}>用 ${esc(EV.evaluator || '評鑑技能')} 出題</button>`));
+  $('#evBody').querySelectorAll('[data-srci]').forEach(d => d.onclick = () => { const t = EV.data.sources[+d.dataset.srci]; EV.src = {session_id: t.session_id, turn_id: t.turn_id}; evStep0(); });
   $('#evSkill')?.addEventListener('change', e => { EV.skill = e.target.value; EV.suite = null; evStep0(); });
   $('#evBody').querySelectorAll('[data-src]').forEach(b => b.onclick = () => { EV.source = b.dataset.src; evStep0(); });
   $('#evBody').querySelectorAll('[data-ev]').forEach(d => d.onclick = () => { if (d.classList.contains('off')) return; EV.evaluator = d.dataset.ev; evStep0(); });
@@ -2464,7 +2457,7 @@ async function evStep0(){
     }
     evGo(1); });
   $('#evFoot [data-a=gen]')?.addEventListener('click', async () => {
-    try { const j = await evJson('/api/evals/suites/generate', {skill: EV.skill, session_id: EV.sid, turn_id: EV.turnId, evaluator: EV.evaluator});
+    try { const j = await evJson('/api/evals/suites/generate', {skill: EV.skill, session_id: EV.sid, source: EV.src, evaluator: EV.evaluator});
       EV.job = {id: j.job, steps: 0, status: 'running'}; evGenerating(); }
     catch (e) { uiAlert(e.message); }
   });
@@ -2510,7 +2503,7 @@ async function evStep1(){
 async function evStep2(){
   evLoading('讀取可用的模型…');
   try {
-    const [cand, tested] = await Promise.all([api(`/api/evals/candidates?session_id=${encodeURIComponent(EV.sid)}${EV.turnId ? '&turn_id=' + EV.turnId : ''}`),
+    const [cand, tested] = await Promise.all([api(`/api/evals/candidates${EV.src ? `?session_id=${encodeURIComponent(EV.src.session_id)}${EV.src.turn_id != null ? '&turn_id=' + EV.src.turn_id : ''}` : ''}`),
       api(`/api/evals/tested?skill=${encodeURIComponent(EV.skill)}&suite=${encodeURIComponent(EV.suite)}`).catch(() => ({tested: {}}))]);
     EV.cand = cand; EV.tested = tested.tested || {};
   } catch (e) { return evError(e); }
@@ -2577,7 +2570,7 @@ function evEstimate(){
   clearTimeout(evEstT);
   evEstT = setTimeout(async () => {
     try { EV.est = await evJson('/api/evals/estimate', {suite: EV.suite, combos: evCombos().filter(c => !(EV.tested[ckey(c.thinking, c.execution)] >= EV.k) || c.baseline),
-      k: EV.k, judge: EV.judge, judge2: EV.judge2 || null, session_id: EV.sid, turn_id: EV.turnId}); }
+      k: EV.k, judge: EV.judge, judge2: EV.judge2 || null, session_id: EV.src?.session_id, turn_id: EV.src?.turn_id}); }
     catch { EV.est = null; }
     if (EV.step === 2 && EV.open) evMatrix();
   }, 250);
@@ -2586,9 +2579,9 @@ async function evStart(){
   const btn = $('#evFoot [data-a=go]'); btn.disabled = true;
   try {
     const c = await evJson('/api/evals/campaigns', {suite: EV.suite, combos: evCombos(), k: EV.k, judge: EV.judge, judge2: EV.judge2 || null,
-      budget_usd: EV.budgetEdited ? EV.budget : null, session_id: EV.sid, turn_id: EV.turnId});
+      budget_usd: EV.budgetEdited ? EV.budget : null, session_id: EV.sid, turn_id: EV.turnId, source: EV.src});
     EV.campaign = c.id; evTrack(EV.sid, {...c, turn_id: EV.turnId});
-    markEvalSide(); evGo(3);
+    markEvalSide(); evSessionCard(EV.sid); evGo(3);
   } catch (e) { btn.disabled = false; uiAlert(e.message); }
 }
 // ---- 4. running
@@ -2625,10 +2618,15 @@ async function evStep3(){
     ${rows}
     <div style="font-size:12px;color:var(--muted);margin-top:8px">每格是一次試驗在整份題組（${esc(String(c.estimate?.tasks || ''))} 份輸入）的平均分；綠色＝合格。</div>
     ${canResume ? `<label class="fld" style="margin-top:10px"><span>調整預算後繼續（US$）</span><input class="inp" id="evMore" type="number" step="0.5" value="${Math.max(c.budget_usd, Math.ceil(c.spent.total + 1))}"></label>` : ''}`,
-    (['running', 'queued'].includes(c.status) ? `<button class="btn" type="button" data-a="stop">停止（保留已完成的）</button>` : '')
+    (['running', 'queued', 'stopped', 'budget', 'error'].includes(c.status) ? `<button class="btn" type="button" data-a="abandon" title="停止並不再顯示；已花的錢仍記在這次評鑑">放棄</button>` : '')
+    + (['running', 'queued'].includes(c.status) ? `<button class="btn" type="button" data-a="stop">停止（保留已完成的）</button>` : '')
     + (canResume ? `<button class="btn" type="button" data-a="resume">繼續</button>` : '')
     + `<button class="btn primary" type="button" data-a="res" ${hasResults ? '' : 'disabled'}>看結果</button>`);
   $('#evFoot [data-a=stop]')?.addEventListener('click', async () => { await evJson(`/api/evals/campaigns/${EV.campaign}/stop`, {}); evStep3(); });
+  $('#evFoot [data-a=abandon]')?.addEventListener('click', async () => {
+    if (!await uiConfirm(`放棄這次 ${c.skill} 的評鑑？會停止執行，之後不再顯示也不能繼續；已完成的試驗與花費（${fmtUsd(evSpent(c))}）仍保留在紀錄裡。`, {ok: '放棄'})) return;
+    try { await evJson(`/api/evals/campaigns/${EV.campaign}/abandon`, {}); } catch (e) { return uiAlert(e.message); }
+    delete EV_RUN[c.session_id]; markEvalSide(); Object.assign(EV, {campaign: null, step: 0}); evPanel(false); evSessionCard(c.session_id); });
   $('#evFoot [data-a=resume]')?.addEventListener('click', async () => {
     try { await evJson(`/api/evals/campaigns/${EV.campaign}/resume`, {budget_usd: +($('#evMore')?.value || c.budget_usd)}); evStep3(); }
     catch (e) { uiAlert(e.message); } });
@@ -2740,6 +2738,7 @@ function onEvalEvent(ev){
     evTrack(ev.session_id, ev);
     markEvalSide();
   }
+  if (ev.session_id && ev.session_id === sessionId && !ev.live) evSessionCard(sessionId);
   if (EV.open && EV.campaign === ev.id && EV.step === 3) {
     if (ev.live && !ev.item && EV.data.c && EV.data.c.id === ev.id && EV.data.c.status === ev.status) { EV.data.c.live = ev.live; evLiveRender(); }
     else evStep3();
@@ -2763,21 +2762,38 @@ function markEvalSide(){
 async function evOpenCampaign(sid, title){
   if (sid !== sessionId) await openSession({id: sid, title});
   let c;
-  try { const {campaigns} = await api(`/api/evals/campaigns?session_id=${encodeURIComponent(sid)}`); c = (campaigns || [])[0]; } catch {}
+  try { const {campaigns} = await api(`/api/evals/campaigns?session_id=${encodeURIComponent(sid)}`); c = (campaigns || []).find(x => x.status !== 'abandoned'); } catch {}
   if (!c) return;
   Object.assign(EV, {sid, campaign: c.id, suite: c.suite, skill: c.skill, version: c.skill_version, turnId: EV.sid === sid ? EV.turnId : null});
   if (!EV.skills?.includes(c.skill)) EV.skills = [c.skill];
   evPanel(true); evGo(['done', 'published'].includes(c.status) ? 4 : 3);
 }
-function evNoteRunning(sid){
-  const r = EV_RUN[sid]; if (!r) return;
-  add(r.paused ? `⚖ 技能評鑑停在一半（${r.done}/${r.total} 次試驗完成，${{budget: '達到預算上限', error: '發生錯誤'}[r.status] || '已停止'}）：已完成的結果都保留。<a href="#" data-evsid="${esc(sid)}">查看並繼續</a>`
-    : `⚖ 技能評鑑${r.status === 'queued' ? '排隊中' : `進行中 ${r.done}/${r.total}`}：在背景執行，關掉面板也不會停。<a href="#" data-evsid="${esc(sid)}">查看進度</a>`, 'note');
-  document.querySelectorAll('[data-evsid]').forEach(a => a.onclick = e => { e.preventDefault(); evOpenCampaign(a.dataset.evsid); });
+// the card at the top of an evaluation conversation (and of an older conversation with a campaign): what is
+// evaluated, where it stands, and the way into the panel
+async function evSessionCard(sid){
+  if (sid !== sessionId) return;
+  let c = null;
+  try { const {campaigns} = await api(`/api/evals/campaigns?session_id=${encodeURIComponent(sid)}`);
+    c = (campaigns || []).find(x => x.status !== 'abandoned') || null; } catch {}
+  const isEval = String(sid).startsWith('ev-');
+  if (!c && !isEval) return;
+  const skill = c?.skill || ($('#title').textContent.split('：')[1] || '').trim();
+  const r = c && EV_RUN[sid];
+  const st = !c ? '還沒開始：選題組與要比較的模型組合'
+    : r ? (r.paused ? `停在一半：${r.done}/${r.total} 次試驗完成（${{budget: '達到預算上限', error: '發生錯誤'}[r.status] || '已停止'}），已完成的都保留`
+                    : r.status === 'queued' ? '排隊中：前一個評鑑跑完後開始' : `進行中：${r.done}/${r.total} 次試驗，在背景執行`)
+    : {done: '已完成，可以看結果並提交報告', published: '已提交評鑑報告', comparing: '創造力盲比中'}[c.status] || c.status;
+  const btn = !c ? '開始設定' : r?.paused ? '查看並繼續' : ['done', 'published'].includes(c.status) ? '看結果' : '查看進度';
+  let el = document.querySelector('#chat .evcard');
+  if (!el) { el = document.createElement('div'); el.className = 'evcard'; $('#chat').prepend(el); }
+  el.innerHTML = `<span class="ico">${ic('scale')}</span><div><b>技能評鑑：${esc(skill)}${c?.skill_version ? ` <small>${esc(c.skill_version)}</small>` : ''}</b>
+    <div>${esc(st)}</div><small>讓多個模型組合用同一份題組各做幾次，由評鑑模型評分，比較誰最快、最省、品質最好、最有創意。</small></div>
+    <button class="btn ${c ? '' : 'primary'} sm" type="button">${btn}</button>`;
+  el.querySelector('button').onclick = () => c ? evOpenCampaign(sid) : openEval({skills: [skill]});
 }
 (async () => { try { const {campaigns} = await api('/api/evals/campaigns');
   const seen = new Set();          // newest first: a conversation shows its latest campaign
-  for (const c of campaigns || []) if (c.session_id && !seen.has(c.session_id)) { seen.add(c.session_id); evTrack(c.session_id, c); }
+  for (const c of campaigns || []) if (c.session_id && c.status !== 'abandoned' && !seen.has(c.session_id)) { seen.add(c.session_id); evTrack(c.session_id, c); }
   markEvalSide(); } catch {} })();
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && EV.open && !document.querySelector('.modal.open')) evPanel(false); });
 

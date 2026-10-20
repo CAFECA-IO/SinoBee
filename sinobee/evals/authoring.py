@@ -623,6 +623,32 @@ def task_material(rt, session_id: str, turn_id=None) -> dict:
             "skills": rep.get("skills") or [], "turn_id": rep.get("turn_id"), "session_id": session_id}
 
 
+def source_tasks(home, skill: str, limit: int = 20) -> list[dict]:
+    """Finished tasks that used `skill` (newest first): the material a suite can be written from, picked when a
+    skill evaluation starts from the skill menu."""
+    from ..agent import runreport
+    out, seen = [], set()
+    for f in sorted(runreport._dir(home).glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            r = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if r.get("status") != "done" or skill not in (r.get("skills") or []) or not r.get("session_id"):
+            continue
+        k = (r["session_id"], r.get("turn_id"))
+        if k in seen:
+            continue
+        seen.add(k)
+        mm = r.get("models") or {}
+        out.append({"session_id": r["session_id"], "turn_id": r.get("turn_id"), "request": (r.get("request") or "")[:200],
+                    "created": r.get("created") or f.stat().st_mtime, "duration_s": r.get("duration_s"),
+                    "files": (r.get("outputs") or {}).get("n_files", 0),
+                    "thinking": mm.get("thinking") or mm.get("execution"), "execution": mm.get("execution")})
+        if len(out) >= limit:
+            break
+    return out
+
+
 def describe(home, ref: str) -> dict:
     """What the evaluation panel shows of a suite: its inputs, questions and the checks it passed."""
     folder = find(home, ref)

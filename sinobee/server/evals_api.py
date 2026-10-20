@@ -112,15 +112,37 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
         except E.EvalError as e:
             bad(e, 404)
 
+    # ------------------------------------------------------------------ a skill evaluation is its own conversation
+    @app.post("/api/evals/sessions")
+    async def eval_session(body: dict):
+        """Started from the skill menu: a new conversation the campaign belongs to (not attached to any output)."""
+        rt = rt_getter()
+        skill = str(body.get("skill") or "")
+        try:
+            rt.skills.get(skill)
+        except Exception as e:  # noqa: BLE001
+            bad(e, 404)
+        sid = "ev-" + secrets.token_hex(5)
+        title = f"技能評鑑：{skill}"
+        rt.memory.ensure_session(sid, platform="eval", title=title)
+        return {"id": sid, "title": title, "platform": "eval", "skill": skill}
+
+    @app.get("/api/evals/source-tasks")
+    async def source_tasks(skill: str):
+        """Finished tasks that used the skill: the evaluator writes the suite from one of them."""
+        return {"tasks": await asyncio.to_thread(A.source_tasks, rt_getter().config.home, skill)}
+
     @app.post("/api/evals/suites/generate")
     async def suite_generate(body: dict):
         rt = rt_getter()
         skill, sid = str(body.get("skill") or ""), str(body.get("session_id") or "")
+        src = body.get("source") or {}
+        src_sid = str(src.get("session_id") or sid)
         evaluator = str(body.get("evaluator") or "eval-authoring")
         if not skill or not sid:
             raise HTTPException(400, "skill and session_id are required")
         try:
-            mat = A.task_material(rt, sid, body.get("turn_id"))
+            mat = A.task_material(rt, src_sid, src.get("turn_id") if src else body.get("turn_id"))
             ev = rt.skills.get(evaluator)
         except Exception as e:  # noqa: BLE001
             bad(e)
@@ -140,7 +162,7 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
         async def go():
             try:
                 res = await A.generate_suite(rt, evaluator, skill, request=mat["request"], outputs=mat["outputs"],
-                                             answer=mat["answer"], session_id=sid, turn_id=mat["turn_id"],
+                                             answer=mat["answer"], session_id=src_sid, turn_id=mat["turn_id"],
                                              emit=progress)
                 info.update(status=res["status"], hash=res.get("hash"), problems=res.get("problems") or [],
                             violations=res.get("violations") or [], rounds=res.get("rounds"))
@@ -185,6 +207,13 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
                 for m in (base["thinking"], base["execution"]):
                     if m not in models:
                         models.insert(0, m)
+        if base is None and cfg.get("model.default"):        # no task to take it from: the models in use now
+            ex = cfg.get("model.default")
+            base = {"thinking": cfg.get("model.thinking") or ex, "execution": ex, "skills": [], "turn_id": None,
+                    "current": True}
+            for m in (base["thinking"], base["execution"]):
+                if m not in models:
+                    models.insert(0, m)
         judge = cfg.get("model.reviewer") or cfg.get("model.thinking") or cfg.get("model.default")
         return {"models": models[:16], "baseline": base, "judge": judge}
 
@@ -221,7 +250,7 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
                 k=int(body.get("k") or C.MIN_TRIALS), judge=body.get("judge") or None,
                 judge2=body.get("judge2") or None, budget_usd=body.get("budget_usd"),
                 session_id=body.get("session_id"), turn_id=body.get("turn_id"),
-                rerun_tested=bool(body.get("rerun_tested")))
+                rerun_tested=bool(body.get("rerun_tested")), source=body.get("source") or None)
         except E.EvalError as e:
             bad(e)
         status = C.QUEUE.submit(rt_getter, c["id"], emit)
@@ -253,11 +282,20 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
         except E.EvalError as e:
             bad(e, 404)
 
+    @app.post("/api/evals/campaigns/{cid}/abandon")
+    async def campaign_abandon(cid: str):
+        try:
+            return C.summary(C.abandon(rt_getter().config.home, cid))
+        except E.EvalError as e:
+            bad(e)
+
     @app.post("/api/evals/campaigns/{cid}/resume")
     async def campaign_resume(cid: str, body: dict | None = None):
         rt = rt_getter()
         try:
             c = C.get(rt.config.home, cid)
+            if c["status"] == "abandoned":
+                raise E.EvalError("這個評鑑已經放棄，不能繼續；請重新開始一個")
             if (body or {}).get("budget_usd") is not None:
                 c["budget_usd"] = round(max(0.0, float(body["budget_usd"])), 2)
                 C.save(rt.config.home, c)
