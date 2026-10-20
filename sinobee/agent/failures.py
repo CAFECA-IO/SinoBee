@@ -59,6 +59,40 @@ def work_log(messages, secrets: list[str], limit: int = 120) -> list[dict]:
     return out[-limit:]
 
 
+WRITE_TOOLS = ("write_file", "edit_file", "append_file", "create_file")
+
+
+def written_files(messages, workspace) -> list[dict]:
+    """The files the turn wrote that are still there (U6): what a failed task leaves for the next attempt. Each with
+    its size now, the number of writes and whether the last write worked."""
+    from pathlib import Path
+    calls, seen = {}, {}
+    ws = Path(str(workspace)).resolve() if workspace else None
+    for m in messages:
+        for c in getattr(m, "tool_calls", None) or []:
+            if c.name in WRITE_TOOLS and isinstance(c.arguments, dict) and c.arguments.get("path"):
+                calls[c.id] = str(c.arguments["path"])
+        if m.role == "tool" and m.tool_call_id in calls:
+            path = calls[m.tool_call_id]
+            ok = not m.text().lstrip().startswith(("ERROR", "REPEATED CALL"))
+            row = seen.setdefault(path, {"path": path, "writes": 0, "ok_writes": 0})
+            row["writes"] += 1
+            row["ok_writes"] += int(ok)
+            row["last_ok"] = ok
+    out = []
+    for path, row in seen.items():
+        p = Path(path)
+        if ws is not None and not p.is_absolute():
+            p = ws / p
+        try:
+            row["bytes"] = p.stat().st_size if p.is_file() else None
+        except OSError:
+            row["bytes"] = None
+        row["exists"] = row["bytes"] is not None
+        out.append(row)
+    return out[:100]
+
+
 def build(agent, *, status: str, error_info: dict | None, final_text: str, query: str, stats: dict,
           turn_start: int, turn_id, usage: dict, steps: int, duration: float) -> dict:
     from ..tools import checklist_tools
@@ -84,6 +118,9 @@ def build(agent, *, status: str, error_info: dict | None, final_text: str, query
                     "skipped": stats.get("quality_skipped") or []},
         "control_log": stats.get("control_log") or [],
         "empty_replies": stats.get("empty_replies") or [],
+        "too_long_timeouts": stats.get("too_long_timeouts") or [],
+        "written_files": written_files(agent._turn_messages(turn_start) if hasattr(agent, "_turn_messages")
+                                       else agent.history[turn_start:], getattr(agent.config, "workspace", None)),
         "partial": stats.get("partial"),
         "budget": agent._guard.summary() if getattr(agent, "_guard", None) else None,
         "progress": (stats.get("progress_trace") or [])[-80:],
@@ -163,6 +200,13 @@ def summary_text(r: dict, limit: int = 30000) -> str:
         parts.append("EMPTY REPLIES (the model answered nothing; finish=length means its output budget ran out first):\n"
                      + "\n".join(f"#{e.get('step')} finish={e.get('finish')} max_tokens={e.get('max_tokens')} "
                                   f"output_tokens={e.get('output_tokens')} {e.get('seconds')}s" for e in r["empty_replies"][-10:]))
+    if r.get("too_long_timeouts"):
+        parts.append("TIMEOUTS RIGHT AFTER A CUT-OFF REPLY (taken as 'too long'; the same request was not sent again, "
+                     "the model was asked to write in parts): " + ", ".join(f"#{t.get('step')}" for t in r["too_long_timeouts"]))
+    if r.get("written_files"):
+        parts.append("FILES WRITTEN IN THIS TURN (still in the workspace for a retry):\n" + "\n".join(
+            f"- {f['path']}: {f['bytes'] if f.get('exists') else 'gone'}{' bytes' if f.get('exists') else ''}, "
+            f"{f['ok_writes']}/{f['writes']} writes ok" for f in r["written_files"][:40]))
     if r.get("progress"):
         parts.append("PROGRESS PER STEP (✓ progress, · none):\n" + "\n".join(
             f"#{t['step']} {'✓' if t.get('progress') else '·'} {t.get('why', '')[:160]}{cost_text(t.get('cost'))}"

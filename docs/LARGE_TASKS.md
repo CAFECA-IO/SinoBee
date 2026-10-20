@@ -40,7 +40,31 @@
 
 測試：`tests/test_output_limits.py`、`tests/test_long_output.py`。
 
+## 階段 2（2026-10-21）
+
+### U4 輸出被截斷後的逾時不結束任務（`agent/loop.py`、`providers/base.py` `TOO_LONG`）
+- 上一個回覆停在輸出上限（`finish=length`）時，下一次呼叫標為「可能太長」：逾時就不重送同一個請求，也不換備援模型重送。
+- 迴圈把這次逾時當成「一次要寫的內容太長」：發分段提示（TRUNCATED_NUDGE）、接下來幾步降低思考，任務繼續；同一回合最多兩次，第三次照常結束。
+- 失敗報告記在 `too_long_timeouts`。
+
+### U5 模型暫時錯誤自動續跑（`work/recovery.py`、`agent/errors.py` `transient`、`providers/fallback.py`）
+- 暫時性錯誤：網路、供應商 5xx、逾時、429 速率限制；金鑰、模型名稱、400、`insufficient_quota`、上下文超長不算。
+- 失敗的對話回合記下 `model_error`；復原檢查依序等 1、5、15 分鐘後用 `[自動續跑]` 續跑（有里程碑時從第一個未完成的里程碑接著做），每段對話每天最多 `work.auto_resume_model_max`（3）次，與程式重啟的 `work.auto_resume_max` 分開計。
+- SinoBee.ai 額度用完：等到額度恢復（`retry_at` + 30 秒；沒有時間就 10 分鐘），不計次。
+- 之後已有新的對話、使用者停止、錯誤不會自己消失時不續跑，原因寫在回合卡片。
+- 對話中顯示「SinoBee 會在 HH:MM 自動續跑（今天第 n/3 次）」。
+- 沒有備援模型時，失敗卡片提示一次「加入備援」：優先另一家已有金鑰、同級（快速／平衡／最強）的模型，否則已登入的 SinoBee.ai 中繼；按「不用」後不再提示（`fallback_offer_declined`）。
+
+### U6 失敗報告列出已寫的檔案（`agent/failures.py` `written_files`）
+- 這一輪寫入／修改過的每個檔案：路徑、現在的大小（不在了也標出）、寫入次數與成功次數；思維模型的診斷與報告畫面都看得到。
+
+### U7 技能的大檔規範（`skills/largefiles.py`）
+- 技能檢查：SKILL.md 承諾產出網頁或大型單一檔案，卻沒寫怎麼分段寫入時，在技能詳情「格式提醒」與 `sinobee skills validate` 標出 `large-file`。
+- 這類技能啟用時，SinoBee 在技能內容後面附上自己的 `<sinobee_note>`（先寫骨架、一次填一塊、單次約 3 萬字元）；技能原文不改（anatomy）。
+- 內建技能 frontend-design（1.0.1）、engineering-feasibility（1.1.1）在 SKILL.md 寫明分段寫法。
+
+測試：`tests/test_large_tasks_phase2.py`。
+
 ## 待辦
 
-- 階段 2：U4 逾時不結束任務、U5 模型錯誤自動續跑（`work.auto_resume_model_max`，每天 3 次，等 1／5／15 分鐘；失敗卡片提示一次設定備援）、U7 技能大檔規範、U6 失敗報告列出已寫檔案。
 - 實驗 E7（降低思考對視覺品質）、E6（寫檔步驟用模型最高值）。

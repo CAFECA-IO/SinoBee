@@ -3,7 +3,7 @@ name: frontend-design
 description: Designs and builds web pages, landing pages, dashboards and small web apps that look intentional rather than templated - a chosen visual direction, type scale, spacing and colour tokens with a dark scheme, responsive from 390 px phones up, accessible contrast, CJK typography, self-contained files - and checks them in a real browser on phone and desktop. Use when making or restyling any HTML page or UI (網頁、頁面、介面、UI、landing page、儀表板版面).
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.0.1
   sinobee-tags: html, css, web, ui, design, frontend
   sinobee-triggers: 網頁, 網站, 頁面, 介面, 前端, 版面, 設計, landing page, web page, website, UI, frontend, CSS, 儀表板
   sinobee-requires-tools: write_file, skill_run
@@ -42,6 +42,10 @@ Define tokens on `:root` and use only them:
 - Radius, shadow and motion as tokens too; motion ≤ 200 ms and off under `prefers-reduced-motion`.
 
 # 3. Build
+- Write the page in parts, never in one call: first a skeleton (the `head` with tokens and every section as an empty,
+  marked placeholder such as `<!-- section: pricing -->`), then fill one section per call with `edit_file` (or
+  `write_file` with `append=true`), about 30,000 characters at most each. A whole page in one reply runs into the
+  model's output limit or the read timeout and is lost.
 - Semantic HTML (`header`, `main`, `nav`, `section`, `figure/figcaption`, `table` with `th scope`), one `h1`,
   headings in order, `<html lang="zh-Hant">`, viewport meta, `alt` on every image.
 - Mobile first: single column at 390 px, then grid at ≥ 768 px; tables scroll inside a wrapper

@@ -274,6 +274,8 @@ class SkillManager:
             return None
         fm, notes = spec.normalize(parsed.frontmatter)
         diags = parsed.diagnostics + spec.validate(fm, skill_dir.name)
+        from .largefiles import diagnostics as large_file_diagnostics
+        diags += large_file_diagnostics(parsed.body)          # U7: a page or large file with no word about parts
         if [n for n in notes if n.startswith("moved")]:
             diags.append("non-standard frontmatter fields: " + "; ".join(notes))
         name = str(fm.get("name") or skill_dir.name).strip()
@@ -636,6 +638,9 @@ class SkillManager:
         if s.quickstart:
             parts.append(f"<quick_start>\n{s.quickstart}\n</quick_start>")
         parts.append(s.body)
+        from .largefiles import NOTE, needs_note
+        if needs_note(s.body):                 # U7: SinoBee's own note; the skill's text stays as its author wrote it
+            parts.append(NOTE)
         parts.append(f"\nSkill directory: {s.path}\nRelative paths in this skill are relative to the skill directory "
                      "(read them with skill_view(name, path); run scripts with skill_run).")
         files = s.files()

@@ -117,6 +117,9 @@ class ChatRun:
         self.state["turn_id"] = turn_id
         if status == "stopped":
             self.state["user_stopped"] = True       # stopped by the user: never resumed automatically
+        if (error or {}).get("kind") == "model":     # U5: a temporary model error is resumed automatically
+            self.state["model_error"] = {"at": time.time(), "transient": bool(error.get("transient")),
+                                         "quota": error.get("quota"), "summary": error.get("summary")}
         self._save(status=STATUS.get(status, status), finished_at=time.time(), activity="",
                    summary=(text or "")[:1000], error=((error or {}).get("summary") or "")[:500],
                    cost_usd=round(cost or 0, 6))

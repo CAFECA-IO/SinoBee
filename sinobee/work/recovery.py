@@ -10,6 +10,12 @@ was restarted or crashed in the middle of a turn, or a turn's process died - and
   - an interrupted scheduled task starts again once.
 Each conversation is resumed at most work.auto_resume_max times a day, so a task that keeps crashing the process
 does not loop. Settings: work.auto_resume, work.auto_resume_max, work.auto_resume_hours.
+
+A turn that FAILED on a temporary model error (network, the provider's servers, a rate limit - agent/errors.py
+`transient`) is resumed too (proposal "large tasks", U5): after 1, 5 and then 15 minutes, at most
+work.auto_resume_model_max (3) times per conversation per day, counted apart from restarts. A SinoBee.ai quota stop
+waits until the quota is back and is not counted. A task that runs as milestones continues at its first unfinished
+milestone (the resumed turn starts with [自動續跑]).
 """
 from __future__ import annotations
 
@@ -19,6 +25,8 @@ import time
 
 log = logging.getLogger("sinobee.recovery")
 INTERVAL = 60
+MODEL_WAITS = (60, 300, 900)          # U5: the 1st, 2nd and 3rd resume after a temporary model error
+QUOTA_WAIT = 600                      # a quota stop without a time to retry at
 BRIEF = """A task the user gave an AI agent was interrupted in the middle (the program restarted). Decide whether it
 must be resumed, and if so write the brief the agent will resume from.
 
@@ -95,6 +103,47 @@ class Recovery:
         except (ValueError, TypeError):
             hist = []
         mem.meta_set(f"autoresume:{sid}", json.dumps([t for t in hist if time.time() - t < 86400] + [time.time()]))
+
+    def _model_count(self, sid: str) -> int:
+        mem = self.hub.rt.memory
+        try:
+            hist = json.loads(mem.meta_get(f"automodel:{sid}") or "[]")
+        except (ValueError, TypeError):
+            hist = []
+        return len([t for t in hist if time.time() - t < 86400])
+
+    def _model_counted(self, sid: str) -> None:
+        mem = self.hub.rt.memory
+        try:
+            hist = json.loads(mem.meta_get(f"automodel:{sid}") or "[]")
+        except (ValueError, TypeError):
+            hist = []
+        mem.meta_set(f"automodel:{sid}", json.dumps([t for t in hist if time.time() - t < 86400] + [time.time()]))
+
+    def model_plan(self, run: dict) -> dict:
+        """When a turn that failed on a model error will be resumed: {"due", "n", "max", "quota"}, or {"reason"}
+        when it will not (shown on the failure card)."""
+        cfg = self.hub.rt.config
+        st = run.get("state") or {}
+        me = st.get("model_error") or {}
+        if not me:
+            return {"reason": "不是模型錯誤"}
+        if st.get("user_stopped"):
+            return {"reason": "你已停止這個任務"}
+        if not cfg.get("work.auto_resume", True):
+            return {"reason": "自動續跑已關閉"}
+        if not (me.get("transient") or me.get("quota")):
+            return {"reason": "這個錯誤不會自己消失（金鑰、模型名稱或請求格式），不會自動續跑"}
+        mx = int(cfg.get("work.auto_resume_model_max", 3))
+        at = float(me.get("at") or run.get("finished_at") or time.time())
+        if me.get("quota"):
+            retry = (me["quota"] or {}).get("retry_at")
+            due = _when(retry) if retry else None
+            return {"due": (due + 30) if due else at + QUOTA_WAIT, "n": None, "max": mx, "quota": True}
+        n = self._model_count(run.get("session_id") or "")
+        if n >= mx:
+            return {"reason": f"今天已因模型錯誤自動續跑 {mx} 次，請手動繼續"}
+        return {"due": at + MODEL_WAITS[min(n, len(MODEL_WAITS) - 1)], "n": n + 1, "max": mx, "quota": False}
 
     def _mark(self, run: dict, **info) -> None:
         state = dict(run.get("state") or {})
@@ -204,6 +253,7 @@ class Recovery:
         for r in runs:
             if r["kind"] == "chat" and r.get("session_id"):
                 newest[r["session_id"]] = max(newest.get(r["session_id"], 0), r.get("created_at") or 0)
+        done += self._model_errors(runs, newest, now, window)
         for r in runs:
             st = r.get("state") or {}
             if r["status"] != "interrupted" or st.get("auto_resume") or st.get("user_stopped"):
@@ -242,3 +292,60 @@ class Recovery:
                                             "reason": brief.get("reason", ""), "next": brief.get("next", "")})
             done.append({"run_id": r["id"], "kind": "chat", "session_id": sid})
         return done
+
+    def _model_errors(self, runs: list[dict], newest: dict, now: float, window: float) -> list[dict]:
+        """U5: conversation turns that failed on a temporary model error, resumed when their wait is over."""
+        done = []
+        if self.hub.chat_resumer is None:
+            return done
+        for r in runs:
+            st = r.get("state") or {}
+            if r["kind"] != "chat" or r["status"] != "failed" or not st.get("model_error") or st.get("auto_resume"):
+                continue
+            sid = r.get("session_id") or ""
+            if not sid or now - (r.get("created_at") or 0) > window or self._platform(sid) != "web" or self._alive(sid):
+                continue
+            if (r.get("created_at") or 0) < newest.get(sid, 0):
+                self._mark(r, resumed=False, reason="之後已有新的對話，不再續跑")
+                continue
+            plan = self.model_plan(r)
+            if plan.get("reason"):
+                self._mark(r, resumed=False, reason=plan["reason"])
+                self.hub.notify("auto_resume", {"run_id": r["id"], "session_id": sid, "resumed": False,
+                                                "reason": plan["reason"], "model_error": True})
+                continue
+            if now < plan["due"]:
+                if not st.get("auto_resume_plan"):          # tell the conversation once when it will resume
+                    st = dict(st)
+                    st["auto_resume_plan"] = plan
+                    self.store.update_run(r["id"], state=st)
+                    self.hub.notify("auto_resume", {"run_id": r["id"], "session_id": sid, "scheduled": True,
+                                                    "model_error": True, **plan,
+                                                    "summary": (st.get("model_error") or {}).get("summary", "")})
+                continue
+            me = st.get("model_error") or {}
+            reason = ("SinoBee.ai 額度恢復，自動續跑" if plan.get("quota")
+                      else f"模型暫時錯誤（{me.get('summary', '')}），第 {plan['n']}/{plan['max']} 次自動續跑")
+            brief = {"resume": True, "reason": reason, "done": [], "remaining": [],
+                     "next": "先確認做到哪裡（已寫的檔案都還在），從中斷處接著做；一次要寫的內容很長時分段寫"}
+            self._mark(r, resumed=True, reason=reason, brief=brief, model_error=True)
+            if not plan.get("quota"):
+                self._model_counted(sid)
+            self.hub.resume(r["id"], brief=brief, auto=True)
+            self.hub.notify("auto_resume", {"run_id": r["id"], "session_id": sid, "resumed": True, "reason": reason,
+                                            "next": brief["next"], "model_error": True})
+            done.append({"run_id": r["id"], "kind": "chat", "session_id": sid, "model_error": True})
+        return done
+
+
+def _when(v) -> float | None:
+    """A retry time as given by the relay: epoch seconds or an ISO date."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        pass
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None

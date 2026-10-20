@@ -140,12 +140,17 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         r = runs[0] if runs else None
         st = (r or {}).get("state") or {}
         # the newest turn ended without a turn record (interrupted, dismissed, crashed): its state comes from the run
+        rec = get_hub(rt()).recovery
+        model = None
+        if r and r["status"] == "failed" and st.get("model_error"):     # U5: resumed after a temporary model error
+            ar = st.get("auto_resume") or {}
+            model = {"resumed": bool(ar.get("resumed")), "reason": ar.get("reason")} if ar else rec.model_plan(r)
         if not r or st.get("turn_id") or r["status"] not in ("interrupted", "cancelled", "failed"):
-            return {"interrupted": False}
-        ok, why = get_hub(rt()).recovery.eligible(r) if r["status"] == "interrupted" else (False, "")
+            return {"interrupted": False, **({"model_resume": model, "run_id": r["id"]} if model else {})}
+        ok, why = rec.eligible(r) if r["status"] == "interrupted" else (False, "")
         return {"interrupted": True, "status": r["status"], "run_id": r["id"], "error": r.get("error") or "",
                 "auto_resume": st.get("auto_resume"), "user_stopped": bool(st.get("user_stopped")),
-                "at": r.get("created_at"), "will_resume": ok, "why_not": why,
+                "at": r.get("created_at"), "will_resume": ok, "why_not": why, "model_resume": model,
                 "steps": len(st.get("steps") or []), "artifacts": (st.get("artifacts") or [])[-12:]}
 
     @app.get("/api/sessions/{sid}/artifacts")

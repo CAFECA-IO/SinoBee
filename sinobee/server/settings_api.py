@@ -110,6 +110,13 @@ def register(app: FastAPI, rt_getter) -> None:
     async def get_settings():
         return settings_payload(rt_getter())
 
+    @app.post("/api/settings/fallback-offer")
+    async def fallback_offer(body: dict):
+        """U5: the failure card's offer of a fallback model - declined, it is not shown again."""
+        if body.get("decline"):
+            rt_getter().memory.meta_set("fallback_offer_declined", "1")
+        return {"ok": True}
+
     @app.put("/api/settings")
     async def put_settings(body: dict):
         rt = rt_getter()

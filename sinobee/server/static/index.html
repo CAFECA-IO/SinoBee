@@ -258,6 +258,7 @@ details.tool img{max-width:100%;border-radius:6px;margin-top:6px;border:1px soli
 .evo-q .mk{font-weight:700}.evo-q li.y .mk{color:var(--ok)}.evo-q li.n .mk{color:var(--err)}
 .evo-ev{margin-top:6px;font-size:12px}.evo-ev .k{color:var(--muted);font-size:11px;margin-top:4px}.evo-ev blockquote{margin:2px 0;padding:4px 8px;border-left:3px solid #f5a623;background:var(--panel2);word-break:break-word}
 .evo-ans{margin-top:10px;font-size:12.5px}
+.fboffer{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;font-size:12.5px}.fboffer span{flex:1;min-width:220px}.fboffer small{display:block;color:var(--muted)}
 .evo-shots{padding:12px}.evo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:8px;align-items:start}
 .evo-grid figure{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel2)}.evo-grid figure.hit{border-color:#f5a623;box-shadow:0 0 0 2px #f5a623}
 .evo-grid img{display:block;width:100%;height:auto;background:#fff}.evo-grid figcaption{padding:5px 8px;font-size:11.5px;color:var(--muted)}
@@ -1565,11 +1566,27 @@ function resultCard(ev){
     (er.detail ? `<details><summary>技術細節</summary><pre>${esc(er.detail)}</pre></details>` : '') +
     (meta ? `<div style="color:var(--muted);margin-top:4px">${meta}</div>` : ''), 'result ' + st);
   rr(c);
+  if (er.fallback_offer) fallbackOffer(c, er.fallback_offer);
   if (ev.failure) { const f = document.createElement('span'); f.className = 'failrep';
     f.innerHTML = `已保存失敗報告，供改進系統使用 · <a href="#" data-fail="${esc(ev.failure)}">查看</a>`;
     f.querySelector('a').onclick = e => { e.preventDefault(); showFailure(ev.failure); }; c.appendChild(f); }
   if (ev.turn_id && st !== 'error') attachFeedback(c, ev.turn_id, null);
   return c;
+}
+// U5: a temporary model error and no fallback model: offer one, once (another vendor you have a key for, at the
+// same tier, else the SinoBee.ai relay); nothing is set without this click
+function fallbackOffer(card, o){
+  const d = document.createElement('div'); d.className = 'fboffer';
+  api('/api/settings').then(st => { if ((st.model?.fallbacks || []).length) d.remove(); }).catch(() => {});   // set since
+  d.innerHTML = `<span>還沒有設定備援模型。加入 <b>${esc(o.label)}</b>，下次 ${esc(o.spec.split('/')[0])} 以外的模型出錯時自動接手？<small>${esc(o.why || '')}</small></span>
+    <button class="btn sm primary" type="button" data-a="add">加入備援</button><button class="btn sm" type="button" data-a="no">不用</button>`;
+  d.querySelector('[data-a=add]').onclick = async e => { e.target.disabled = true;
+    try { const cur = (await api('/api/settings')).model?.fallbacks || [];
+      await jreq('/api/settings', {model: {fallbacks: [...cur, o.spec]}}, 'PUT');
+      d.innerHTML = `✓ 已加入備援模型 ${esc(o.label)}（可在「設定 → 模型」調整）`; }
+    catch (err) { e.target.disabled = false; uiAlert(err.message || String(err)); } };
+  d.querySelector('[data-a=no]').onclick = async () => { await post('/api/settings/fallback-offer', {decline: true}).catch(() => {}); d.remove(); };
+  card.appendChild(d);
 }
 // ---------------- dialogs: confirm / alert / prompt in SinoBee's own style (no browser pop-ups) ----------------
 function uiDialog({title = '', message = '', ok = '確定', cancel = '取消', danger = false, input = null}){
@@ -2067,7 +2084,11 @@ async function openSession(s){
   REPLAY = false; if (replayLast && RUNNING[s.id]) { replayLast.live = true; }
   evSessionCard(s.id);
   for (const a of Array.isArray(arts) ? arts : []) showArtifacts(a.id, a.files);
-  if (!RUNNING[s.id]) api('/api/sessions/' + s.id + '/interrupted').then(r => { if (r?.interrupted && sessionId === s.id) interruptedCard(r); }).catch(() => {});
+  if (!RUNNING[s.id]) api('/api/sessions/' + s.id + '/interrupted').then(r => {
+    if (sessionId !== s.id) return;
+    if (r?.interrupted) interruptedCard(r);
+    else if (r?.model_resume) modelResumeNote(r.model_resume);
+  }).catch(() => {});
   api('/api/sessions/' + s.id + '/milestones').then(r => { if (r?.plan && sessionId === s.id && (r.running || r.plan.done < r.plan.total)) { msEl = null; msShow({...r.plan, phase: r.running ? 'running' : r.plan.phase}); } }).catch(() => {});
   for (const t of Array.isArray(turns) ? turns : []) {
     const els = [...chat.querySelectorAll('[data-idx]')].filter(e => +e.dataset.idx <= t.end_idx);
@@ -3121,6 +3142,9 @@ async function showFailure(id){
   }
   if ((r.progress || []).length) L.push('', '【每步進度】（✓ 有進度 · 沒有）', ...r.progress.slice(-40).map(t => `  #${t.step} ${t.progress ? '✓' : '·'} ${t.why}${costText(t.cost)}`));
   if (r.checklist?.length) L.push('', '【驗收清單】', ...r.checklist.map(i => `  [${i.status}] ${i.text}${i.evidence ? ' — ' + i.evidence : ''}`));
+  if ((r.written_files || []).length) L.push('', '【這一輪寫出的檔案】（還在工作區，重試時會沿用）', ...r.written_files.map(f =>
+    `  ${f.exists ? '✓' : '✕'} ${f.path}${f.exists ? `　${f.bytes.toLocaleString()} bytes` : '　（已不在）'}　寫入 ${f.ok_writes}/${f.writes} 次成功`));
+  if ((r.too_long_timeouts || []).length) L.push('', `【輸出被截斷後接著逾時】第 ${r.too_long_timeouts.map(t => t.step).join('、')} 步：視為內容太長，沒有重送同一請求，改請模型分段寫`);
   L.push('', '【工作紀錄】');
   (r.work_log || []).forEach((w, i) => L.push(w.note ? `  · ${w.note.slice(0, 300)}` : `  ${i + 1}. ${w.ok === false ? '✕' : '✓'} ${w.tool} ${w.args.slice(0, 160)}${w.ok === false ? '\n       ' + (w.result || '').slice(0, 300) : ''}`));
   $('#vTitle').textContent = '失敗報告 ' + r.id; $('#vBody').textContent = L.join('\n'); $('#viewer').classList.add('open');
@@ -5032,6 +5056,20 @@ function resumeNote(text){
   const auto = text.startsWith('[自動續跑]'), prog = text.split('進度整理')[1];
   add(`<b>↻ ${auto ? 'SinoBee 自動續跑中斷的任務' : '從中斷處續跑'}</b>` + (prog ? `<details><summary>進度整理</summary><pre>${esc(prog.replace(/^[^\n]*\n/, ''))}</pre></details>` : ''), 'note resume');
 }
+// U5: a turn that failed on a temporary model error is resumed by SinoBee after 1 / 5 / 15 minutes (3 a day)
+function modelResumeText(p){
+  if (!p) return '';
+  if (p.resumed) return '已自動續跑';
+  if (p.reason) return `不會自動續跑：${p.reason}`;
+  const t = new Date(p.due * 1000), hm = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+  return p.quota ? `額度恢復後（約 ${hm}）SinoBee 會自動續跑，不計入次數` : `SinoBee 會在 ${hm} 自動續跑（今天第 ${p.n}/${p.max} 次）；你也可以現在就說「繼續」`;
+}
+function modelResumeNote(p){
+  const card = [...document.querySelectorAll('#chat .result.error')].pop();
+  const text = modelResumeText(p); if (!text) return;
+  if (card) { card.querySelector('.mres')?.remove(); card.insertAdjacentHTML('beforeend', `<div class="hint mres">↻ ${esc(text)}</div>`); }
+  else add(`↻ ${esc(text)}`, 'note');
+}
 function interruptedCard(r){
   const c = add('', 'result incomplete intr'); c.dataset.run = r.run_id; c.dataset.sid = sessionId; c._r = r;
   if (r.artifacts?.length) setTimeout(() => paintIcons(c), 0);
@@ -5075,6 +5113,10 @@ function onWorkEvent(ev){
     if (tab === 'work') loadSide();
     if ($('#workModal').classList.contains('open') && ['overview', 'run', 'jobs', 'job'].includes(WK.view)) wkRender(true);
   }, 400);
+  if (ev.what === 'auto_resume' && ev.scheduled) {        // U5: when a model-error turn will be resumed
+    if (ev.session_id === sessionId) modelResumeNote(ev);
+    return;
+  }
   if (ev.what === 'auto_resume') {
     if (ev.session_id === sessionId) {
       document.querySelectorAll('#chat .result.incomplete').forEach(c => { if (c.textContent.includes('任務中斷')) c.remove(); });

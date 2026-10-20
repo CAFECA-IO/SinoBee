@@ -5,6 +5,7 @@ import asyncio
 import contextvars
 import logging
 import random
+import re
 import time
 from abc import ABC, abstractmethod
 
@@ -98,6 +99,14 @@ def _gateway_timeout(err: ProviderError) -> bool:
 # loop around a step (proposal U3: after a reply was cut off at the output limit, thinking is turned down so the
 # answer fits); providers that support it send it, the others ignore it.
 REASONING_EFFORT: contextvars.ContextVar = contextvars.ContextVar("reasoning_effort", default=None)
+# U4: the call right after a reply cut off at the output limit. A timeout there means "too long", not a network
+# problem: the same request is not sent again (no retry, no fallback model) - the agent asks for the file in parts.
+TOO_LONG: contextvars.ContextVar = contextvars.ContextVar("too_long", default=False)
+
+
+def is_timeout(err) -> bool:
+    """A call that ran out of time (the read timeout, or a proxy's gateway timeout)."""
+    return bool(re.search(r"timed out|ReadTimeout|HTTP 5(04|24)\b|gateway time-?out", str(err), re.I))
 
 
 class Provider(ABC):
@@ -156,7 +165,8 @@ class Provider(ABC):
                 return await self._chat(messages, tools, temperature=temperature, max_tokens=max_tokens)
             except httpx.TimeoutException as e:
                 # a request that already ran into the timeout usually does so again: retry it once, not four times
-                err: ProviderError = ProviderError(f"{self.label} timed out: {e!r}", retryable=timeouts == 0)
+                err: ProviderError = ProviderError(f"{self.label} timed out: {e!r}",
+                                                   retryable=timeouts == 0 and not TOO_LONG.get())
                 timeouts += 1
             except httpx.TransportError as e:
                 err = ProviderError(f"{self.label} network error: {e!r}", retryable=True)
@@ -178,7 +188,7 @@ class Provider(ABC):
                 # a proxy cut the call because no answer came within its limit (Cloudflare ~100 s, nginx 60 s). The
                 # same call takes as long again, and the relay may still be finishing (and charging) the first one:
                 # retry it once, like a timeout, not four times
-                err.retryable = timeouts == 0
+                err.retryable = timeouts == 0 and not TOO_LONG.get()
                 timeouts += 1
             if not err.retryable or attempt >= retries:
                 raise err
@@ -324,6 +334,8 @@ class FallbackChain:
             except ProviderError as e:
                 log.error("provider %s failed: %s", p.label, e)
                 last = e
+                if TOO_LONG.get() and is_timeout(e):
+                    raise                   # too long for any model: the agent splits the work instead (U4)
                 if isinstance(e, QuotaExceeded):
                     from ..accounting import current_scope
                     i = self.providers.index(p)

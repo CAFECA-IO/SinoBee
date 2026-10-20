@@ -141,6 +141,7 @@ DEFAULTS: dict[str, Any] = {
         "max_parallel_subagents": 3,
         "auto_resume": True,        # every minute: resume tasks interrupted by a restart / crash (work/recovery.py)
         "auto_resume_max": 2,       # automatic resumes per conversation per day
+        "auto_resume_model_max": 3,  # resumes after a temporary model error per conversation per day (1/5/15 min)
         "auto_resume_hours": 24,    # only tasks interrupted within this many hours
     },
     "learning": {

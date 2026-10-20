@@ -49,6 +49,19 @@ RULES = [
 ]
 
 
+# a model error that goes away by itself: the network, the provider's servers, a rate limit (U5: such a failed turn is
+# resumed automatically a few times). Not: a bad key, a wrong model name, a rejected request, an overflow.
+TRANSIENT = re.compile(r"network error|ConnectError|RemoteProtocolError|timed out|Timeout|HTTP 5\d\d|"
+                       r"HTTP 429|rate.?limit|RESOURCE_EXHAUSTED|overloaded|temporarily unavailable|"
+                       r"Service Unavailable|Bad Gateway", re.I)
+PERMANENT = re.compile(r"HTTP 40[0134]|invalid[_ ]api[_ ]key|unauthorized|not found|insufficient_quota|"
+                       r"context.{0,20}(length|window)|maximum context|prompt is too long", re.I)
+
+
+def transient(detail: str) -> bool:
+    return bool(TRANSIENT.search(detail or "")) and not PERMANENT.search(detail or "")
+
+
 def explain_error(err: Exception | str) -> dict:
     detail = str(err)
     for pattern, summary, hint in RULES:
@@ -66,4 +79,5 @@ def explain_error(err: Exception | str) -> dict:
     window = getattr(err, "window", None)
     if window:   # SinoBee.ai quota stop: the GUI offers waiting, a fallback model or an upgrade
         out["quota"] = {"window": window, "retry_at": getattr(err, "retry_at", None)}
+    out["transient"] = bool(window) or transient(detail)
     return out

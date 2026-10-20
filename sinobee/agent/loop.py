@@ -20,7 +20,7 @@ from ..pricing import cost_usd, price_for
 from ..config import Config
 from ..memory.store import MemoryStore
 from ..providers import build_auxiliary, build_chain, build_embedder
-from ..providers.base import REASONING_EFFORT
+from ..providers.base import REASONING_EFFORT, TOO_LONG, is_timeout
 from ..skills import manager_from_config
 from ..fileaccess import resolve_file
 from ..tools import checklist_tools
@@ -1072,6 +1072,8 @@ class Agent:
         size_tip = None
         empty_replies = 0
         overflow_retried = False
+        after_length = False          # the last reply was cut off at the output limit (U4)
+        too_long_left = 2             # timeouts right after a cut-off taken as "too long" before giving up
         nudge = False
         tool_specs = self._tool_specs()
         status, error_info, started, steps = "done", None, time.time(), 0
@@ -1212,6 +1214,7 @@ class Agent:
             effort_token = REASONING_EFFORT.set("low") if low_effort_left > 0 else None
             if effort_token is not None:
                 low_effort_left -= 1
+            long_token = TOO_LONG.set(True) if after_length else None
             try:
                 resp = await self._step_chat(request, tool_specs, max_tokens, stats)
                 stats["last_call_s"] = time.monotonic() - t_call
@@ -1219,6 +1222,23 @@ class Agent:
                 if effort_token is not None:
                     REASONING_EFFORT.reset(effort_token)
                     effort_token = None
+                if long_token is not None:
+                    TOO_LONG.reset(long_token)
+                    long_token = None
+                if after_length and too_long_left > 0 and is_timeout(e):
+                    # U4: the reply before was cut off and this one did not come back in time - the work asked for
+                    # is too long for one reply. Not the network: do not send the same request again (nor to a
+                    # fallback model); ask for it in parts, thinking less, and go on.
+                    too_long_left -= 1
+                    after_length = False
+                    stats.setdefault("too_long_timeouts", []).append(
+                        {"step": steps, "max_tokens": max_tokens, "seconds": round(time.monotonic() - t_call, 1)})
+                    low_effort_left = max(low_effort_left, int(self.config.get("agent.low_effort_steps", 5)))
+                    self._emit("status", {"message": "上一次回覆被輸出上限截斷，這次又在時限內沒有回完：判斷為一次要寫的內容太長，"
+                                                     "不重送同一個請求，改請模型分段寫"})
+                    self._event("輸出被截斷後接著逾時：視為內容太長，改為分段寫（不重送同一請求）")
+                    nudge = "length"
+                    continue
                 for qe in current_scope.get().drain_quota_events():
                     if qe.get("window") == "6h":
                         self.rt.memory.mark_quota(100)
@@ -1240,6 +1260,11 @@ class Agent:
                         continue
                 from .errors import explain_error
                 error_info = explain_error(e)
+                error_info["kind"] = "model"
+                if error_info.get("transient"):
+                    offer = self._fallback_offer()
+                    if offer:
+                        error_info["fallback_offer"] = offer
                 status = "error"
                 try:                      # the step that failed still cost time (and retries): keep it in the trace
                     self._progress.trace.append({"step": steps, "progress": False, "strong": False, "file_only": 0,
@@ -1253,6 +1278,10 @@ class Agent:
                 self.history.append(Message("assistant", f"[上一次嘗試失敗：{error_info['summary']}]"))
                 log.error("model call failed: %s", e)
                 break
+            if long_token is not None:
+                TOO_LONG.reset(long_token)
+                long_token = None
+            after_length = str(resp.stop_reason).lower() in ("length", "max_tokens", "max_output_tokens")
             for ce in current_scope.get().drain_compat_events():  # a call adapted to what the model accepts
                 self._event(f"模型 {ce['model']} 不接受參數 {ce['param']}：已自動改用相容的設定重送，之後不再送這個參數")
             for qe in current_scope.get().drain_quota_events():   # quota used up; a fallback model answered
@@ -1749,6 +1778,17 @@ class Agent:
         self._control(stats, "budget", "budget_cap", detail + ("；使用者選擇停止" if ans else "；沒有回覆，暫停"),
                       decision="stop")
         return False
+
+    def _fallback_offer(self) -> dict | None:
+        """U5: a temporary model error with no fallback model set - offer one, once (until added or declined)."""
+        try:
+            if self.config.get("model.fallbacks") or self.rt.memory.meta_get("fallback_offer_declined"):
+                return None
+            from ..providers.fallback import suggest
+            return suggest(self.config, getattr(self._prov, "label", "") or "")
+        except Exception:  # noqa: BLE001 - an offer must never break the error path
+            log.debug("fallback offer failed", exc_info=True)
+            return None
 
     def _turn_messages(self, turn_start: int) -> list:
         """This turn's messages, including those of finished milestones that left the model context."""

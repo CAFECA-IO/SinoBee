@@ -4,7 +4,7 @@ description: Analyses whether a technology shown in a video or described in text
 license: MIT
 compatibility: Needs the anatomy skill (Node.js 20.10+, Chrome or Chromium for checks) and, for video input, the youtube-analysis skill. Python 3.10+; CoolProp (pip) for real-gas tank states, optional.
 metadata:
-  version: 1.1.0
+  version: 1.1.1
   author: sinobee
   sinobee-tags: engineering, physics, feasibility, analysis, 3d, animation, report, anatomy
   sinobee-triggers: 可行性, 技術可行, 工程原理, 物理極限, 做得到嗎, 可能嗎, 原理分析, 科技影片, 發表會, 黑科技, feasibility, physically possible, how does it work, engineering analysis, debunk
@@ -61,7 +61,8 @@ feasibility question (use anatomy alone).
    `skill_run(name="engineering-feasibility", args="audit reports/feasibility/<slug>")`: it runs each figure's
    `build({ audit: true })` and writes `audits/<fig>.txt` with the figure's hash. Check accepts only these logs. Every readout and every
    motion comes from `model.mjs`.
-7. **Page.** Add each figure to `page.mjs` (one `.rr-figure` section and one `{ … }` live block each), the verdict
+7. **Page.** Add the figures to `page.mjs` one at a time, one edit each (scaffold first, never the whole page in one
+   call: it runs into the output limit), one `.rr-figure` section and one `{ … }` live block each; the verdict
    tiles and the limits ledger come from `feasibility.json`. `node page.mjs` and `node page.mjs --dark`; capture
    desktop and 390 px in both themes with anatomy's `scripts/capture.mjs` and look at every shot.
 8. **Report.** Write `report.md` from `references/report-template.md`, linking the page.
