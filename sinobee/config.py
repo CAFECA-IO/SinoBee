@@ -32,6 +32,7 @@ DEFAULTS: dict[str, Any] = {
         "temperature": 0.3,
         "max_tokens": 8192,
         "reasoning_max_tokens": 16384,   # used for reasoning/thinking models (gpt-5, o*, gemini-2.5/3, r1 ...)
+        "stream": True,          # stream answers from OpenAI-compatible services (providers.<name>.stream overrides)
         "vision": True,          # send screenshots as images
         "context_window": "auto",  # tokens the model accepts; "auto" = known model limits (agent/context.py)
     },

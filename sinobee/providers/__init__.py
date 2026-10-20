@@ -108,6 +108,10 @@ def build_provider(spec: str, config: Config) -> Provider:
     kwargs = {"provider_name": prov, "extra_headers": override.get("headers")}
     if cls is OpenAICompatProvider:
         kwargs["vision"] = bool(override.get("vision", config.get("model.vision", True)))
+        # streamed by default: bytes keep arriving while the model writes, so the read timeout only fires when the
+        # service goes quiet - not while a long answer (a whole page) is still being written. providers.<name>.stream
+        # or model.stream: false turns it off for a service whose stream does not work.
+        kwargs["stream"] = bool(override.get("stream", config.get("model.stream", True)))
     if cls is OllamaProvider:
         from .. import local
         kwargs.update(vision=bool(override.get("vision", config.get("model.vision", True))),

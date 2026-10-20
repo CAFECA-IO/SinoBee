@@ -132,7 +132,12 @@ class OpenAICompatProvider(Provider):
                 if isinstance(d.get("content"), str):
                     content.append(d["content"])
                 for tc in d.get("tool_calls") or []:
-                    c = calls.setdefault(int(tc.get("index", len(calls))), {"id": None, "name": "", "args": [], "extra": None})
+                    # a service that sends no index (Gemini) sends each call whole: a new id is a new call
+                    idx = tc.get("index")
+                    if idx is None:
+                        last = max(calls) if calls else -1
+                        idx = last + 1 if (tc.get("id") or last < 0 or (tc.get("function") or {}).get("name")) else last
+                    c = calls.setdefault(int(idx), {"id": None, "name": "", "args": [], "extra": None})
                     c["id"] = tc.get("id") or c["id"]
                     fn = tc.get("function") or {}
                     c["name"] += fn.get("name") or ""

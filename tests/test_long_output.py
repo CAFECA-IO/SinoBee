@@ -72,3 +72,33 @@ def test_a_read_timeout_is_not_called_a_network_outage():
     e = explain_error("gemini/gemini-flash-latest timed out: ReadTimeout('')")
     assert "沒有回完" in e["summary"] and "分段" in e["hint"]
     assert "連不到" in explain_error("gemini/x network error: ConnectError('refused')")["summary"]
+
+
+async def test_streamed_tool_calls_without_an_index_stay_apart(monkeypatch):
+    """Gemini streams each tool call whole and without "index"; argument pieces of one call (OpenAI) still join."""
+    from sinobee.providers.openai_compat import OpenAICompatProvider
+    p = OpenAICompatProvider("gemini-flash-latest", "https://example.invalid/v1", "k", provider_name="gemini", stream=True)
+    events = [{"choices": [{"delta": {"tool_calls": [
+                  {"id": "a", "function": {"name": "get_weather", "arguments": '{"city":"台北"}'}, "extra_content": {"s": 1}},
+                  {"id": "b", "function": {"name": "get_weather", "arguments": '{"city":"高雄"}'}}]}}]},
+              {"choices": [{"delta": {}, "finish_reason": "stop"}], "usage": {"completion_tokens": 9}}]
+
+    async def sse(_r):
+        for e in events:
+            yield e
+    monkeypatch.setattr(p, "_sse", sse)
+    data = await p._read_stream(None)
+    calls = data["choices"][0]["message"]["tool_calls"]
+    assert [c["function"]["arguments"] for c in calls] == ['{"city":"台北"}', '{"city":"高雄"}']
+    assert calls[0]["extra_content"] == {"s": 1} and data["usage"]["completion_tokens"] == 9
+    events[:] = [{"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "x", "function": {"name": "f", "arguments": '{"a":'}}]}}]},
+                 {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}, "finish_reason": "tool_calls"}]}]
+    data = await p._read_stream(None)
+    assert [c["function"]["arguments"] for c in data["choices"][0]["message"]["tool_calls"]] == ['{"a":1}']
+
+
+def test_openai_compatible_services_stream_by_default(config):
+    from sinobee.providers import build_provider
+    assert build_provider("gemini/gemini-flash-latest", config).stream is True
+    config.data["providers"] = {"gemini": {"stream": False}}
+    assert build_provider("gemini/gemini-flash-latest", config).stream is False
