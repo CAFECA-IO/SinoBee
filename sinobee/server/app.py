@@ -73,7 +73,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.get("/")
     async def index():
-        return FileResponse(STATIC / "index.html")
+        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})  # an update shows on reload
 
     @app.get("/api/status")
     async def status():

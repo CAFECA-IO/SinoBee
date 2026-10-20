@@ -300,9 +300,12 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
                   tools=events["tools"], files=changed, base_home=rt.config.home, judge=judge, judge2=judge2,
                   tokens=int(usage.get("input_tokens") or 0) + int(usage.get("output_tokens") or 0),
                   steps=int(end.get("steps") or 0), trace=trace)
+        tell = _teller(activity)
+        tell({"phase": "grade", "graded": 0, "questions": len(task["graders"]), "files": len(changed)})
         for g in task["graders"]:
             r = await grade_full(g, t)
             out["grades"].append({"type": g["type"], "label": sfs.question(g)["label"], **r})
+            tell({"phase": "grade", "graded": len(out["grades"]), "questions": len(task["graders"])})
         if security is not None:
             out["security"] = security
         if bench is not None:
@@ -419,6 +422,17 @@ RESULT:
 Reply with JSON only: {{"pass": true|false, "reason": "<one sentence>"}}"""
 
 
+def _teller(activity):
+    """activity() that never breaks the evaluation, with the time added."""
+    def tell(d: dict) -> None:
+        if activity:
+            try:
+                activity({**d, "at": time.time()})
+            except Exception:  # noqa: BLE001 - showing progress never breaks a trial
+                log.debug("activity failed", exc_info=True)
+    return tell
+
+
 async def check_judge(judge, anchors: list[dict]) -> dict:
     """Calibration: rubrics with a known answer, asked before the trials are graded. A judge that gets any wrong is
     reported (sinobee.ai marks the evaluation), so a lenient or confused judge cannot pass unnoticed."""
@@ -486,6 +500,7 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
     save()
     try:
         if bench is not None and bench.get("anchors") and anchors:      # a campaign checks the judge once
+            _teller(activity)({"phase": "anchors", "anchors": len(bench["anchors"])})
             doc["judge_check"] = await check_judge(jprov, bench["anchors"])
             save()
             if doc["judge_check"]["total"] and all(i["got"] is None for i in doc["judge_check"]["items"]):
@@ -499,9 +514,9 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
                                        "total": len(tasks)})
             act = None
             if activity:
-                def act(d, _t=task["id"], _i=ti + 1):
-                    activity({**d, "task": _t, "task_index": _i, "tasks": len(tasks)})
-                act({"step": 0, "tool": None, "at": time.time()})
+                def act(d, _t=task["id"], _i=ti + 1, _title=str(task.get("title") or task["id"])[:80]):
+                    activity({"phase": "run", **d, "task": _t, "title": _title, "task_index": _i, "tasks": len(tasks)})
+                act({"step": 0, "tool": None, "at": time.time(), "graded": None})
             trials = [await run_trial(rt, task, i + 1, keep=keep, model=model, judge=jprov, thinking=thinking,
                                       judge2=j2prov, bench=bench, save_dir=save_dir, activity=act) for i in range(n)]
             entry = {}

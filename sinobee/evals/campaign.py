@@ -105,7 +105,7 @@ def _actual(c: dict) -> dict:
 
 def summary(c: dict) -> dict:
     c = _actual(c)
-    return {k: c.get(k) for k in ("id", "skill", "skill_version", "suite", "suite_hash", "status", "session_id",
+    return {k: c.get(k) for k in ("id", "skill", "skill_version", "suite", "suite_hash", "status", "session_id", "turn_id",
                                   "created", "updated", "budget_usd", "spent", "progress", "error", "k")}
 
 
@@ -364,7 +364,7 @@ async def execute(rt, cid: str, emit=None) -> dict:
         reopened panel - or anyone reading the campaign - sees that it moves and where."""
         c["live"] = {**(c.get("live") or {}), **d}
         now = time.time()
-        if now - last["tell"] >= 2 or d.get("step") in (0, 1):      # a new input and its first step: always
+        if now - last["tell"] >= 2 or d.get("step") in (0, 1) or "phase" in d:   # a new input, its first step, a new phase
             last["tell"] = now
             tell("campaign_progress", live=c["live"])
         if now - last["save"] >= 30:
@@ -374,7 +374,7 @@ async def execute(rt, cid: str, emit=None) -> dict:
     def tell(kind: str, **extra):
         if emit:
             try:
-                emit(kind, {"id": cid, "session_id": c.get("session_id"), "status": c["status"],
+                emit(kind, {"id": cid, "session_id": c.get("session_id"), "status": c["status"], "turn_id": c.get("turn_id"),
                             "progress": c["progress"], "spent": c["spent"], "budget_usd": c["budget_usd"], **extra})
             except Exception:  # noqa: BLE001
                 log.debug("campaign emit failed", exc_info=True)
@@ -388,7 +388,7 @@ async def execute(rt, cid: str, emit=None) -> dict:
                 c["error"] = (f"已花費 ${c['spent']['total']:.2f}，下一次試驗預估 ${_expected(c, ci):.2f}，"
                               f"會超過預算 ${c['budget_usd']:.2f}；已完成的結果都保留")
                 break
-            c["live"] = {"combo": ci, "trial": trial, "at": time.time(), "step": 0, "tool": None}
+            c["live"] = {"combo": ci, "trial": trial, "at": time.time(), "step": 0, "tool": None, "phase": "prepare"}
             save(home, c)
             tell("campaign_progress", running={"combo": ci, "trial": trial}, live=c["live"])
             doc = await run(rt, c["suite"], k=1, model=combo["execution"],

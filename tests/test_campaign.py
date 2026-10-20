@@ -271,6 +271,10 @@ async def test_a_running_campaign_shows_where_it_is_and_an_orphan_is_stopped(rt,
     stepped = [x for x in seen if x.get("step")]
     assert stepped and stepped[0]["tool"] == "write_file" and stepped[0]["task_index"] == 1 and stepped[0]["tasks"] == 2
     assert all(x["running"] for x in seen)
+    phases = [x.get("phase") for x in seen]
+    assert phases[0] == "prepare" and "run" in phases and "grade" in phases     # the panel says run / grade
+    graded = [x for x in seen if x.get("phase") == "grade"]
+    assert graded[-1]["graded"] == graded[-1]["questions"] >= 1 and graded[0]["title"]
     after = C.current(rt.config.home, c["id"])
     assert after["status"] == "done" and after.get("live") is None and "run_started" not in after
     assert c["id"] not in C.LIVE
@@ -280,4 +284,5 @@ async def test_a_running_campaign_shows_where_it_is_and_an_orphan_is_stopped(rt,
     C.save(rt.config.home, orphan)
     assert C.current(rt.config.home, orphan["id"])["status"] == "stopped"
     assert C.listing(rt.config.home, "s9")[0]["status"] == "stopped"
+    assert "turn_id" in C.listing(rt.config.home, "s9")[0]           # the answer it evaluates shows it
     assert C.get(rt.config.home, orphan["id"])["status"] == "running"       # the file is left as it was
