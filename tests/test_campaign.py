@@ -351,3 +351,74 @@ def test_a_skill_evaluation_is_its_own_conversation_from_the_skill_menu(rt, tmp_
     out = C.abandon(rt.config.home, half["id"])
     assert out["status"] == "abandoned" and out["spent"]["abandoned"] == pytest.approx(0.3)
     assert C.current(rt.config.home, half["id"])["status"] == "abandoned"
+
+
+def test_a_trials_outputs_are_shown_with_their_verdicts(rt, tmp_path, monkeypatch):
+    """Report design R1 (2026-10-21): every trial's outputs can be opened next to its verdicts - the files as graded
+    (hash), where the judge's quote is, and an HTML output as one sandbox page that cannot reach the network."""
+    from fastapi.testclient import TestClient
+    from sinobee.evals import outputs as O
+    from sinobee.server import create_app
+    monkeypatch.setattr(runner, "child_runtime", _child([]))
+    c = C.new(rt, suite=_suite(tmp_path), combos=COMBOS[:1], k=1, budget_usd=5)
+    asyncio.run(C.execute(rt, c["id"]))
+    v = C.trial_view(rt.config.home, c["id"], 0, 1)
+    x = v["inputs"][0]
+    assert x["files"] and x["files"][0]["path"] == "out.md" and len(x["files"][0]["sha256"]) == 64
+    assert x["grades"] and x["grades"][0]["label"] == "有打招呼" and v["trials"][0]["trial"] == 1
+    with TestClient(create_app(rt)) as cl:
+        base = f"/api/evals/outputs/{v['run']}/{x['id']}/{x['trial']}"
+        r = cl.get(base + "/file", params={"path": "out.md"})
+        assert r.status_code == 200 and "Bee" in r.text and "sandbox" in r.headers["content-security-policy"]
+        assert cl.get(base + "/file", params={"path": "../../../../config.yaml"}).status_code == 404   # stays inside
+        assert cl.get(f"/api/evals/outputs/..%2F/{x['id']}/1/file", params={"path": "out.md"}).status_code == 404
+        assert cl.get(f"/api/evals/campaigns/{c['id']}/trials/0/1").json()["inputs"][0]["files"]
+
+    # an HTML output: its own image, script and style inlined; no network; the evidence finder added
+    d = tmp_path / "trial"
+    (d / "img").mkdir(parents=True)
+    (d / "img" / "a.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    (d / "app.js").write_text("console.log('</script>')", encoding="utf-8")
+    (d / "s.css").write_text("body{color:red}", encoding="utf-8")
+    (tmp_path / "secret.txt").write_text("no", encoding="utf-8")
+    (d / "index.html").write_text('<html><head><link rel="stylesheet" href="s.css"></head><body><img src="img/a.png">'
+                                  '<img src="../secret.txt"><img src="https://evil.example/x.png">'
+                                  '<script src="app.js"></script><p>額定風速 12 m/s</p></body></html>', encoding="utf-8")
+    page = O.page(d, "index.html")
+    assert "connect-src 'none'" in page and "data:image/png;base64," in page and "body{color:red}" in page
+    assert "<\\/script>" in page and 'src="../secret.txt"' in page                 # outside the trial: not inlined
+    assert "sinobeeFind" in page
+    assert O.locate("額定風速  12\nm/s", {"index.html": (d / "index.html").read_text()})["file"] == "index.html"
+    assert O.locate("...額定風速 12 m/s...", {"a": "x 額定風速 12 m/s y"}) is not None
+    assert O.locate("不存在的句子", {"a": "x"}) is None
+
+
+def test_a_report_uploads_every_trials_outputs_by_hash(rt, tmp_path, monkeypatch):
+    """Report design R2: the report lists every trial's outputs with the hash of the file as graded and where the
+    judge's quote is; the files go up by hash before the report (an older sinobee.ai without the endpoint: listed,
+    marked not uploaded, the report still goes)."""
+    from sinobee import account
+    from sinobee.evals import outputs as O
+    from sinobee.evals import publish as P
+    monkeypatch.setattr(runner, "child_runtime", _child([]))
+    c = C.new(rt, suite=_suite(tmp_path), combos=COMBOS[:1], k=2, budget_usd=5)
+    asyncio.run(C.execute(rt, c["id"]))
+    docs = C._docs(rt.config.home, C.get(rt.config.home, c["id"]))
+    body = P.payloads(docs, home=rt.config.home)[0]
+    outs = [o for task in body["tasks"] for t in task["trials"] for o in t["outputs"]]
+    assert len(outs) == 4 and all(len(o["sha256"]) == 64 for o in outs)          # 2 inputs x 2 trials, all listed
+    assert all(t["run_trial"] == 1 for task in body["tasks"] for t in task["trials"])
+    calls = []
+
+    class R:
+        def __init__(self, code):
+            self.status_code = code
+    monkeypatch.setattr(account, "send", lambda cfg, m, url, **kw: calls.append((m, url, kw.get("content"))) or R(201))
+    res = P.upload_outputs(rt.config, body)
+    shas = {o["sha256"] for o in outs}
+    assert res["uploaded"] == len(shas) and all(o["uploaded"] for o in outs)      # same file twice: sent once
+    assert all(m == "PUT" and url.endswith(O.sha256(data)) for m, url, data in calls)
+    calls.clear()
+    monkeypatch.setattr(account, "send", lambda cfg, m, url, **kw: calls.append(url) or R(404))
+    res = P.upload_outputs(rt.config, body)
+    assert res["uploaded"] == 0 and len(calls) == 1 and not any(o["uploaded"] for o in outs)

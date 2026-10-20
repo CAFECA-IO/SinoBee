@@ -282,6 +282,41 @@ def register(app: FastAPI, rt_getter, broadcast=None) -> None:
         except E.EvalError as e:
             bad(e, 404)
 
+    # ------------------------------------------------------------------ what a trial produced (report design R1)
+    @app.get("/api/evals/campaigns/{cid}/trials/{combo}/{trial}")
+    async def trial_view(cid: str, combo: int, trial: int):
+        try:
+            return await asyncio.to_thread(C.trial_view, rt_getter().config.home, cid, combo, trial)
+        except (E.EvalError, IndexError) as e:
+            bad(e, 404)
+
+    @app.get("/api/evals/outputs/{run}/{task}/{trial}/file")
+    async def trial_file(run: str, task: str, trial: int, path: str):
+        """A trial's file as data (never rendered as a page here: HTML goes through /page into a sandboxed frame)."""
+        from fastapi.responses import Response
+        try:
+            _base, f = C.trial_file(rt_getter().config.home, run, task, trial, path)
+        except E.EvalError as e:
+            bad(e, 404)
+        import mimetypes
+        mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+        if mime in ("text/html", "image/svg+xml", "application/xhtml+xml") or mime.startswith("text/"):
+            mime = "text/plain; charset=utf-8"            # shown as text; a page runs only in the sandbox
+        return Response(f.read_bytes(), media_type=mime, headers={
+            "Content-Security-Policy": "default-src 'none'; sandbox", "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store"})
+
+    @app.get("/api/evals/outputs/{run}/{task}/{trial}/page")
+    async def trial_page(run: str, task: str, trial: int, path: str):
+        """An HTML output as one self-contained page, for <iframe sandbox="allow-scripts" srcdoc>."""
+        from ..evals import outputs as O
+        try:
+            base, f = C.trial_file(rt_getter().config.home, run, task, trial, path)
+            html = await asyncio.to_thread(O.page, base, str(f.relative_to(base)))
+        except (E.EvalError, ValueError, OSError) as e:
+            bad(e, 404)
+        return {"html": html}
+
     @app.post("/api/evals/campaigns/{cid}/abandon")
     async def campaign_abandon(cid: str):
         try:

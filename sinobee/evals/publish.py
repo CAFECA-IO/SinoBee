@@ -18,7 +18,8 @@ from .. import account
 from . import evals_dir
 from .compare import key
 
-TEXT_LIMIT = 40_000           # characters of produced text shown per report
+TEXT_LIMIT = 40_000           # characters of produced text sent inline (older sinobee.ai pages show only this)
+UPLOAD_LIMIT = 20_000_000     # bytes of trial outputs uploaded per report (design R2); beyond: listed, not uploaded
 
 
 class PublishError(Exception):
@@ -36,12 +37,28 @@ def _grade(g: dict) -> dict:
     return out
 
 
-def _outputs(home, doc: dict, task_id: str, t: dict, budget: list[int]) -> list[dict]:
-    base = evals_dir(home) / "results" / doc["id"] / re.sub(r"[^\w.-]+", "-", task_id) / f"t{t.get('trial')}" \
+def trial_base(home, run_id: str, task_id: str, trial):
+    return evals_dir(home) / "results" / run_id / re.sub(r"[^\w.-]+", "-", task_id) / f"t{trial}" \
         if home is not None else None
+
+
+def _outputs(home, doc: dict, task_id: str, t: dict, budget: list[int] | None) -> list[dict]:
+    """Every output of the trial with its hash (the file as graded; the file itself is uploaded apart, by hash);
+    the first trial also carries its text inline for older sinobee.ai pages."""
+    from . import outputs as O
+    base = trial_base(home, doc["id"], task_id, t.get("trial"))
     out = []
     for o in t.get("outputs") or []:
         item = {"path": o["path"], "kind": o.get("kind", "text"), "bytes": o.get("bytes", 0)}
+        if base is not None:
+            try:
+                data = (base / o["path"]).read_bytes()
+                item.update(bytes=len(data), sha256=O.sha256(data))
+            except OSError:
+                item["missing"] = True
+        if budget is None:
+            out.append(item)
+            continue
         if o.get("kind") == "text" and budget[0] > 0 and base is not None:
             try:
                 text = (base / o["path"]).read_text(encoding="utf-8", errors="replace")[:budget[0]]
@@ -53,16 +70,33 @@ def _outputs(home, doc: dict, task_id: str, t: dict, budget: list[int]) -> list[
     return out
 
 
+def _where(home, doc: dict, task_id: str, t: dict) -> list:
+    """Where each grade's quoted evidence is in the trial's text outputs ({file, start, end} or None)."""
+    from . import outputs as O
+    base = trial_base(home, doc["id"], task_id, t.get("trial"))
+    texts = {}
+    if base is not None:
+        for o in t.get("outputs") or []:
+            if O.kind_of(o["path"]) in ("html", "markdown", "text", "csv", "svg"):
+                try:
+                    texts[o["path"]] = (base / o["path"]).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    pass
+    return [O.locate(str(g.get("evidence") or ""), texts) if g.get("evidence") and texts else None
+            for g in t.get("grades") or []]
+
+
 def _trial(home, doc: dict, task_id: str, t: dict, n: int, budget: list[int] | None) -> dict:
-    return {"trial": n, "run": doc["id"], "q": t.get("q", 0), "crit_fail": bool(t.get("crit_fail")),
+    return {"trial": n, "run": doc["id"], "run_trial": t.get("trial") or 1, "q": t.get("q", 0), "crit_fail": bool(t.get("crit_fail")),
             "qualified": bool(t.get("qualified")), "status": t.get("status"), "started": t.get("started"),
             "duration_s": t.get("duration_s") or 0, "cost_usd": t.get("cost_usd") or 0,
             "input_tokens": t.get("input_tokens") or 0, "output_tokens": t.get("output_tokens") or 0,
             "steps": t.get("steps") or 0, "tool_calls": t.get("tool_calls") or 0, "roles": t.get("roles") or {},
             "steps_trace": (t.get("steps_trace") or [])[:150], "error": (t.get("error") or None),
-            "grades": [_grade(g) for g in t.get("grades") or []], "answer": str(t.get("answer") or "")[:1500],
-            "outputs": _outputs(home, doc, task_id, t, budget) if budget is not None else
-            [{k: o.get(k) for k in ("path", "kind", "bytes")} for o in t.get("outputs") or []]}
+            "grades": [{**_grade(g), **({"where": {k: w[k] for k in ("file", "start", "end")}} if w else {})}
+                       for g, w in zip(t.get("grades") or [], _where(home, doc, task_id, t) + [None] * 999)],
+            "answer": str(t.get("answer") or "")[:1500],
+            "outputs": _outputs(home, doc, task_id, t, budget)}
 
 
 def payloads(runs: list[dict], home=None, judge_errors_ok: bool = False) -> list[dict]:
@@ -143,6 +177,7 @@ def publish(config, runs: list[dict], extra: dict | None = None) -> list[dict]:
         raise PublishError("this sign-in cannot publish evaluations: sign out and sign in again")
     res = []
     for body in data:
+        upload_outputs(config, body)
         try:
             r = account.send(config, "POST", f"{account.base_url(config)}/api/v1/evals", scope="evals:write",
                              json=body, timeout=60)
@@ -152,3 +187,55 @@ def publish(config, runs: list[dict], extra: dict | None = None) -> list[dict]:
             raise PublishError(f"sinobee.ai HTTP {r.status_code}: {r.text[:300]}")
         res.append(r.json())
     return res
+
+
+def upload_outputs(config, body: dict) -> dict:
+    """Put the trial outputs a report lists on sinobee.ai, by sha256, before the report (design R2): the report page
+    shows them next to the verdicts. Up to UPLOAD_LIMIT bytes per report - the main output of every trial first;
+    what does not fit (or an older sinobee.ai without the endpoint) is marked not uploaded and stays listed."""
+    from . import outputs as O
+    files = []
+    for task in body.get("tasks") or []:
+        for t in task.get("trials") or []:
+            base = trial_base(config.home, t["run"], task["id"], t.get("run_trial") or 1) if t.get("run") else None
+            for i, o in enumerate(t.get("outputs") or []):
+                files.append((0 if i == 0 else 1, o, base))
+    sent, used, seen = 0, 0, set()
+    url = f"{account.base_url(config)}/api/v1/evals/outputs"
+    gone = False
+    for _rank, o, base in sorted(files, key=lambda x: x[0]):
+        sha = o.get("sha256")
+        if not sha or o.get("missing") or base is None:
+            o["uploaded"] = False
+            continue
+        if sha in seen:
+            o["uploaded"] = True
+            continue
+        if gone or used + int(o.get("bytes") or 0) > UPLOAD_LIMIT:
+            o["uploaded"] = False
+            continue
+        try:
+            data = (base / o["path"]).read_bytes()
+        except OSError:
+            o["uploaded"] = False
+            continue
+        if O.sha256(data) != sha:
+            o["uploaded"] = False
+            continue
+        try:
+            r = account.send(config, "PUT", f"{url}/{sha}", scope="evals:write", content=data,
+                             headers={"Content-Type": "application/octet-stream"}, timeout=120)
+        except account.AccountError:
+            o["uploaded"] = False
+            continue
+        if r.status_code == 404:                         # an older sinobee.ai: the report goes without them
+            gone = True
+            o["uploaded"] = False
+            continue
+        o["uploaded"] = r.status_code < 300
+        if o["uploaded"]:
+            seen.add(sha)
+            used += len(data)
+            sent += 1
+    return {"uploaded": sent, "bytes": used}
+

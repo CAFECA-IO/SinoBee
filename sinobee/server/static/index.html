@@ -238,6 +238,28 @@ details.tool img{max-width:100%;border-radius:6px;margin-top:6px;border:1px soli
 .evvis label{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;margin-top:6px;cursor:pointer}
 .evvis label.sel{border-color:var(--accent)}.evvis small{display:block;color:var(--muted);margin-top:2px}
 .pkfile>.chip{flex:none}
+.evo{background:var(--bg);border:1px solid var(--line);border-radius:14px;width:min(1280px,96vw);height:min(900px,92vh);display:flex;flex-direction:column;overflow:hidden}
+.evo-h{padding:12px 16px 8px;border-bottom:1px solid var(--line)}.evo-t{display:flex;align-items:center;gap:8px}.evo-t small{color:var(--muted)}.evo-t .btn{margin-left:auto}
+.evo-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}.evo-tabs button,.evo-vt button{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:7px;padding:4px 10px;font:inherit;font-size:12.5px;cursor:pointer}
+.evo-tabs button.on,.evo-vt button.on{border-color:var(--accent);color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.evo-trials{margin-left:auto;display:flex;gap:6px}.evo-trials button{border-radius:99px}.evo-trials button.ok{border-color:color-mix(in srgb,var(--ok) 60%,var(--line))}.evo-trials button.bad{border-color:color-mix(in srgb,var(--err) 60%,var(--line))}
+.evo-req{margin-top:6px;font-size:12px;color:var(--muted)}.evo-req pre{max-height:140px;overflow:auto;white-space:pre-wrap;margin:6px 0 0}
+.evo-b{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 340px}
+.evo-v{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)}.evo-vt{display:flex;gap:6px;align-items:center;padding:8px 12px}.evo-vt .sp{flex:1}
+.evo-stage{flex:1;min-height:0;margin:0 12px;border:1px solid var(--line);border-radius:8px;overflow:auto;background:var(--panel)}
+.evo-frame{width:100%;height:100%;border:0;background:#fff;display:block}.evo-frame.phone{width:390px;margin:0 auto;border-left:1px solid var(--line);border-right:1px solid var(--line)}
+.evo-img{padding:12px;text-align:center}.evo-img img{max-width:100%;height:auto;background:#fff}.evo-doc{padding:14px 18px}.evo-src{margin:0;padding:12px;font-size:12px;white-space:pre-wrap;word-break:break-word}
+.evo-src mark,.evo-doc mark{background:#ffe58a;color:#000;outline:2px solid #f5a623}
+.evo-gate,.evo-empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;color:var(--muted);font-size:13px}.evo-gate b{color:var(--ink)}
+.evo-foot{padding:8px 12px 10px;font-size:11.5px;color:var(--muted)}.evo-foot .warn{color:var(--warn)}
+.evo-q{overflow:auto;padding:12px 14px;font-size:13px}.evo-qh{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}.evo-qh span{color:var(--muted);font-size:12px}
+.evo-q ol{list-style:none;margin:0;padding:0;display:grid;gap:4px}.evo-q li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:6px;padding:6px 8px;border-radius:7px;border:1px solid transparent;cursor:pointer;line-height:1.45}
+.evo-q li:hover{background:var(--panel2)}.evo-q li.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}.evo-q li small{display:block;color:var(--muted);font-size:11px}
+.evo-q .mk{font-weight:700}.evo-q li.y .mk{color:var(--ok)}.evo-q li.n .mk{color:var(--err)}
+.evo-ev{margin-top:6px;font-size:12px}.evo-ev .k{color:var(--muted);font-size:11px;margin-top:4px}.evo-ev blockquote{margin:2px 0;padding:4px 8px;border-left:3px solid #f5a623;background:var(--panel2);word-break:break-word}
+.evo-ans{margin-top:10px;font-size:12.5px}.evo-open{margin-left:8px;padding:1px 8px;font-size:11.5px}
+button.cell{border:0;font-family:inherit;cursor:pointer;width:100%}button.cell:hover{outline:2px solid var(--accent)}
+@media (max-width:860px){.evo-b{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) 40%}.evo-v{border-right:0;border-bottom:1px solid var(--line)}.evo-trials{margin-left:0}}
 .evcard{display:flex;gap:12px;align-items:flex-start;margin:10px 0 14px;padding:12px 14px;border:1px solid var(--accent2);border-radius:12px;background:var(--panel);font-size:13px;line-height:1.55}
 .evcard .ico svg{width:20px;height:20px;color:var(--accent);margin-top:2px}.evcard>div{flex:1}.evcard small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}.evcard b small{display:inline;margin:0}
 .skgrp{font-size:11px;color:var(--muted);letter-spacing:.04em;margin:10px 4px 2px}
@@ -2598,7 +2620,7 @@ async function evStep3(){
     const cells = Array.from({length: k}, (_, j) => {
       const it = c.items.find(t => t.combo === i && t.trial === j + 1);
       if (x.skip) return `<div class="cell skip" title="已發布 ${x.published_trials} 次">已測</div>`;
-      if (it) return `<div class="cell ${it.qualified ? 'okc' : 'badc'}" title="${it.status} · $${(it.cost_usd + it.judge_usd).toFixed(3)} · ${fmtSec(it.duration_s)}">${it.q != null ? Math.round(it.q) : '–'}</div>`;
+      if (it) return `<button type="button" class="cell ${it.qualified ? 'okc' : 'badc'}" data-out="${i}:${j + 1}" title="看這次的成果與評分 · ${it.status} · $${(it.cost_usd + it.judge_usd).toFixed(3)} · ${fmtSec(it.duration_s)}">${it.q != null ? Math.round(it.q) : '–'}</button>`;
       const isRun = c.status === 'running' && running && running[0] === i && running[1] === j + 1;
       return `<div class="cell ${isRun ? 'run' : ''}">${isRun ? '…' : ''}</div>`; }).join('');
     return `<div class="evrow" style="--n:${k}"><span>${cbx(x.thinking, x.execution)}${x.baseline ? '<span class="chip">基準</span>' : ''}</span>${cells}</div>`; }).join('');
@@ -2633,6 +2655,7 @@ async function evStep3(){
     try { await evJson(`/api/evals/campaigns/${EV.campaign}/resume`, {budget_usd: +($('#evMore')?.value || c.budget_usd)}); evStep3(); }
     catch (e) { uiAlert(e.message); } });
   $('#evFoot [data-a=res]').onclick = () => evGo(4);
+  $('#evBody').querySelectorAll('[data-out]').forEach(b => b.onclick = () => { const [ci, t] = b.dataset.out.split(':').map(Number); evOpenOutputs(ci, t); });
   evLiveRender();
   clearInterval(EV.tick);
   if (['running', 'comparing'].includes(c.status)) EV.tick = setInterval(() => {
@@ -2678,6 +2701,151 @@ function evLiveRender(){
   const sv = $('#evSpent'); if (sv) { sv.textContent = fmtUsd(evSpent(c)); $('#evSpentS').textContent = evSpentSub(c); }
   const cell = document.querySelector('#evBody .cell.run'); if (cell) cell.textContent = {prepare: '準備', run: '執行中', grade: '評分中'}[ph];
 }
+// ---- what a trial produced, next to its verdicts (report design draft 2026-10-21, R1)
+// An HTML output runs in <iframe sandbox="allow-scripts" srcdoc>: an opaque origin (no cookies, no storage, no
+// SinoBee token), a CSP without network, no forms, popups or navigation of this page. Clicking a question asks the
+// page to mark the judge's quote; the source tab marks it by position.
+const EVO = {data: null, input: 0, file: null, tab: 'view', run: false, q: null};
+const evoUrl = (x, f, what) => `/api/evals/outputs/${encodeURIComponent(EVO.data.run)}/${encodeURIComponent(x.id)}/${x.trial}/${what}?path=${encodeURIComponent(f.path)}&token=${encodeURIComponent(token)}`;
+async function evOpenOutputs(combo, trial){
+  if (trial == null) {        // a combination: open its lowest-scoring qualified trial (the floor, not the best one)
+    const c = EV.data.c && EV.data.c.id === EV.campaign ? EV.data.c : await api(`/api/evals/campaigns/${encodeURIComponent(EV.campaign)}`);
+    const its = (c.items || []).filter(x => x.combo === combo);
+    if (!its.length) return uiAlert('這個組合還沒有完成的試驗');
+    const pool = its.some(x => x.qualified) ? its.filter(x => x.qualified) : its;
+    trial = pool.reduce((a, x) => (x.q ?? 1e9) < (a.q ?? 1e9) ? x : a).trial;
+  }
+  let d;
+  try { d = await api(`/api/evals/campaigns/${encodeURIComponent(EV.campaign)}/trials/${combo}/${trial}`); if (d.detail) throw new Error(d.detail); }
+  catch (e) { return uiAlert(e.message); }
+  Object.assign(EVO, {data: d, input: Math.min(EVO.input, d.inputs.length - 1), file: null, q: null});
+  let m = $('#evOut');
+  if (!m) {
+    m = document.createElement('div'); m.className = 'modal open'; m.id = 'evOut'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
+    m.innerHTML = '<div class="evo"><div class="evo-h"></div><div class="evo-b"><div class="evo-v"></div><div class="evo-q"></div></div></div>';
+    m.onclick = e => { if (e.target === m) evoClose(); };
+    document.body.appendChild(m);
+    document.addEventListener('keydown', evoKey);
+  }
+  m.classList.add('open');
+  evoRender();
+}
+function evoKey(e){ if (e.key === 'Escape' && $('#evOut')?.classList.contains('open')) evoClose(); }
+function evoClose(){ $('#evOut')?.remove(); document.removeEventListener('keydown', evoKey); }
+function evoMain(x){   // the file shown first: the page, else the document, else an image
+  const order = ['html', 'markdown', 'image', 'svg', 'csv', 'text'];
+  return [...x.files].filter(f => !f.missing).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))[0] || null;
+}
+function evoRender(){
+  const d = EVO.data, x = d.inputs[EVO.input];
+  if (!x) return;
+  const f = x.files.find(y => y.path === EVO.file) || evoMain(x); EVO.file = f?.path || null;
+  const m = $('#evOut');
+  m.querySelector('.evo-h').innerHTML = `<div class="evo-t"><b>成果</b> ${cbx(d.thinking, d.execution)} <small>評鑑模型 ${esc(mshort(d.judge || ''))}</small>
+      <button class="btn icon sm" type="button" data-a="x" aria-label="關閉" title="關閉">${ic('x')}</button></div>
+    <div class="evo-tabs">${d.inputs.map((y, i) => `<button type="button" class="${i === EVO.input ? 'on' : ''}" data-in="${i}" title="${esc(y.prompt.slice(0, 300))}">輸入 ${i + 1} · ${esc(y.title)}</button>`).join('')}
+      <span class="evo-trials">${d.trials.sort((a, b) => a.trial - b.trial).map(t => `<button type="button" class="${t.trial === d.trial ? 'on' : ''} ${t.qualified ? 'ok' : 'bad'}" data-tr="${t.trial}">第 ${t.trial} 次 · ${t.q != null ? Math.round(t.q) : '–'} ${t.qualified ? '合格' : '不合格'}</button>`).join('')}</span></div>
+    <details class="evo-req"><summary>這份輸入的需求</summary><pre>${esc(x.prompt)}</pre></details>`;
+  const kinds = {html: '網頁', markdown: '文件', image: '圖片', svg: '向量圖', csv: '表格', text: '文字', other: '檔案'};
+  const viewTab = f && ['html', 'markdown', 'image', 'svg', 'csv'].includes(f.kind);
+  if (!viewTab && EVO.tab === 'view') EVO.tab = f ? 'src' : 'files';
+  m.querySelector('.evo-v').innerHTML = `<div class="evo-vt">${viewTab ? `<button type="button" data-t="view" class="${EVO.tab === 'view' ? 'on' : ''}">畫面</button>` : ''}
+      ${f && f.kind !== 'image' ? `<button type="button" data-t="src" class="${EVO.tab === 'src' ? 'on' : ''}">原始碼</button>` : ''}
+      <button type="button" data-t="files" class="${EVO.tab === 'files' ? 'on' : ''}">檔案（${x.files.length}）</button>
+      ${f?.kind === 'html' && EVO.tab === 'view' ? `<span class="sp"></span><button type="button" data-w="desk" class="${EVO.w !== 'phone' ? 'on' : ''}">桌面</button><button type="button" data-w="phone" class="${EVO.w === 'phone' ? 'on' : ''}">手機</button><button type="button" data-a="full">全螢幕</button>` : ''}</div>
+    <div class="evo-stage" id="evoStage"></div>
+    <div class="evo-foot">${f ? `${esc(f.path)} · ${kinds[f.kind] || ''} · ${fmtBytes(f.bytes)} · <span title="sha256 ${esc(f.sha256 || '')}">檔案雜湊 ${esc((f.sha256 || '').slice(0, 10))}…，就是評分時的檔案</span> · <a href="${evoUrl(x, f, 'file')}" download="${esc(f.path.split('/').pop())}">下載</a>` : '這次試驗沒有留下成果檔'}
+      ${x.status && x.status !== 'done' ? ` · <b class="warn">${esc(x.status)}${x.error ? '：' + esc(String(x.error).slice(0, 120)) : ''}</b>` : ''}</div>`;
+  const gs = x.grades;
+  m.querySelector('.evo-q').innerHTML = `<div class="evo-qh"><b>評分 · 第 ${d.trial} 次 · 輸入 ${EVO.input + 1}</b><span>${x.q != null ? Math.round(x.q) : '–'} 分 · ${x.qualified ? '合格' : '不合格'}</span></div>
+    <ol>${gs.map((g, i) => `<li class="${g.ok ? 'y' : 'n'} ${EVO.q === i ? 'on' : ''}" data-q="${i}" tabindex="0"><span class="mk">${g.ok ? '✓' : '✗'}</span><span><b>${esc(g.label)}</b>${g.critical ? '<span class="chip warn">關鍵</span>' : ''}
+      <small>${esc(g.category || '')}${g.kind === 'judge' ? ' · 評鑑模型判定' : g.kind === 'det' ? ' · 程式檢查' : ''}</small>
+      ${EVO.q === i ? `<div class="evo-ev">${g.evidence ? `<div class="k">證據（評鑑模型引用）${g.where ? '' : '<span class="chip warn">在成果中找不到這段</span>'}</div><blockquote>${esc(g.evidence)}</blockquote>` : ''}${g.detail ? `<div class="k">說明</div><div>${esc(g.detail)}</div>` : ''}</div>` : ''}</span></li>`).join('')}</ol>
+    ${x.answer ? `<details class="evo-ans"><summary>模型最後的回答</summary><div>${md(x.answer)}</div></details>` : ''}`;
+  evoStage(x, f);
+  evoWire(x, f);
+}
+function fmtBytes(n){ n = +n || 0; return n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' KB' : n + ' B'; }
+async function evoStage(x, f){
+  const st = $('#evoStage'); if (!st) return;
+  if (EVO.tab === 'files') {
+    st.innerHTML = `<table class="evtbl"><tr><th>檔案</th><th class="r">大小</th><th>sha256</th></tr>${x.files.map(y => `<tr><td>${y.missing ? esc(y.path) + ' <span class="chip warn">不在</span>' : `<a href="#" data-f="${esc(y.path)}">${esc(y.path)}</a>`}</td><td class="r">${fmtBytes(y.bytes)}</td><td><code>${esc((y.sha256 || '').slice(0, 16))}</code></td></tr>`).join('') || '<tr><td colspan="3">沒有成果檔</td></tr>'}</table>`;
+    st.querySelectorAll('[data-f]').forEach(a => a.onclick = e => { e.preventDefault(); EVO.file = a.dataset.f; EVO.tab = 'view'; evoRender(); });
+    return;
+  }
+  if (!f) { st.innerHTML = '<div class="evo-empty">這次試驗沒有留下成果檔。</div>'; return; }
+  if (EVO.tab === 'view' && f.kind === 'html') {
+    if (!EVO.run) {
+      st.innerHTML = `<div class="evo-gate"><b>這是模型寫的網頁</b><span>會在隔離的沙箱裡執行：不能連網、讀不到 SinoBee 與你的資料、不能開新視窗。${/inject|注入/i.test(x.id + x.title) ? '<br><b class="warn">這份輸入含有刻意放入的惡意測試內容。</b>' : ''}</span><button class="btn primary" type="button" id="evoRun">執行這個成果</button></div>`;
+      $('#evoRun').onclick = () => { EVO.run = true; evoStage(x, f); };
+      return;
+    }
+    st.innerHTML = '<div class="evo-empty">準備頁面…</div>';
+    let r; try { r = await api(evoUrl(x, f, 'page').replace(/&token=[^&]*$/, '')); } catch {}
+    if (!r?.html) { st.innerHTML = '<div class="evo-empty">讀不到這個檔案。</div>'; return; }
+    const fr = document.createElement('iframe');
+    fr.setAttribute('sandbox', 'allow-scripts'); fr.setAttribute('referrerpolicy', 'no-referrer'); fr.setAttribute('title', f.path);
+    fr.className = 'evo-frame' + (EVO.w === 'phone' ? ' phone' : '');
+    fr.srcdoc = r.html;
+    st.innerHTML = ''; st.appendChild(fr);
+    fr.onload = () => { if (EVO.q != null) evoFind(); };
+    return;
+  }
+  if (EVO.tab === 'view' && (f.kind === 'image' || f.kind === 'svg')) { st.innerHTML = `<div class="evo-img"><img src="${evoUrl(x, f, 'file')}" alt="${esc(f.path)}"></div>`; return; }
+  const txt = await fetch(evoUrl(x, f, 'file')).then(r => r.text()).catch(() => '');
+  if (EVO.tab === 'view' && f.kind === 'markdown') {
+    st.innerHTML = `<div class="evo-doc">${md(txt)}</div>`;
+    st.querySelectorAll('.evo-doc img').forEach(im => { const s = im.getAttribute('src') || ''; if (s && !/^(data:|https?:|\/)/i.test(s)) im.src = evoUrl(x, {path: (f.path.includes('/') ? f.path.replace(/[^/]+$/, '') : '') + s}, 'file'); });
+    if (EVO.q != null) evoFind();
+    return;
+  }
+  if (EVO.tab === 'view' && f.kind === 'csv') {
+    const rows = txt.split(/\r?\n/).filter(Boolean).slice(0, 500).map(l => l.split(','));
+    st.innerHTML = `<div class="evo-doc"><table class="evtbl">${rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}</tr>`).join('')}</table></div>`;
+    return;
+  }
+  const g = EVO.q != null ? x.grades[EVO.q] : null, w = g?.where && g.where.file === f.path ? g.where : null;
+  st.innerHTML = `<pre class="evo-src">${w ? esc(txt.slice(0, w.start)) + `<mark id="evoMark">${esc(txt.slice(w.start, w.end))}</mark>` + esc(txt.slice(w.end)) : esc(txt)}</pre>`;
+  $('#evoMark')?.scrollIntoView({block: 'center'});
+}
+// the judge's quote, marked where the reader looks
+function evoFind(){
+  const x = EVO.data.inputs[EVO.input], g = x.grades[EVO.q]; if (!g) return;
+  const q = g.where?.piece || g.evidence; if (!q) return;
+  const fr = $('#evoStage iframe');
+  if (fr) return fr.contentWindow?.postMessage({sinobeeFind: q}, '*');
+  const doc = $('#evoStage .evo-doc'); if (!doc) return;
+  doc.querySelectorAll('mark.evo-m').forEach(mk => mk.replaceWith(document.createTextNode(mk.textContent)));
+  const w = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT); let n;
+  const key = q.replace(/\s+/g, ' ').trim().slice(0, 40);
+  while ((n = w.nextNode())) { const i = n.nodeValue.indexOf(key); if (i < 0) continue;
+    const r = document.createRange(); r.setStart(n, i); r.setEnd(n, Math.min(n.nodeValue.length, i + key.length));
+    const mk = document.createElement('mark'); mk.className = 'evo-m'; try { r.surroundContents(mk); mk.scrollIntoView({block: 'center'}); } catch {} break; }
+}
+function evoWire(x, f){
+  const m = $('#evOut');
+  m.querySelector('[data-a=x]').onclick = evoClose;
+  m.querySelectorAll('[data-in]').forEach(b => b.onclick = () => { EVO.input = +b.dataset.in; EVO.file = null; EVO.q = null; EVO.tab = 'view'; evoRender(); });
+  m.querySelectorAll('[data-tr]').forEach(b => b.onclick = () => evOpenOutputs(EVO.data.combo, +b.dataset.tr));
+  m.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { EVO.tab = b.dataset.t; evoRender(); });
+  m.querySelectorAll('[data-w]').forEach(b => b.onclick = () => { EVO.w = b.dataset.w; evoRender(); });
+  m.querySelector('[data-a=full]')?.addEventListener('click', () => $('#evoStage')?.requestFullscreen?.());
+  m.querySelectorAll('.evo-q li[data-q]').forEach(li => li.onclick = li.onkeydown = e => {
+    if (e.type === 'keydown' && e.key !== 'Enter') return;
+    const i = +li.dataset.q, g = x.grades[i];
+    EVO.q = EVO.q === i ? null : i;
+    if (EVO.q != null && g.where && g.where.file !== EVO.file) { EVO.file = g.where.file; }
+    // the page marks the quote itself; another kind shows it in the source
+    const cur = x.files.find(y => y.path === EVO.file);
+    if (EVO.q != null && g.where && cur && !['html', 'markdown'].includes(cur.kind)) EVO.tab = 'src';
+    evoRender();
+  });
+}
+window.addEventListener('message', e => {
+  if (e.data && typeof e.data.sinobeeFound === 'boolean' && !e.data.sinobeeFound && EVO.q != null && $('#evoStage iframe')) {
+    const st = $('#evOut .evo-foot'); if (st && !st.querySelector('.nf')) st.insertAdjacentHTML('beforeend', ' · <span class="nf warn">畫面上找不到這段證據，改看「原始碼」</span>');
+  }
+});
 // ---- 5. results and submitting
 async function evStep4(){
   evLoading('整理結果…');
@@ -2694,7 +2862,7 @@ async function evStep4(){
   const out = b.rows.filter(x => !x.eligible).map(x => `${cbx(x.thinking, x.execution)}（${why[x.out]}，合格 ${x.qualified}/${x.observations}）`).join('、');
   const secTot = k => { const s = r.security[k] || {}; const v = Object.values(s); const ok = v.reduce((a, x) => a + x.ok, 0), tot = v.reduce((a, x) => a + x.total, 0); return tot ? `${ok}/${tot}` : '–'; };
   const table = b.rows.map(x => `<tr><td>${cbx(x.thinking, x.execution)}${x.key === r.baseline ? '<span class="chip">基準</span>' : ''}${x.eligible ? '' : '<span class="chip warn">不進排行</span>'}</td>
-    <td class="r">${x.mean.toFixed(1)}<small>±${x.se.toFixed(1)}</small></td><td class="r">${x.qualified}/${x.observations}</td><td class="r">${fmtSec(x.median_s)}</td>
+    <td class="r">${x.mean.toFixed(1)}<small>±${x.se.toFixed(1)}</small><button type="button" class="btn sm evo-open" data-ck="${esc(x.key)}">看成果</button></td><td class="r">${x.qualified}/${x.observations}</td><td class="r">${fmtSec(x.median_s)}</td>
     <td class="r">${x.cost_per_pass != null ? fmtUsd(x.cost_per_pass) : '–'}</td><td class="r">${x.creativity != null ? Math.round(x.creativity * 100) + '%' : '–'}</td><td class="r">${secTot(x.key)}</td></tr>`).join('');
   const checks = (r.checks || []).map(x => `<div class="evchk"><span class="${x.status === 'ok' ? 'y' : x.status === 'warn' ? 'w' : 'n'}">${x.status === 'ok' ? '✓' : x.status === 'warn' ? '!' : '✕'}</span><span>${esc(x.label)}</span><small>${esc(x.detail || '')}</small></div>`).join('');
   const fail = (r.checks || []).some(x => x.status === 'fail');
@@ -2716,6 +2884,8 @@ async function evStep4(){
     `<button class="btn" type="button" data-a="back">回到執行</button><button class="btn primary" type="button" data-a="pub" ${b.rows.length ? '' : 'disabled'}>${EV.vis === 'public' ? `提交 ${nPublic} 份公開報告` : '存成私人報告'}</button>`);
   $('#evBody').querySelectorAll('input[name=evVis]').forEach(x => x.onchange = () => { EV.vis = x.value; evStep4(); });
   $('#evFoot [data-a=back]').onclick = () => evGo(3);
+  $('#evBody').querySelectorAll('[data-ck]').forEach(b => b.onclick = () => {
+    const ci = (c.combos || []).findIndex(y => ckey(y.thinking, y.execution) === b.dataset.ck); if (ci >= 0) evOpenOutputs(ci, null); });
   $('#evFoot [data-a=pub]').onclick = async e => {
     if (EV.vis === 'public' && !await uiConfirm(`提交 ${nPublic} 份公開評鑑報告到 SinoBee.ai？${(r.checks || []).some(x => x.id === 'skill' && x.status === 'warn') ? `\n${c.skill} 會一起發布到 Skill Hub。` : ''}`)) return;
     e.target.disabled = true;

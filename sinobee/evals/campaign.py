@@ -789,6 +789,71 @@ def results(rt, cid: str) -> dict:
             "checks": checks(rt, c, docs, rows) if docs else []}
 
 
+# ---------------------------------------------------------------- what a trial produced (report design R1)
+
+def trial_dir(home, run_id: str, task_id: str, trial: int):
+    from . import evals_dir
+    if not re.fullmatch(r"[\w.-]+", run_id or ""):
+        raise EvalError("bad run id")
+    return evals_dir(home) / "results" / run_id / re.sub(r"[^\w.-]+", "-", task_id) / f"t{int(trial)}"
+
+
+def trial_view(home, cid: str, combo: int, trial: int) -> dict:
+    """One trial of one combination, input by input: the request, the score, every question with its verdict, the
+    judge's evidence and where it is in the files, and the files as graded (with hashes)."""
+    from . import outputs as O
+    c = get(home, cid)
+    it = next((x for x in c.get("items") or [] if x["combo"] == combo and x["trial"] == trial), None)
+    if not it:
+        raise EvalError("這次試驗還沒有結果")
+    doc = result(home, it["run"])
+    inputs = []
+    for task in doc.get("tasks") or []:
+        t = (task.get("trials") or [{}])[0]
+        base = trial_dir(home, doc["id"], task["id"], t.get("trial") or 1)
+        fl = O.files(base, t.get("outputs") or [])
+        texts = {}
+        for f in fl:
+            if not f.get("missing") and f["kind"] in ("html", "markdown", "text", "csv", "svg"):
+                try:
+                    texts[f["path"]] = (base / f["path"]).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    pass
+        qs = task.get("questions") or [{"label": g, "category": "", "kind": "det"} for g in task.get("graders") or []]
+        grades = []
+        for i, g in enumerate(t.get("grades") or []):
+            q = qs[i] if i < len(qs) else {"label": g.get("label") or g.get("type"), "category": ""}
+            ev = str(g.get("evidence") or "")
+            grades.append({"label": q.get("label"), "category": q.get("category"), "kind": q.get("kind"),
+                           "critical": bool(q.get("critical")), "ok": bool(g.get("ok")),
+                           "detail": str(g.get("detail") or "")[:400], "evidence": ev[:400],
+                           "votes": g.get("votes"), "where": O.locate(ev, texts) if ev else None})
+        inputs.append({"id": task["id"], "title": task.get("title") or task["id"], "prompt": task.get("prompt") or "",
+                       "q": t.get("q"), "qualified": t.get("qualified"), "status": t.get("status"),
+                       "error": t.get("error"), "answer": str(t.get("answer") or "")[:4000],
+                       "duration_s": t.get("duration_s"), "cost_usd": t.get("cost_usd"),
+                       "files": fl, "grades": grades, "trial": t.get("trial") or 1})
+    x = c["combos"][combo]
+    return {"campaign": cid, "combo": combo, "trial": trial, "run": doc["id"], "thinking": x["thinking"],
+            "execution": x["execution"], "judge": c.get("judge"), "q": it.get("q"), "qualified": it.get("qualified"),
+            "trials": [{"trial": y["trial"], "q": y.get("q"), "qualified": y.get("qualified")}
+                       for y in c.get("items") or [] if y["combo"] == combo],
+            "inputs": inputs}
+
+
+def trial_file(home, run_id: str, task_id: str, trial: int, path: str):
+    """A file of a trial (a path inside its folder only)."""
+    base = trial_dir(home, run_id, task_id, trial).resolve()
+    f = (base / path).resolve()
+    try:
+        f.relative_to(base)
+    except ValueError:
+        raise EvalError("bad path") from None
+    if not f.is_file():
+        raise EvalError("no such file")
+    return base, f
+
+
 # ---------------------------------------------------------------- publishing
 
 def upload_suite(config, ref: str) -> dict | None:
