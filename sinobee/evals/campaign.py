@@ -827,12 +827,16 @@ def trial_view(home, cid: str, combo: int, trial: int) -> dict:
             grades.append({"label": q.get("label"), "category": q.get("category"), "kind": q.get("kind"),
                            "critical": bool(q.get("critical")), "ok": bool(g.get("ok")),
                            "detail": str(g.get("detail") or "")[:400], "evidence": ev[:400],
-                           "votes": g.get("votes"), "where": O.locate(ev, texts) if ev else None})
+                           "votes": g.get("votes"), "where": O.locate(ev, texts) if ev else None,
+                           "screens": g.get("screens"), "shot": g.get("shot")})
         inputs.append({"id": task["id"], "title": task.get("title") or task["id"], "prompt": task.get("prompt") or "",
                        "q": t.get("q"), "qualified": t.get("qualified"), "status": t.get("status"),
                        "error": t.get("error"), "answer": str(t.get("answer") or "")[:4000],
                        "duration_s": t.get("duration_s"), "cost_usd": t.get("cost_usd"),
-                       "files": fl, "grades": grades, "trial": t.get("trial") or 1})
+                       "files": fl, "grades": grades, "trial": t.get("trial") or 1,
+                       "shots": [{**s, **f} for s, f in zip(t.get("shots") or [],
+                                                            O.files(base, [{"path": s["path"]} for s in t.get("shots") or []]))],
+                       "render": t.get("render")})
     x = c["combos"][combo]
     return {"campaign": cid, "combo": combo, "trial": trial, "run": doc["id"], "thinking": x["thinking"],
             "execution": x["execution"], "judge": c.get("judge"), "q": it.get("q"), "qualified": it.get("qualified"),

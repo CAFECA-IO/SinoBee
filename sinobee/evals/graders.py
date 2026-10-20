@@ -26,6 +26,8 @@ class Trial:
     steps: int = 0
     trace: list[dict] = field(default_factory=list)         # per-step cost: tokens, retries, failed
     security: dict | None = None                            # the sandbox's record (evals/sandbox.py), when sandboxed
+    render: dict | None = None                              # the page as the browser saw it (evals/render.py)
+    render_base: Path | None = None                         # the folder its screenshots are in
 
 
 def _flags(g: dict) -> int:
@@ -110,6 +112,9 @@ async def grade(g: dict, t: Trial) -> tuple[bool, str]:
         if kind == "security":
             from .sandbox import grade as security_grade
             return security_grade(str(g.get("check") or ""), t.security)
+        if kind == "page":
+            from .render import grade as page_grade
+            return page_grade(g, t.render)
         if kind == "llm":
             return await _llm(g, t)
     except (KeyError, re.error) as e:
@@ -140,6 +145,12 @@ FINAL ANSWER:
 Reply with JSON only: {{"pass": true|false, "reason": "<one sentence>", "evidence": "<a short quote from the files or
 answer that your verdict rests on>"}}"""
 
+SCREENS = """
+SCREENSHOTS: the page as a browser rendered it is attached as numbered pictures (desktop on load, desktop three seconds
+later, phone). Judge what is VISIBLE: something the code promises but the pictures do not show does not count. When
+your verdict rests on a picture, the evidence may describe what it shows ("screenshot 2: the blades are rotated
+compared with screenshot 1") and add "shot": <its number> to the JSON."""
+
 
 def _judge_files(g: dict, t: Trial) -> list[Path]:
     """The files the judge reads: the grader's `files` globs (in that order), else the first files the agent made."""
@@ -156,16 +167,25 @@ RETRY_NOTE = ("\n\nYour previous reply was empty, cut off or not the JSON asked 
               "nothing before or after it.")
 
 
-async def ask_json(judge, prompt: str, key: str, temperature: float = 0) -> dict:
+def _message(prompt: str, images: list | None):
+    from ..types import ImagePart, Message, TextPart
+    if not images:
+        return Message("user", prompt)
+    parts: list = [TextPart(prompt)]
+    for n, (label, data) in enumerate(images, 1):
+        parts += [TextPart(f"Screenshot {n}: {label}"), ImagePart.from_bytes(data, "image/jpeg")]
+    return Message("user", parts)
+
+
+async def ask_json(judge, prompt: str, key: str, temperature: float = 0, images: list | None = None) -> dict:
     """A judge's JSON answer that contains `key`. A model that spends its output budget thinking returns nothing
     (gemini-*-pro with a few hundred tokens): ask with room to think, and once more - with more room and a reminder -
     when the answer is missing. {} when the judge still gives none (the caller records a judge error, never a fail
     of the thing under test)."""
     from ..learning.reflector import parse_json
-    from ..types import Message
     for i, (extra, tokens) in enumerate((("", JUDGE_TOKENS), (RETRY_NOTE, JUDGE_TOKENS * 4))):
         try:
-            resp = await judge.chat([Message("user", prompt + extra)], None, temperature=temperature, max_tokens=tokens)
+            resp = await judge.chat([_message(prompt + extra, images)], None, temperature=temperature, max_tokens=tokens)
         except Exception as e:  # noqa: BLE001 - a failed call is retried like an empty one
             if i:
                 raise
@@ -178,8 +198,8 @@ async def ask_json(judge, prompt: str, key: str, temperature: float = 0) -> dict
     return {}
 
 
-async def _ask(judge, prompt: str, temperature: float) -> dict:
-    return await ask_json(judge, prompt, "pass", temperature)
+async def _ask(judge, prompt: str, temperature: float, images: list | None = None) -> dict:
+    return await ask_json(judge, prompt, "pass", temperature, images)
 
 
 def _verdict(data: dict, need_evidence: bool) -> tuple[bool | None, str, str]:
@@ -198,11 +218,22 @@ async def _llm_full(g: dict, t: Trial) -> dict:
         return {"ok": False, "detail": "no model to judge with"}
     prompt = JUDGE.format(rubric=g["rubric"][:2000], prompt=t.prompt[:3000],
                           files=excerpts_for(g, t) or "(none)", answer=(t.answer or "")[:5000])
+    images = None
+    if g.get("screens"):                      # a rubric about what the page looks like: judged on its screenshots
+        from .render import images_for
+        images = images_for(t.render, t.render_base) if t.render_base is not None else []
+        if not images:
+            why = (t.render or {}).get("skipped") or "沒有可截圖的網頁成果"
+            return {"ok": False, "judge_error": bool((t.render or {}).get("skipped")), "detail": f"這題要看畫面，但{why}"}
+        prompt += SCREENS
     n = max(1, min(int(g.get("votes") or 1), 5))
     need = bool(g.get("require_evidence"))
     votes = []
+    shots = []
     for _ in range(n):
-        votes.append(_verdict(await _ask(t.judge, prompt, 0.4 if n > 1 else 0), need))
+        data = await _ask(t.judge, prompt, 0.4 if n > 1 else 0, images)
+        votes.append(_verdict(data, need))
+        shots.append(data.get("shot"))
     valid = [v for v in votes if v[0] is not None]
     if not valid:      # the judge never answered: not the contestant's failure, and the result cannot be trusted
         return {"ok": False, "judge_error": True, "detail": f"評鑑模型沒有給出判定（{n} 次都沒有回應或格式錯誤）"}
@@ -210,13 +241,21 @@ async def _llm_full(g: dict, t: Trial) -> dict:
     ok = yes * 2 > len(valid)                 # the majority of the votes the judge actually gave; a tie fails
     side = [v for v in valid if bool(v[0]) == ok] or valid
     out = {"ok": ok, "detail": (f"{yes}/{len(valid)} 票：" if n > 1 else "") + side[0][1], "evidence": side[0][2]}
+    if images:
+        out["screens"] = len(images)                    # judged on this many screenshots (shown in the report)
+        pick = next((s for v, s in zip(votes, shots) if v[0] is not None and bool(v[0]) == ok and s), None)
+        try:
+            if pick and 1 <= int(pick) <= len(images):
+                out["shot"] = int(pick)
+        except (TypeError, ValueError):
+            pass
     if n > 1:
         out["votes"] = [yes, len(valid)]
     if len(valid) < n:
         out["judge_missing"] = n - len(valid)
     if t.judge2 is not None:
         try:
-            v2 = _verdict(await _ask(t.judge2, prompt, 0), need)
+            v2 = _verdict(await _ask(t.judge2, prompt, 0, images), need)
             out["judge2_ok"] = bool(v2[0])
         except Exception as e:  # noqa: BLE001 - a second opinion that fails must not fail the grade
             out["judge2_error"] = str(e)[:120]

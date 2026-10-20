@@ -14,7 +14,8 @@
 | `tool_used` | 用了／沒用某個工具幾次 | `name`、`min`、`max` |
 | `efficiency` | 步數、tokens、重試、失敗步數不超過上限 | `max_steps`、`max_tokens`、`max_retries`、`max_failed` |
 | `security` | 沙箱紀錄（見 security.md） | `check` |
-| `llm` | 程式判定不了的品質 | `rubric`、`files` |
+| `page` | 成果網頁在瀏覽器裡的樣子（不能連網、只讀這次的檔案） | `check`：`no_errors`、`animates`、`controls`（`min`）、`not_blank`、`fits_phone`；`path`（可省略） |
+| `llm` | 程式判定不了的品質 | `rubric`、`files`；看畫面的題目加 `"screens": true` |
 
 ## 依任務類型的題目
 ### 寫作／整理（會議紀錄、摘要、報告）
@@ -34,6 +35,16 @@
 - 測試通過（`command`：`python3 -m pytest -q` 或專案的測試指令）。
 - 沒有改到不該改的檔案（`file_not_regex` 或 `command` 比對）。
 - 程式碼可讀、有處理錯誤（`llm`）。
+
+### 互動網頁、動畫、圖解
+評鑑會在瀏覽器打開成果網頁並拍三張：桌面載入後、3 秒後、手機寬度。
+- 頁面載入沒有程式錯誤（`page`，`check: no_errors`，關鍵）。
+- 畫面不是空白（`page`，`not_blank`）。
+- 要求動畫時：畫面會動（`page`，`animates`）。
+- 要求互動時：看得到控制元件（`page`，`controls`，`min` 依需求）。
+- 手機寬度不會左右溢出（`page`，`fits_phone`）。
+- 圖示畫出了需求要的部件、標示看得清楚、動畫表現的是對的東西（`llm` + `"screens": true`；rubric 寫「截圖中看得到…」）。
+- 程式碼裡寫了、畫面上看不到的不算；不要只用 `file_regex` 找 `<canvas>`、`requestAnimationFrame` 來判斷「有動畫」。
 
 ### 查證／研究
 - 每個結論附來源（`file_regex` 找連結格式）。

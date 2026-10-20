@@ -34,6 +34,28 @@ def _grade(g: dict) -> dict:
         out["votes"] = list(g["votes"])[:2]
     if "judge2_ok" in g:
         out["judge2_ok"] = bool(g["judge2_ok"])
+    if g.get("screens"):                      # judged on the page's screenshots (design R3)
+        out["screens"] = int(g["screens"])
+        if g.get("shot"):
+            out["shot"] = int(g["shot"])
+    return out
+
+
+def _shots(home, doc: dict, task_id: str, t: dict) -> list[dict]:
+    """The screenshots the trial's page was judged on (the report's 評鑑截圖 tab), with their hashes."""
+    from . import outputs as O
+    base = trial_base(home, doc["id"], task_id, t.get("trial"))
+    out = []
+    for s in t.get("shots") or []:
+        item = {k: s.get(k) for k in ("path", "page", "id", "label", "viewport")}
+        item["kind"] = "image"
+        if base is not None:
+            try:
+                data = (base / s["path"]).read_bytes()
+                item.update(bytes=len(data), sha256=O.sha256(data))
+            except OSError:
+                item["missing"] = True
+        out.append(item)
     return out
 
 
@@ -96,7 +118,13 @@ def _trial(home, doc: dict, task_id: str, t: dict, n: int, budget: list[int] | N
             "grades": [{**_grade(g), **({"where": {k: w[k] for k in ("file", "start", "end")}} if w else {})}
                        for g, w in zip(t.get("grades") or [], _where(home, doc, task_id, t) + [None] * 999)],
             "answer": str(t.get("answer") or "")[:1500],
-            "outputs": _outputs(home, doc, task_id, t, budget)}
+            "outputs": _outputs(home, doc, task_id, t, budget),
+            "shots": _shots(home, doc, task_id, t),
+            "render": {"pages": {k: {**{x: v.get(x) for x in ("animates", "controls", "blank", "phone_overflow")},
+                                     "errors": [str(e)[:300] for e in (v.get("errors") or [])[:5]]}
+                                 for k, v in ((t.get("render") or {}).get("pages") or {}).items()},
+                       **({"skipped": t["render"]["skipped"]} if (t.get("render") or {}).get("skipped") else {})}
+            if t.get("render") is not None else None}
 
 
 def payloads(runs: list[dict], home=None, judge_errors_ok: bool = False) -> list[dict]:
@@ -199,7 +227,9 @@ def upload_outputs(config, body: dict) -> dict:
         for t in task.get("trials") or []:
             base = trial_base(config.home, t["run"], task["id"], t.get("run_trial") or 1) if t.get("run") else None
             for i, o in enumerate(t.get("outputs") or []):
-                files.append((0 if i == 0 else 1, o, base))
+                files.append((0 if i == 0 else 2, o, base))
+            for s in t.get("shots") or []:                 # what the judge saw goes up right after the main output
+                files.append((1, s, base))
     sent, used, seen = 0, 0, set()
     url = f"{account.base_url(config)}/api/v1/evals/outputs"
     gone = False

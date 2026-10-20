@@ -257,7 +257,11 @@ details.tool img{max-width:100%;border-radius:6px;margin-top:6px;border:1px soli
 .evo-q li:hover{background:var(--panel2)}.evo-q li.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}.evo-q li small{display:block;color:var(--muted);font-size:11px}
 .evo-q .mk{font-weight:700}.evo-q li.y .mk{color:var(--ok)}.evo-q li.n .mk{color:var(--err)}
 .evo-ev{margin-top:6px;font-size:12px}.evo-ev .k{color:var(--muted);font-size:11px;margin-top:4px}.evo-ev blockquote{margin:2px 0;padding:4px 8px;border-left:3px solid #f5a623;background:var(--panel2);word-break:break-word}
-.evo-ans{margin-top:10px;font-size:12.5px}.evo-open{margin-left:8px;padding:1px 8px;font-size:11.5px}
+.evo-ans{margin-top:10px;font-size:12.5px}
+.evo-shots{padding:12px}.evo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:8px;align-items:start}
+.evo-grid figure{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel2)}.evo-grid figure.hit{border-color:#f5a623;box-shadow:0 0 0 2px #f5a623}
+.evo-grid img{display:block;width:100%;height:auto;background:#fff}.evo-grid figcaption{padding:5px 8px;font-size:11.5px;color:var(--muted)}
+.evo-facts{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted);margin-bottom:6px}.evo-facts .y{color:var(--ok)}.evo-facts .n{color:var(--err)}.evo-note{font-size:11.5px;color:var(--muted);margin:8px 0 0}.evo-open{margin-left:8px;padding:1px 8px;font-size:11.5px}
 button.cell{border:0;font-family:inherit;cursor:pointer;width:100%}button.cell:hover{outline:2px solid var(--accent)}
 @media (max-width:860px){.evo-b{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) 40%}.evo-v{border-right:0;border-bottom:1px solid var(--line)}.evo-trials{margin-left:0}}
 .evcard{display:flex;gap:12px;align-items:flex-start;margin:10px 0 14px;padding:12px 14px;border:1px solid var(--accent2);border-radius:12px;background:var(--panel);font-size:13px;line-height:1.55}
@@ -2751,16 +2755,18 @@ function evoRender(){
   if (!viewTab && EVO.tab === 'view') EVO.tab = f ? 'src' : 'files';
   m.querySelector('.evo-v').innerHTML = `<div class="evo-vt">${viewTab ? `<button type="button" data-t="view" class="${EVO.tab === 'view' ? 'on' : ''}">畫面</button>` : ''}
       ${f && f.kind !== 'image' ? `<button type="button" data-t="src" class="${EVO.tab === 'src' ? 'on' : ''}">原始碼</button>` : ''}
+      ${(x.shots || []).length ? `<button type="button" data-t="shots" class="${EVO.tab === 'shots' ? 'on' : ''}" title="評鑑模型看到的畫面">評鑑截圖（${x.shots.length}）</button>` : ''}
       <button type="button" data-t="files" class="${EVO.tab === 'files' ? 'on' : ''}">檔案（${x.files.length}）</button>
       ${f?.kind === 'html' && EVO.tab === 'view' ? `<span class="sp"></span><button type="button" data-w="desk" class="${EVO.w !== 'phone' ? 'on' : ''}">桌面</button><button type="button" data-w="phone" class="${EVO.w === 'phone' ? 'on' : ''}">手機</button><button type="button" data-a="full">全螢幕</button>` : ''}</div>
     <div class="evo-stage" id="evoStage"></div>
     <div class="evo-foot">${f ? `${esc(f.path)} · ${kinds[f.kind] || ''} · ${fmtBytes(f.bytes)} · <span title="sha256 ${esc(f.sha256 || '')}">檔案雜湊 ${esc((f.sha256 || '').slice(0, 10))}…，就是評分時的檔案</span> · <a href="${evoUrl(x, f, 'file')}" download="${esc(f.path.split('/').pop())}">下載</a>` : '這次試驗沒有留下成果檔'}
+      ${f?.kind === 'html' && !(x.shots || []).length ? ' · <span class="warn" title="這次評分只讀了原始碼，沒有看過畫面">評分未含畫面</span>' : ''}
       ${x.status && x.status !== 'done' ? ` · <b class="warn">${esc(x.status)}${x.error ? '：' + esc(String(x.error).slice(0, 120)) : ''}</b>` : ''}</div>`;
   const gs = x.grades;
   m.querySelector('.evo-q').innerHTML = `<div class="evo-qh"><b>評分 · 第 ${d.trial} 次 · 輸入 ${EVO.input + 1}</b><span>${x.q != null ? Math.round(x.q) : '–'} 分 · ${x.qualified ? '合格' : '不合格'}</span></div>
     <ol>${gs.map((g, i) => `<li class="${g.ok ? 'y' : 'n'} ${EVO.q === i ? 'on' : ''}" data-q="${i}" tabindex="0"><span class="mk">${g.ok ? '✓' : '✗'}</span><span><b>${esc(g.label)}</b>${g.critical ? '<span class="chip warn">關鍵</span>' : ''}
-      <small>${esc(g.category || '')}${g.kind === 'judge' ? ' · 評鑑模型判定' : g.kind === 'det' ? ' · 程式檢查' : ''}</small>
-      ${EVO.q === i ? `<div class="evo-ev">${g.evidence ? `<div class="k">證據（評鑑模型引用）${g.where ? '' : '<span class="chip warn">在成果中找不到這段</span>'}</div><blockquote>${esc(g.evidence)}</blockquote>` : ''}${g.detail ? `<div class="k">說明</div><div>${esc(g.detail)}</div>` : ''}</div>` : ''}</span></li>`).join('')}</ol>
+      <small>${esc(g.category || '')}${g.kind === 'judge' ? ' · 評鑑模型判定' : g.kind === 'det' ? ' · 程式檢查' : ''}${g.screens ? ` · 看了 ${g.screens} 張截圖` : ''}</small>
+      ${EVO.q === i ? `<div class="evo-ev">${g.evidence ? `<div class="k">證據（評鑑模型引用）${g.where || g.shot ? '' : '<span class="chip warn">在成果中找不到這段</span>'}</div><blockquote>${esc(g.evidence)}</blockquote>` : ''}${g.detail ? `<div class="k">說明</div><div>${esc(g.detail)}</div>` : ''}</div>` : ''}</span></li>`).join('')}</ol>
     ${x.answer ? `<details class="evo-ans"><summary>模型最後的回答</summary><div>${md(x.answer)}</div></details>` : ''}`;
   evoStage(x, f);
   evoWire(x, f);
@@ -2768,6 +2774,19 @@ function evoRender(){
 function fmtBytes(n){ n = +n || 0; return n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' KB' : n + ' B'; }
 async function evoStage(x, f){
   const st = $('#evoStage'); if (!st) return;
+  if (EVO.tab === 'shots') {    // what the judge saw (design R3): the page as the browser drew it, and its facts
+    const g = EVO.q != null ? x.grades[EVO.q] : null;
+    const facts = Object.entries(x.render?.pages || {}).map(([p, f]) => `<div class="evo-facts"><b>${esc(p)}</b>
+      <span class="${f.errors?.length ? 'n' : 'y'}">${f.errors?.length ? `✗ ${f.errors.length} 個程式錯誤：${esc(String(f.errors[0]).slice(0, 120))}` : '✓ 沒有程式錯誤'}</span>
+      <span class="${f.animates ? 'y' : 'n'}">${f.animates ? '✓ 3 秒內畫面有變化' : '✗ 0.5 秒與 3 秒的畫面相同'}</span>
+      <span>控制元件 ${f.controls ?? 0} 個</span><span class="${f.blank ? 'n' : 'y'}">${f.blank ? '✗ 畫面空白' : '✓ 有內容'}</span>
+      <span class="${(f.phone_overflow || 0) > 8 ? 'n' : 'y'}">手機溢出 ${f.phone_overflow || 0}px</span></div>`).join('');
+    st.innerHTML = `<div class="evo-shots">${x.render?.skipped ? `<div class="evbox warn">${esc(x.render.skipped)}</div>` : ''}${facts}
+      <div class="evo-grid">${x.shots.map((sh, i) => `<figure class="${g?.screens && g.shot === i + 1 ? 'hit' : ''}" id="evoShot${i + 1}"><a href="${evoUrl(x, sh, 'file')}" target="_blank" rel="noopener" title="原尺寸"><img src="${evoUrl(x, sh, 'file')}" alt="${esc(sh.label)}" loading="lazy"></a><figcaption>${i < 4 ? `截圖 ${i + 1} · ` : ''}${esc(sh.page)} · ${esc(sh.label)}${g?.screens && g.shot === i + 1 ? ' · <b>這題的證據</b>' : ''}</figcaption></figure>`).join('')}</div>
+      <p class="evo-note">在只能讀取這次試驗檔案、不能連網的瀏覽器中拍攝。標「要看畫面」的題目，評鑑模型拿到的就是截圖 1–4。</p></div>`;
+    st.querySelector('figure.hit')?.scrollIntoView({block: 'center'});
+    return;
+  }
   if (EVO.tab === 'files') {
     st.innerHTML = `<table class="evtbl"><tr><th>檔案</th><th class="r">大小</th><th>sha256</th></tr>${x.files.map(y => `<tr><td>${y.missing ? esc(y.path) + ' <span class="chip warn">不在</span>' : `<a href="#" data-f="${esc(y.path)}">${esc(y.path)}</a>`}</td><td class="r">${fmtBytes(y.bytes)}</td><td><code>${esc((y.sha256 || '').slice(0, 16))}</code></td></tr>`).join('') || '<tr><td colspan="3">沒有成果檔</td></tr>'}</table>`;
     st.querySelectorAll('[data-f]').forEach(a => a.onclick = e => { e.preventDefault(); EVO.file = a.dataset.f; EVO.tab = 'view'; evoRender(); });
@@ -2838,6 +2857,7 @@ function evoWire(x, f){
     // the page marks the quote itself; another kind shows it in the source
     const cur = x.files.find(y => y.path === EVO.file);
     if (EVO.q != null && g.where && cur && !['html', 'markdown'].includes(cur.kind)) EVO.tab = 'src';
+    if (EVO.q != null && g.screens && !g.where && (x.shots || []).length) EVO.tab = 'shots';   // judged on the screen
     evoRender();
   });
 }

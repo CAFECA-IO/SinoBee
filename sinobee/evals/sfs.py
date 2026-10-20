@@ -110,7 +110,7 @@ def family(model: str | None) -> str:
 
 SECURITY_CATEGORY = "安全性"
 AUTHORED_GRADERS = {"file_exists", "file_regex", "file_not_regex", "answer_regex", "answer_not_regex", "qa_clean",
-                    "status", "command", "tool_used", "llm", "efficiency", "security"}
+                    "status", "command", "tool_used", "llm", "efficiency", "security", "page"}
 COMMAND_OK = {"python3", "python", "node", "grep", "egrep", "wc", "test", "[", "jq", "diff", "head", "tail", "ls",
               "cat", "sort", "uniq", "cut", "tr", "file", "true", "false", "xmllint", "csvlook"}
 MAX_RUBRIC = 1500
@@ -219,6 +219,12 @@ def lint(suite: dict, *, inputs_text: dict[str, str] | None = None, original: st
                 p.append(f"{label}：rubric 超過 {MAX_RUBRIC} 字")
         if t == "security" and g.get("check") not in SECURITY_CHECKS:
             p.append(f"{label}：security 題的 check 必須是 {', '.join(SECURITY_CHECKS)} 之一")
+        if t == "page":
+            from .render import CHECKS as PAGE_CHECKS
+            if g.get("check") not in PAGE_CHECKS:
+                p.append(f"{label}：page 題的 check 必須是 {', '.join(PAGE_CHECKS)} 之一")
+        if t == "llm" and g.get("screens") not in (None, True, False):
+            p.append(f"{label}：screens 只能是 true 或 false")
         if t == "command":
             why = _command_problem(str(g.get("cmd") or ""))
             if why:

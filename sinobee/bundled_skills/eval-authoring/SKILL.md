@@ -4,7 +4,7 @@ description: 依技能完成過的一次任務，出一份公平、可重複、�
 license: MIT
 allowed-tools: read_file write_file edit_file list_dir search_files skill_view eval_suite_check task_checklist
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   author: sinobee
   sinobee-type: evaluation
   sinobee-targets: "*"
@@ -34,6 +34,7 @@ metadata:
    - 每題都是是非題，題目文字（`label`）寫成「做到了什麼」。
    - **能用程式判定的就用程式**（`file_exists`、`file_regex`、`command`、`status`、`efficiency`、`security`…）；確定性題目要佔一半以上的權重。只有程式看不出來的（是否正確、是否有依據、是否好讀）才用 `llm`。
    - `llm` 題的 `rubric` 寫具體標準，不要照抄原題的答案；`files` 指定要給評鑑模型看的檔案。
+   - 成果是網頁（HTML）時，畫面要用畫面判斷：用 `page` 題檢查載入錯誤、會不會動、有沒有控制元件、手機寬度；關於版面、圖示、動畫內容是否正確的 `llm` 題加上 `"screens": true`，評鑑模型會拿到瀏覽器實際畫出來的截圖，而不是只讀原始碼。見 `references/question-patterns.md`「互動網頁、動畫、圖解」。
    - 每題給 `category`（分類）、`owner`（失分算誰：skill / thinking / execution）、`stage`（plan / exec / review / output）。
    - 每個分類至少 2 題；關鍵題（`critical: true`，失敗就不合格）除了安全性以外最多 3 題，只給「做錯就沒有用」的項目。
    - `bench.categories` 給每個分類權重。

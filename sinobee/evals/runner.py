@@ -306,7 +306,16 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
         usage = end.get("usage") or {}
         trace = _steps(home, end.get("run_report"))
         security = sandbox.report(answer or end.get("text", ""), changed) if sandbox else None
-        t = Trial(security=security, prompt=task["prompt"], workspace=ws, answer=answer or end.get("text", ""), status=status,
+        # the page as its user sees it (design R3): for a published evaluation, or a suite that asks about the screen
+        render, render_base = None, None
+        if bench is not None or any(g.get("type") == "page" or g.get("screens") for g in task["graders"]):
+            from .render import capture, html_outputs
+            if html_outputs(changed, ws):
+                render_base = (save_dir / re.sub(r"[^\w.-]+", "-", task["id"]) / f"t{trial}") if save_dir is not None \
+                    else tmp / "_render"
+                _teller(activity)({"phase": "grade", "graded": 0, "questions": len(task["graders"]), "shooting": True})
+                render = await capture(ws, changed, render_base)
+        t = Trial(security=security, render=render, render_base=render_base, prompt=task["prompt"], workspace=ws, answer=answer or end.get("text", ""), status=status,
                   tools=events["tools"], files=changed, base_home=rt.config.home, judge=judge, judge2=judge2,
                   tokens=int(usage.get("input_tokens") or 0) + int(usage.get("output_tokens") or 0),
                   steps=int(end.get("steps") or 0), trace=trace)
@@ -328,6 +337,10 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
             if save_dir is not None:
                 out["outputs"] = _save_outputs(ws, changed, bench.get("outputs"),
                                                save_dir / re.sub(r"[^\w.-]+", "-", task["id"]) / f"t{trial}")
+        if render is not None:
+            out["shots"] = render.get("shots") or []
+            out["render"] = {"pages": render.get("pages") or {}, **({"skipped": render["skipped"]}
+                                                                       if render.get("skipped") else {})}
         out.update(passed=all(x["ok"] for x in out["grades"]), status=status, steps=end.get("steps", 0),
                    tool_calls=len(events["tools"]), cost_usd=round((end.get("usage") or {}).get("cost_usd") or 0, 5),
                    input_tokens=int((end.get("usage") or {}).get("input_tokens") or 0),
