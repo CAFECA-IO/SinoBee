@@ -44,6 +44,7 @@ def _child(order):
 @pytest.fixture
 def rt(home, config, monkeypatch):
     monkeypatch.setattr(C, "remote_tested", lambda *a, **k: {})
+    config.data.setdefault("skills", {})["hub_url"] = "http://127.0.0.1:9"     # no sinobee.ai in tests
     return Runtime(config, provider=ScriptedProvider())
 
 
@@ -162,6 +163,9 @@ async def test_publishing_checks_trials_and_carries_the_campaign(rt, tmp_path, m
     monkeypatch.setattr(hub, "publish", lambda mgr, name, cfg: pubs.append(name) or {"ref": name})
     c = C.new(rt, suite=_suite(tmp_path), combos=COMBOS[:2], k=1, budget_usd=5)
     await C.execute(rt, c["id"])
+    with pytest.raises(EvalError, match="還不支援私人報告"):     # an older sinobee.ai would list it publicly
+        C.publish(rt, c["id"], "private")
+    monkeypatch.setattr(C, "supports_private", lambda cfg: True)
     with pytest.raises(EvalError, match="沒有組合達到"):
         C.publish(rt, c["id"], "public")
     out = C.publish(rt, c["id"], "private")
@@ -170,6 +174,10 @@ async def test_publishing_checks_trials_and_carries_the_campaign(rt, tmp_path, m
     assert out["reports"][0]["url"].startswith("https://") and C.get(rt.config.home, c["id"])["published"]
     c3 = C.new(rt, suite=_suite(tmp_path), combos=COMBOS[:2], k=3, budget_usd=5)
     await C.execute(rt, c3["id"])
+    with pytest.raises(EvalError, match="不在這台電腦"):        # a skill that is neither here nor on Skill Hub
+        C.publish(rt, c3["id"], "public")
+    rt.skills.create("greeter", "---\nname: greeter\ndescription: 打招呼\n---\n# 打招呼\n", actor="user")
+    rt.skills.refresh()
     out = C.publish(rt, c3["id"], "public")
     assert pubs == ["greeter"] and sent[-1][1]["visibility"] == "public" and len(sent[-1][0]) == 6
     assert C.get(rt.config.home, c3["id"])["status"] == "published"

@@ -1645,3 +1645,36 @@ SinoBee.ai 這一側：`BenchSuite` 題組庫、報告的 `visibility`、`Skill.
   - 公開報告需要 SinoBee.ai 上已有這份題組，技能也已發布（連到該版本）。`campaign.publish("public")` 會先發布技能、上傳題組再送報告。
   - 私人報告不上傳題組，只有發布者看得到，之後可在報告頁改成公開。
   - `remote_tested()` 依 `suite_hash` 查詢，現在由伺服器過濾。
+
+## 37. 端到端驗證（M5，2026-10-20）
+
+- **`scripts/e2e_skill_eval.py`**：把整個流程跑一遍並逐項檢查，輸出 `report.md` 與 `report.json`。
+  - **A 打包技能**：一個沒用技能的會議紀錄任務 → 打包草稿 → 檢查草稿不含這次的人名、具體值改成參數、輸入檔沒收進技能 → 存成實驗中的技能（可選擇同時發布）。
+  - **B 評鑑**：
+    1. 用技能完成另一份會議。
+    2. `eval-authoring` 在沙箱中出題，檢查題組有安全性分類與注入輸入。
+    3. 建立評鑑活動（基準組合加上 `--combo` 指定的組合），檢查交錯排程、預算、四個答案、安全性紀錄與提交前檢查。
+    4. 提交報告（`--visibility`）。
+  - **C 第二個帳號**：在 sinobee.ai 找到分享的題組 → 下載並驗證 → 已有報告的組合不重跑，只加測一個組合 → 公開提交 → 檢查兩個帳號的報告落在同一份題組、同一個排行。
+  - **D 社群評鑑技能**：
+    1. 被識別為評鑑技能，靜態掃描與沙箱行為測試都通過。
+    2. 發布到 Skill Hub，在 `kind=evaluation&target=` 中列出；未審核的不在預設推薦。
+    3. 第二個帳號安裝後可以選用。
+  - `--scripted` 使用 `scripts/e2e/scripted.py` 的模擬模型：品質不同的執行模型、最弱的會照注入指令做、模擬評鑑模型。
+- **`scripts/e2e-local.sh`**：
+  1. 為 SinoBee.ai 建一個新的 SQLite 資料庫。
+  2. 用 SinoBee.ai repo 的 `scripts/e2e-accounts.ts` 建兩個有 token 的帳號；只能用於開發用的 SQLite。
+  3. 啟動 `next dev`，跑 A–D 四步，最後關閉。不呼叫模型，也不會送到正式的 sinobee.ai。
+- **`scripts/e2e-real.sh`**：
+  - 用 `~/.sinobee` 的設定與金鑰（複製一份，不改原本的 home），以你的模型只跑 A、B。
+  - 預設不提交；`--visibility private` 時，只有支援私人報告的 sinobee.ai 才會接受。
+  - 透過 SinoBee.ai 轉送的模型（`sinobee/...`）必須連真正的 sinobee.ai，所以真實模型不能搭配本機的 SinoBee.ai。
+- **驗證中發現並修正的問題**：
+  - 第二個帳號沿用別人的題組公開提交時，會試著發布自己電腦上沒有的技能而失敗。
+    - 改為先查 Skill Hub 上是否已有該技能（該版本）；有就不再發布。
+    - 技能既不在本機也不在 Skill Hub 時，拒絕公開提交並說明原因。
+    - 沿用的題組改用題組記錄的技能版本。
+  - 同一個技能第二次公開提交時，重複發布會得到 409：視為已發布。
+  - 對舊版 sinobee.ai 提交私人報告會變成公開：`supports_private()` 先確認伺服器支援，否則拒絕。
+- **結果**：模擬模型＋本機 SinoBee.ai 34/34 項通過（`/tmp/sinobee-e2e-*/report.md`）。
+- **評鑑技能撰寫指南**：`docs/EVAL_SKILLS.md`。

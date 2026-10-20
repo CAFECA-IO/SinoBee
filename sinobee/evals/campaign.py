@@ -31,6 +31,7 @@ import uuid
 from pathlib import Path
 
 from .. import privacy
+from ..skills.manager import SkillError
 from . import EvalError, bench_meta, evals_dir, load, result
 from . import sfs
 
@@ -295,8 +296,13 @@ def new(rt, *, suite: str, combos: list[dict], k: int = MIN_TRIALS, judge: str |
          "progress": {"done": 0, "total": len(plan)}, "elapsed_s": 0.0, "creativity": None, "published": []}
     try:
         c["skill_version"] = rt.skills.get(c["skill"]).version if c["skill"] else ""
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception:  # noqa: BLE001 - not installed here (a suite shared by someone else): the suite's version
+        if str(suite).startswith("suite:"):
+            from .authoring import find
+            try:
+                c["skill_version"] = json.loads((find(home, suite) / "meta.json").read_text(encoding="utf-8")).get("skill_version") or ""
+            except (EvalError, OSError, ValueError):
+                pass
     if not plan:
         c["status"] = "done"
     return save(home, c)
@@ -556,12 +562,37 @@ def _scan_outputs(home, docs: list[dict]) -> list[dict]:
     return found
 
 
-def _skill_published(rt, name: str | None) -> bool:
+def _local_skill(rt, name: str | None):
     try:
-        s = rt.skills.get(name)
+        return rt.skills.get(name) if name else None
     except Exception:  # noqa: BLE001
+        return None
+
+
+def _skill_published(rt, name: str | None, version: str | None = None) -> bool:
+    """The skill (that version) is on Skill Hub - installed from it, or published there by anyone, e.g. by this user
+    in an earlier campaign or by another account whose suite is being reused."""
+    s = _local_skill(rt, name)
+    if s is not None and (s.trust == "verified" or str(s.source or "").startswith("hub:")):
+        return True
+    if not name:
         return False
-    return s.trust in ("verified",) or str(s.source or "").startswith("hub:")
+    try:
+        import httpx
+        from .. import account
+        base = account.base_url(rt.config)
+        items = httpx.get(f"{base}/api/v1/skills", params={"q": name}, timeout=8).json().get("items") or []
+        for it in items:
+            if it.get("name") != name:
+                continue
+            if not version:
+                return True
+            info = httpx.get(f"{base}/api/v1/skills/{it['id']}", timeout=8).json()
+            if any(v.get("version") == version for v in info.get("versions") or []):
+                return True
+    except Exception:  # noqa: BLE001 - offline: treat as not published (a public report then publishes it)
+        return False
+    return False
 
 
 def checks(rt, c: dict, docs: list[dict], rep_rows: list[dict]) -> list[dict]:
@@ -606,7 +637,7 @@ def checks(rt, c: dict, docs: list[dict], rep_rows: list[dict]) -> list[dict]:
                     "label": (f"同源評鑑已加第二評鑑，一致 {agree[0]}/{agree[1]}" if ok else
                               f"評鑑模型與 {len(same)} 個組合同源，沒有另一家族的第二評鑑"),
                     "detail": "可提交" if ok else "報告會標示同源"})
-    pub = _skill_published(rt, c.get("skill"))
+    pub = _skill_published(rt, c.get("skill"), c.get("skill_version") or None)
     out.append({"id": "skill", "status": "ok" if pub else "warn",
                 "label": "技能已發布到 Skill Hub" if pub else
                 f"技能還沒發布：公開報告會一起把 {c.get('skill')} {c.get('skill_version') or ''} 發布到 Skill Hub，讀者才能重現",
@@ -679,6 +710,17 @@ def upload_suite(config, ref: str) -> dict | None:
     return r.json()
 
 
+def supports_private(config) -> bool:
+    """sinobee.ai keeps private reports private since the suite library (an older one would list them publicly)."""
+    try:
+        import httpx
+        from .. import account
+        r = httpx.get(f"{account.base_url(config)}/api/v1/evals/suites", params={"skill": "-"}, timeout=8)
+        return r.status_code == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def publish(rt, cid: str, visibility: str = "public") -> dict:
     from . import publish as P
     home = rt.config.home
@@ -700,11 +742,20 @@ def publish(rt, cid: str, visibility: str = "public") -> dict:
                                                  d.get("execution") or d.get("model")), {}).get("trials", 0) >= MIN_TRIALS]
         if not docs:
             raise EvalError(f"沒有組合達到 {MIN_TRIALS} 次試驗，無法公開；可以先存成私人報告")
+    if visibility == "private" and not supports_private(rt.config):
+        raise EvalError("這個 sinobee.ai 還不支援私人報告（舊版會把它當成公開），請等它更新後再提交")
     out = {"visibility": visibility, "skill_published": None, "suite_uploaded": None, "reports": []}
     if visibility == "public":
-        if not _skill_published(rt, c.get("skill")):
+        if not _skill_published(rt, c.get("skill"), c.get("skill_version") or None):
+            if _local_skill(rt, c.get("skill")) is None:
+                raise EvalError(f"技能 {c.get('skill')} 不在這台電腦，也還沒有發布到 Skill Hub，無法提交公開報告")
             from ..skills import hub
-            out["skill_published"] = hub.publish(rt.skills, c["skill"], rt.config)
+            try:
+                out["skill_published"] = hub.publish(rt.skills, c["skill"], rt.config)
+            except SkillError as e:
+                if "409" not in str(e):         # 409: this version is already on Skill Hub (an earlier campaign)
+                    raise EvalError(f"技能發布失敗：{e}") from None
+                out["skill_published"] = {"already": True}
         if str(c["suite"]).startswith("suite:"):
             out["suite_uploaded"] = upload_suite(rt.config, c["suite"])
     extra = {"visibility": visibility, "evaluator": c.get("evaluator"), "suite_ref": c.get("suite_hash"),
