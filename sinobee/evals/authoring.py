@@ -295,7 +295,13 @@ def security_status(home, skill) -> dict:
     """The four checks of an evaluation skill: static scan, sandbox behavior, its suites, human review."""
     rec = _state(home).get(_key(skill), {})
     issues = static_check(skill)
-    behavior = rec.get("behavior") or {"ok": None, "runs": 0, "violations": []}
+    behavior = dict(rec.get("behavior") or {"ok": None, "runs": 0, "violations": []})
+    if behavior.get("ok") is False:
+        live = _live(skill, behavior.get("violations"))
+        if not live:
+            behavior.update(ok=True, violations=[], cleared=len(behavior.get("violations") or []))
+        else:
+            behavior["violations"] = live
     suite = rec.get("suite") or {"ok": None, "checked": 0}
     review = skill.trust in ("builtin", "verified")
     checks = {"static": {"ok": not issues, "issues": issues[:20]}, "behavior": behavior, "suite": suite,
@@ -311,8 +317,9 @@ def _record(home, skill, part: str, ok: bool, detail: list | None = None) -> Non
     if part == "behavior":
         b = rec.get("behavior") or {"ok": None, "runs": 0, "violations": []}
         b["runs"] = int(b.get("runs") or 0) + 1
-        b["violations"] = (list(b.get("violations") or []) + list(detail or []))[-20:]
-        b["ok"] = bool(ok) and b.get("ok") is not False          # one violation fails this version for good
+        earlier = _live(skill, b.get("violations"))
+        b["violations"] = (earlier + list(detail or []))[-20:]
+        b["ok"] = bool(ok) and not earlier                        # one violation fails this version for good
         b["last"] = time.time()
         rec["behavior"] = b
     else:
@@ -412,6 +419,34 @@ def _skill_copy(src: Path, dest: Path) -> None:
         shutil.copyfile(p, dest / rel)
 
 
+def _own_dirs(rt, ev, home: Path) -> list[Path]:
+    """Where the evaluation skill's own SKILL.md and references are, in the throw-away copy (and the bundled original
+    for a built-in one): reading them is following the skill, not leaving the workspace."""
+    dirs = [Path(ev.path)]
+    try:
+        dirs.append(home / "skills" / Path(ev.path).resolve().relative_to(Path(rt.config.skills_dir).resolve()))
+    except (ValueError, OSError):
+        pass
+    dirs.append(home / "skills" / ev.name)
+    return dirs
+
+
+_OWN_READ = re.compile(r"/sinobee-author-[^/]+/home/skills/(.+)$")
+
+
+def _live(skill, violations: list) -> list:
+    """Recorded violations still counted by the current rules: before 2026-10-20 an evaluation skill reading its own
+    references in the throw-away copy was recorded as leaving the workspace."""
+    out = []
+    for v in violations or []:
+        m = _OWN_READ.search(str(v.get("what") or ""))
+        if v.get("kind") == "access" and v.get("tool") in ("read_file", "list_dir", "search_files", "skill_view") \
+                and m and f"/{skill.name}/" in "/" + m.group(1):
+            continue
+        out.append(v)
+    return out
+
+
 def _violations(sb) -> list[dict]:
     return [dict(e) for e in sb.events["blocked"] if e.get("kind") in ("access", "network", "command")]
 
@@ -451,11 +486,12 @@ async def _author(rt, ev, *, target: str, target_version: str, skill_dir: Path |
         (ws / "template" / "anchors.json").write_text(json.dumps(ANCHORS_TEMPLATE, ensure_ascii=False, indent=1),
                                                       encoding="utf-8")
         (ws / "out").mkdir()
+        own = _own_dirs(rt, ev, home)
         overrides = {"learning.enabled": False, "permissions.approval": "auto", "agent.snapshots": False,
                      "server.token": None, "permissions.toolsets": AUTHOR_TOOLSETS,
-                     "permissions.allowed_paths": [str(ws)]}
+                     "permissions.allowed_paths": [str(ws)] + [str(d) for d in own]}   # the sandbox keeps `own` read-only
         cfg = runner.EvalConfig(rt.config, home, ws, overrides)
-        sb = Sandbox(tmp, ws, mode="strict", network=False, plant=False)
+        sb = Sandbox(tmp, ws, mode="strict", network=False, plant=False, read_roots=own)
         cfg.sandbox = sb
         child = runner.child_runtime(rt, cfg)
         if getattr(child, "provider_error", None):

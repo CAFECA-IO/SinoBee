@@ -35,6 +35,7 @@ metadata:
   - `task/request.md`、`task/answer.md`、`task/output/`：一次任務的需求、回答與成果，已去識別。
   - `template/suite.json`、`template/anchors.json`：格式範例。
   - `out/`：你的產出。
+- **唯讀**：評鑑技能自己的資料夾（SKILL.md 與 `references/`），可以照 SKILL.md 的指示讀取，但不能寫入。
 - **越界即作廢**：試圖讀工作區外的檔案、執行指令或連網，都會被擋下並記錄。只要發生一次，這份題組就作廢，這個版本的評鑑技能也永久判為「沙箱行為不通過」，之後不能再使用。
 
 ## 3. 產出：題組格式

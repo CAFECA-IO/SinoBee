@@ -330,3 +330,59 @@ async def test_the_material_of_a_finished_task(home, config):
     assert set(m["outputs"]) == {"scripts/summarize.py", "templates/report.md", "data/sales.csv"}
     with pytest.raises(A.AuthoringError):
         A.task_material(rt, "nope")
+
+
+# ---------------------------------------------------------------- its own references (2026-10-20)
+
+def test_reading_its_own_skill_is_not_leaving_the_workspace(tmp_path):
+    own = tmp_path / "home" / "skills" / "eval-authoring"
+    (own / "references").mkdir(parents=True)
+    (own / "references" / "question-patterns.md").write_text("x")
+    other = tmp_path / "home" / "skills" / "meeting-minutes"
+    other.mkdir(parents=True)
+    sb, _ws = _sb(tmp_path, mode="strict", plant=False, read_roots=[own])
+    assert sb.before("read_file", "files", {"path": str(own / "references" / "question-patterns.md")}) is None
+    assert sb.before("list_dir", "files", {"path": str(own)}) is None
+    assert sb.before("write_file", "files", {"path": str(own / "SKILL.md"), "content": "x"}) is not None
+    assert sb.before("read_file", "files", {"path": str(other / "SKILL.md")}) is not None
+    assert sb.before("read_file", "files", {"path": str(own / ".." / "meeting-minutes" / "SKILL.md")}) is not None
+    assert [e["what"] for e in sb.events["blocked"]] == [str(own / "SKILL.md"), str(other / "SKILL.md"),
+                                                         str(own / ".." / "meeting-minutes" / "SKILL.md")]
+
+
+async def test_the_behavior_test_lets_it_read_its_references(home, config, monkeypatch):
+    seen = []
+
+    def read_own(_messages):
+        sb = seen[0]["sandbox"]
+        ref = next(r for r in sb.read_roots if (r / "SKILL.md").exists()) / "SKILL.md"
+        return msg("", [("read_file", {"path": str(ref)})])
+    got = []
+
+    def check(messages):
+        got.append("\n".join(m.text() for m in messages if m.role == "tool"))
+        return msg("", [_package_calls("sbx-fixture-notes")[0]])
+    script = [read_own, check] + [msg("", [c]) for c in _package_calls("sbx-fixture-notes")[1:]] + [msg("完成")]
+    monkeypatch.setattr(runner, "child_runtime", _author_child(script, seen))
+    rt = Runtime(config, provider=ScriptedProvider())
+    res = await A.behavior_test(rt, "eval-authoring")
+    assert res["status"] == "ok", res
+    assert res["security"]["behavior"]["ok"] is True
+    assert "sinobee-type: evaluation" in got[0], got[0][:300]
+
+
+def test_a_violation_recorded_for_reading_its_own_references_no_longer_blocks(home, config):
+    rt = Runtime(config, provider=ScriptedProvider())
+    ev = rt.skills.get("eval-authoring")
+    stale = {"kind": "access", "tool": "read_file",
+             "what": "/var/folders/_9/x/T/sinobee-author-q3rucfrl/home/skills/eval-authoring/references/question-patterns.md"}
+    A._record(config.home, ev, "behavior", False, [stale])
+    st = A.security_status(config.home, ev)
+    assert st["behavior"]["ok"] is True and not st["blocked"] and st["behavior"]["cleared"] == 1
+    real = {"kind": "access", "tool": "read_file", "what": "/etc/passwd"}
+    A._record(config.home, ev, "behavior", False, [real])
+    st = A.security_status(config.home, ev)
+    assert st["blocked"] and st["behavior"]["violations"] == [real]
+    other = {**stale, "what": stale["what"].replace("eval-authoring", "meeting-minutes")}
+    A._record(config.home, ev, "behavior", False, [other])
+    assert A.security_status(config.home, ev)["blocked"]
