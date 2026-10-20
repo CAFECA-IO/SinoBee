@@ -2602,7 +2602,7 @@ async function evStep3(){
   const canResume = ['stopped', 'budget', 'error'].includes(c.status) && done < total;
   const hasResults = c.items.length > 0 && !['running', 'queued', 'comparing'].includes(c.status);
   evShell(`<div class="evstats"><div><div class="k">進度</div><div class="v">${done}/${total}</div><div class="s">次試驗</div></div>
-      <div><div class="k">已花費</div><div class="v">${fmtUsd(c.spent.total)}</div><div class="s">上限 ${fmtUsd(c.budget_usd)}</div></div>
+      <div title="${evSpentTitle(c)}"><div class="k">已花費</div><div class="v" id="evSpent">${fmtUsd(evSpent(c))}</div><div class="s" id="evSpentS">${evSpentSub(c)}</div></div>
       <div><div class="k">經過</div><div class="v" id="evElapsed">${fmtSec(evElapsed(c))}</div><div class="s">預估 ${fmtSec(c.estimate?.seconds)}</div></div></div>
     <div class="evbar"><i style="width:${total ? 100 * done / total : 0}%"></i></div>
     <div class="evbox ${['budget', 'error'].includes(c.status) ? 'warn' : c.status === 'done' ? 'ok' : c.status === 'running' ? 'live' : ''}">${c.status === 'running' ? what : esc(st)}</div>
@@ -2624,6 +2624,17 @@ async function evStep3(){
   if (['running', 'comparing'].includes(c.status)) EV.tick = setInterval(() => {
     if (!EV.open || EV.step !== 3 || !$('#evElapsed')) return clearInterval(EV.tick);
     $('#evElapsed').textContent = fmtSec(evElapsed(EV.data.c)); evLiveRender(); }, 1000);
+}
+// money: finished runs, runs that stopped half-way, and the run in progress so far
+function evSpent(c){ return (+c.spent?.total || 0) + (['running', 'comparing'].includes(c.status) ? +c.live?.usd || 0 : 0); }
+function evSpentSub(c){
+  const now = ['running', 'comparing'].includes(c.status) ? +c.live?.usd || 0 : 0;
+  return (now ? `進行中這次 ${fmtUsd(now)} · ` : '') + `上限 ${fmtUsd(c.budget_usd)}`;
+}
+function evSpentTitle(c){
+  const s = c.spent || {};
+  return `完成的試驗 ${fmtUsd((+s.contestants || 0) + (+s.judges || 0))}（評分 ${fmtUsd(s.judges)}）`
+    + (s.abandoned ? `；中途停止的試驗 ${fmtUsd(s.abandoned)}` : '') + '；進行中的試驗每一步更新';
 }
 // time on the server's clock; a running campaign counts from when this run of it started
 function evElapsed(c){
@@ -2650,6 +2661,7 @@ function evLiveRender(){
   el.innerHTML = `<div class="evl-h"><span class="spin"></span><b>現在：${cbx(x.thinking, x.execution)} 第 ${L.trial} 次</b><span class="evl-steps">${steps}</span></div>
     <div class="evl-d">${detail} · <b class="${stale ? 'warn' : ''}">${fmtSec(ago)}前有動作</b>${stale ? (ph === 'grade' ? '（評分超過 5 分鐘沒有進展：評鑑模型可能回得很慢）' : '（超過 5 分鐘沒有新步驟：模型可能正在寫很長的內容，或卡住了）') : ''}</div>`;
   el.classList.toggle('stale', stale);
+  const sv = $('#evSpent'); if (sv) { sv.textContent = fmtUsd(evSpent(c)); $('#evSpentS').textContent = evSpentSub(c); }
   const cell = document.querySelector('#evBody .cell.run'); if (cell) cell.textContent = {prepare: '準備', run: '執行中', grade: '評分中'}[ph];
 }
 // ---- 5. results and submitting

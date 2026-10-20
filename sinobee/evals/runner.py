@@ -267,12 +267,22 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
         if child.provider_error:
             raise EvalError(f"model not available: {child.provider_error}")
 
+        t0 = time.time()
+
+        def spent() -> float:
+            """What this trial's model calls cost so far (its own home: every call recorded there is this trial's)."""
+            try:
+                return float(agent.memory.usage_totals(t0)["cost_usd"] or 0)
+            except Exception:  # noqa: BLE001 - before the agent exists, or a busy database
+                return 0.0
+
         def emit(kind, data):
             if kind == "tool_call":
                 events["tools"].append(data.get("name"))
                 if activity:
                     try:
-                        activity({"step": len(events["tools"]), "tool": data.get("name"), "at": time.time()})
+                        activity({"step": len(events["tools"]), "tool": data.get("name"), "at": time.time(),
+                                  "trial_cost": spent()})
                     except Exception:  # noqa: BLE001 - showing progress never breaks a trial
                         pass
             elif kind == "turn_end":
@@ -301,7 +311,8 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
                   tokens=int(usage.get("input_tokens") or 0) + int(usage.get("output_tokens") or 0),
                   steps=int(end.get("steps") or 0), trace=trace)
         tell = _teller(activity)
-        tell({"phase": "grade", "graded": 0, "questions": len(task["graders"]), "files": len(changed)})
+        tell({"phase": "grade", "graded": 0, "questions": len(task["graders"]), "files": len(changed),
+              "trial_cost": float((end.get("usage") or {}).get("cost_usd") or 0) or spent()})
         for g in task["graders"]:
             r = await grade_full(g, t)
             out["grades"].append({"type": g["type"], "label": sfs.question(g)["label"], **r})
@@ -515,7 +526,11 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
             act = None
             if activity:
                 def act(d, _t=task["id"], _i=ti + 1, _title=str(task.get("title") or task["id"])[:80]):
-                    activity({"phase": "run", **d, "task": _t, "title": _title, "task_index": _i, "tasks": len(tasks)})
+                    # cost so far of this run: the inputs before this one, this input's model calls, the judge's tokens
+                    done = sum(float(x.get("cost_usd") or 0) for tk in doc["tasks"] for x in tk.get("trials") or [])
+                    activity({"phase": "run", **d, "task": _t, "title": _title, "task_index": _i, "tasks": len(tasks),
+                              "cost": round(done + float(d.get("trial_cost") or 0), 5),
+                              "judge_tokens": [judge_usage.get("input_tokens", 0), judge_usage.get("output_tokens", 0)]})
                 act({"step": 0, "tool": None, "at": time.time(), "graded": None})
             trials = [await run_trial(rt, task, i + 1, keep=keep, model=model, judge=jprov, thinking=thinking,
                                       judge2=j2prov, bench=bench, save_dir=save_dir, activity=act) for i in range(n)]

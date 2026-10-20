@@ -98,8 +98,9 @@ def _actual(c: dict) -> dict:
     cid = c.get("id")
     if c.get("status") in ("running", "comparing", "queued") and cid not in LIVE and cid != QUEUE.current \
             and not any(w[1] == cid for w in QUEUE.waiting):
-        c = {**c, "status": "stopped", "live": None,
-             "error": "評鑑在 SinoBee 重新啟動時中斷，已完成的試驗都保留；按「繼續」從下一次試驗接著跑"}
+        c = {**c, "status": "stopped", "spent": dict(c.get("spent") or {}),
+             "error": "評鑑在 SinoBee 重新啟動時中斷，已完成的試驗都保留（中斷那次的花費已計入）；按「繼續」從那一次重新開始"}
+        _abandon(c)                     # what the cut-off run cost counts (the file is updated when resumed)
     return c
 
 
@@ -333,6 +334,32 @@ def _expected(c: dict, ci: int) -> float:
     return float(rows[ci]["usd_per_trial"]) if ci < len(rows) else 0.0
 
 
+def _retotal(c: dict) -> None:
+    sp = c["spent"]
+    sp["total"] = round(sp.get("contestants", 0) + sp.get("judges", 0) + sp.get("abandoned", 0), 5)
+
+
+def _live_usd(config, c: dict, live: dict | None) -> float:
+    """What the run in progress has cost so far: its model calls, and its judge's tokens at the judge's price."""
+    if not live:
+        return 0.0
+    usd = float(live.get("cost") or 0)
+    jt = live.get("judge_tokens") or [0, 0]
+    spec = c.get("judge") if c.get("judge") and "/" in str(c.get("judge")) else None
+    return round(usd + (_cost(config, spec, jt[0], jt[1]) or 0.0), 5)
+
+
+def _abandon(c: dict) -> float:
+    """A run that did not finish (stopped, failed, or cut off by a restart) still cost money: counted as abandoned,
+    so the spent total and the budget see it."""
+    usd = float((c.get("live") or {}).get("usd") or 0)
+    if usd > 0:
+        c["spent"]["abandoned"] = round(c["spent"].get("abandoned", 0) + usd, 5)
+        _retotal(c)
+    c["live"] = None
+    return usd
+
+
 LIVE: dict[str, dict] = {}       # campaigns being executed in this process: their up-to-date state (live step)
 
 
@@ -354,6 +381,7 @@ async def execute(rt, cid: str, emit=None) -> dict:
         return c
     started = time.time()
     base_elapsed = float(c.get("elapsed_s") or 0)
+    _abandon(c)                     # the run a restart cut off (its last saved cost)
     c.update(status="running", error=None, run_started=started, elapsed_base=base_elapsed, live=None)
     save(home, c)
     LIVE[cid] = c
@@ -363,6 +391,7 @@ async def execute(rt, cid: str, emit=None) -> dict:
         """A step of the trial in progress: shown live (at most every 2 s) and kept in the file (every 30 s), so a
         reopened panel - or anyone reading the campaign - sees that it moves and where."""
         c["live"] = {**(c.get("live") or {}), **d}
+        c["live"]["usd"] = _live_usd(rt.config, c, c["live"])
         now = time.time()
         if now - last["tell"] >= 2 or d.get("step") in (0, 1) or "phase" in d:   # a new input, its first step, a new phase
             last["tell"] = now
@@ -409,9 +438,10 @@ async def execute(rt, cid: str, emit=None) -> dict:
                     "cost_usd": round(contestant, 5), "judge_usd": round(judges, 5),
                     "duration_s": t.get("duration_s"), "judge_check": doc.get("judge_check")}
             c["items"].append(item)
+            c["live"] = None                # recorded with the item: not abandoned
             c["spent"]["contestants"] = round(c["spent"]["contestants"] + contestant, 5)
             c["spent"]["judges"] = round(c["spent"]["judges"] + judges, 5)
-            c["spent"]["total"] = round(c["spent"]["contestants"] + c["spent"]["judges"], 5)
+            _retotal(c)
             c["next"] += 1
             c["progress"]["done"] = c["next"]
             c["elapsed_s"] = round(base_elapsed + time.time() - started, 1)
@@ -431,7 +461,7 @@ async def execute(rt, cid: str, emit=None) -> dict:
         c["status"], c["error"] = "error", f"{type(e).__name__}: {e}"
     finally:
         c["elapsed_s"] = round(base_elapsed + time.time() - started, 1)
-        c["live"] = None
+        _abandon(c)                     # a run stopped or failed half-way
         c.pop("run_started", None)
         c.pop("elapsed_base", None)
         LIVE.pop(cid, None)
@@ -456,7 +486,7 @@ async def _creativity(rt, c: dict) -> dict | None:
     jcost = _cost(rt.config, c.get("judge"), (res.get("judge_usage") or {}).get("input_tokens", 0),
                   (res.get("judge_usage") or {}).get("output_tokens", 0)) or 0.0
     c["spent"]["judges"] = round(c["spent"]["judges"] + jcost, 5)
-    c["spent"]["total"] = round(c["spent"]["contestants"] + c["spent"]["judges"], 5)
+    _retotal(c)
     return {"id": res["id"], "scores": res["scores"], "pairs": len(res.get("pairs") or [])}
 
 

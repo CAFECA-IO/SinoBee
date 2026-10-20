@@ -286,3 +286,24 @@ async def test_a_running_campaign_shows_where_it_is_and_an_orphan_is_stopped(rt,
     assert C.listing(rt.config.home, "s9")[0]["status"] == "stopped"
     assert "turn_id" in C.listing(rt.config.home, "s9")[0]           # the answer it evaluates shows it
     assert C.get(rt.config.home, orphan["id"])["status"] == "running"       # the file is left as it was
+
+
+async def test_a_run_cut_off_half_way_still_counts_what_it_cost(rt, tmp_path, monkeypatch):
+    """55 minutes and US$0 (2026-10-21): money was only counted when a whole run (3 inputs) finished, so runs a
+    restart or a stop cut off were never counted. The run in progress shows its cost so far, and a cut-off run's
+    last known cost is counted as abandoned."""
+    monkeypatch.setattr(runner, "child_runtime", _child([]))
+    c = C.new(rt, suite=_suite(tmp_path), combos=COMBOS[:1], k=1, budget_usd=5, session_id="s7")
+    c.update(status="running", live={"combo": 0, "trial": 1, "cost": 0.4, "usd": 0.45, "at": 1})
+    C.save(rt.config.home, c)
+    shown = C.current(rt.config.home, c["id"])                    # SinoBee restarted: stopped, and the cost shows
+    assert shown["status"] == "stopped" and shown["spent"]["total"] == pytest.approx(0.45)
+    assert C.get(rt.config.home, c["id"])["spent"]["total"] == 0   # the file is left as it was until resumed
+    C.LIVE.clear()
+    seen = []
+    await C.execute(rt, c["id"], emit=lambda k, d: seen.append(d.get("live")))
+    after = C.get(rt.config.home, c["id"])
+    assert after["spent"]["abandoned"] == pytest.approx(0.45) and after["spent"]["total"] >= 0.45
+    assert after["live"] is None and after["status"] == "done"
+    assert any(x and x.get("cost", 0) > 0 and x["usd"] >= x["cost"] for x in seen)   # the run in progress: its cost
+    assert C._live_usd(rt.config, {"judge": None}, {"cost": 0.2, "judge_tokens": [0, 0]}) == 0.2
