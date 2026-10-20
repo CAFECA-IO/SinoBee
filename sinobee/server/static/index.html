@@ -813,6 +813,8 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
             <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="mVision" aria-label="模型看得懂圖片"></div></div>
           <div class="srow"><div class="sl"><b>上下文上限</b><span class="sd" id="mCtxNote">對話超過約八成時，較早的內容會自動整理成摘要；auto 依模型自動判斷</span></div>
             <div class="sc"><input class="inp" id="mCtx" placeholder="auto（例如 200k）"><span class="lock" data-lock="model.context_window"></span></div></div>
+          <div class="srow"><div class="sl"><b>每次輸出上限</b><span class="sd" id="mOutNote">auto 依模型決定（模型最高值的一半，最多 32K）；模型回覆被截斷時，下一次自動放寬到模型最高值。上限每多 1K，可放對話的空間就少 1K</span></div>
+            <div class="sc"><input class="inp" id="mOut" placeholder="auto（例如 32k）"><span class="lock" data-lock="model.max_output_tokens"></span></div></div>
           <div class="srow"><div class="sl"><b>自訂 OpenAI 相容端點</b><span class="sd">自架 vLLM、公司內部閘道…；儲存後會出現在供應商清單，可在那裡填金鑰</span></div></div>
           <div id="customRows"></div><button class="btn" id="addCustom" type="button">＋ 新增端點</button>
         </details>
@@ -2910,9 +2912,10 @@ function keySource(p){
 function renderSettings(){
   const m = SET.model;
   $('#mDefault').value = m.default || ''; $('#mFallbacks').value = (m.fallbacks || []).join(', ');
-  $('#mAux').value = m.auxiliary || ''; $('#mEsc').value = m.thinking || ''; $('#mRev').value = m.reviewer || ''; $('#mEmb').value = m.embedding || ''; $("#aVerify").checked = (SET.agent || {}).verify !== false; $('#aQuality').value = (SET.agent || {}).verify === false ? 'fast' : ((SET.agent || {}).quality || 'auto'); $('#aPlan').value = (SET.agent || {}).plan || 'auto'; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : '';
+  $('#mAux').value = m.auxiliary || ''; $('#mEsc').value = m.thinking || ''; $('#mRev').value = m.reviewer || ''; $('#mEmb').value = m.embedding || ''; $("#aVerify").checked = (SET.agent || {}).verify !== false; $('#aQuality').value = (SET.agent || {}).verify === false ? 'fast' : ((SET.agent || {}).quality || 'auto'); $('#aPlan').value = (SET.agent || {}).plan || 'auto'; $('#mEmb').value = m.embedding || ''; $('#mVision').checked = m.vision !== false; $('#mCtx').value = m.context_window && m.context_window !== 'auto' ? m.context_window : ''; $('#mOut').value = m.max_output_tokens && m.max_output_tokens !== 'auto' ? m.max_output_tokens : '';
   { const c = SET.context || {}, k = n => n >= 1e6 ? `${+(n / 1e6).toFixed(2)}M` : `${Math.round(n / 1000)}K`;
-    $('#mCtxNote').textContent = c.window ? `目前以 ${k(c.window)} tokens 計算（${{setting: '手動設定', local: '本機 num_ctx', model: '依模型', default: '未知模型的預設值'}[c.source] || c.source}），對話超過約 ${k(Math.round(c.budget * 0.8))} 時，較早的內容會自動整理成摘要` : '對話超過約八成時，較早的內容會自動整理成摘要；auto 依模型自動判斷'; }
+    $('#mCtxNote').textContent = c.window ? `目前以 ${k(c.window)} tokens 計算（${{setting: '手動設定', local: '本機 num_ctx', model: '依模型', default: '未知模型的預設值'}[c.source] || c.source}），對話超過約 ${k(Math.round(c.budget * 0.8))} 時，較早的內容會自動整理成摘要` : '對話超過約八成時，較早的內容會自動整理成摘要；auto 依模型自動判斷';
+    if (c.output) $('#mOutNote').textContent = `目前每次最多 ${k(c.output)} tokens（${{setting: '手動設定', model: '依模型', default: '未知模型的預設值'}[c.output_source] || c.output_source}${c.output_max ? `，模型最高 ${k(c.output_max)}` : ''}）；回覆被截斷時下一次放寬到模型最高值。上限每多 1K，可放對話的空間就少 1K`; }
   const customs = SET.providers.filter(p => p.custom);
   $('#customRows').innerHTML = ''; customs.forEach(c => addCustomRow(c.name, c.base_url));
   $('#pApproval').value = SET.permissions.approval;
@@ -3150,7 +3153,7 @@ async function openSettings(firstRun = false, pane = null){
 }
 function collectSettings(){
   const body = {agent: {verify: true, quality: $('#aQuality').value, plan: $('#aPlan').value}, model: {default: $('#mDefault').value, fallbacks: $('#mFallbacks').value, auxiliary: $('#mAux').value, thinking: $('#mEsc').value, reviewer: $('#mRev').value,
-                        embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto'},
+                        embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto', max_output_tokens: $('#mOut').value.trim() || 'auto'},
                 permissions: {approval: $('#pApproval').value, toolsets: [...document.querySelectorAll('#pToolsets input:checked')].map(i => i.value)},
                 usage: {daily_budget_usd: $('#uDaily').value, monthly_budget_usd: $('#uMonthly').value,
                         task_max_usd: $('#uTaskUsd').value, task_max_tokens: $('#uTaskTok').value, currency: $('#uCurrency').value,

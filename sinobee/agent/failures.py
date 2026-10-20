@@ -75,7 +75,8 @@ def build(agent, *, status: str, error_info: dict | None, final_text: str, query
         "models": {"execution": getattr(agent._prov, "label", ""), "thinking": getattr(thinker, "label", None),
                    "reviewer": getattr(rt.reviewer(), "label", None)},
         "skills": sorted(set(stats.get("explicit_skills") or []) | set(agent.ctx.state.get("skills_used", set()))),
-        "plan": stats.get("plan"), "consults": stats.get("consult_log", []),
+        "plan": stats.get("plan"), "plan_failed": stats.get("plan_failed"),
+        "thinking_skipped": (stats.get("thinking_skipped") or [])[:10], "consults": stats.get("consult_log", []),
         "checklist": checklist_tools.get(agent.ctx), "steps": steps, "tool_calls": stats.get("tool_calls", 0),
         "errors": stats.get("errors", 0), "last_error": _scrub(stats.get("last_error", ""), secrets),
         "quality": {"gate_rounds": stats.get("gate_rounds"), "qa_issues": (stats.get("qa_issues") or [])[:20],
@@ -145,6 +146,11 @@ def summary_text(r: dict, limit: int = 30000) -> str:
              f"MODELS: {json.dumps(r.get('models'), ensure_ascii=False)}", f"SKILLS: {', '.join(r.get('skills') or [])}"]
     if r.get("plan"):
         parts.append("PLAN: " + json.dumps(r["plan"], ensure_ascii=False)[:2500])
+    elif r.get("plan_failed"):
+        parts.append(f"PLAN: none - the thinking model gave no usable plan ({r['plan_failed']}), so the task ran "
+                     "without a plan or milestones")
+    if r.get("thinking_skipped"):
+        parts.append("THINKING-MODEL CALLS THAT FAILED: " + "; ".join(map(str, r["thinking_skipped"]))[:800])
     if r.get("checklist"):
         parts.append("CHECKLIST: " + json.dumps(r["checklist"], ensure_ascii=False)[:2000])
     if r.get("consults"):

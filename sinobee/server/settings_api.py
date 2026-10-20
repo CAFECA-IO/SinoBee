@@ -50,7 +50,7 @@ def settings_payload(rt) -> dict:
         needs_setup = not usable_now(prov, cfg)
     return {
         "model": {k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "thinking", "reviewer", "embedding",
-                                                      "vision", "context_window")},
+                                                      "vision", "context_window", "max_output_tokens")},
         "agent": {"verify": cfg.get("agent.verify", True), "quality": cfg.get("agent.quality", "auto"),
                   "reviewer": cfg.get("agent.reviewer", True), "plan": cfg.get("agent.plan", "auto")},
         "context": _context_info(cfg),
@@ -90,9 +90,17 @@ def _context_info(cfg) -> dict:
     """The context window SinoBee assumes for the default model and the resulting request budget."""
     from ..agent.context import context_budget, context_window
     try:
+        from ..agent.loop import REASONING_MODEL_RE
+        from ..providers import limits
         window, source = context_window(cfg)
-        out = int(cfg.get("model.max_tokens", 8192))
-        return {"window": window, "source": source, "budget": context_budget(cfg, out)}
+        spec = str(cfg.get("model.default") or "")
+        legacy = int(cfg.get("model.max_tokens", 8192))
+        if REASONING_MODEL_RE.search(spec):
+            legacy = max(legacy, int(cfg.get("model.reasoning_max_tokens", 16384)))
+        out = limits.default_output(cfg, spec, legacy)
+        return {"window": window, "source": source, "budget": context_budget(cfg, out),
+                "output": out, "output_max": limits.max_output(spec),
+                "output_source": "setting" if limits.override(cfg) else ("model" if limits.max_output(spec) else "default")}
     except Exception:  # noqa: BLE001
         return {}
 
@@ -140,6 +148,18 @@ def register(app: FastAPI, rt_getter) -> None:
                         m["context_window"] = n
                     except ValueError:
                         errors.append("model.context_window: a number of tokens (e.g. 200000 or 200k), or auto")
+            if "max_output_tokens" in body["model"]:
+                v = str(body["model"]["max_output_tokens"] or "").strip().lower().replace(",", "").replace("_", "")
+                if v in ("", "auto"):
+                    m["max_output_tokens"] = "auto"
+                else:
+                    try:
+                        n = int(float(v.rstrip("k")) * (1000 if v.endswith("k") else 1))
+                        if n < 1024:
+                            raise ValueError
+                        m["max_output_tokens"] = n
+                    except ValueError:
+                        errors.append("model.max_output_tokens: a number of tokens (e.g. 32000 or 32k), or auto")
             updates["model"] = m
         if "permissions" in body:
             p = body["permissions"]

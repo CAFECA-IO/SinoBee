@@ -175,6 +175,12 @@ class OpenAICompatProvider(Provider):
             payload["max_tokens"] = max_tokens
         if temperature is not None and not reasoning:
             payload["temperature"] = temperature
+        from . import compat
+        from .base import REASONING_EFFORT
+        effort = REASONING_EFFORT.get()
+        if effort and (reasoning or _THINKS.match(self.model.split("/")[-1])) and \
+                "reasoning_effort" not in compat.dropped(self.label):
+            payload["reasoning_effort"] = effort
         if tools:
             payload["tools"] = [{"type": "function", "function": {
                 "name": t.name, "description": t.description, "parameters": t.parameters}} for t in tools]

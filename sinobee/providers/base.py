@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import random
 import time
@@ -93,6 +94,12 @@ def _gateway_timeout(err: ProviderError) -> bool:
     return "gateway time-out" in text or "gateway timeout" in text or "a timeout occurred" in text
 
 
+# How hard a reasoning model should think on this call ("low" ...), or None for its own default. Set by the agent
+# loop around a step (proposal U3: after a reply was cut off at the output limit, thinking is turned down so the
+# answer fits); providers that support it send it, the others ignore it.
+REASONING_EFFORT: contextvars.ContextVar = contextvars.ContextVar("reasoning_effort", default=None)
+
+
 class Provider(ABC):
     """A single (provider, model) endpoint."""
 
@@ -154,13 +161,17 @@ class Provider(ABC):
             except httpx.TransportError as e:
                 err = ProviderError(f"{self.label} network error: {e!r}", retryable=True)
             except ProviderError as e:
-                param = None if adapted else compat.rejected_param(e, {"temperature": temperature})
-                if param == "temperature":
+                sent = {"temperature": temperature, "reasoning_effort": REASONING_EFFORT.get()}
+                param = None if adapted else compat.rejected_param(e, sent)
+                if param in ("temperature", "reasoning_effort"):
                     # the model rejects a parameter that only tunes the answer: learn it and send the same call
-                    # again without it, at once - this is not counted as a retry
+                    # again without it, at once - this is not counted as a retry (a learned reasoning_effort is
+                    # left out by the provider from now on)
                     compat.learn(self.label, param, str(e))
                     compat.note(self.label, param)
-                    temperature, adapted = None, True
+                    if param == "temperature":
+                        temperature = None
+                    adapted = True
                     continue
                 err = e
             if err.retryable and _gateway_timeout(err):

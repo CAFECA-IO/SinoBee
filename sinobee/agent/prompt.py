@@ -50,9 +50,12 @@ TOOL_GUIDE = """# Tool notes
 - shell: non-interactive commands only; use timeouts for long jobs; background servers with nohup ... &.
 - files: read before editing; edit_file needs an exact unique match.
 - large files (a whole HTML page, a long report, anything over ~300 lines): build them in parts. First write_file a
-  working skeleton (structure, styles, each section as a placeholder comment like <!-- SECTION: params -->), then
-  fill one or two sections per step with edit_file replacing the placeholder. Never put a whole large file in one
-  tool call: it takes minutes to generate, nothing is saved if the call is cut off, and a retry starts over.
+  working skeleton - the structure, the styles, and one placeholder per component or feature (<!-- SECTION: tower -->
+  in HTML/SVG, /* SECTION: slider */ inside a script; for a report one per chapter), so each section is small. Then
+  fill ONE section per tool call: edit_file replacing exactly that placeholder, or write_file with append=true for a
+  file written top to bottom. Once the skeleton exists never write the whole file again, and keep one call under
+  about 30,000 characters. A whole large file in one call takes minutes, nothing is saved if it is cut off at the
+  output limit, and a retry starts over. When no placeholder is left, stop polishing and report.
 - produce early: once the acceptance checklist is set, write the first deliverable within a few steps and keep it
   growing; look up only what the next section needs, and use well-known values you already have instead of
   digging them out of long sources.

@@ -68,16 +68,25 @@ def repair_tex(path, text: str) -> tuple[str, int]:
     return text, n + k + j
 
 
-@tool("write_file", "files", "Create or overwrite a file with the given content (creates parent folders).",
-      {"properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]},
+@tool("write_file", "files", "Create or overwrite a file with the given content (creates parent folders). "
+      "append=true adds the content to the end of the file instead (for building a large file in parts).",
+      {"properties": {"path": {"type": "string"}, "content": {"type": "string"},
+                      "append": {"type": "boolean", "description": "add to the end instead of overwriting"}},
+       "required": ["path", "content"]},
       writes=True)
-def write_file(ctx: ToolContext, path: str, content: str):
+def write_file(ctx: ToolContext, path: str, content: str, append: bool = False):
     p = resolve(ctx, path)
     p.parent.mkdir(parents=True, exist_ok=True)
     content, fixed = repair_tex(p, content)
-    p.write_text(content, encoding="utf-8")
+    if append:
+        with p.open("a", encoding="utf-8") as f:
+            f.write(content)
+    else:
+        p.write_text(content, encoding="utf-8")
     note = (f" (restored {fixed} LaTeX backslash(es) lost in the JSON arguments: write \\\\frac in JSON for \\frac)"
             if fixed else "")
+    if append:
+        return f"appended {len(content)} chars to {p} (now {p.stat().st_size} bytes){note}"
     return f"wrote {len(content)} chars to {p}{note}"
 
 

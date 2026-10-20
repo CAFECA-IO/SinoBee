@@ -20,6 +20,7 @@ from ..pricing import cost_usd, price_for
 from ..config import Config
 from ..memory.store import MemoryStore
 from ..providers import build_auxiliary, build_chain, build_embedder
+from ..providers.base import REASONING_EFFORT
 from ..skills import manager_from_config
 from ..fileaccess import resolve_file
 from ..tools import checklist_tools
@@ -59,6 +60,44 @@ TRUNCATED_NUDGE = ("[SinoBee notice] Your previous reply ran out of output token
                    "not write a large file in one call. Write a short skeleton with write_file first, then add one "
                    "section per edit_file call (replace a placeholder comment such as <!-- SECTION 2 --> with that "
                    "section, under ~250 lines each). Keep your reasoning short and call the next tool now.")
+BIG_CALL = 30000
+SIZE_OVER = ("[SinoBee notice] Your last tool call carried {n:,} characters - more than one section. Fill only ONE "
+             "section (one placeholder) per call from now on.")
+SIZE_NEAR = ("[SinoBee notice] Your last reply used {pct}% of the output limit and nearly got cut off. Keep the next "
+             "call to one small section and keep your reasoning short.")
+
+
+def size_reminder(msg, resp, max_tokens: int) -> str | None:
+    """Revised U2 (E3): a call that wrote more than one section, or a reply close to the output limit, gets a
+    reminder in the next request - never a refusal, the content already arrived."""
+    big = 0
+    for c in msg.tool_calls:
+        a = c.arguments or {}
+        big = max(big, len(str(a.get("content") or a.get("new_string") or "")))
+    tips = []
+    if big > BIG_CALL:
+        tips.append(SIZE_OVER.format(n=big))
+    out = getattr(getattr(resp, "usage", None), "output_tokens", 0) or 0
+    if max_tokens and out > 0.7 * max_tokens:
+        tips.append(SIZE_NEAR.format(pct=round(100 * out / max_tokens)))
+    return "\n".join(tips) or None
+
+
+THINKING_FLOOR = 8192
+
+
+def thinking_room(label: str, max_tokens: int) -> int:
+    """A thinking model's short calls (plan 1500, consult 1400, budget check 400 ...) on a reasoning model: its
+    hidden thinking counts against the limit, so the plan never came out (E5: gemini-pro-latest at 1500 gave 1 plan
+    in 3, at 8192 3 in 3). Reasoning models get at least THINKING_FLOOR, never more than the model's max."""
+    if not REASONING_MODEL_RE.search(label or ""):
+        return max_tokens
+    from ..providers import limits
+    mx = limits.max_output(label)
+    floor = min(THINKING_FLOOR, mx) if mx else THINKING_FLOOR
+    return max(max_tokens, floor)
+
+
 EMPTY_NUDGE = ("[SinoBee notice] Your previous reply was empty. Continue the task now: call the next tool you need, "
                "or - if you already have enough information - write the complete answer for the user in their "
                "language. Do not reply with an empty message.")
@@ -461,6 +500,7 @@ class Agent:
         """One call to the thinking model with agent.model_deadline. It never falls back to another model: a call
         that fails or runs out of time is recorded (stats["thinking_skipped"]) and the caller goes on without it."""
         model = self.rt.thinker()
+        max_tokens = thinking_room(getattr(model, "label", ""), max_tokens)
         deadline = float(self.config.get("agent.model_deadline", 240)) or None
         try:
             return await asyncio.wait_for(model.chat(messages, None, temperature=0.2, max_tokens=max_tokens), deadline)
@@ -501,7 +541,19 @@ class Agent:
         self._event(f"思維模型 {model.label} 規劃中")
         resp = await self._thinking_call("規劃", [Message("user", prompt)], 1500, stats)
         plan = thinking.parse_plan(resp.message.text()) if resp else None
+        if not plan and resp is not None and str(resp.stop_reason).lower() in ("length", "max_tokens", "max_output_tokens"):
+            # cut off while thinking: once more with room (never silently go on without a plan)
+            from ..providers import limits
+            room = max(thinking_room(model.label, 1500) * 2, 16384)
+            mx = limits.max_output(model.label)
+            resp = await self._thinking_call("規劃", [Message("user", prompt)], min(room, mx) if mx else room, stats)
+            plan = thinking.parse_plan(resp.message.text()) if resp else None
         if not plan:
+            why = ("沒有回應" if resp is None else
+                   f"回覆不是可用的計畫（finish={resp.stop_reason or 'n/a'}，{len(resp.message.text())} 字）")
+            stats.setdefault("thinking_skipped", []).append(f"規劃: {why}")
+            stats["plan_failed"] = why
+            self._event(f"⚠︎ 思維模型 {model.label} 沒有給出計畫（{why}）：這次不分里程碑，直接由執行模型開始")
             return
         stats["plan"] = plan
         items = checklist_tools.get(self.ctx)
@@ -1009,13 +1061,20 @@ class Agent:
         self._progress = progress_mod.Tracker(self.config)
         max_iter = int(self.max_iterations) if self.max_iterations else 0
         safety_max = self._progress.safety_max
-        max_tokens = self._max_tokens()
+        self._prov = self._provider_override or self.rt.provider
+        try:                                   # the model's output limit, once per model (U8); never blocks long
+            from ..providers import limits
+            await limits.discover(getattr(self._prov, "primary", self._prov))
+        except Exception:  # noqa: BLE001
+            pass
+        max_tokens = base_out = self._max_tokens()     # only the default is reserved from the context window
+        low_effort_left = 0
+        size_tip = None
         empty_replies = 0
         overflow_retried = False
         nudge = False
         tool_specs = self._tool_specs()
         status, error_info, started, steps = "done", None, time.time(), 0
-        self._prov = self._provider_override or self.rt.provider
         stats["verify_rounds"] = 0
         stats["gate_rounds"] = {}
         self._checklist_turn_start()
@@ -1098,7 +1157,7 @@ class Agent:
                 break
             self._drain_inbox()
             prune_images(self.history, keep_last=2)
-            budget = self._context_budget(max_tokens)
+            budget = self._context_budget(base_out)
             context_block = self._render_context()
             if estimate_tokens([self.system] + self.history, tool_specs, context_block) > budget * 0.8:
                 if await self._memory_diet():
@@ -1132,6 +1191,9 @@ class Agent:
             if nudge:
                 tail.append(TRUNCATED_NUDGE if nudge == "length" else EMPTY_NUDGE)
                 nudge = False
+            if size_tip:
+                tail.append(size_tip)
+                size_tip = None
             request.append(Message("user", [TextPart("\n\n".join(t for t in tail if t), volatile=True)]))
             hs = self._progress.health_steps
             ref = steps - (self._msr.step0 if self._msr else 0)      # counted per milestone
@@ -1147,10 +1209,16 @@ class Agent:
                                           f"（健康水位每 {hs} 步檢查一次）")
             self._emit("thinking", {"iteration": iteration, "step": steps, "model": self._prov.label})
             t_call = time.monotonic()
+            effort_token = REASONING_EFFORT.set("low") if low_effort_left > 0 else None
+            if effort_token is not None:
+                low_effort_left -= 1
             try:
                 resp = await self._step_chat(request, tool_specs, max_tokens, stats)
                 stats["last_call_s"] = time.monotonic() - t_call
             except Exception as e:
+                if effort_token is not None:
+                    REASONING_EFFORT.reset(effort_token)
+                    effort_token = None
                 for qe in current_scope.get().drain_quota_events():
                     if qe.get("window") == "6h":
                         self.rt.memory.mark_quota(100)
@@ -1161,7 +1229,7 @@ class Agent:
                     log.warning("context overflow (%s); compacting and retrying", str(e)[:200])
                     self._budget_cap = self._overflow_budget(str(e), budget, max_tokens,
                                                              estimate_tokens(request, tool_specs, context_block))
-                    budget = self._context_budget(max_tokens)
+                    budget = self._context_budget(base_out)
                     before = len(self.history)
                     dieted = await self._memory_diet()
                     context_block = self._render_context()
@@ -1193,6 +1261,9 @@ class Agent:
                 self._emit("quota", {**qe, "stopped": False, "answered_by": resp.model})
             self.usage.add(resp.usage)
             msg = resp.message
+            if effort_token is not None:
+                REASONING_EFFORT.reset(effort_token)
+                effort_token = None
             log.info("model %s replied: %d chars, %d tool calls, finish=%s", resp.model, len(msg.text()),
                      len(msg.tool_calls), resp.stop_reason)
             if not msg.tool_calls and not msg.text().strip():
@@ -1205,10 +1276,13 @@ class Agent:
                      "output_tokens": getattr(resp.usage, "output_tokens", None),
                      "seconds": round((stats.get("last_call_s") or 0), 1)})
                 if truncated:
-                    max_tokens = min(max_tokens * 2, 32768)
+                    max_tokens = self._more_room(max_tokens, request, tool_specs, context_block)
+                    # U3: the hidden thinking filled the limit - think less on the next steps (E1: 0/8 -> 3/3)
+                    low_effort_left = int(self.config.get("agent.low_effort_steps", 5))
+                    stats["low_effort"] = stats.get("low_effort", 0) + 1
                 if empty_replies <= 2:
                     self._emit("status", {"message": f"模型回傳空白回覆（finish_reason={resp.stop_reason or 'n/a'}），"
-                                                     f"{'提高輸出上限並請它分段寫檔' if truncated else '要求繼續'}"})
+                                                     f"{f'輸出上限放寬到 {max_tokens}、接下來幾步降低思考，並請它分段寫檔' if truncated else '要求繼續'}"})
                     nudge = "length" if truncated else True
                     continue
                 final_text = (f"⚠︎ 模型 {resp.model or self._prov.label} 連續 {empty_replies} 次回傳空白回覆"
@@ -1221,6 +1295,9 @@ class Agent:
                               "detail": f"model={resp.model}, finish_reason={resp.stop_reason or 'n/a'}"}
                 break
             self.history.append(msg)
+            size_tip = size_reminder(msg, resp, max_tokens)
+            if size_tip:
+                stats["size_reminders"] = stats.get("size_reminders", 0) + 1
             if msg.tool_calls:
                 self._persist()
             if msg.text():
@@ -1574,14 +1651,33 @@ class Agent:
         first_real = len(self.history) - res.tail_len
         return max(first_real, len(self.history) - in_turn)
 
+    def _model_label(self) -> str:
+        prov = getattr(self, "_prov", None) or getattr(getattr(self, "rt", None), "provider", None)
+        return str(getattr(prov, "label", "") or self.config.get("model.default") or "")
+
     def _max_tokens(self) -> int:
-        """Reasoning models spend the output budget on hidden thinking; give them room for the visible answer."""
+        """The output limit of an ordinary step (proposal U8): the model's default from providers/limits.py - the
+        user's model.max_output_tokens cut to the model's max, or half its max (at most 32k), or, for a model nobody
+        knows, the old fixed values (reasoning models spend the budget on hidden thinking, so they get more)."""
+        label = self._model_label()
         n = int(self.config.get("model.max_tokens", 8192))
-        if REASONING_MODEL_RE.search(str(self.config.get("model.default") or "")):
+        if REASONING_MODEL_RE.search(label):
             n = max(n, int(self.config.get("model.reasoning_max_tokens", 16384)))
-        if local.is_local_spec(self.config.get("model.default")):
-            n = min(n, max(1024, local.num_ctx(self.config) // 4))
-        return n
+        if local.is_local_spec(label):
+            return min(n, max(1024, local.num_ctx(self.config) // 4))
+        from ..providers import limits
+        return limits.default_output(self.config, label, n)
+
+    def _more_room(self, max_tokens: int, request, tool_specs, context_block: str) -> int:
+        """The output limit after a reply was cut off at it: the model's max (U8) where known, else twice the limit
+        (at most 32k) - never more than the context window leaves beside this request."""
+        from ..providers import limits
+        label = self._model_label()
+        mx = limits.max_output(label)
+        n = mx if mx and mx > max_tokens else min(max_tokens * 2, max(32768, max_tokens))
+        window, _ = context_window(self.config, label)
+        room = window - estimate_tokens(request, tool_specs, context_block) - max(1024, window // 50)
+        return max(max_tokens, min(n, room))
 
     def _tool_specs(self) -> list:
         """Tool schemas for this turn: constrain skill names to an enum (agentskills.io client guidance) and drop

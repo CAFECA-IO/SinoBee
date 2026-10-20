@@ -30,7 +30,10 @@ DEFAULTS: dict[str, Any] = {
                                  # the execution model catches what it misses (None: thinking, then default)
         "embedding": None,       # e.g. openai/text-embedding-3-small ; None = BM25 only
         "temperature": 0.3,
-        "max_tokens": 8192,
+        "max_output_tokens": "auto",  # output limit per step: auto = per model (providers/limits.py); a number is cut
+                                      # to the model's max. SINOBEE_MAX_OUTPUT_TOKENS overrides. Every token here is
+                                      # one less for the conversation in the context window.
+        "max_tokens": 8192,      # fallback output limit for a model whose limit is unknown
         "reasoning_max_tokens": 16384,   # used for reasoning/thinking models (gpt-5, o*, gemini-2.5/3, r1 ...)
         "stream": True,          # stream answers from OpenAI-compatible services (providers.<name>.stream overrides)
         "vision": True,          # send screenshots as images
