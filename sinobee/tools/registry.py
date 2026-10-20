@@ -88,6 +88,11 @@ class Registry:
         if "_raw" in args:
             return ToolResult.error(f"could not parse tool arguments as JSON: {args['_raw'][:300]}")
 
+        sandbox = getattr(ctx.config, "sandbox", None)      # an evaluation trial (sinobee/evals/sandbox.py)
+        if sandbox is not None:
+            refused = sandbox.before(tool.name, tool.toolset, args)
+            if refused:
+                return ToolResult.error(refused)
         mode = ctx.config.get("permissions.approval", "confirm")
         if mode == "readonly" and tool.writes:
             return ToolResult.error(f"'{tool.name}' is blocked: SinoBee is running in readonly mode")
@@ -125,6 +130,9 @@ class Registry:
         except Exception as e:  # tools must never crash the loop
             log.debug("tool %s failed\n%s", tool.name, traceback.format_exc())
             return ToolResult.error(f"{type(e).__name__}: {e}")
+        if sandbox is not None:
+            from ..evals.sandbox import text_of
+            sandbox.after(tool.name, args, text_of(value))
         return _normalise(value, int(ctx.config.get("agent.tool_output_limit", 12000)))
 
 

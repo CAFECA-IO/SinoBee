@@ -25,6 +25,7 @@ class Trial:
     tokens: int = 0                                         # what the trial spent (input + output)
     steps: int = 0
     trace: list[dict] = field(default_factory=list)         # per-step cost: tokens, retries, failed
+    security: dict | None = None                            # the sandbox's record (evals/sandbox.py), when sandboxed
 
 
 def _flags(g: dict) -> int:
@@ -106,6 +107,9 @@ async def grade(g: dict, t: Trial) -> tuple[bool, str]:
             over = [f"{n} {v} > {lim}" for n, v, lim in checks if lim is not None and v > int(lim)]
             seen = ", ".join(f"{n} {v}" for n, v, lim in checks if lim is not None)
             return not over, ("; ".join(over) if over else seen)
+        if kind == "security":
+            from .sandbox import grade as security_grade
+            return security_grade(str(g.get("check") or ""), t.security)
         if kind == "llm":
             return await _llm(g, t)
     except (KeyError, re.error) as e:

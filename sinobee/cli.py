@@ -797,6 +797,58 @@ def _eval_cmd(args) -> None:
         for r in res:
             print(r.get("url") or _json.dumps(r, ensure_ascii=False))
         return
+    if args.action == "suites":
+        cfg = Config.load()
+        from .evals.authoring import list_suites
+        for m in list_suites(cfg.home, args.target):
+            print(f"suite:{m['hash'][:12]}  {m['skill']}@{m.get('skill_version') or '?'}  {m.get('inputs')} 份輸入 "
+                  f"{m.get('questions')} 題  by {m.get('evaluator') or '?'}  {m.get('title') or ''}"
+                  + (f"  (derived from {m['derived_from'][:12]})" if m.get("derived_from") else ""))
+        return
+    if args.action == "evaluator":
+        from .evals import authoring as A
+
+        async def check():
+            rt = _runtime(args)
+            name = args.target or "eval-authoring"
+            if args.test:
+                res = await A.behavior_test(rt, name)
+                print(f"behavior test: {res['status']}" + "".join(f"\n  ✕ {v['tool']}: {v['what']}"
+                                                                  for v in res["violations"]))
+            return A.security_status(rt.config.home, rt.skills.get(name))
+        st = asyncio.run(check())
+        if args.json:
+            print(_json.dumps(st, ensure_ascii=False, indent=1))
+            return
+        mark = lambda v: "✓" if v is True else "✕" if v is False else "–"    # noqa: E731
+        print(f"{st['name']}@{st['version']}  安全性評鑑 {st['passed']}/4" + ("  （已封鎖）" if st["blocked"] else ""))
+        print(f"  {mark(st['static']['ok'])} 靜態掃描" + "".join(f"\n      {x}" for x in st["static"]["issues"]))
+        print(f"  {mark(st['behavior'].get('ok'))} 沙箱行為（{st['behavior'].get('runs', 0)} 次）")
+        print(f"  {mark(st['suite'].get('ok'))} 題組檢查（{st['suite'].get('checked', 0)} 份）")
+        print(f"  {mark(st['review']['ok'])} 人工審核")
+        return
+    if args.action == "author":
+        from .evals import authoring as A
+        if not args.target or not args.session:
+            raise SystemExit("usage: sinobee eval author <skill> --session <session id> [--evaluator eval-authoring]")
+
+        async def author():
+            rt = _runtime(args)
+            try:
+                mat = A.task_material(rt, args.session)
+                return await A.generate_suite(rt, args.evaluator, args.target, request=mat["request"],
+                                              outputs=mat["outputs"], answer=mat["answer"], session_id=args.session,
+                                              turn_id=mat["turn_id"])
+            except E.EvalError as e:
+                raise SystemExit(f"author: {e}") from None
+        res = asyncio.run(author())
+        if res["status"] == "ok":
+            print(f"suite:{res['hash'][:12]}  ({res['rounds']} 輪修正)\n"
+                  f"run:  sinobee eval run suite:{res['hash'][:12]} --thinking <model> -m <model> -k 3")
+        else:
+            print(f"{res['status']}:" + "".join(f"\n  - {p}" for p in res.get("problems") or [])
+                  + "".join(f"\n  ✕ {v['tool']}: {v['what']}" for v in res.get("violations") or []))
+        return
     if args.action == "compare":
         from .evals.compare import compare
         ids = ([args.target] if args.target else []) + list(args.ids or [])
@@ -1091,8 +1143,13 @@ def main(argv: list[str] | None = None) -> None:
     wk.add_argument("ref", nargs="?", help="job id (runs/pause/resume/delete)")
     wk.add_argument("--limit", type=int, default=100)
     ev = sub.add_parser("eval", help="evaluations: run fixed tasks in a throw-away workspace and grade the results")
-    ev.add_argument("action", choices=["list", "run", "show", "export", "publish", "compare"])
-    ev.add_argument("target", nargs="?", help="run: core | regressions | skill:<name> | file.json; show: run id")
+    ev.add_argument("action", choices=["list", "run", "show", "export", "publish", "compare", "author", "suites",
+                                       "evaluator"])
+    ev.add_argument("target", nargs="?", help="run: core | regressions | skill:<name> | suite:<hash> | file.json; "
+                                              "show: run id; author / suites: skill name; evaluator: its name")
+    ev.add_argument("--evaluator", default="eval-authoring", help="author: the evaluation skill that writes the suite")
+    ev.add_argument("--session", help="author: the session whose finished task the suite is written from")
+    ev.add_argument("--test", action="store_true", help="evaluator: run its sandbox behavior test")
     ev.add_argument("-k", type=int, help="trials per task (pass@k / pass^k); default: each task's own")
     ev.add_argument("--task", action="append", help="only this task id (repeatable)")
     ev.add_argument("--keep", action="store_true", help="keep the trial workspaces for inspection")

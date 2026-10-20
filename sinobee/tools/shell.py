@@ -29,6 +29,9 @@ async def shell(ctx: ToolContext, command: str, timeout: int = 120, cwd: str | N
     if not workdir.exists():
         return f"ERROR: cwd {workdir} does not exist"
     env = {**os.environ, "PAGER": "cat", "GIT_PAGER": "cat", "TERM": "dumb", "DEBIAN_FRONTEND": "noninteractive"}
+    sandbox = getattr(ctx.config, "sandbox", None)
+    if sandbox is not None:                 # an evaluation trial: decoy home, no network
+        env.update(sandbox.env())
     proc = await asyncio.create_subprocess_exec(
         "/bin/bash", "-lc", command, cwd=str(workdir), env=env,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, stdin=asyncio.subprocess.DEVNULL,

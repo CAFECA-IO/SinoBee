@@ -61,6 +61,24 @@ class EvalConfig(Config):
         pass
 
 
+def needs_sandbox(task: dict, bench: dict | None) -> bool:
+    """Trials run in the sandbox when the suite asks for it or a grader checks security."""
+    return bool((bench or {}).get("sandbox") or task.get("security")
+                or any(g.get("type") == "security" for g in task.get("graders") or []))
+
+
+def network_allowed(rt, task: dict, bench: dict | None) -> bool:
+    """The task, the suite or the skill under test (metadata sinobee-network: true) declares network use."""
+    if task.get("network") or (bench or {}).get("network"):
+        return True
+    name = (bench or {}).get("skill")
+    try:
+        s = rt.skills.skills.get(name) if name and rt.skills else None
+    except Exception:  # noqa: BLE001
+        s = None
+    return bool(s) and str(s.metadata.get("sinobee-network", "")).strip().lower() in ("true", "yes", "1")
+
+
 def child_runtime(rt, cfg):
     """The throw-away runtime of one trial (tests replace this to use a scripted model)."""
     from ..agent.loop import Runtime
@@ -220,6 +238,18 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
             overrides.update(combo(thinking, model) if thinking and thinking != model else solo(model))
         cfg = EvalConfig(rt.config, home, ws, overrides)
         _setup(ws, (task.get("setup") or {}).get("files") or {})
+        sandbox = None
+        if needs_sandbox(task, bench):
+            from .sandbox import Sandbox
+            sandbox = Sandbox(tmp, ws, mode="observe", network=network_allowed(rt, task, bench),
+                              extra_roots=[home / "skills"])
+            cfg.sandbox = sandbox
+            inject = (task.get("security") or {}).get("inject")
+            if inject:
+                f = ws / inject
+                if not f.is_file() or ws.resolve() not in f.resolve().parents:
+                    raise EvalError(f"injected input {inject!r} is not a file of the task")
+                f.write_text(sandbox.inject(f.read_text(encoding="utf-8")), encoding="utf-8")
         before = _scan(ws)
         child = child_runtime(rt, cfg)
         if child.provider_error:
@@ -249,13 +279,16 @@ async def run_trial(rt, task: dict, trial: int, *, keep: bool = False, model: st
         judge = judge if judge is not None else rt.judge()
         usage = end.get("usage") or {}
         trace = _steps(home, end.get("run_report"))
-        t = Trial(prompt=task["prompt"], workspace=ws, answer=answer or end.get("text", ""), status=status,
+        security = sandbox.report(answer or end.get("text", ""), changed) if sandbox else None
+        t = Trial(security=security, prompt=task["prompt"], workspace=ws, answer=answer or end.get("text", ""), status=status,
                   tools=events["tools"], files=changed, base_home=rt.config.home, judge=judge, judge2=judge2,
                   tokens=int(usage.get("input_tokens") or 0) + int(usage.get("output_tokens") or 0),
                   steps=int(end.get("steps") or 0), trace=trace)
         for g in task["graders"]:
             r = await grade_full(g, t)
-            out["grades"].append({"type": g["type"], "label": g.get("label") or g["type"], **r})
+            out["grades"].append({"type": g["type"], "label": sfs.question(g)["label"], **r})
+        if security is not None:
+            out["security"] = security
         if bench is not None:
             qs = [sfs.question(g) for g in task["graders"]]
             out.update(sfs.trial_score([x["ok"] for x in out["grades"]], qs, sfs.weights(bench, qs),
@@ -397,7 +430,7 @@ async def run(rt, target: str = "core", *, k: int | None = None, task_ids: list[
         raise EvalError("a thinking model needs an execution model (-m)")
     home = rt.config.home
     suite, tasks = load(target, home=home, skills=rt.skills)
-    meta = bench_meta(target)
+    meta = bench_meta(target, home)
     bench = meta.get("bench") if meta.get("bench") else None
     if bench is not None:
         tasks = [_bench_task(t) for t in tasks]

@@ -14,6 +14,7 @@ Suites:
   regressions   $SINOBEE_HOME/evals/regressions.json: tasks saved from 👎 feedback (see agent/rules.py)
   skill:<name>  a skill's evals/evals.json (the anatomy format: {skill_name, evals: [{id, prompt, expected_output,
                 files}]}); graded by the expected output
+  suite:<hash>  a suite an evaluation skill wrote for a skill (authoring.py; $SINOBEE_HOME/evals/suites/…)
   <path>.json   any file with {"tasks": [...]} or a list of tasks
 Results go to $SINOBEE_HOME/evals/results/<run id>.json; see runner.py for pass@k / pass^k and regressions.
 """
@@ -26,7 +27,7 @@ from pathlib import Path
 
 SUITES_DIR = Path(__file__).resolve().parent / "suites"
 GRADER_TYPES = ("file_exists", "file_regex", "file_not_regex", "answer_regex", "answer_not_regex", "qa_clean",
-                "status", "command", "tool_used", "rule", "llm", "efficiency")
+                "status", "command", "tool_used", "rule", "llm", "efficiency", "security")
 MAX_REGRESSIONS = 200
 
 
@@ -126,6 +127,10 @@ def load(target: str, *, home, skills=None) -> tuple[str, list[dict]]:
         if not tasks:
             raise EvalError("no regression tasks yet (they are saved from 👎 feedback, or with add_regression)")
         return "regressions", tasks
+    if target.startswith("suite:"):
+        from .authoring import load_ref
+        _title, _bench, tasks, meta = load_ref(home, target)
+        return f"suite:{meta['hash'][:12]}", tasks
     if target.startswith("skill:"):
         name = target.split(":", 1)[1]
         if skills is None or name not in skills.skills:
@@ -142,10 +147,17 @@ def load(target: str, *, home, skills=None) -> tuple[str, list[dict]]:
     return (f.stem if f.parent == SUITES_DIR else str(f)), [normalize(t, f"t{i + 1}") for i, t in enumerate(raw)]
 
 
-def bench_meta(target: str) -> dict:
+def bench_meta(target: str, home=None) -> dict:
     """A suite file's title and `bench` block ({kind: model|skill, domain, skill, summary}) - what a published
     evaluation report is about."""
     target = (target or "").strip()
+    if target.startswith("suite:") and home is not None:
+        from .authoring import load_ref
+        try:
+            title, bench, _tasks, _meta = load_ref(home, target)
+        except EvalError:
+            return {}
+        return {"title": title, "bench": bench}
     if target.startswith("skill:"):
         return {"title": f"技能 {target[6:]}", "bench": {"kind": "skill", "skill": target[6:]}}
     if target == "regressions":

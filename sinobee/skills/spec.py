@@ -14,6 +14,9 @@ SinoBee extension keys (all inside `metadata`, values are strings):
   sinobee-requires-tools          comma-separated SinoBee tool names; skill is hidden when one is unavailable
   sinobee-params                  comma-separated parameters of a packaged skill; a trailing * marks a required one
   sinobee-source                  "packaged" for a skill made from a finished task (skills/package.py)
+  sinobee-type                    "evaluation" for a skill that writes evaluation suites for other skills
+  sinobee-targets                 the skills an evaluation skill is for: comma-separated names or globs ("*" = any)
+  sinobee-network                 "true" when the skill needs the network (an evaluation flags undeclared access)
   sinobee-platforms               comma-separated: linux, macos, windows
   sinobee-category                free text
   sinobee-requires-python         comma-separated modules the skill's Python scripts import, as module or

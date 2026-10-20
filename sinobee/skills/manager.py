@@ -86,6 +86,16 @@ class Skill:
                 for x in spec.meta_list(self.frontmatter, "sinobee-params")]
 
     @property
+    def kind(self) -> str:
+        """skill | evaluation (an evaluation skill writes test suites for other skills; see sinobee/evals/authoring.py)."""
+        return "evaluation" if str(self.metadata.get("sinobee-type", "")).strip().lower() == "evaluation" else "skill"
+
+    @property
+    def targets(self) -> list[str]:
+        """The skills an evaluation skill is written for: names or globs ("meeting-minutes, summary-*", "*")."""
+        return spec.meta_list(self.frontmatter, "sinobee-targets") or (["*"] if self.kind == "evaluation" else [])
+
+    @property
     def packaged(self) -> bool:
         return str(self.metadata.get("sinobee-source", "")) == "packaged"
 
@@ -155,7 +165,7 @@ class Skill:
                 "allowed_tools": self.allowed_tools, "tags": self.tags, "disabled": self.disabled,
                 "diagnostics": self.diagnostics, "license": self.frontmatter.get("license"),
                 "compatibility": self.frontmatter.get("compatibility"), "params": self.params,
-                "packaged": self.packaged}
+                "packaged": self.packaged, "kind": self.kind, "targets": self.targets}
 
 
 def _current_platform() -> str:
@@ -480,6 +490,8 @@ class SkillManager:
         for s in self.skills.values():
             if s.disabled or not s.policy.visible:
                 continue
+            if s.kind == "evaluation":      # writes test suites; never picked for an ordinary task
+                continue
             if s.platforms and plat not in s.platforms:
                 continue
             if available_tools is not None and any(t not in available_tools for t in s.requires_tools):
@@ -513,6 +525,22 @@ class SkillManager:
             scored.append((s, score))
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:n]
+
+    def evaluators(self, target: str) -> list[Skill]:
+        """Evaluation skills that are written for `target`: an exact name first, then a glob, then "*"."""
+        import fnmatch
+        out = []
+        for s in self.skills.values():
+            if s.kind != "evaluation" or s.disabled:
+                continue
+            rank = None
+            for t in s.targets:
+                r = 0 if t == target else 2 if t == "*" else 1 if fnmatch.fnmatch(target, t) else None
+                if r is not None:
+                    rank = r if rank is None else min(rank, r)
+            if rank is not None:
+                out.append((rank, 0 if s.trust in ("builtin", "verified") else 1, s.name, s))
+        return [x[3] for x in sorted(out, key=lambda x: x[:3])]
 
     def suggest(self, query: str, available_tools: set[str] | None = None) -> Skill | None:
         """The best-ranked reviewed skill whose trigger words occur in the request (None if no clear match).
