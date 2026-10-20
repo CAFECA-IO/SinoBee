@@ -683,6 +683,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 .cklist li small{display:block;color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ckl-b{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);display:grid;place-items:center;margin-top:1px;font-size:11px;color:var(--muted)}
 .ckl-b svg.i{width:12px;height:12px}.ckl-b .spin{width:10px;height:10px;border-width:2px}
+.ckl-stop{display:block;width:10px;height:10px;border:2px solid var(--warn);border-radius:50%;box-sizing:border-box}
 .cklist li.done .ckl-b{background:var(--accent-solid);border-color:var(--accent-solid);color:var(--on-accent)}
 .cklist li.doing .ckl-b{border-color:var(--accent)}.cklist li.dropped{color:var(--muted)}.cklist li.dropped>span:last-child{text-decoration:line-through}
 .askcard{margin:6px max(16px,calc((100% - 820px)/2)) 10px;border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:14px 16px;box-shadow:0 1px 0 rgba(0,0,0,.02)}
@@ -1662,7 +1663,9 @@ function cklShow(items){
   let d = [...document.querySelectorAll('#chat .cklist[data-live]')].pop();
   if (!d) { const g = procGroup(); d = document.createElement('div'); d.className = 'cklist'; d.dataset.live = '1'; g.el.insertBefore(d, g.body); }
   const done = items.filter(i => i.status === 'done' || i.status === 'dropped').length;
-  const ico = {done: ic('check'), doing: '<span class="spin"></span>', dropped: '–', todo: ''};
+  // an item marked doing spins only while the turn runs; after it stopped it shows as unfinished, not as busy
+  const live = !!RUNNING[sessionId];
+  const ico = {done: ic('check'), doing: live ? '<span class="spin"></span>' : '<span class="ckl-stop" title="未完成：任務已停止"></span>', dropped: '–', todo: ''};
   d.innerHTML = `<div class="ckl-h"><b>驗收清單</b><span>${done}/${items.length}</span><i style="--p:${Math.round(done / items.length * 100)}%"></i></div>
     <ol>${items.map(i => `<li class="${i.status}" title="${esc(i.evidence || i.check || '')}"><span class="ckl-b">${ico[i.status] || ''}</span><span>${esc(i.text)}${i.status === 'done' && i.evidence ? `<small>${esc(i.evidence.slice(0, 120))}</small>` : i.status === 'dropped' && i.evidence ? `<small>略過：${esc(i.evidence.slice(0, 120))}</small>` : ''}</span></li>`).join('')}</ol>`;
 }
@@ -1812,7 +1815,7 @@ function handle(ev, replay = false){
     case 'qa': add(`<b>成果檢查發現 ${ev.issues.length} 個問題</b><ul>${ev.issues.slice(0, 8).map(i => `<li>${esc(i.name)}：${esc(i.problem)}${i.detail ? `<small>${esc(i.detail)}</small>` : ''}</li>`).join('')}</ul>`, 'note qacard'); break;
     case 'review': if (ev.verdict === 'revise') add(`<b>驗收審查：需要修正</b>${ev.summary ? `<div>${esc(ev.summary)}</div>` : ''}<ul>${(ev.problems || []).slice(0, 8).map(p => `<li>${esc(p.what)}${p.fix ? `<small>→ ${esc(p.fix)}</small>` : ''}</li>`).join('')}</ul>`, 'note qacard'); break;
     case 'turn_end': {
-      procClose(); document.querySelectorAll('#chat .cklist[data-live]').forEach(x => x.removeAttribute('data-live'));
+      procClose(); document.querySelectorAll('#chat .cklist[data-live]').forEach(x => { x.removeAttribute('data-live'); x.querySelectorAll('.ckl-b .spin').forEach(sp => { sp.className = 'ckl-stop'; sp.title = '未完成：任務已停止'; }); });
       // mark any tool card still spinning (e.g. force-stopped) as interrupted
       document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
       { const c = resultCard(ev); if (ev.artifacts?.length && c) c.insertAdjacentHTML('beforeend', artStrip(ev.artifacts, '本次產出'));
