@@ -238,7 +238,7 @@ details.tool img{max-width:100%;border-radius:6px;margin-top:6px;border:1px soli
 .evvis label{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;margin-top:6px;cursor:pointer}
 .evvis label.sel{border-color:var(--accent)}.evvis small{display:block;color:var(--muted);margin-top:2px}
 .pkfile>.chip{flex:none}
-.evbtn{display:inline-flex;align-items:center;gap:5px;margin-left:10px}.evbtn svg.i{width:14px;height:14px}
+.rmore{position:relative;display:inline-block;margin-left:6px;vertical-align:middle;line-height:1}.rmore-b{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:999px;width:30px;height:24px;padding:0;cursor:pointer;font-size:15px;line-height:1}.rmore-b:hover,.rmore-b[aria-expanded=true]{color:var(--accent);border-color:var(--accent2)}.rmenu{position:absolute;left:0;top:calc(100% + 6px);z-index:30;width:min(340px,80vw);padding:5px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 8px 24px rgba(0,0,0,.35)}.rmenu button{display:flex;gap:9px;align-items:flex-start;width:100%;text-align:left;border:0;background:none;color:var(--ink);font:inherit;font-size:13px;line-height:1.45;padding:8px 9px;border-radius:7px;cursor:pointer}.rmenu button:hover,.rmenu button:focus-visible{background:var(--panel2);outline:none}.rmenu svg.i{width:15px;height:15px;margin-top:2px;flex:none;color:var(--accent)}.rmenu b{display:block;font-weight:600}.rmenu small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
 .skgrp{font-size:11px;color:var(--muted);letter-spacing:.04em;margin:10px 4px 2px}
 .pill.exp{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
 @media (max-width:520px){.pkprm{grid-template-columns:1fr auto auto}.pkprm .nm{grid-column:1/-1}.pkprm .ex{grid-column:1/-1}}
@@ -688,7 +688,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
 .evl-steps{margin-left:auto;display:flex;gap:4px;align-items:center;font-size:11.5px}.evl-steps i{font-style:normal;opacity:.5}
 .evl-steps span{padding:1px 7px;border-radius:99px;border:1px solid var(--line)}.evl-steps .now{border-color:var(--accent);color:var(--accent)}.evl-steps .done{color:var(--ok)}
 .evl-d{margin-top:4px}.evlive .spin{width:12px;height:12px}.evlive .warn{color:var(--warn)}.evlive.stale{border-color:var(--warn)}.evlive.stale .spin{animation:none;border-top-color:var(--warn)}
-.evbox.live{border-color:var(--accent)}.evbtn.running{border-color:var(--accent);color:var(--accent)}.evbtn.paused,button.ev-dot.paused{border-color:var(--warn);color:var(--warn)}.evbtn .spin{display:inline-block;width:11px;height:11px;vertical-align:-1px}
+.evbox.live{border-color:var(--accent)}button.ev-dot.paused{border-color:var(--warn);color:var(--warn)}
 button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-width:100%;margin:5px 0 3px;padding:1px 8px;border:1px solid var(--accent);border-radius:99px;background:none;font:inherit;font-size:11.5px;line-height:1.6;white-space:nowrap;cursor:pointer}button.ev-dot:hover{background:color-mix(in srgb,var(--accent) 14%,transparent)}
 .ckl-stop{display:block;width:10px;height:10px;border:2px solid var(--warn);border-radius:50%;box-sizing:border-box}
 .cklist li.done .ckl-b{background:var(--accent-solid);border-color:var(--accent-solid);color:var(--on-accent)}
@@ -1519,30 +1519,30 @@ function quotaShare(u){
     <span class="qs-bar"><i class="qs-before" style="width:${before}%"></i><i class="qs-me" style="left:${before}%;width:${Math.min(me, 100 - before)}%"></i></span>
     <span>已用 ${fmtPct(used)}</span></span>`;
 }
-function evalButton(card, skills, turnId){       // B1: a task that used a skill can evaluate it
-  if (!turnId || !skills?.length || card.querySelector('.evbtn')) return;
-  const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm evbtn';
-  b.innerHTML = ic('scale') + ' 評鑑這個技能'; b.title = '用同一份題組讓其他模型組合也做一次，比較誰最快、最省、品質最好、最有創意';
-  b.dataset.turn = turnId; b._open = () => openEval({skills, turnId});
-  b.onclick = () => b._open(); card.appendChild(b); evButtons();
-}
-// a conversation's running evaluation shows on the answer it evaluates: "評鑑中 3/12 · 查看進度"
-function evButtons(){
-  const r = EV_RUN[sessionId];
-  document.querySelectorAll('.evbtn[data-turn]').forEach(b => {
-    const on = r && String(r.turn_id) === b.dataset.turn;
-    if (on === b.classList.contains('running') && (!on || b.dataset.p === `${r.done}/${r.total}/${r.status}`)) return;
-    b.classList.toggle('running', !!on); b.classList.toggle('paused', !!on && !!r.paused);
-    if (on) { b.dataset.p = `${r.done}/${r.total}/${r.status}`;
-      b.innerHTML = r.paused
-        ? `${ic('scale')} 評鑑未完成 ${r.done}/${r.total} · 繼續`
-        : `<span class="spin"></span> ${r.status === 'queued' ? '評鑑排隊中' : `正在評鑑這個技能 ${r.done}/${r.total}`} · 查看進度`;
-      b.title = r.paused ? '這個技能的評鑑停在一半（已完成的試驗都保留）。按一下查看，並從下一次試驗繼續'
-        : '在背景執行中：讓其他模型組合用同一份題組各做幾次並評分。按一下看進度';
-      b.onclick = () => evOpenCampaign(sessionId); }
-    else { delete b.dataset.p; b.innerHTML = ic('scale') + ' 評鑑這個技能';
-      b.title = '用同一份題組讓其他模型組合也做一次，比較誰最快、最省、品質最好、最有創意'; b.onclick = () => b._open?.(); }
-  });
+// B1: a task that used a skill can start a skill evaluation - from a secondary menu (⋯), not a button under the
+// output: placed there it read as "grade this output", which it does not do (it reruns the task with other models)
+function evalButton(card, skills, turnId){
+  if (!turnId || !skills?.length || card.querySelector('.rmore')) return;
+  const w = document.createElement('span'); w.className = 'rmore';
+  w.innerHTML = `<button type="button" class="rmore-b" aria-haspopup="menu" aria-expanded="false" aria-label="更多" title="更多">⋯</button>`;
+  const btn = w.firstChild;
+  const close = () => { w.querySelector('.rmenu')?.remove(); btn.setAttribute('aria-expanded', 'false'); document.removeEventListener('click', away, true); document.removeEventListener('keydown', esc_); };
+  const away = e => { if (!w.contains(e.target)) close(); };
+  const esc_ = e => { if (e.key === 'Escape') { close(); btn.focus(); } };
+  btn.onclick = () => {
+    if (w.querySelector('.rmenu')) return close();
+    const r = EV_RUN[sessionId], mine = r && String(r.turn_id) === String(turnId);
+    const m = document.createElement('div'); m.className = 'rmenu'; m.setAttribute('role', 'menu');
+    m.innerHTML = mine
+      ? `<button type="button" role="menuitem">${ic('scale')}<span><b>${r.paused ? `技能評鑑未完成 ${r.done}/${r.total} · 繼續` : r.status === 'queued' ? '技能評鑑排隊中 · 查看' : `技能評鑑進行中 ${r.done}/${r.total} · 查看進度`}</b>
+          <small>${esc(skills.join('、'))}：其他模型組合用這次任務出的題目重做並評分</small></span></button>`
+      : `<button type="button" role="menuitem">${ic('scale')}<span><b>評鑑技能：比較模型組合…</b>
+          <small>讓其他模型組合用這次任務出的題目重做並評分，比較誰最快、最省、品質最好（${esc(skills.join('、'))}）。不會為上面的成果打分；需數小時，花費有上限</small></span></button>`;
+    m.querySelector('button').onclick = () => { close(); mine ? evOpenCampaign(sessionId) : openEval({skills, turnId}); };
+    w.appendChild(m); btn.setAttribute('aria-expanded', 'true'); m.querySelector('button').focus();
+    setTimeout(() => { document.addEventListener('click', away, true); document.addEventListener('keydown', esc_); });
+  };
+  card.appendChild(w);
 }
 function resultCard(ev){
   const u = ev.usage || {};
@@ -2758,7 +2758,6 @@ function markEvalSide(){
     const b = d.querySelector('.ev-dot');
     if (b) b.onclick = e => { e.stopPropagation(); evOpenCampaign(d.dataset.sid, d.firstChild?.textContent || ''); };
   });
-  evButtons();
 }
 // the campaign of a conversation: from the sidebar badge, or the note shown when the conversation is opened
 async function evOpenCampaign(sid, title){
