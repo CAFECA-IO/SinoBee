@@ -181,6 +181,32 @@ details.tool .body{padding:0 10px 10px;white-space:pre-wrap;font-family:ui-monos
 details.tool img{max-width:100%;border-radius:6px;margin-top:6px;border:1px solid var(--line)}
 .note{color:var(--muted);font-size:12px;margin:0 0 10px}
 .note.learn{color:var(--ok)}
+/* package a finished task into a skill: the offer under the result and the side panel */
+.pkoffer{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:-6px 0 16px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:10px;background:var(--panel);font-size:13px}
+.pkoffer .ico{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:var(--tool);color:var(--accent);flex:none}
+.pkoffer .ico svg{width:18px;height:18px}.pkoffer .t{flex:1;min-width:180px}.pkoffer .t div{color:var(--muted);margin-top:2px}
+#pkgPanel{position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);background:var(--panel);border-left:1px solid var(--line);z-index:60;display:flex;flex-direction:column;transform:translateX(105%);transition:transform .2s ease;box-shadow:-12px 0 30px rgba(0,0,0,.25)}
+#pkgPanel.open{transform:none}
+#pkgPanel .ph{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+#pkgPanel .ph>svg{width:18px;height:18px;color:var(--accent);flex:none}#pkgPanel .ph b{flex:1}
+#pkgPanel .pb{flex:1;overflow:auto;padding:14px;font-size:13px}
+#pkgPanel .pf{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:10px 14px;border-top:1px solid var(--line)}
+#pkgPanel h4{margin:16px 0 6px;font-size:13px}#pkgPanel h4 small{font-weight:400;color:var(--muted)}
+#pkgPanel .fld{display:block;margin-bottom:10px}#pkgPanel .fld>span{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+#pkgPanel .inp{width:100%;box-sizing:border-box}#pkgPanel textarea.inp{resize:vertical;line-height:1.5}
+#pkgPanel textarea.code,#pkgPanel .code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.pkprm{display:grid;grid-template-columns:minmax(90px,130px) 1fr auto auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--line)}
+.pkprm .inp{padding:5px 7px;font-size:12.5px}.pkprm .rq{display:flex;align-items:center;gap:4px;font-size:11.5px;color:var(--muted);white-space:nowrap}
+.pkprm .ex{grid-column:2/-1;font-size:11.5px;color:var(--muted)}
+.pkfile{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line)}
+.pkfile>span{flex:1;min-width:0}.pkfile .code{word-break:break-all}.pkfile small{display:block;color:var(--muted);margin-top:2px}.pkfile small.w{color:var(--warn)}
+.pkbox{margin-top:12px;padding:9px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel2)}
+.pkbox.warn{border-color:var(--warn)}.pkbox b{display:block;margin-bottom:3px}.pkbox ul{margin:4px 0 0;padding-left:18px;color:var(--muted)}
+.pkload{display:flex;flex-direction:column;align-items:center;gap:10px;padding:40px 10px;color:var(--muted);text-align:center}
+#pkgPanel .btn svg.i{width:14px;height:14px;vertical-align:-2px}#pkAddPrm{display:inline-flex;flex-direction:row;align-items:center;gap:4px;white-space:nowrap}
+.skgrp{font-size:11px;color:var(--muted);letter-spacing:.04em;margin:10px 4px 2px}
+.pill.exp{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+@media (max-width:520px){.pkprm{grid-template-columns:1fr auto auto}.pkprm .nm{grid-column:1/-1}.pkprm .ex{grid-column:1/-1}}
 form{display:flex;gap:8px;padding:12px max(16px,calc((100% - 820px)/2)) 16px;border-top:1px solid var(--line)}
 textarea:focus,.inp:focus,label.f input:focus,label.f select:focus{outline:none;border-color:var(--accent2);box-shadow:0 0 0 3px var(--glow)}
 textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:inherit;background:var(--panel);color:var(--ink);min-height:46px;max-height:200px}
@@ -667,7 +693,7 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
     <button class="btn icon" data-icon="plus" aria-label="新對話" id="newBtn"></button>
     <button class="btn icon" data-icon="stop" aria-label="停止任務" id="stopBtn" hidden></button>
     <button class="btn icon" data-icon="monitor" aria-label="即時桌面" id="deskBtn" hidden></button>
-    <button class="btn icon" data-icon="sparkles" aria-label="從此對話學習技能" id="learnBtn" hidden></button>
+    <button class="btn icon" data-icon="sparkles" aria-label="把這個任務打包成技能" title="把這個任務打包成技能" id="learnBtn" hidden></button>
     <button class="btn icon" data-icon="share" aria-label="分享對話" id="shareBtn" hidden></button>
     <button class="btn icon" data-icon="chart" aria-label="用量與成本" id="usageBtn"></button>
     <button class="btn icon" data-icon="gear" aria-label="設定" id="settingsBtn"></button><button class="btn icon tip-left" data-icon="sun" aria-label="切換深色／淺色" id="themeBtn"></button></header>
@@ -943,6 +969,11 @@ details.grp.adv > summary{font-size:14px;font-weight:650;color:var(--ink)}
   <div id="pubMsg" style="font-size:13px;margin-top:10px"></div>
   <div class="row"><button class="btn" id="pubClose" type="button">關閉</button><button class="btn primary" id="pubGo" type="button">登錄</button></div>
 </div></div>
+<aside id="pkgPanel" role="dialog" aria-modal="false" aria-labelledby="pkgTitle" aria-hidden="true">
+  <div class="ph"><span id="pkgIco"></span><b id="pkgTitle">打包成技能</b><button class="btn icon sm" type="button" id="pkgClose" aria-label="關閉"></button></div>
+  <div class="pb" id="pkgBody"></div>
+  <div class="pf" id="pkgFoot" hidden><button class="btn" type="button" data-a="cancel">取消</button><button class="btn" type="button" data-a="publish">儲存並發布到 Skill Hub</button><button class="btn primary" type="button" data-a="save">儲存技能</button></div>
+</aside>
 <div class="modal" id="skillModal"><div class="card wide"><h3 id="skTitle" style="margin-top:0"></h3><div id="skInfo"></div>
   <pre id="skBody" style="max-height:45vh;margin-top:12px"></pre><div class="row" id="skActs"></div></div></div>
 <div class="modal" id="quotaModal"><div class="card" style="max-width:520px" role="alertdialog" aria-labelledby="qmTitle">
@@ -1005,6 +1036,7 @@ const ICONS = {
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   play: '<path d="M7 4.5v15l12.5-7.5z"/>',
   monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
   sparkles: '<path d="M11 3l1.8 4.9L17.5 9.5l-4.7 1.7L11 16l-1.8-4.8L4.5 9.5l4.7-1.6z"/><path d="M18.5 14.5l.8 2 2.2.8-2.2.8-.8 2.1-.8-2.1-2.2-.8 2.2-.8z"/>',
   chart: '<path d="M3 3v18h18"/><path d="M8 17v-5M13 17V7M18 17v-8"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
@@ -1445,7 +1477,7 @@ function resultCard(ev){
     ev.run_report ? `<a href="#" data-rr="${esc(ev.run_report)}" title="每一步用了多少 tokens、時間與重送次數">每步花費</a>` : ''].filter(Boolean).join(' · ');
   const st = ev.status || 'done';
   const rr = c => { c.querySelectorAll('[data-rr]').forEach(a => a.onclick = e => { e.preventDefault(); showRunReport(a.dataset.rr); }); return c; };
-  if (st === 'done') { const c = rr(add(`<b>✓ 完成</b>${meta ? ' · ' + meta : ''}`, 'result done')); if (ev.turn_id) attachFeedback(c, ev.turn_id, null); return c; }
+  if (st === 'done') { const c = rr(add(`<b>✓ 完成</b>${meta ? ' · ' + meta : ''}`, 'result done')); if (ev.package_hint) c.dataset.pkg = '1'; if (ev.turn_id) attachFeedback(c, ev.turn_id, null); return c; }
   if (st === 'stopped') return rr(add(`<b>■ 已停止</b>${meta ? ' · ' + meta : ''}`, 'result stopped'));
   const er = ev.error || {};
   const head = {error: '✕ 任務中斷', incomplete: '△ 任務未完成', blocked: '⏸ 已暫停', failed: '✕ 任務失敗'}[st] || '✕ 任務中斷';
@@ -1538,7 +1570,7 @@ function attachFeedback(card, turnId, rating, comment){
       if (r > 0) {       // switching to 👍: a 👎 reasons panel that is still open no longer applies
         panel()?.remove();
         if (saved > 0) { rating = 1; return paint(); }        // 👎 was never recorded: just go back
-        return sendFeedback(turnId, 1, [], '', saved < 0).then(ok => { if (ok) { rating = saved = 1; paint(); } });
+        return sendFeedback(turnId, 1, [], '', saved < 0).then(ok => { if (ok) { rating = saved = 1; paint(); offerPackage(card, turnId); } });
       }
       // 👎 is selected at once; the panel only adds the reasons. Closing it without reasons still records 👎.
       const before = rating; rating = -1; paint();
@@ -2035,7 +2067,7 @@ async function fillSide(side){
     side.appendChild(head);
     head.querySelector('#trustProj')?.addEventListener('click', async () => { if (await uiConfirm('信任此專案後，其 .sinobee/skills 與 .agents/skills 中的技能會載入給 agent 使用。之後新增或變更的技能需再次核准。確定？')) { await post('/api/skills/project/trust', {trusted: true}); loadSide(); } });
     head.querySelector('#skInstall').onclick = installSkill;
-    head.querySelector('#skLearnHelp').onclick = () => uiAlert('讓 SinoBee 學會新技能：\n• 對話中說「記住這個做法」或「做成技能」\n• 輸入 /learn <網址、資料夾或描述>\n• 在對話頁按「從此對話學習技能」\n• SinoBee 也會在完成多步驟、重複出現的任務後自動建立（experimental）\n\n使用 /技能名稱 可直接啟用某個技能。');
+    head.querySelector('#skLearnHelp').onclick = () => uiAlert('讓 SinoBee 學會新技能：\n• 對話中說「記住這個做法」或「做成技能」\n• 輸入 /learn <網址、資料夾或描述>\n• 在對話頁按 ✨「把這個任務打包成技能」：參數化、移除個資後存成你的技能\n• SinoBee 也會在完成多步驟、重複出現的任務後自動建立（實驗中）\n\n使用 /技能名稱 可直接啟用某個技能。');
     for (const p of data.pending || []) {
       const d = document.createElement('div'); d.className = 'item pend';
       d.innerHTML = `💡 建議新技能：<b>${esc(p.payload.name)}</b><small>${p.kind === 'skill_patch' ? '修補既有技能' : '由 SinoBee 從任務中學到'}</small>
@@ -2045,11 +2077,15 @@ async function fillSide(side){
         await post(`/api/pending/${p.id}/${b.dataset.a}`, {}); loadSide(); });
       side.appendChild(d);
     }
-    for (const s of data.skills) {
+    const GRP = s => ['builtin', 'verified'].includes(s.trust) ? '內建與官方' : ['local', 'project', 'agent'].includes(s.trust) ? '我的技能' : '已安裝';
+    const order = ['我的技能', '已安裝', '內建與官方'];
+    let lastGrp = null;
+    for (const s of [...data.skills].sort((a, b) => order.indexOf(GRP(a)) - order.indexOf(GRP(b)))) {
+      if (GRP(s) !== lastGrp) { lastGrp = GRP(s); const g = document.createElement('div'); g.className = 'skgrp'; g.textContent = lastGrp; side.appendChild(g); }
       const st = s.stats || {}; const rate = st.success_rate == null ? '' : ` · 成功率 ${Math.round(st.success_rate * 100)}%`;
-      const pills = [st.status === 'candidate' ? 'experimental' : '', st.needs_revision ? '待修正' : '', s.disabled ? '已停用' : '', s.modified ? '已修改' : '', s.effective ? '' : '被遮蔽'].filter(Boolean);
+      const pills = [st.status === 'candidate' ? '實驗中' : '', s.packaged ? '打包' : '', st.needs_revision ? '待修正' : '', s.disabled ? '已停用' : '', s.modified ? '已修改' : '', s.effective ? '' : '被遮蔽'].filter(Boolean);
       const d = document.createElement('div'); d.className = 'item' + ((!s.policy.visible || s.disabled || !s.effective) ? ' dim' : '');
-      d.innerHTML = `<span class="skli">${SKILL_SVG}</span>${esc(s.name)} <span class="tb t-${s.trust}">${esc(s.trust_label)}</span>${pills.map(x => `<span class="pill">${x}</span>`).join('')}
+      d.innerHTML = `<span class="skli">${SKILL_SVG}</span>${esc(s.name)} <span class="tb t-${s.trust}">${esc(s.trust_label)}</span>${pills.map(x => `<span class="pill${x === '實驗中' ? ' exp' : ''}">${x}</span>`).join('')}
         <small>${esc(s.description)}</small><small>${s.scope === 'project' ? '專案' : s.scope === 'global' ? '全域' : '額外'} · v${esc(s.version)} · 使用 ${st.uses || 0} 次${rate}</small>`;
       d.onclick = () => openSkill(s);
       side.appendChild(d);
@@ -2088,6 +2124,8 @@ async function openSkill(s){
     <tr><td>權限</td><td style="text-align:left">agent 可見 ${pol.visible ? '✓' : '✗'} · 腳本 ${{allow: '一般規則', confirm: '每次需核准', deny: '禁止'}[pol.scripts]} · allowed-tools ${pol.allowed_tools ? '採用' : '忽略'} · agent 可修改 ${pol.agent_edit ? '✓' : '✗（需 fork）'}</td></tr>
     ${r.allowed_tools.length ? `<tr><td>allowed-tools</td><td style="text-align:left">${esc(r.allowed_tools.join(' '))}</td></tr>` : ''}
     ${r.diagnostics.length ? `<tr><td>格式提醒</td><td style="text-align:left">${r.diagnostics.map(esc).join('<br>')}</td></tr>` : ''}
+    ${(r.params || []).length ? `<tr><td>參數</td><td style="text-align:left">${r.params.map(p => `<code>${esc(p.name)}</code>${p.required ? '（必填）' : '（選填）'}`).join('、')}</td></tr>` : ''}
+    ${r.packaged ? `<tr><td>來源</td><td style="text-align:left">從你完成的任務打包${(r.stats || {}).status === 'candidate' ? ' · 實驗中：用它完成任務後，就可以評鑑' : ''}</td></tr>` : ''}
     ${r.files.length ? `<tr><td>附件</td><td style="text-align:left">${r.files.map(esc).join('<br>')}</td></tr>` : ''}</tbody></table>`;
   $('#skBody').textContent = r.content;
   const acts = [];
@@ -2116,13 +2154,100 @@ async function installSkill(){
   const r = await post('/api/skills/install', {ref, scope});
   uiAlert(`已安裝 ${r.name}（信任：${r.trust}）${r.warning ? '\n⚠︎ ' + r.warning : ''}`); loadSide();
 }
-$('#learnBtn').onclick = async () => {
-  if (!sessionId) return;
-  $('#learnBtn').disabled = true; $('#learnBtn').innerHTML = '<div class="spin"></div>';
-  try { const r = await post(`/api/sessions/${sessionId}/learn`, {});
-    add(r.skill ? `✨ 從此對話學到技能：${esc(r.skill.name)}（${esc(r.skill.status)}）` : '這段對話沒有可重複使用的流程，未建立技能。' + (r.errors?.length ? ' ' + esc(r.errors.join('; ')) : ''), 'note learn'); loadSide(); }
-  finally { $('#learnBtn').disabled = false; $('#learnBtn').innerHTML = ic('sparkles'); }
-};
+$('#learnBtn').onclick = () => { if (sessionId) openPackage(null); };
+// ---------------- package a finished task into a skill (skills/package.py) ----------------
+// The skill keeps the METHOD; this task's values become parameters and personal data is replaced or left out.
+// No evaluation is set up here: a skill is evaluated after it has been used.
+function offerPackage(card, turnId){
+  if (card.dataset.pkg !== '1' || card.dataset.pkgShown) return;
+  card.dataset.pkgShown = '1';
+  const o = document.createElement('div'); o.className = 'pkoffer';
+  o.innerHTML = `<span class="ico">${ic('box')}</span><div class="t"><b>把這個做法打包成技能？</b><div>下次換一份資料，就能用同樣的做法完成；技能不會包含這次的內容。</div></div>
+    <button class="btn primary sm" type="button" data-a="go">打包成技能</button><button class="btn sm" type="button" data-a="no">不用</button>`;
+  o.querySelector('[data-a=go]').onclick = () => { o.remove(); openPackage(turnId); };
+  o.querySelector('[data-a=no]').onclick = () => o.remove();
+  (card.nextElementSibling?.classList.contains('fbpanel') ? card.nextElementSibling : card).after(o);
+}
+const PKG = {draft: null, busy: false};
+function pkgOpen(on){ const p = $('#pkgPanel'); p.classList.toggle('open', on); p.setAttribute('aria-hidden', on ? 'false' : 'true'); }
+$('#pkgIco').outerHTML = ic('box');
+$('#pkgClose').innerHTML = ic('x');
+$('#pkgClose').onclick = () => pkgOpen(false);
+async function openPackage(turnId){
+  if (!sessionId || PKG.busy) return;
+  PKG.busy = true; PKG.draft = null; $('#pkgFoot').hidden = true; pkgOpen(true);
+  $('#pkgBody').innerHTML = '<div class="pkload"><div class="spin"></div>思維模型正在從這個任務整理出做法、參數與可以重用的檔案…<small>約需 10–40 秒</small></div>';
+  try {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/package?token=${encodeURIComponent(token)}`,
+      {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(turnId ? {turn_id: turnId} : {})});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || '打包失敗');
+    PKG.draft = j; renderPackage();
+  } catch (e) {
+    $('#pkgBody').innerHTML = `<div class="pkload">${esc(e.message || String(e))}<button class="btn sm" type="button" id="pkgRetry">再試一次</button></div>`;
+    $('#pkgRetry').onclick = () => { PKG.busy = false; openPackage(turnId); };
+  } finally { PKG.busy = false; }
+}
+function renderPackage(){
+  const d = PKG.draft;
+  const prm = (p, i) => `<div class="pkprm" data-i="${i}"><input class="inp code nm" value="${esc(p.name)}" aria-label="參數名稱" spellcheck="false">
+    <input class="inp ds" value="${esc(p.description)}" aria-label="參數說明" placeholder="說明">
+    <label class="rq"><input type="checkbox" class="sw rqv" ${p.required ? 'checked' : ''} aria-label="必填">必填</label>
+    <button class="btn icon sm" type="button" data-del="${i}" aria-label="移除參數">${ic('x')}</button>
+    ${p.example ? `<div class="ex">例：${esc(p.example)}</div>` : ''}</div>`;
+  const files = (d.files || []).map(f => `<label class="pkfile"><span><span class="code">${esc(f.target)}</span>
+      <small>${esc(f.reason || (f.role === 'script' ? '本次寫的腳本' : '本次寫的範本'))}${f.source !== f.target ? ` · 來源 ${esc(f.source)}` : ''}</small>
+      ${f.warning ? `<small class="w">⚠︎ ${esc(f.warning)}</small>` : ''}</span>
+      <input type="checkbox" class="sw" data-src="${esc(f.source)}" ${f.include ? 'checked' : ''} ${f.locked ? 'disabled' : ''} aria-label="${esc(f.target)}"></label>`).join('');
+  const pv = d.privacy || [], rep = pv.filter(x => x.action === 'replaced'), exc = pv.filter(x => x.action === 'excluded');
+  const count = list => Object.entries(list.reduce((a, x) => (a[x.label] = (a[x.label] || 0) + 1, a), {})).map(([k, n]) => `${n} 個${k}`).join('、');
+  const privacy = pv.length
+    ? `<div class="pkbox warn"><b>隱私檢查</b>${rep.length ? `技能內容中的 ${count(rep)} 已換成代稱（人員 A、&lt;email-1&gt;…）。` : ''}${exc.length ? `有 ${new Set(exc.map(x => x.where)).size} 個檔案含 ${count(exc)}，不收進技能。` : ''}
+       <ul>${pv.slice(0, 8).map(x => `<li>${esc(x.where)}：${esc(x.label)} ${esc(x.value)} → ${x.action === 'replaced' ? '已替換' : '不收進技能'}</li>`).join('')}</ul></div>`
+    : '<div class="pkbox"><b>隱私檢查</b>沒有發現人名、聯絡方式、本機路徑或金鑰。技能只描述做法，不含這次任務的內容。</div>';
+  $('#pkgBody').innerHTML = `
+    <label class="fld"><span>技能名稱（用 /名稱 呼叫；小寫英數與連字號）</span><input class="inp code" id="pkName" value="${esc(d.name)}" spellcheck="false"></label>
+    <label class="fld"><span>標題</span><input class="inp" id="pkTitle" value="${esc(d.title || '')}"></label>
+    <label class="fld"><span>說明（決定何時會被用上）</span><textarea class="inp" id="pkDesc" rows="3">${esc(d.description)}</textarea></label>
+    <h4>參數 <small>這次的值 → 以後由使用者提供</small></h4>
+    <div id="pkParams">${(d.params || []).map(prm).join('') || '<div class="pill">沒有參數</div>'}</div>
+    <button class="btn sm" type="button" id="pkAddPrm" style="margin-top:6px">${ic('plus')} 新增參數</button>
+    <h4>做法（SKILL.md）</h4>
+    <textarea class="inp code" id="pkBodyTxt" rows="12">${esc(d.body)}</textarea>
+    <h4>收進技能的檔案</h4>
+    ${files || '<div style="color:var(--muted)">這個任務沒有寫出可重用的腳本或範本。</div>'}
+    ${privacy}
+    <label class="fld" style="margin-top:12px"><span>存放位置</span><select class="inp" id="pkScope"><option value="global">我的技能（所有專案可用）</option><option value="project">只在這個專案</option></select></label>
+    <div style="color:var(--muted);font-size:12px">儲存後技能標為「實驗中」。用它完成任務後，就可以在結果下方發起評鑑。</div>`;
+  const readParams = () => [...$('#pkParams').querySelectorAll('.pkprm')].map(r => {
+    const old = d.params[+r.dataset.i] || {};
+    return {name: r.querySelector('.nm').value.trim(), description: r.querySelector('.ds').value.trim(),
+            required: r.querySelector('.rqv').checked, example: old.example || ''}; });
+  $('#pkParams').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { d.params = readParams(); d.params.splice(+b.dataset.del, 1); keep(); renderPackage(); });
+  $('#pkAddPrm').onclick = () => { d.params = readParams(); d.params.push({name: '', description: '', required: false, example: ''}); keep(); renderPackage(); };
+  const keep = () => { d.name = $('#pkName').value; d.title = $('#pkTitle').value; d.description = $('#pkDesc').value; d.body = $('#pkBodyTxt').value;
+    $('#pkgBody').querySelectorAll('input[data-src]').forEach(x => { const f = d.files.find(f => f.source === x.dataset.src); if (f && !f.locked) f.include = x.checked; }); };
+  PKG.collect = () => { keep(); d.params = readParams();
+    return {name: d.name.trim(), title: d.title, description: d.description, body: d.body,
+            params: d.params.filter(p => p.name), files: Object.fromEntries(d.files.map(f => [f.source, !!f.include]))}; };
+  $('#pkgFoot').hidden = false;
+}
+$('#pkgFoot').querySelectorAll('button').forEach(b => b.onclick = async () => {
+  if (b.dataset.a === 'cancel') return pkgOpen(false);
+  if (!PKG.draft || PKG.busy) return;
+  const edits = PKG.collect();
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(edits.name)) return uiAlert('技能名稱只能用小寫英文、數字與連字號');
+  PKG.busy = true; $('#pkgFoot').querySelectorAll('button').forEach(x => x.disabled = true);
+  try {
+    const r = await post('/api/skills/package', {draft_id: PKG.draft.id, edits, scope: $('#pkScope').value, publish: b.dataset.a === 'publish'});
+    pkgOpen(false); PKG.draft = null;
+    const pub = r.published ? '，已送到 Skill Hub 審核' : r.publish_error ? `（發布失敗：${esc(r.publish_error)}）` : '';
+    add(`✨ 已建立技能 <b>${esc(r.name)}</b>（實驗中${r.files?.length ? `，含 ${r.files.length} 個檔案` : ''}）${pub}。用 /${esc(r.name)} 呼叫；用它完成任務後，就可以評鑑。`, 'note learn');
+    loadSide();
+  } catch (e) { /* post() already showed the reason */ }
+  finally { PKG.busy = false; $('#pkgFoot').querySelectorAll('button').forEach(x => x.disabled = false); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#pkgPanel').classList.contains('open') && !document.querySelector('.modal.open')) pkgOpen(false); });
 
 // ---------------- formatting ----------------
 let CUR = {code: 'USD', rate: null}, NEEDS_SETUP = false;

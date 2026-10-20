@@ -1427,3 +1427,33 @@ SinoBee 原本是「主模型 + 升級模型」：卡關、步驟太多或遇到
   - 過程時間軸：計畫、執行（每步 tokens）、成果、評鑑。
   - 每次試驗與公平分計算，以及測試條件。
 - **/benchmarks**：「SinoBee 實測評鑑」改為列出各主題，連到清單頁。舊的 `/benchmarks/studies/[id]` 保留給既有連結。
+
+## 33. 把完成的任務打包成技能（M1，2026-10-20）
+
+技能打包、評鑑技能與評鑑活動的完整規劃見專案文件 `SinoBee-SKILL-PACK-EVAL-IMPL.md`（M1–M5）。M1 只做「打包」：打包時不設定評鑑，也不選對手組合；技能用過之後才評鑑（M3）。
+
+- **何時建議**：`agent/loop.py` 在 `turn_end` 帶 `package_hint`，由 `skills/package.worth_packaging()` 決定。條件：
+  - 最上層任務、狀態 done、至少 10 步；
+  - 有驗收清單或產出檔案；
+  - 這次沒有用到技能，現有技能也不會被 `suggest()` 選中。
+  - 前端只在使用者按 👍 之後，於結果下方顯示「把這個做法打包成技能？」。頂部 ✨ 按鈕隨時都能打包（取代舊的「從此對話學習技能」）。
+- **草稿**：`POST /api/sessions/{sid}/package {turn_id?}` 呼叫 `draft_from_session()`。
+  - 材料來自執行報告：需求、驗收清單、每步工具呼叫、答案、寫出的檔案。
+  - 思維模型寫出名稱、標題、說明、參數（這次的具體值變成 `{param}`）、做法、要收進的腳本與範本，以及任務中出現的人名。
+  - 草稿存在 `$SINOBEE_HOME/skill_drafts/<id>.json`，保留 24 小時。回給 UI 的版本不含人名清單。
+- **隱私**（`sinobee/privacy.py`）：
+  - `scan()` 找 Email、電話、身分證號、信用卡號（Luhn 檢查）、金鑰或權杖、本機家目錄路徑、IP，以及呼叫端給的人名。
+  - `deidentify()` 用穩定的代稱替換（人員 A、`<email-1>`、`<路徑-1>`），同一個值在各段文字都用同一個代稱。
+  - 草稿的文字一律替換。檔案只要還含個資或金鑰就鎖住（關閉且不能打開）；工作區絕對路徑先改成相對路徑。
+  - 面板只顯示遮罩後的值。
+- **儲存**：`POST /api/skills/package {draft_id, edits, scope, publish}` 呼叫 `save_draft()`。
+  - 使用者編輯過的文字會重新掃描：Email、電話、身分證、卡號、金鑰或人名一出現就拒絕儲存。檔案也從工作區重新讀取、重新掃描。
+  - 以 `actor="user"` 建立，所以是本機信任，狀態為 candidate（UI 顯示「實驗中」）。
+  - `metadata`：`sinobee-source: packaged`、`sinobee-params: a*, b`（`*` 表示必填）、`sinobee-triggers`。SKILL.md 本文含「## 參數」。
+  - 選擇「儲存並發布」時才呼叫 `hub.publish`。草稿用過即刪除。
+- **前端**：
+  - 右側 `#pkgPanel` 可編輯名稱、標題、說明、參數（名稱、說明、必填開關）與做法。
+  - 檔案用 toggle switch 決定要不要收進技能；面板也列出隱私檢查結果與存放位置。
+  - 技能清單分成「我的技能／已安裝／內建與官方」，並標示「實驗中」「打包」。
+  - 技能視窗顯示參數，並提示「用它完成任務後，就可以評鑑」。
+- 測試：`tests/test_package.py`。

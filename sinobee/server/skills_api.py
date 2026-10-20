@@ -86,6 +86,24 @@ def register(app: FastAPI, rt_getter) -> None:
         m = mgr()
         return guard(m.trust_project) if body.get("trusted", True) else guard(m.untrust_project)
 
+    @app.post("/api/sessions/{sid}/package")
+    async def package_draft(sid: str, body: dict | None = None):
+        """Draft a skill from the finished task in this session (nothing is saved until /api/skills/package)."""
+        from ..skills import package
+        try:
+            return await package.draft_from_session(rt_getter(), sid, (body or {}).get("turn_id"))
+        except SkillError as e:
+            raise HTTPException(400, str(e))
+
+    @app.post("/api/skills/package")
+    async def package_save(body: dict):
+        from ..skills import package
+        edits = dict(body.get("edits") or {})
+        for k in ("scope", "publish"):
+            if k in body:
+                edits[k] = body[k]
+        return guard(package.save_draft, rt_getter(), str(body.get("draft_id") or ""), edits)
+
     @app.post("/api/sessions/{sid}/learn")
     async def learn(sid: str):
         from ..learning import learn_from_session

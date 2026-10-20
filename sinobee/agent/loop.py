@@ -1405,6 +1405,16 @@ class Agent:
                 inf = None
             if inf and inf["files"]:
                 snap = {"session": self._snap[0], "key": self._snap[1], "files": len(inf["files"])}
+        package_hint = False
+        if self.depth == 0 and status == "done":
+            try:
+                from ..skills.package import worth_packaging
+                package_hint = worth_packaging(
+                    depth=self.depth, status=status, steps=steps, checklist=len(checklist_tools.get(self.ctx) or []),
+                    outputs=len(stats.get("artifacts") or []), skills_used=turn_skills, query=query,
+                    mgr=getattr(self.rt, "skills", None))
+            except Exception:  # noqa: BLE001
+                package_hint = False
         self._emit("turn_end", {"text": final_text, "status": status, "error": error_info, "steps": steps,
                                 "snapshot": snap, "failure": failure, "run_report": run_report,
                                 "plan": bool(stats.get("plan")),
@@ -1418,7 +1428,8 @@ class Agent:
                                 "session_cost_usd": session_usage["cost_usd"],
                                 "session_tokens": session_usage["total_tokens"],
                                 "artifacts": stats.get("artifacts", [])[-30:],
-                                "quality_skipped": stats.get("quality_skipped") or []})
+                                "quality_skipped": stats.get("quality_skipped") or [],
+                                "package_hint": package_hint})
         if getattr(self, "_run_rec", None):
             if self._run_rec.rid:
                 self._run_rec.state["usage"] = budget_mod.usage_record(self._guard, stats, turn_usage, steps)

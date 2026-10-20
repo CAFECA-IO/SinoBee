@@ -80,6 +80,16 @@ class Skill:
         return spec.meta_list(self.frontmatter, "sinobee-triggers")
 
     @property
+    def params(self) -> list[dict]:
+        """Parameters a packaged skill takes (metadata sinobee-params: "a*, b" - * marks required)."""
+        return [{"name": x.rstrip("*"), "required": x.endswith("*")}
+                for x in spec.meta_list(self.frontmatter, "sinobee-params")]
+
+    @property
+    def packaged(self) -> bool:
+        return str(self.metadata.get("sinobee-source", "")) == "packaged"
+
+    @property
     def requires_tools(self) -> list[str]:
         return spec.meta_list(self.frontmatter, "sinobee-requires-tools")
 
@@ -144,7 +154,8 @@ class Skill:
                 "modified": self.modified, "reason": self.reason, "location": str(self.location),
                 "allowed_tools": self.allowed_tools, "tags": self.tags, "disabled": self.disabled,
                 "diagnostics": self.diagnostics, "license": self.frontmatter.get("license"),
-                "compatibility": self.frontmatter.get("compatibility")}
+                "compatibility": self.frontmatter.get("compatibility"), "params": self.params,
+                "packaged": self.packaged}
 
 
 def _current_platform() -> str:
