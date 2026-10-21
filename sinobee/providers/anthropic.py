@@ -147,8 +147,11 @@ class AnthropicProvider(Provider):
         if temperature is not None:
             payload["temperature"] = temperature
         if tools:
-            payload["tools"] = [{"name": t.name, "description": t.description, "input_schema": t.parameters}
-                                for t in tools]
+            # eager_input_streaming: a big argument (a whole page for write_file) is sent while the model writes it,
+            # not held back until it is complete - minutes of silence otherwise. The input may then be cut or invalid
+            # JSON; that comes back to the model as a tool error ("could not parse tool arguments").
+            payload["tools"] = [{"name": t.name, "description": t.description, "input_schema": t.parameters,
+                                 "eager_input_streaming": True} for t in tools]
             payload["tools"][-1]["cache_control"] = CACHE
         data = await self._post(f"{self.base_url}/v1/messages", payload, self._headers(),
                                 timeout=self.call_timeout(max_tokens))

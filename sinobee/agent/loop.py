@@ -20,7 +20,7 @@ from ..pricing import cost_usd, price_for
 from ..config import Config
 from ..memory.store import MemoryStore
 from ..providers import build_auxiliary, build_chain, build_embedder
-from ..providers.base import REASONING_EFFORT, TOO_LONG, is_timeout
+from ..providers.base import REASONING_EFFORT, TOO_LONG, is_stream_cut, is_timeout
 from ..skills import manager_from_config
 from ..fileaccess import resolve_file
 from ..tools import checklist_tools
@@ -1027,8 +1027,9 @@ class Agent:
         text = user_input if isinstance(user_input, str) else " ".join(
             getattr(p, "text", "") or "" for p in user_input if isinstance(getattr(p, "text", None), str))
         lead = re.match(r"^((?:/[\w.-]+\s+)+)", text or "")
-        hint = {"task_kind": routing.task_kind(text), "turn": f"{self.session_id}:{time.time()}",
-                "skill": lead.group(1).split()[0][1:] if lead else None}
+        kind = routing.task_kind(text)
+        hint = {"task_kind": kind, "turn": f"{self.session_id}:{time.time()}",
+                "skill": lead.group(1).split()[0][1:] if lead else None, "complex": routing.is_complex(text, kind)}
         t0 = time.time()
         with scope(self.session_id, "agent") as usage_scope:
             tok = routing.HINT.set(hint)
@@ -1265,18 +1266,27 @@ class Agent:
                 if long_token is not None:
                     TOO_LONG.reset(long_token)
                     long_token = None
-                if after_length and too_long_left > 0 and is_timeout(e):
+                cut = is_stream_cut(e)
+                if too_long_left > 0 and ((after_length and is_timeout(e)) or cut):
                     # U4: the reply before was cut off and this one did not come back in time - the work asked for
                     # is too long for one reply. Not the network: do not send the same request again (nor to a
-                    # fallback model); ask for it in parts, thinking less, and go on.
+                    # fallback model); ask for it in parts, thinking less, and go on. The same for an answer whose
+                    # stream was cut and could not be resumed or sent again (providers/base.py RelayFeed): a long
+                    # reply is the usual reason.
                     too_long_left -= 1
                     after_length = False
                     stats.setdefault("too_long_timeouts", []).append(
-                        {"step": steps, "max_tokens": max_tokens, "seconds": round(time.monotonic() - t_call, 1)})
+                        {"step": steps, "max_tokens": max_tokens, "seconds": round(time.monotonic() - t_call, 1),
+                         **({"stream_cut": True} if cut else {})})
                     low_effort_left = max(low_effort_left, int(self.config.get("agent.low_effort_steps", 5)))
-                    self._emit("status", {"message": "上一次回覆被輸出上限截斷，這次又在時限內沒有回完：判斷為一次要寫的內容太長，"
-                                                     "不重送同一個請求，改請模型分段寫"})
-                    self._event("輸出被截斷後接著逾時：視為內容太長，改為分段寫（不重送同一請求）")
+                    if cut:
+                        self._emit("status", {"message": "回覆串流中途斷線，續傳與重送都沒有成功：判斷為一次要寫的內容太長，"
+                                                         "改請模型分段寫"})
+                        self._event("串流中途斷線且無法續傳：改為分段寫（不再重送同一請求）")
+                    else:
+                        self._emit("status", {"message": "上一次回覆被輸出上限截斷，這次又在時限內沒有回完：判斷為一次要寫的內容太長，"
+                                                         "不重送同一個請求，改請模型分段寫"})
+                        self._event("輸出被截斷後接著逾時：視為內容太長，改為分段寫（不重送同一請求）")
                     nudge = "length"
                     continue
                 for qe in current_scope.get().drain_quota_events():

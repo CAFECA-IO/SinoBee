@@ -1828,3 +1828,23 @@ SinoBee.ai 這一側：`BenchSuite` 題組庫、報告的 `visibility`、`Skill.
   - 以下情況不改派：額度用完、登入失效、請求被拒（400）、中繼連不上、內容太長的逾時。
   - 結果卡片顯示「已改用 X（Y 暫時無法使用）」，滑過顯示原本模型的錯誤。
 - 測試：`tests/test_routing.py`；SinoBee.ai `tests/llm-relay.test.ts`（熔斷、exclude）。
+
+## 41. 長回覆不被邊緣切斷（不改 NGINX、Cloudflare，2026-10-21）
+
+**實測**（`scripts/edge-probe.py`，從使用者電腦經 sinobee.ai 量測）：
+
+- 串流逐段送達：事件在 1.8～5.6 秒間陸續到達，沒有被 NGINX 或 Cloudflare 攢成一包；也沒有被壓縮（沒有 `content-encoding`）；SSE 註解行（`: …`）照常送達。
+- 沉默就被切：上游超過 **90 秒**沒有任何位元組，連線就被切斷（兩次量測都在最後一個事件後 90.0 秒）。比 Cloudflare 文件寫的 125 秒短，多半是 NGINX 的 `proxy_read_timeout 90s`。
+- 開啟 `eager_input_streaming` 後，經由現行中繼的寫檔參數仍沒有逐段送來（上游沉默 90 秒後被切）；心跳不依賴它，照樣有效。
+
+**做法**（全在程式裡）：
+
+| 層 | 做什麼 |
+|---|---|
+| SinoBee.ai 中繼 | 每個 SSE 回應在 15 秒沒有送出資料時送 `: ping`；帶 `x-sinobee-request-id` 的呼叫與連線脫鉤：上游跑到完、事件編號（`id: n`）並保存 15 分鐘（記憶體＋ PostgreSQL），`GET /api/v1/llm/streams/{id}`（`Last-Event-ID`）續傳，同一個 id 再 POST 會接上同一個呼叫；只扣一次 |
+| SinoBee.ai 中繼 | `POST /api/v1/llm/jobs?format=…` 背景執行，立即回 202；`GET /api/v1/llm/jobs/{id}?after=n` 長輪詢（最多等 20 秒），每個請求都很短 |
+| SinoBee.ai 分配 | 品質下限：page、code 或 SinoBee 標記為複雜的任務，主要與思維角色不用 Haiku、Luna、Flash Lite、mini、nano 這一級（偏好「成本」也一樣）；只剩這級時照用 |
+| SinoBee | 每次中繼呼叫帶 request id；串流中途斷線時從最後一個完整事件接續：續傳兩次，之後改輪詢；之後 30 分鐘新的呼叫直接用 job（輪詢）；中繼沒有 jobs（舊版）就照舊串流 |
+| SinoBee | 救不回來的斷線只重送 1 次（不再 4 次）；再斷就套用 U4：不重送同一請求，請模型分段寫 |
+| SinoBee | Anthropic 工具定義都加 `eager_input_streaming: true`；解析不了的參數照舊以工具錯誤回給模型 |
+| SinoBee | `routing.is_complex`：page、code、超過 600 字或 10 行的需求，分配時帶 `complex: true` |

@@ -43,6 +43,16 @@ def task_kind(text: str) -> str:
     return "chat"
 
 
+COMPLEX_KINDS = ("page", "code")
+
+
+def is_complex(text: str, kind: str | None = None) -> bool:
+    """Work that the cheap-and-fast tier (Haiku, Luna, Flash Lite) should not get for its main and thinking roles:
+    a page or code, or a long, detailed request. SinoBee.ai applies the floor (route.ts)."""
+    t = text or ""
+    return (kind or task_kind(t)) in COMPLEX_KINDS or len(t) > 600 or t.count("\n") >= 10
+
+
 def preference(config) -> str:
     p = str(config.get("model.preference") or "balanced")
     return p if p in PREFERENCES else "balanced"
@@ -79,10 +89,12 @@ def ask(config, role: str, needs: dict | None = None, exclude: list[str] | None 
     hint = HINT.get() or {}
     body = {"role": role, "preference": preference(config), "skill": hint.get("skill"),
             "task_kind": hint.get("task_kind") or "chat", "needs": needs or {}}
+    if hint.get("complex"):
+        body["complex"] = True
     if exclude:                  # these just failed: ask again without them, and keep the new pick for the turn
         body["exclude"] = [m.removeprefix("sinobee/") for m in exclude]
     key = ("route", role, body["preference"], body["skill"], body["task_kind"], bool((needs or {}).get("vision")),
-           hint.get("turn"))
+           bool(hint.get("complex")), hint.get("turn"))
     now = time.time()
     with _lock:
         hit = _cache.get(key)

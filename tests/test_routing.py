@@ -59,7 +59,7 @@ def test_auto_asks_once_per_turn_and_role_and_records_the_pick(config, monkeypat
     monkeypatch.setattr(S.SinoBeeProvider, "chat", fake_chat)
     config.data["model"].update(default="sinobee/auto", preference="cost")
     chain = build_chain(config)
-    tok = routing.HINT.set({"task_kind": "page", "skill": "frontend-design", "turn": "t1"})
+    tok = routing.HINT.set({"task_kind": "page", "skill": "frontend-design", "turn": "t1", "complex": True})
     try:
         with scope("s", "agent") as sc:
             for _ in range(3):
@@ -67,7 +67,7 @@ def test_auto_asks_once_per_turn_and_role_and_records_the_pick(config, monkeypat
         assert r.model == "sinobee/openai/gpt-5.6-luna" and served == ["openai/gpt-5.6-luna"] * 3
         assert len(asked) == 1, "one allocation per turn"
         assert asked[0] == {"role": "main", "preference": "cost", "skill": "frontend-design", "task_kind": "page",
-                            "needs": {"tools": False, "vision": False}}
+                            "needs": {"tools": False, "vision": False}, "complex": True}
         assert sc.route["main"]["model"] == "sinobee/openai/gpt-5.6-luna" and sc.as_dict()["route"]
     finally:
         routing.HINT.reset(tok)

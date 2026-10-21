@@ -7,6 +7,7 @@ import logging
 import random
 import re
 import time
+import uuid
 from abc import ABC, abstractmethod
 
 import httpx
@@ -108,6 +109,35 @@ REASONING_EFFORT: contextvars.ContextVar = contextvars.ContextVar("reasoning_eff
 TOO_LONG: contextvars.ContextVar = contextvars.ContextVar("too_long", default=False)
 
 
+STREAM_CUT = re.compile(r"incomplete chunked read|peer closed connection|RemoteProtocolError|Server disconnected|"
+                        r"stream cut", re.I)
+
+
+def is_stream_cut(err) -> bool:
+    """A streamed answer that stopped in the middle (a proxy or the network dropped the connection)."""
+    return bool(STREAM_CUT.search(str(err)))
+
+
+# After a relay stream was cut, new relay calls start as jobs (polled in short requests, which no proxy cuts) for a
+# while; see RelayFeed. Module-wide: the edge between this computer and sinobee.ai is the same for every model.
+POLL_STICKY_S = 1800.0
+_poll_until = 0.0
+
+
+def relay_polling() -> bool:
+    return time.time() < _poll_until
+
+
+def _no_polling() -> None:
+    global _poll_until
+    _poll_until = 0.0
+
+
+def _mark_cut() -> None:
+    global _poll_until
+    _poll_until = time.time() + POLL_STICKY_S
+
+
 def is_timeout(err) -> bool:
     """A call that ran out of time (the read timeout, or a proxy's gateway timeout)."""
     return bool(re.search(r"timed out|ReadTimeout|HTTP 5(04|24)\b|gateway time-?out", str(err), re.I))
@@ -188,6 +218,11 @@ class Provider(ABC):
                     adapted = True
                     continue
                 err = e
+            if err.retryable and is_stream_cut(err):
+                # the answer stopped in the middle and could not be resumed (RelayFeed already tried): send the same
+                # request once more, not four times - if it is cut again the agent asks for the work in parts (U4)
+                err.retryable = timeouts == 0 and not TOO_LONG.get()
+                timeouts += 1
             if err.retryable and _gateway_timeout(err):
                 # a proxy cut the call because no answer came within its limit (Cloudflare ~100 s, nginx 60 s). The
                 # same call takes as long again, and the relay may still be finishing (and charging) the first one:
@@ -248,6 +283,8 @@ class Provider(ABC):
             headers = {**{k: v for k, v in headers.items() if k.lower() != "content-type"}, **self.extra_headers,
                        "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=timeout or self.timeout) as client:
+            if stream and self.auth:
+                return await self._relay_stream(client, url, body, headers)
             if not stream:
                 r = await client.post(url, content=body, headers=headers)
                 if r.status_code >= 400:
@@ -261,6 +298,35 @@ class Provider(ABC):
                 if "text/event-stream" not in r.headers.get("content-type", ""):
                     return _json.loads(await r.aread())          # a server that answered without streaming
                 return await self._read_stream(r)
+
+    async def _relay_stream(self, client, url: str, body: bytes, headers: dict) -> dict:
+        """A streamed call through the SinoBee.ai relay that survives a cut connection: it carries a request id, so
+        the relay keeps the call running and numbers its events; when the connection drops, RelayFeed picks up after
+        the last whole event (resume, then polling) - the model is not called again and nothing is charged twice.
+        After a cut, new calls start as jobs for a while (polled in short requests)."""
+        import json as _json
+        rid = "sb_" + uuid.uuid4().hex
+        root = url.split("/api/v1/llm")[0] + "/api/v1/llm"
+        if relay_polling():
+            fmt = "anthropic" if "/anthropic/" in url else "openai"
+            job = f"{root}/jobs?format={fmt}"
+            keep = {k: v for k, v in headers.items() if not k.lower().startswith("x-sb-") and k.lower() != "authorization"}
+            h = {**keep, "x-sinobee-request-id": rid, **await self._auth_headers("POST", job, body)}
+            r = await client.post(job, content=body, headers=h)
+            if r.status_code == 404 and "jobs" not in r.text:
+                _no_polling()                # a relay without jobs (older SinoBee.ai): stream as before
+            else:
+                if r.status_code >= 400:
+                    raise self._http_error(r.status_code, r.text[:2000])
+                self._relay_headers(r.headers)
+                return await self._read_stream(RelayFeed(self, client, root, rid, None))
+        async with client.stream("POST", url, content=body, headers={**headers, "x-sinobee-request-id": rid}) as r:
+            if r.status_code >= 400:
+                raise self._http_error(r.status_code, (await r.aread()).decode("utf-8", "replace")[:2000])
+            self._relay_headers(r.headers)
+            if "text/event-stream" not in r.headers.get("content-type", ""):
+                return _json.loads(await r.aread())
+            return await self._read_stream(RelayFeed(self, client, root, rid, r))
 
     def _http_error(self, status: int, text: str) -> ProviderError:
         if self.auth:
@@ -304,6 +370,106 @@ class Provider(ABC):
                 continue
             if isinstance(ev, dict):
                 yield ev
+
+
+class RelayFeed:
+    """The lines of a relay answer (what `_sse` reads), across cuts. Whole events only: an event is handed on when its
+    blank line arrives, so a cut in the middle of one never delivers half of it twice. When the connection drops:
+    resume the stream twice (GET /streams/{id}, Last-Event-ID), then poll it (GET /jobs/{id}?after=n) - short
+    requests that no proxy cuts - until it ends. A relay that does not know the id (an older server, or the call
+    ended more than 15 minutes ago) gives up with the original error."""
+
+    RESUMES = 2
+    ATTEMPTS = 6
+
+    def __init__(self, prov: Provider, client, root: str, rid: str, first):
+        self.prov, self.client, self.root, self.rid, self.first = prov, client, root, rid, first
+        self.after = 0
+        self.cuts = 0
+        self.mode = "stream" if first is not None else "poll"
+
+    async def _signed(self, url: str, extra: dict | None = None) -> dict:
+        h = {**(extra or {}), **await self.prov._auth_headers("GET", url, b"")}
+        return h
+
+    async def _events_from_sse(self, r):
+        block: list[str] = []
+        num = None
+        async for line in r.aiter_lines():
+            if line == "":
+                if block:
+                    for b in block:
+                        yield b
+                    yield ""
+                    if num is not None:
+                        self.after = num
+                block, num = [], None
+                continue
+            if line.startswith("id:"):
+                try:
+                    num = int(line[3:].strip())
+                except ValueError:
+                    pass
+                continue
+            block.append(line)
+        for b in block:              # a last event without its blank line (the stream ended cleanly)
+            yield b
+
+    async def _events_from_polls(self):
+        import json as _json
+        while True:
+            url = f"{self.root}/jobs/{self.rid}?after={self.after}&wait=20"
+            r = await self.client.get(url, headers=await self._signed(url), timeout=60)
+            if r.status_code >= 400:
+                raise self.prov._http_error(r.status_code, r.text[:2000])
+            data = _json.loads(r.text)
+            for ev in data.get("events") or []:
+                for line in str(ev).split("\n"):
+                    yield line
+                yield ""
+            self.after = int(data.get("next") or self.after)
+            if data.get("status") == "done":
+                return
+            if data.get("status") == "error":
+                raise ProviderError(f"{self.prov.label} stream error: {data.get('error') or 'unknown'}", 502, True)
+
+    async def aiter_lines(self):
+        cut: Exception | None = None
+        if self.first is not None:
+            try:
+                async for line in self._events_from_sse(self.first):
+                    yield line
+                return
+            except httpx.TransportError as e:
+                cut = e
+        for attempt in range(self.ATTEMPTS):
+            if cut is not None:
+                self.cuts += 1
+                _mark_cut()
+                _scope_add(retry={"model": self.prov.label, "status": None,
+                                  "error": f"stream cut after event {self.after}; resuming ({cut!r})"[:160]})
+                log.warning("%s stream cut after event %s (%r); resuming", self.prov.label, self.after, cut)
+            try:
+                if self.mode == "stream" and attempt < self.RESUMES:
+                    url = f"{self.root}/streams/{self.rid}"
+                    async with self.client.stream("GET", url, headers=await self._signed(
+                            url, {"Last-Event-ID": str(self.after)})) as r:
+                        if r.status_code == 404:
+                            raise ProviderError(f"{self.prov.label} network error: {cut!r} (the relay cannot resume it)",
+                                                None, True)
+                        if r.status_code >= 400:
+                            raise self.prov._http_error(r.status_code, (await r.aread()).decode("utf-8", "replace"))
+                        async for line in self._events_from_sse(r):
+                            yield line
+                    return
+                self.mode = "poll"
+                async for line in self._events_from_polls():
+                    yield line
+                return
+            except httpx.TransportError as e:
+                cut = e
+        raise ProviderError(f"{self.prov.label} network error: stream cut, resuming failed {self.ATTEMPTS} times: "
+                            f"{cut!r}", None, True)
 
 
 class FallbackChain:
