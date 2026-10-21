@@ -1192,6 +1192,9 @@ class Agent:
         else:
             self._snap = _SNAPSHOT.get()
         stats["artifacts"] = []
+        # every turn reports the files it made or changed - also one an earlier turn already showed (a "繼續" that
+        # fixes index.html again must still end with the file, not with no output)
+        self.ctx.state["artifact_seen"] = set()
 
         hit_limit = False
         for iteration in itertools.count():

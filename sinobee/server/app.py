@@ -208,6 +208,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         cfg = rt().config
         calls, seen, out = {}, set(), []
         for m in rt().memory.load_messages(sid):
+            if m.role == "user" and not m.text().startswith("[使用者在執行中補充指示]"):
+                seen = set()        # per turn, as when it ran: a file changed again is shown again
             for c in m.tool_calls:
                 calls[c.id] = (c.name, c.arguments or {})
             if m.role == "tool" and m.tool_call_id in calls:
