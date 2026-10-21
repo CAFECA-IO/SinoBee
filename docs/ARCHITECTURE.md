@@ -1741,7 +1741,17 @@ SinoBee.ai 這一側：`BenchSuite` 題組庫、報告的 `visibility`、`Skill.
     - 「稍後決定」等同暫停。
     - 設定為一律暫停時不跳對話框，只在對話裡說明。
   - 額度用完時，失敗卡片不再提供 U5 的「改用其他模型」，改由這個對話框詢問。
-- **還沒做**（P3、P4）：
-  - SinoBee.ai 依 `x-sinobee-billing` 扣點，並在 quota 回傳點數；在那之前點數選項不會出現。
-  - 依偏好分配模型、鎖定模型。
-- 測試：`tests/test_billing.py`、`tests/test_sinobee_provider.py`。
+- **無人值守時不會卡在詢問**（2026-10-21 補）：
+  - `on_exhausted` 為 ask（預設）或 pause 時，無人值守的任務一律「暫停到額度恢復，再自動續跑」；預設不會花用戶自己金鑰的錢。
+  - 網頁對話：recovery 依 `retry_at` 自動續跑（U5，不計次）。
+  - 排程工作：`hub._task` 在 run 的 state 記下 `quota_wait`；recovery 的 `_quota_tasks` 在額度恢復後（`retry_at` + 30 秒；沒有時間就 10 分鐘）重新執行一次該工作（trigger retry），每個 run 只重跑一次。
+  - 自動使用點數開啟時先扣點；點數也用完時同樣暫停並自動續跑。
+- **點數（P3，SinoBee.ai）**：
+  - `x-sinobee-billing: points` 的呼叫由 `pointsContext()` 處理：不需要訂閱，也不佔 6 小時／7 天時段（`UsageLedger.billing = points`）。
+  - 預留時檢查可用點數：餘額 − 進行中的預留 +（已扣整數點 − 已結算金額）。不足時回 402，`quota: points`。
+  - 計費係數 1:1：每次結算後，把累計金額無條件進位成整數點，補扣差額（PointLedger reason `llm_usage`，ref `llm:<ledger id>`）。過期的預留也照扣。
+  - 回應標頭 `x-sinobee-points` 是扣完後的餘額，扣點呼叫不回時段比例。
+  - `/api/v1/llm/quota` 回傳 `points: {balance, available, rate: 1, unit: "TWD"}`；沒有訂閱的 402 回應也附 `points`。
+  - SinoBee 記下餘額後，額度卡展開時顯示點數，額度用完的對話框出現「用平台點數繼續」。
+- **還沒做**（P4）：依偏好分配模型、鎖定模型。
+- 測試：`tests/test_billing.py`、`tests/test_sinobee_provider.py`；SinoBee.ai `tests/llm-relay.test.ts`。

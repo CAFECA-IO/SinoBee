@@ -35,7 +35,7 @@ class QuotaExceeded(ProviderError):
         self.retry_at = retry_at
 
 
-QUOTA_WINDOWS = {"6h", "168h", "subscription"}
+QUOTA_WINDOWS = {"6h", "168h", "subscription", "points"}
 
 
 def relay_error(label: str, status: int, text: str) -> ProviderError:

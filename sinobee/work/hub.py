@@ -270,8 +270,14 @@ class WorkHub:
             text = await agent.run(prompt)
         finally:
             self.children.pop(sid, None)
-        st = (getattr(agent, "last_status", None) or {}).get("status", "done")
+        ls = getattr(agent, "last_status", None) or {}
+        st = ls.get("status", "done")
         status = "done" if st == "done" else "failed" if st in ("error", "incomplete", "blocked") else st
+        q = (ls.get("error") or {}).get("quota") if st == "error" else None
+        if q:   # the SinoBee.ai allowance ran out and nobody is here to ask: run again once it is back (recovery.py)
+            state = dict((self.store.run(run["id"]) or {}).get("state") or {})
+            state["quota_wait"] = {"at": time.time(), "window": q.get("window"), "retry_at": q.get("retry_at")}
+            self.store.update_run(run["id"], state=state)
         cost = (getattr(agent, "last_turn_usage", None) or {}).get("cost_usd", 0) or 0
         return text, cost, status
 

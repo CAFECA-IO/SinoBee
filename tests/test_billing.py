@@ -144,3 +144,59 @@ def test_status_and_dialog_api(config):
     p = c.put("/api/settings" + q, json={"billing": {"auto_points": True, "on_exhausted": "ask"}})
     assert p.status_code == 200 and config.get("billing.auto_points") is True
     assert c.get("/api/settings" + q).json()["billing"] == {"on_exhausted": "ask", "auto_points": True}
+
+
+async def test_a_scheduled_task_stopped_by_the_allowance_runs_again_when_it_is_back(config):
+    """Unattended + ask (the default) = pause: the task is not left waiting for an answer; it runs again later."""
+    from sinobee.agent import Runtime
+    from sinobee.work.hub import get_hub
+    from conftest import ScriptedProvider
+    rt = Runtime(config, provider=ScriptedProvider())
+    hub = get_hub(rt)
+    job = hub.store.create_job(name="日報", kind="task", prompt="整理日報", schedule={"type": "daily", "time": "08:00"})
+    run = hub.store.create_run(job_id=job["id"], name="日報", kind="task", trigger="schedule",
+                               state={"quota_wait": {"at": time.time(), "window": "6h",
+                                                     "retry_at": time.time() + 3600}})
+    hub.store.update_run(run["id"], status="failed")
+    started = []
+    hub.run_job = lambda jid, trigger="manual": started.append((jid, trigger)) or {"id": "x"}
+    await hub.recovery.check()
+    assert not started                                                    # waits for the allowance
+    st = hub.store.run(run["id"])["state"]
+    st["quota_wait"]["retry_at"] = time.time() - 60
+    hub.store.update_run(run["id"], state=st)
+    await hub.recovery.check()
+    assert started == [(job["id"], "retry")]
+    assert hub.store.run(run["id"])["state"]["auto_resume"]["quota"] is True
+    await hub.recovery.check()
+    assert len(started) == 1                                              # once
+
+
+async def test_the_task_run_records_that_it_waits_for_the_allowance(config):
+    from sinobee.agent import Runtime
+    from sinobee.work.hub import get_hub
+
+    class Out:
+        label, provider_name, model, recorder = "sinobee/x/y", "sinobee", "x/y", None
+
+        async def chat(self, messages, tools=None, **kw):
+            raise QuotaExceeded("sinobee/x/y SinoBee.ai quota 6h: limit", "6h", "2026-10-22T08:00:00Z")
+
+        async def embed(self, texts):
+            raise RuntimeError("no")
+    rt = Runtime(config, provider=Out())
+    hub = get_hub(rt)
+    job = hub.store.create_job(name="日報", kind="task", prompt="整理日報", schedule={"type": "daily", "time": "08:00"})
+    run = hub.store.create_run(job_id=job["id"], name="日報", kind="task", trigger="schedule")
+    _, _, status = await hub._task(run, job)
+    assert status == "failed"
+    qw = hub.store.run(run["id"])["state"]["quota_wait"]
+    assert qw["window"] == "6h" and qw["retry_at"] == "2026-10-22T08:00:00Z"
+
+
+def test_points_balance_is_learned_with_or_without_a_subscription(config):
+    billing.note_quota(config, {"status": "ok", "points": {"balance": 1240, "rate": 1, "unit": "TWD"}, "windows": []})
+    assert billing.points(config) == 1240
+    billing.choose(config, billing.POINTS, window="6h", retry_at=time.time() + 3600)
+    billing.note_quota(config, {"status": "no_subscription", "points": {"balance": 1200}})
+    assert billing.points(config) == 1200 and billing.active(config)["source"] == "points"   # still on points

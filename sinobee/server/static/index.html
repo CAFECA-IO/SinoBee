@@ -954,8 +954,8 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
         <div class="grp" id="billSec"><div class="grp-h">訂閱額度用完時<span class="grp-d">使用順序：訂閱 → 平台點數 → 你的 API 金鑰與本地模型。每換一步都先問你；訂閱額度恢復時直接切回訂閱。剩 20% 與 5% 時會提醒。</span></div>
           <div class="srow"><div class="sl"><b>訂閱用完時自動使用點數</b><span class="sd">關閉（預設）：扣點前先問你。開啟：不問，直接依官方牌價扣點，只通知一次</span></div>
             <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="bAutoPts" aria-label="訂閱用完時自動使用點數"></div></div>
-          <div class="srow"><div class="sl"><b>不使用點數時</b><span class="sd">排程與無人值守的任務也照這個設定；「每次問我」時先暫停並通知你，額度恢復後自動續跑</span></div>
-            <div class="sc"><select class="inp" id="bExhausted"><option value="ask">每次問我</option><option value="pause">一律暫停到額度恢復</option><option value="fallback">一律改用我的 API 金鑰與本地模型</option></select></div></div>
+          <div class="srow"><div class="sl"><b>不使用點數時</b><span class="sd">排程與無人值守的任務不會卡在詢問：「每次問我」與「一律暫停」都會暫停，額度恢復後自動續跑（排程工作重新執行一次）；「一律改用」會花你自己金鑰的費用</span></div>
+            <div class="sc"><select class="inp" id="bExhausted"><option value="ask">每次問我（沒人回應時：暫停並自動續跑）</option><option value="pause">一律暫停到額度恢復</option><option value="fallback">一律改用我的 API 金鑰與本地模型</option></select></div></div>
         </div>
         <div class="grp" id="acctSec"><div class="grp-h">SinoBee.ai 帳號<span class="grp-d">發佈技能、登錄工具、加密同步、分享對話時使用；權杖只存在 secrets.json，不會傳給模型</span></div>
           <div id="acctBody"></div></div>
@@ -3749,6 +3749,7 @@ function quotaLine(q){
       <div class="qx-axis"><span>6 小時前</span><span>3 小時前</span><span>現在</span></div>
       <div class="qx-foot">${rel ? `最早的用量最先釋放：<b>${qClock(rel.at)} 起恢復約 ${fmtPct(soon)}</b>` : '過去 6 小時沒有用量'}</div>
       <div class="qx-foot">7 天已用 ${fmtPct(u7)}${w6?.remainingTokens ? ` · 6 小時約剩 ${fmtTok(w6.remainingTokens)} tokens` : ''}</div>
+      ${q.points?.balance != null ? `<div class="qx-row"><span>平台點數</span><span>${Number(q.points.balance).toLocaleString()} 點（1 點 = NT$1）</span></div>` : ''}
       <div class="qx-foot qx-end">${q.endsAt ? `方案至 ${fmtDate(q.endsAt)}` : ''}<a href="#" data-qacct>訂閱與帳號 ›</a></div></div>` : ''}
     ${expiryNote()}</div>`;
 }

@@ -394,7 +394,10 @@ def quota(config) -> dict:
         return {"status": "ok", **body}
     err = (body.get("error") or {}) if isinstance(body, dict) else {}
     if r.status_code == 402 or err.get("code") == "subscription" or err.get("quota") == "subscription":
-        return {"status": "no_subscription", "error": err.get("message"), "subscribe_url": f"{base_url(config)}/subscribe"}
+        out = {"status": "no_subscription", "error": err.get("message"), "subscribe_url": f"{base_url(config)}/subscribe"}
+        if isinstance(body.get("points"), dict):        # points can pay without a subscription
+            out["points"] = body["points"]
+        return out
     if r.status_code == 401:
         return {"status": "signed_out", "error": err.get("message")}
     return {"status": "error", "error": err.get("message") or f"HTTP {r.status_code}"}

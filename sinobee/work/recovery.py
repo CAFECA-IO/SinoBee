@@ -254,6 +254,7 @@ class Recovery:
             if r["kind"] == "chat" and r.get("session_id"):
                 newest[r["session_id"]] = max(newest.get(r["session_id"], 0), r.get("created_at") or 0)
         done += self._model_errors(runs, newest, now, window)
+        done += self._quota_tasks(runs, now, window)
         for r in runs:
             st = r.get("state") or {}
             if r["status"] != "interrupted" or st.get("auto_resume") or st.get("user_stopped"):
@@ -291,6 +292,34 @@ class Recovery:
             self.hub.notify("auto_resume", {"run_id": r["id"], "session_id": sid, "resumed": True,
                                             "reason": brief.get("reason", ""), "next": brief.get("next", "")})
             done.append({"run_id": r["id"], "kind": "chat", "session_id": sid})
+        return done
+
+    def _quota_tasks(self, runs: list[dict], now: float, window: float) -> list[dict]:
+        """A scheduled task that stopped because the SinoBee.ai allowance (or the points) ran out, with nobody there to
+        ask (billing.on_exhausted = ask | pause): run it again once the allowance is back - never left waiting for an
+        answer. Not counted against the daily resume limits."""
+        done = []
+        for r in runs:
+            st = r.get("state") or {}
+            qw = st.get("quota_wait")
+            if r["kind"] != "task" or r["status"] != "failed" or not qw or st.get("auto_resume") or not r.get("job_id"):
+                continue
+            if now - (r.get("created_at") or 0) > window or not self.hub.rt.config.get("work.auto_resume", True):
+                continue
+            due = _when(qw.get("retry_at"))
+            due = (due + 30) if due else float(qw.get("at") or now) + QUOTA_WAIT
+            if now < due:
+                continue
+            if not self.store.job(r["job_id"]):
+                self._mark(r, resumed=False, reason="工作已刪除")
+                continue
+            try:
+                self.hub.run_job(r["job_id"], trigger="retry")
+            except Exception as e:  # noqa: BLE001  (already running: look again next minute)
+                log.info("could not rerun task %s after the allowance came back: %s", r["id"], e)
+                continue
+            self._mark(r, resumed=True, reason="SinoBee.ai 額度恢復，重新執行排程工作", quota=True)
+            done.append({"run_id": r["id"], "kind": "task", "quota": True})
         return done
 
     def _model_errors(self, runs: list[dict], newest: dict, now: float, window: float) -> list[dict]:

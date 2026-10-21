@@ -7,8 +7,9 @@ needs the user's consent:
 - subscription used up: the turn stops at a safe point and the GUI asks - continue with points, continue with your
   own keys / local models, or pause until the allowance is back. `billing.auto_points` (off by default) spends
   points without asking; `billing.on_exhausted` = fallback goes straight to your own keys (both are also set by
-  "do this next time" in the dialog); pause / ask stop the turn (an unattended task is resumed by the recovery check
-  once the allowance is back).
+  "do this next time" in the dialog); pause / ask stop the turn. Nothing waits for an answer forever: an
+  unattended conversation turn is resumed and a scheduled task is run again by the recovery check once the allowance
+  is back (work/recovery.py). Your own keys are never charged for an unattended task unless on_exhausted = fallback.
 - points used up: asked again (your own keys / local, or pause), unless `on_exhausted` = fallback.
 - the allowance is back: straight back to the subscription, no question.
 
@@ -109,7 +110,7 @@ def points(config) -> int | None:
 def note_quota(config, q: dict) -> None:
     """Called with each quota answer from sinobee.ai: remember the points balance; when the window that ran out
     has room again, go straight back to the subscription."""
-    if not isinstance(q, dict) or q.get("status") != "ok":
+    if not isinstance(q, dict) or q.get("status") not in ("ok", "no_subscription"):
         return
     d = _read(config)
     changed = False
@@ -121,7 +122,7 @@ def note_quota(config, q: dict) -> None:
         changed = True
     if changed:
         _write(config, d)
-    if d.get("source") in (POINTS, OWN):
+    if d.get("source") in (POINTS, OWN) and q.get("status") == "ok":
         used = {w.get("window"): w.get("usedPct") for w in q.get("windows") or [] if isinstance(w, dict)}
         win = d.get("window")
         vals = [used.get(win)] if win in used else list(used.values())
