@@ -206,3 +206,15 @@ def test_openai_compatible_models_get_low_for_every_turned_down_level(monkeypatc
             base.REASONING_EFFORT.reset(tok)
     assert sent == ["low", "low", "low"]
     assert r.usage.thinking_tokens == 800
+
+
+def test_the_sinobee_provider_reports_its_inner_thinking_settings(config, monkeypatch):
+    from sinobee.providers.sinobee import SinoBeeProvider
+    p = SinoBeeProvider("anthropic/claude-haiku-5-5", "https://sb.test/api/v1/llm", config=config)
+    monkeypatch.setattr("sinobee.providers.sinobee.guess_format", lambda m: "anthropic")
+    base.RELAY_FEATURES.discard("output_config")
+    tok = base.REASONING_EFFORT.set("low")
+    try:
+        assert p.thinking_params() == {"thinking": {"type": "disabled"}}, "an old relay: off rather than a silent no-op"
+    finally:
+        base.REASONING_EFFORT.reset(tok)

@@ -59,6 +59,10 @@ class SinoBeeProvider(Provider):
             self._inner_fmt = fmt
         return self._inner
 
+    def thinking_params(self) -> dict:
+        # what the inner provider will add, so a refusal of it is recognised and learned (base._chat_retrying)
+        return self.inner().thinking_params()
+
     async def _chat(self, messages, tools, *, temperature, max_tokens):
         if self.model not in _FORMATS and self.model != "_":
             try:
