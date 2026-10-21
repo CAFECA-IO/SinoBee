@@ -149,7 +149,8 @@ def register(app: FastAPI, rt_getter) -> None:
                 relay = []
         out = {"preference": routing.preference(cfg), "pin": routing.pin(cfg),
                "share_stats": bool(cfg.get("billing.share_stats")), "auto": cfg.get("model.default") == "sinobee/auto",
-               "relay_models": relay, "own_models": own}
+               "relay_models": relay, "own_models": own,
+               "last": {k: {"model": v.get("model"), "reason": v.get("reason")} for k, v in routing._last.items()}}
         if board and own:
             try:
                 out["board"] = await asyncio.to_thread(routing.board, cfg, own)

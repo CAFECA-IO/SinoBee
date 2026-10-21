@@ -768,7 +768,15 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
 #mMenu .ck{width:14px;flex:none;color:var(--accent)}#mMenu small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 #mMenu .mm-pin.on{background:color-mix(in srgb,var(--cap-think) 14%,transparent)}#mMenu .mm-pin .ck{color:var(--cap-think)}
 .rboard{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}.rboard th{color:var(--muted);font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}.rboard td{padding:6px 8px;border-bottom:1px solid var(--grid)}.rboard .pk{font-size:11px;border:1px solid var(--accent2);color:var(--accent);border-radius:999px;padding:0 6px;margin-right:3px;white-space:nowrap}
-.bpill.route{--c:var(--accent)}.bpill.pin{--c:var(--cap-think)}@media (max-width:640px){#modelChip{display:none}}
+.bpill.route{--c:var(--accent)}
+.pinban{display:flex;align-items:center;gap:14px;padding:14px 16px;margin-bottom:14px;border:1px solid color-mix(in srgb,var(--cap-think) 45%,transparent);border-radius:14px;background:color-mix(in srgb,var(--cap-think) 8%,var(--panel))}
+.pinban[hidden]{display:none}.pinban .pb-i{color:var(--cap-think)}.pinban .pb-i svg{width:22px;height:22px}.pinban .pb-t{flex:1;display:flex;flex-direction:column;gap:3px}.pinban b{color:var(--cap-think);font-size:15px}
+.rmodes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:4px 0 8px}@media (max-width:640px){.rmodes{grid-template-columns:1fr}}
+.rmode{display:flex;flex-direction:column;gap:4px;text-align:left;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);font:inherit;cursor:pointer}
+.rmode b{font-size:14px}.rmode span{font-size:12px;color:var(--muted);line-height:1.5}.rmode[aria-checked="true"]{border-color:var(--accent2);background:color-mix(in srgb,var(--accent) 10%,var(--panel2))}.rmode[aria-checked="true"] b::before{content:"✓ ";color:var(--accent)}
+.rseg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));min-width:280px}.rseg button{padding:7px 0}
+#routeSec.off{opacity:.5;pointer-events:none}
+.arow{display:grid;grid-template-columns:72px 1fr auto;gap:12px;align-items:center;padding:9px 0;border-top:1px dashed var(--line);font-size:13px}.arow:first-child{border-top:0}.arow .r{color:var(--muted)}.arow .t{font-size:11px;color:var(--muted)}.arow .t.pin{color:var(--cap-think)}.bpill.pin{--c:var(--cap-think)}@media (max-width:640px){#modelChip{display:none}}
 .bpill{display:inline-block;font-size:11px;padding:0 7px;border-radius:999px;border:1px solid var(--c);color:var(--c);margin-right:4px}.bpill.own{--c:var(--cap-vis)}.bpill.pts{--c:var(--warn)}
 </style>
 </head>
@@ -832,27 +840,38 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
     <div class="setpanes">
       <!-- ───── 模型 ───── -->
       <section class="pane on" data-pane="model">
-        <div class="grp" id="routeSec"><div class="grp-h">模型分配<span class="grp-d">日常由 SinoBee 依偏好挑模型：訂閱與點數由 SinoBee.ai 分配，你的金鑰與本地模型依同樣的評分排序。需要時可以鎖定一個模型：鎖定後每個角色都用它，偏好與 SinoBee.ai 的推薦都不會覆蓋。</span></div>
-          <div class="srow"><div class="sl"><b>由 SinoBee.ai 自動分配</b><span class="sd">執行、思維、輔助與審查都依偏好挑選（需要登入 SinoBee.ai）</span></div>
-            <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="rAuto" aria-label="由 SinoBee.ai 自動分配"></div></div>
-          <div class="srow"><div class="sl"><b>偏好</b><span class="sd" id="rPrefD"></span></div>
-            <div class="sc"><div class="seg" id="rPref" role="radiogroup" aria-label="偏好"><button type="button" data-p="speed">速度</button><button type="button" data-p="quality">品質</button><button type="button" data-p="cost">成本</button><button type="button" data-p="balanced">平衡</button></div></div></div>
-          <div class="srow"><div class="sl"><b>鎖定模型（進階）</b><span class="sd">鎖定後不再自動分配；訂閱用完改用你的金鑰時仍用同一個模型</span></div>
-            <div class="sc"><select class="inp" id="rPin" aria-label="鎖定模型"><option value="">不鎖定（依偏好分配）</option></select></div></div>
-          <div class="srow"><div class="sl"><b>回報匿名統計</b><span class="sd">協助改善分配：只送模型、任務類型、技能名、成敗與 token 數，不含對話與檔案。預設關閉；關閉時不送任何統計</span></div>
-            <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="rStats" aria-label="回報匿名統計"></div></div>
-          <div id="rBoard"></div>
+        <div class="pinban" id="rPinBanner" hidden><span class="pb-i" data-icon="lock"></span><div class="pb-t"><b id="rPinName"></b><span class="sd">所有角色都用它；偏好與 SinoBee.ai 的推薦暫停。訂閱用完改用你的金鑰時仍用同一個模型。</span></div>
+          <button class="btn" type="button" id="rUnpin">解除鎖定</button></div>
+        <div class="grp" id="routeSec"><div class="grp-h">模型怎麼選<span class="grp-d" id="routeOff" hidden>鎖定時不使用</span></div>
+          <div class="rmodes" role="radiogroup" aria-label="模型怎麼選">
+            <button type="button" class="rmode" data-m="auto" role="radio"><b>自動分配</b><span>SinoBee.ai 每回合依技能評鑑替每個角色挑模型。使用訂閱或點數時建議。</span></button>
+            <button type="button" class="rmode" data-m="manual" role="radio"><b>自己指定</b><span>每個角色固定用你選的模型。只用自己的金鑰或本地模型時使用。</span></button></div>
+          <div id="rPrefWrap"><div class="srow"><div class="sl"><b id="rPrefL">偏好</b><span class="sd" id="rPrefD"></span></div>
+            <div class="sc"><div class="seg rseg" id="rPref" role="radiogroup" aria-label="偏好"><button type="button" data-p="speed">速度</button><button type="button" data-p="quality">品質</button><button type="button" data-p="cost">成本</button><button type="button" data-p="balanced">平衡</button></div></div></div></div>
         </div>
-        <div class="grp"><div class="grp-h">使用哪些模型<span class="grp-d">從已連線的供應商挑選；雲端與本機模型可以混用</span></div>
+        <div class="grp" id="rAssign"><div class="grp-h">目前分配<span class="grp-d" id="rAssignD">不需要設定；每回合重新挑選</span></div>
+          <div id="rAssignRows"></div>
+          <div class="srow" id="rPinRow"><div class="sl"><b id="rPinL">鎖定一個模型</b><span class="sd" id="rPinD">需要固定結果時用；鎖定後所有角色都用它，偏好暫停</span></div>
+            <div class="sc"><select class="inp" id="rPin" aria-label="鎖定模型"><option value="">不鎖定（依偏好分配）</option></select></div></div>
+        </div>
+        <div class="grp" id="rolesSec"><div class="grp-h">每個角色用哪個模型<span class="grp-d">只列出已連線的模型</span></div>
           <input type="hidden" id="mDefault"><input type="hidden" id="mAux"><input type="hidden" id="mEsc"><input type="hidden" id="mRev"><input type="hidden" id="mEmb"><input type="hidden" id="mFallbacks">
           <div id="roleRows"></div>
           <div id="roleHint" class="note" hidden></div>
           <div class="srow end"><span id="testResult" class="sd"></span>
             <button class="btn" id="refreshModels" type="button">重新整理模型清單</button><button class="btn" id="testModel" type="button">測試執行模型</button></div>
         </div>
-        <div class="grp"><div class="grp-h">模型供應商<span class="grp-d">按「連線」會立即儲存並驗證金鑰，成功後模型馬上出現在上方清單。金鑰只存在這台電腦的 secrets.json（權限 600），啟動時用 -e 帶入的金鑰在此唯讀</span></div>
+        <div class="grp" id="ownSec"><div class="grp-h" id="ownH">你的金鑰與本地模型<span class="grp-d" id="ownD">訂閱與點數用完、你同意後才會用到；依偏好排序。按「連線」會立即儲存並驗證金鑰，金鑰只存在這台電腦的 secrets.json。</span></div>
+          <div id="fbRow"></div>
+          <details class="adv" id="rBoardWrap"><summary>看評鑑成績</summary><div id="rBoard"></div></details>
           <div id="provList" class="plist"></div>
           <details class="adv" id="provMore"><summary>更多供應商</summary><div id="provMoreList" class="plist"></div></details>
+          <div class="srow" id="ownBill"><div class="sl"><b>訂閱用完時</b><span class="sd" id="ownBillD"></span></div><div class="sc"><a href="#" class="btn sm" id="ownBillGo">調整</a></div></div>
+        </div>
+        <div class="grp" id="embSec">
+          <div id="embRow"></div>
+          <div class="srow"><div class="sl"><b>回報匿名統計</b><span class="sd">協助改善分配：只送模型、任務類型、技能名、成敗與 token 數，不含對話與檔案。預設關閉；關閉時不送任何統計</span></div>
+            <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="rStats" aria-label="回報匿名統計"></div></div>
         </div>
         <div class="grp" id="localWrap" hidden><div class="grp-h">本機模型（Ollama）<span class="grp-d">下載、啟動與管理在這台電腦執行的開放模型；免金鑰、免費、資料不出門</span>
             <span style="flex:1"></span><button class="btn sm" type="button" id="localClose">收起</button></div>
@@ -2253,24 +2272,62 @@ const PREF = {speed: ['速度', '先求快。適合聊天、小修改'], quality
 let ROUTING = null;
 async function loadRouting(board = false){ try { ROUTING = await api('/api/routing' + (board ? '?board=1' : '')); } catch { ROUTING = ROUTING || {}; } return ROUTING; }
 const shortModel = m => String(m || '').replace(/^sinobee\//, '');
+let MANUAL_DEFAULT = '';
+/** the model page in one of three states (design 2026-10-21): auto (SinoBee.ai assigns every role), pinned (one
+ *  model for every role, above everything), or manual (pick each role; own keys and local models only) */
+function paintRouteMode(){
+  if (!SET) return;
+  const auto = $('#mDefault').value === 'sinobee/auto', pin = $('#rPin').value;
+  $('#rPinBanner').hidden = !pin; $('#rPinName').textContent = pin ? `已鎖定 ${shortModel(pin)}` : '';
+  $('#routeSec').classList.toggle('off', !!pin); $('#routeOff').hidden = !pin;
+  document.querySelectorAll('.rmode').forEach(b => b.setAttribute('aria-checked', String((b.dataset.m === 'auto') === auto)));
+  $('#rPrefL').textContent = auto ? '偏好' : '備援順序的偏好';
+  $('#rAssign').hidden = !(auto || pin);
+  $('#rolesSec').hidden = !!pin || auto;
+  // the one pin control lives where the sketch puts it: in 目前分配 (auto or pinned) or under the roles (manual)
+  const row = $('#rPinRow');
+  if (auto || pin) { $('#rAssign').appendChild(row); $('#rPinL').textContent = pin ? '鎖定的模型' : '鎖定一個模型';
+    $('#rPinD').textContent = pin ? '換一個，或選「不鎖定」回到偏好' : '需要固定結果時用；鎖定後所有角色都用它，偏好暫停'; }
+  else { $('#rolesSec').appendChild(row); $('#rPinL').textContent = '全部用同一個模型'; $('#rPinD').textContent = '等同鎖定：四個角色一次設成同一個'; }
+  $('#rAssignD').textContent = pin ? '鎖定中：每個角色都一樣' : '不需要設定；每回合重新挑選';
+  const last = ROUTING?.last || {}, names = {main: '執行', thinking: '思維', summary: '輔助', review: '審查'};
+  $('#rAssignRows').innerHTML = Object.entries(names).map(([k, n]) => {
+    const m = pin ? shortModel(pin) : last[k]?.model ? shortModel(last[k].model) : '依偏好分配';
+    const t = pin ? '<span class="t pin">鎖定</span>' : `<span class="t">${esc(last[k]?.reason || (last[k] ? '' : '下一回合挑選'))}</span>`;
+    return `<div class="arow"><span class="r">${n}</span><span>${esc(m)}</span>${t}</div>`; }).join('');
+  $('#ownD').textContent = auto ? '訂閱與點數用完、你同意後才會用到；依偏好排序。按「連線」會立即儲存並驗證金鑰，金鑰只存在這台電腦的 secrets.json。'
+    : '按「連線」會立即儲存並驗證金鑰，成功後模型馬上出現在上方清單；金鑰只存在這台電腦的 secrets.json。';
+  $('#ownBill').hidden = !auto;
+  const ex = {ask: '每次問我', pause: '一律暫停', fallback: '一律改用自己的模型'}[$('#bExhausted').value] || '每次問我';
+  $('#ownBillD').textContent = `${ex}・自動使用點數：${$('#bAutoPts').checked ? '開' : '關'}`;
+}
 function renderRouting(){
   const m = SET.model || {}, pref = m.preference || 'balanced';
-  $('#rAuto').checked = m.default === 'sinobee/auto';
+  MANUAL_DEFAULT = m.default && m.default !== 'sinobee/auto' ? m.default : MANUAL_DEFAULT;
   $('#rPref').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.p === pref); b.setAttribute('aria-checked', String(b.dataset.p === pref));
-    b.onclick = () => { $('#rPref').querySelectorAll('button').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); }); $('#rPrefD').textContent = PREF[b.dataset.p][1]; }; });
+    b.onclick = () => { $('#rPref').querySelectorAll('button').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); }); $('#rPrefD').textContent = PREF[b.dataset.p][1]; setDirty(true); }; });
   $('#rPrefD').textContent = PREF[pref][1];
-  $('#rAuto').onchange = () => { if ($('#rAuto').checked) $('#mDefault').value = 'sinobee/auto'; else if ($('#mDefault').value === 'sinobee/auto') $('#mDefault').value = ''; };
-  const sel = $('#rPin'); sel.innerHTML = '<option value="">不鎖定（依偏好分配）</option>' + (m.pin ? `<option value="${esc(m.pin)}">${esc(shortModel(m.pin))}</option>` : ''); sel.value = m.pin || '';
-  $('#rBoard').innerHTML = '<div class="sd">讀取你的模型與評鑑成績…</div>';
+  document.querySelectorAll('.rmode').forEach(b => b.onclick = () => {
+    if (b.dataset.m === 'auto') { if ($('#mDefault').value !== 'sinobee/auto') MANUAL_DEFAULT = $('#mDefault').value; $('#mDefault').value = 'sinobee/auto'; }
+    else $('#mDefault').value = MANUAL_DEFAULT || '';
+    setDirty(true); renderRoles(); });
+  $('#rUnpin').onclick = () => { $('#rPin').value = ''; setDirty(true); paintRouteMode(); };
+  $('#ownBillGo').onclick = e => { e.preventDefault(); showPane('account'); };
+  const sel = $('#rPin'); sel.onchange = () => { setDirty(true); paintRouteMode(); };
+  sel.innerHTML = '<option value="">不鎖定（依偏好分配）</option>' + (m.pin ? `<option value="${esc(m.pin)}">${esc(shortModel(m.pin))}</option>` : ''); sel.value = m.pin || '';
+  paintRouteMode();
+  $('#rBoard').innerHTML = '<div class="sd">讀取評鑑成績…</div>';
   loadRouting(true).then(r => {
+    const keep = sel.value;
     const opts = [...(r.relay_models || []).map(x => [x, `${shortModel(x)}（SinoBee.ai）`]), ...(r.own_models || []).map(x => [x, `${x}（你的金鑰／本地）`])];
     sel.innerHTML = '<option value="">不鎖定（依偏好分配）</option>' + opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('')
-      + (m.pin && !opts.some(o => o[0] === m.pin) ? `<option value="${esc(m.pin)}">${esc(m.pin)}</option>` : ''); sel.value = m.pin || '';
+      + (keep && !opts.some(o => o[0] === keep) ? `<option value="${esc(keep)}">${esc(keep)}</option>` : ''); sel.value = keep;
+    paintRouteMode();
     const rows = r.board || [];
-    $('#rBoard').innerHTML = !rows.length ? (r.board_error ? `<div class="sd">暫時讀不到評鑑成績：${esc(r.board_error)}</div>` : (r.own_models || []).length ? '' : '<div class="sd">設定 API 金鑰後，這裡會列出可用的模型與它們在 SinoBee.ai 的評鑑成績。</div>')
-      : `<div class="sl" style="margin-top:6px"><b>你的金鑰與本地模型</b><span class="sd">評鑑成績來自 SinoBee.ai 公開的技能評鑑；標籤是每種偏好會優先分配的模型。這份清單只供查看。</span></div>
+    $('#rBoard').innerHTML = !rows.length ? `<div class="sd">${r.board_error ? '暫時讀不到評鑑成績：' + esc(r.board_error) : '設定 API 金鑰後，這裡會列出可用的模型與它們在 SinoBee.ai 的評鑑成績。'}</div>`
+      : `<div class="sd">評鑑成績來自 SinoBee.ai 公開的技能評鑑；標籤是每種偏好會優先分配的模型。這份清單只供查看。</div>
         <table class="rboard"><thead><tr><th>模型</th><th>評鑑分數</th><th>每次通過成本</th><th>平均耗時</th><th>偏好</th></tr></thead><tbody>${rows.map(x => `<tr><td>${esc(x.model)}</td>
-        <td>${x.qualitySource === 'price' ? '<span class="sd">尚無評鑑</span>' : Math.round(x.quality) + (x.qualitySource === 'skill' ? '' : '')}${x.evals ? ` <span class="sd">（${x.evals} 份）</span>` : ''}</td>
+        <td>${x.qualitySource === 'price' ? '<span class="sd">尚無評鑑</span>' : Math.round(x.quality)}${x.evals ? ` <span class="sd">（${x.evals} 份）</span>` : ''}</td>
         <td>${x.costPerPass != null ? 'US$' + x.costPerPass.toFixed(3) : '—'}</td><td>${x.seconds != null ? Math.round(x.seconds) + ' 秒' : '—'}</td>
         <td>${(x.picks || []).map(p => `<span class="pk">${esc(PREF[p]?.[0] || p)}</span>`).join('')}</td></tr>`).join('')}</tbody></table>`;
   });
@@ -3384,10 +3441,10 @@ function renderSettings(){
 let CAT = null, CAT_LOADING = null;
 const PROV_SUG = {};
 const ROLES = [
-  {k: 'thinking', id: '#mEsc', name: '思維模型', desc: '開工前規劃做法與驗收清單、卡關時給建議並判斷能否完成、交付前驗收、失敗時診斷原因；不執行任何步驟。建議選推理最強的', kind: 'chat', empty: '同執行模型', lock: 'model.thinking'},
-  {k: 'default', id: '#mDefault', name: '執行模型', desc: '依計畫執行每一個步驟（工具、檔案、回覆），從頭做到尾，不會中途被換掉；做不到時回報失敗', kind: 'chat', empty: '— 請選擇 —', lock: 'model.default'},
-  {k: 'auxiliary', id: '#mAux', name: '輔助模型', desc: '反思、摘要長對話、記憶整理等背景工作；建議選便宜快速的', kind: 'chat', empty: '同執行模型', lock: 'model.auxiliary'},
-  {k: 'reviewer', id: '#mRev', name: '審查模型', desc: '交付前的驗收審查與獨立審查員；選和執行模型不同家族的，較能抓到它自己看不出的錯', kind: 'chat', empty: '同思維模型', lock: 'model.reviewer'},
+  {k: 'thinking', id: '#mEsc', name: '思維模型', desc: '規劃做法、卡關時給建議、交付前驗收；不執行步驟', kind: 'chat', empty: '同執行模型', lock: 'model.thinking'},
+  {k: 'default', id: '#mDefault', name: '執行模型', desc: '執行每一個步驟（工具、檔案、回覆）', kind: 'chat', empty: '— 請選擇 —', lock: 'model.default'},
+  {k: 'auxiliary', id: '#mAux', name: '輔助模型', desc: '摘要、記憶整理等背景工作；選便宜快速的', kind: 'chat', empty: '同執行模型', lock: 'model.auxiliary'},
+  {k: 'reviewer', id: '#mRev', name: '審查模型', desc: '交付前驗收；選和執行模型不同家族的較能抓錯', kind: 'chat', empty: '同思維模型', lock: 'model.reviewer'},
   {k: 'embedding', id: '#mEmb', name: 'Embedding 模型', desc: '讓記憶搜尋更準確；不使用時改用關鍵字搜尋', kind: 'embedding', empty: '不使用（關鍵字搜尋）', lock: 'model.embedding'},
 ];
 async function loadCatalog(refresh = false, only = null){
@@ -3418,7 +3475,7 @@ function roleState(spec){
   if (!spec) return {ok: true};
   const p = (CAT?.providers || []).find(x => x.name === provOf(spec)) || (SET?.providers || []).find(x => x.name === provOf(spec));
   if (!p) return {ok: false, msg: `找不到供應商「${provOf(spec)}」`};
-  if (p.status === 'no_key' || (p.needs_key && !p.has_key)) return {ok: false, msg: `${p.label} 還沒設定金鑰，請在下方「模型供應商」連線`};
+  if (p.status === 'no_key' || (p.needs_key && !p.has_key)) return {ok: false, msg: `${p.label} 還沒設定金鑰，請在下方「你的金鑰與本地模型」連線`};
   if (p.status === 'offline') return {ok: false, msg: `${p.label} 目前連不上${p.local ? '（本機服務未執行）' : ''}`};
   if (p.status === 'error') return {ok: false, msg: `${p.label} 連線失敗：${p.error || ''}`};
   return {ok: true};
@@ -3426,30 +3483,32 @@ function roleState(spec){
 function renderRoles(){
   if (!SET) return;
   const locked = k => (SET.locked || []).includes(k);
-  const rows = ROLES.map(r => { const cur = $(r.id).value, st = roleState(cur);
+  const row = r => { const cur = $(r.id).value, st = roleState(cur);
     return `<div class="srow"><div class="sl"><b>${r.name}</b><span class="sd">${r.desc}</span></div>
       <div class="sc mpick" data-role="${r.k}"><select class="inp" ${locked(r.lock) ? 'disabled' : ''} aria-label="${r.name}">${modelOptions(r.kind, cur, r.empty, st.ok)}</select>
         <input class="inp" hidden placeholder="例如 gemini/gemini-flash-latest" value="${esc(cur)}">
-        ${st.ok ? '' : `<span class="pwarn">⚠︎ ${esc(st.msg)}</span>`}${locked(r.lock) ? '<span class="lock">🔒 由啟動參數提供（docker -e），此處唯讀</span>' : ''}</div></div>`; });
-  const fb = $('#mFallbacks').value.split(',').map(x => x.trim()).filter(Boolean);
-  rows.push(`<div class="srow"><div class="sl"><b>備援模型</b><span class="sd">執行模型的供應商無法連線或額度用完時依序改用（只在服務中斷時，不會因為任務困難而換）；可跨供應商</span></div>
+        ${st.ok ? '' : `<span class="pwarn">⚠︎ ${esc(st.msg)}</span>`}${locked(r.lock) ? '<span class="lock">🔒 由啟動參數提供（docker -e），此處唯讀</span>' : ''}</div></div>`; };
+  $('#roleRows').innerHTML = ROLES.filter(r => r.k !== 'embedding' && !(r.k === 'default' && $('#mDefault').value === 'sinobee/auto')).map(row).join('');
+  $('#embRow').innerHTML = ROLES.filter(r => r.k === 'embedding').map(r => row({...r, name: '記憶搜尋（Embedding）'})).join('');
+  const fb = $('#mFallbacks').value.split(',').map(x => x.trim()).filter(Boolean), auto = $('#mDefault').value === 'sinobee/auto';
+  $('#fbRow').innerHTML = `<div class="srow"><div class="sl"><b>${auto ? '訂閱用完時依序使用' : '備援模型'}</b><span class="sd">${auto ? '你同意改用自己的模型後依序使用；實際順序依偏好排序' : '執行模型的服務中斷時依序改用；可跨供應商'}</span></div>
     <div class="sc"><div class="fbchips">${fb.map((f, i) => `<span class="chip">${esc(f)}${roleState(f).ok ? '' : ' ⚠︎'}<button type="button" data-fb="${i}" aria-label="移除">×</button></span>`).join('') || '<span class="sd">未設定</span>'}</div>
-      <select class="inp" id="fbAdd" ${locked('model.fallbacks') ? 'disabled' : ''}>${modelOptions('chat', '', '＋ 加入備援模型…')}</select></div></div>`);
-  $('#roleRows').innerHTML = rows.join('');
-  $('#roleRows').querySelectorAll('.mpick').forEach(box => {
+      <select class="inp" id="fbAdd" ${locked('model.fallbacks') ? 'disabled' : ''}>${modelOptions('chat', '', '＋ 加入模型…')}</select></div></div>`;
+  document.querySelectorAll('#roleRows .mpick, #embRow .mpick').forEach(box => {
     const role = ROLES.find(r => r.k === box.dataset.role), sel = box.querySelector('select'), inp = box.querySelector('input');
     sel.onchange = () => { if (sel.value === '__custom') { inp.hidden = false; inp.focus(); return; }
       inp.hidden = true; $(role.id).value = sel.value; renderRoles(); };
     inp.onchange = () => { $(role.id).value = inp.value.trim(); renderRoles(); };
   });
-  $('#roleRows').querySelectorAll('[data-fb]').forEach(b => b.onclick = () => { fb.splice(+b.dataset.fb, 1); $('#mFallbacks').value = fb.join(', '); setDirty(true); renderRoles(); });
+  $('#fbRow').querySelectorAll('[data-fb]').forEach(b => b.onclick = () => { fb.splice(+b.dataset.fb, 1); $('#mFallbacks').value = fb.join(', '); setDirty(true); renderRoles(); });
   const add = $('#fbAdd'); add.onchange = async () => { let v = add.value;
-    if (v === '__custom') v = (await uiPrompt('備援模型（供應商/模型）', '') || '').trim();
+    if (v === '__custom') v = (await uiPrompt('模型（供應商/模型）', '') || '').trim();
     if (v && !fb.includes(v)) { fb.push(v); $('#mFallbacks').value = fb.join(', '); setDirty(true); } renderRoles(); };
   const ready = readyProviders().map(p => p.label), missing = (CAT?.providers || []).filter(p => p.popular && p.status === 'no_key').map(p => p.label);
   const hint = !CAT ? '正在載入各供應商的模型清單…' : !ready.length ? '還沒有可用的供應商：在下方填入 API 金鑰並按「連線」，或開啟 Ollama 使用本機模型。'
-    : `可選：${ready.join('、')}${missing.length ? `。${missing.join('、')} 尚未連線，填入金鑰後就會出現在清單中` : ''}`;
-  $('#roleHint').hidden = false; $('#roleHint').textContent = hint;
+    : missing.length ? `${missing.join('、')} 尚未連線，填入金鑰後就會出現在清單中` : '';
+  $('#roleHint').hidden = !hint; $('#roleHint').textContent = hint;
+  paintRouteMode();
 }
 function provCard(p){
   const s = (SET?.providers || []).find(x => x.name === p.name) || {};

@@ -212,8 +212,8 @@ class Runtime:
         if (self.config.get("model.pin") or "").strip():
             return None                     # a pinned model does every role (routing.py)
         spec = self.config.get("model.thinking") or self.config.get("model.escalate")
-        if not spec and self.config.get("model.default") == "sinobee/auto":
-            spec = "sinobee/auto@thinking"  # SinoBee.ai allocates the thinking role too
+        if self.config.get("model.default") == "sinobee/auto":
+            spec = "sinobee/auto@thinking"  # auto: SinoBee.ai allocates every role; per-role picks are not used
         if not spec or spec == self.config.get("model.default"):
             return None
         if self._strong_spec != spec:
@@ -262,8 +262,8 @@ class Runtime:
         spec = self.config.get("model.reviewer")
         if (self.config.get("model.pin") or "").strip():
             return None                     # a pinned model does every role (routing.py)
-        if not spec and self.config.get("model.default") == "sinobee/auto":
-            spec = "sinobee/auto@review"
+        if self.config.get("model.default") == "sinobee/auto":
+            spec = "sinobee/auto@review"     # auto: every role follows the preference
         if not spec:
             return None
         if self._reviewer_spec != spec:

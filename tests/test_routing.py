@@ -25,10 +25,12 @@ def test_a_pinned_model_does_every_role_and_no_allocation_is_asked(config, monke
     assert rt.thinker() is rt.provider and rt.judge() is rt.provider
     assert not asked
     config.data["model"]["pin"] = None                 # unpinned: SinoBee.ai allocates every role
+    config.data["model"].update(auxiliary="gemini/gemini-flash-lite-latest")   # per-role picks are not used in auto
     assert build_chain(config).label == "sinobee/auto"
     assert build_auxiliary(config).label == "sinobee/auto@summary"
     rt = Runtime(config)
     assert rt.thinking().label == "sinobee/auto@thinking"
+    assert rt.reviewer().label == "sinobee/auto@review"
 
 
 class Answer:

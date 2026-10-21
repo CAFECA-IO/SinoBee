@@ -137,7 +137,7 @@ def build_auxiliary(config: Config) -> FallbackChain:
     aux = config.get("model.auxiliary")
     if (config.get("model.pin") or "").strip():
         return build_chain(config)
-    if not aux and config.get("model.default") == "sinobee/auto":
+    if config.get("model.default") == "sinobee/auto":      # auto: every role follows the preference
         aux = "sinobee/auto@summary"
     return build_chain(config, aux) if aux else build_chain(config)
 
