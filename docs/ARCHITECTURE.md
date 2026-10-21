@@ -1695,3 +1695,53 @@ SinoBee.ai 這一側：`BenchSuite` 題組庫、報告的 `visibility`、`Skill.
   - `eval compare`：顯示每個組合的合格試驗數；沒有任何配對時說明原因。
 - **另一個錯誤**：`artifacts.collect` 對「~250」這類字詞呼叫 `expanduser()` 時拋出 RuntimeError（查不到使用者「250」的家目錄）。現在略過這類字詞；`resolve_file` 也一樣處理，改回 404。
 - 測試：`tests/test_judge_robust.py`。
+
+## 39. 模型模式與額度用完的流程（P1、P2，2026-10-21）
+
+規劃文件：「SinoBee 模型分配與備援機制規劃」。這裡實作 P1（左下角資訊）與 P2（額度用完的流程），只改 SinoBee，不需要 SinoBee.ai 一起改。
+
+- **使用順序**：訂閱 → 平台點數 → 你的 API 金鑰與本地模型（同一個池子）。
+  - 每往下換一步都先問用戶；訂閱額度恢復時直接切回訂閱，不問。
+- **`sinobee/billing.py`**：
+  - 暫時的付費來源記在 `<home>/billing.json`：`{source: points|own, until, window}`。
+  - `until` 取中繼的 `retry_at`；時間已過的話改為 10 分鐘後再看；沒有時間就用時段長度。
+  - `note_quota()` 在每次查詢額度時記下點數餘額。用完的時段有空間時，直接回到訂閱。
+  - 用到點數時，`PAYING` ContextVar 讓中繼請求帶 `x-sinobee-billing: points`（P3 由 SinoBee.ai 實作扣點）。
+- **`FallbackChain`（providers/base.py）**：
+  - 鏈裡有中繼模型時，訂閱額度用完（QuotaExceeded）不再自動換下一個模型。
+  - `billing.decide()` 決定接下來怎麼做：
+    - `billing.auto_points` 開啟且有點數 → 用點數；
+    - `billing.on_exhausted = fallback` → 你的模型；
+    - 其他 → 停止並在 quota 事件標 `ask`，由介面詢問。
+  - 點數用完時再判斷一次（`window = points`）。
+  - 中繼不是因為額度失敗（例如服務中斷）時，仍照舊改用你的模型。
+  - 鏈裡沒有中繼模型時不受影響。
+  - 每次呼叫由誰付費記在 `UsageScope.billing`（`points` / `own` → 模型清單），結果卡片標「扣點」「備援產出」。
+- **設定**：
+  - `billing.on_exhausted`：ask｜pause｜fallback，預設 ask。
+  - `billing.auto_points`：預設 false。
+  - 在設定 →「SinoBee.ai 帳號」→「訂閱額度用完時」。
+- **API**：
+  - `GET /api/billing`：目前來源、點數、設定、可接手的模型（池子裡現在能呼叫的）；池子是空的時附上一個建議模型。
+  - `POST /api/billing/choose {choice: points|own|pause, remember, session_id, window, retry_at, add?}`：
+    - points、own：設定來源，並立即續跑停下的那一輪；
+    - pause：交給 recovery，額度恢復後自動續跑；
+    - remember：points 會開啟 auto_points，own 與 pause 寫入 on_exhausted。
+  - `/api/status` 多回傳 `version`、`build`（`SINOBEE_BUILD` 或 git 短碼）、`mode`（subscription｜points｜own｜local）、`billing`、`today_own`（今日自備金鑰的花費、tokens、本地 tokens、各模型明細）。
+- **介面**：
+  - **左下角**：
+    - 額度卡依模式顯示：訂閱沿用 6 小時圖表；點數顯示餘額與何時切回；自備金鑰顯示今日花費與各模型；本地模型只顯示 tokens。
+    - 下方一行是版本號；滑過顯示核准模式、技能數、記憶數。
+    - 模型名稱改放在輸入框旁的模型晶片，點一下開啟模型設定。
+  - **預警**：任一時段剩 20% 與 5% 時，在對話裡提醒一次（回到 20% 以上才會再提醒）。額度條在用量 80% 起轉黃、95% 起轉紅。
+  - **對話框**：
+    - 不用單選鈕，點一下立即生效。
+    - ① 訂閱用完：用點數繼續（有點數才顯示）、改用你的 API 金鑰或本地模型、暫停到額度恢復，以及「下次直接用這次的做法」開關。
+    - ② 點數用完：改用你的 API 金鑰或本地模型、暫停到額度恢復。
+    - 「稍後決定」等同暫停。
+    - 設定為一律暫停時不跳對話框，只在對話裡說明。
+  - 額度用完時，失敗卡片不再提供 U5 的「改用其他模型」，改由這個對話框詢問。
+- **還沒做**（P3、P4）：
+  - SinoBee.ai 依 `x-sinobee-billing` 扣點，並在 quota 回傳點數；在那之前點數選項不會出現。
+  - 依偏好分配模型、鎖定模型。
+- 測試：`tests/test_billing.py`、`tests/test_sinobee_provider.py`。

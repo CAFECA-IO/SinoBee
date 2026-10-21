@@ -59,6 +59,8 @@ def settings_payload(rt) -> dict:
                                            | ({"work"} if int(cfg.get("permissions.toolsets_v") or 1) < 2 else set())),
                         "allowed_paths": cfg.get("permissions.allowed_paths")},
         "usage": cfg.get("usage"),
+        "billing": {"on_exhausted": cfg.get("billing.on_exhausted") or "ask",
+                    "auto_points": bool(cfg.get("billing.auto_points"))},
         "skills": {"auto_create": cfg.get("skills.auto_create"), "project_dir": str(cfg.project_dir),
                    "interop": cfg.get("skills.interop", True), "hub_url": cfg.get("skills.hub_url")},
         "pricing": cfg.get("pricing") or {},
@@ -206,6 +208,17 @@ def register(app: FastAPI, rt_getter) -> None:
             if "currency" in body["usage"]:
                 u["currency"] = str(body["usage"]["currency"] or "USD")[:8]
             updates["usage"] = u
+        if "billing" in body:
+            b = body["billing"] or {}
+            bl = {}
+            if "on_exhausted" in b:
+                if b["on_exhausted"] not in ("ask", "pause", "fallback"):
+                    errors.append("billing.on_exhausted must be ask | pause | fallback")
+                else:
+                    bl["on_exhausted"] = b["on_exhausted"]
+            if "auto_points" in b:
+                bl["auto_points"] = bool(b["auto_points"])
+            updates["billing"] = bl
         if "skills" in body:
             sk = {}
             b = body["skills"]

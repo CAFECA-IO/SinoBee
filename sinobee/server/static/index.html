@@ -749,6 +749,19 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
 #quotaModal .qm-opts{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 #quotaModal .qm-opts .btn{display:flex;align-items:center;gap:8px;justify-content:flex-start;text-align:left;text-decoration:none}
 #quotaModal .qm-opts svg{width:16px;height:16px;flex:none}
+#quotaModal .qm-opt{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);color:var(--ink);font:inherit;cursor:pointer}
+#quotaModal .qm-opt:hover,#quotaModal .qm-opt:focus-visible{border-color:var(--accent2)}
+#quotaModal .qm-opt .qi{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex:none;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}
+#quotaModal .qm-opt b{display:block;font-size:14px}#quotaModal .qm-opt small{display:block;color:var(--muted);font-size:12px;margin-top:3px;line-height:1.5}
+#quotaModal .qm-opt .tag{font-size:11px;font-weight:500;padding:1px 7px;border-radius:999px;border:1px solid var(--c);color:var(--c);margin-left:6px}
+#quotaModal .qm-opt.pts{--c:var(--warn)}#quotaModal .qm-opt.own{--c:var(--cap-vis)}#quotaModal .qm-opt.wait{--c:var(--accent)}
+#quotaModal .qm-rem{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted);margin-top:4px}
+.qx.pts,.qx-more.pts{--c:var(--warn)}.qx.own,.qx-more.own{--c:var(--cap-vis)}.qx.loc,.qx-more.loc{--c:var(--cap-think)}
+.qx-row{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);margin-top:5px}.qx-row span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#status.ver{font-family:ui-monospace,Menlo,monospace;font-size:11px;display:flex;align-items:center;gap:6px;padding:8px 14px}
+#modelChip{flex:none;align-self:center;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+#modelChip:hover{color:var(--ink);border-color:var(--accent2)}@media (max-width:640px){#modelChip{display:none}}
+.bpill{display:inline-block;font-size:11px;padding:0 7px;border-radius:999px;border:1px solid var(--c);color:var(--c);margin-right:4px}.bpill.own{--c:var(--cap-vis)}.bpill.pts{--c:var(--warn)}
 </style>
 </head>
 <body>
@@ -777,7 +790,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
     <div class="skp-h"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="skillQ" placeholder="搜尋技能，例如：影片、研究、資料庫" autocomplete="off" aria-controls="skillList"><kbd>Esc</kbd></div>
     <div class="skp-l" id="skillList" role="listbox"></div>
     <div class="skp-f"><span>↑↓ 選擇　Enter 使用　也可以在輸入框打 <b>/</b></span><button type="button" class="linkbtn" id="skillManage">管理技能</button></div></div>
-  <form id="form"><button class="btn icon lg tip-up" data-icon="clip" aria-label="附加檔案（可拖曳或貼上）" type="button" id="attachBtn"></button><input type="file" id="fileInput" multiple hidden><button class="btn icon lg tip-up" data-icon="skill" aria-label="使用技能（或輸入 /）" aria-haspopup="dialog" aria-expanded="false" type="button" id="skillBtn"></button>
+  <form id="form"><button class="btn icon lg tip-up" data-icon="clip" aria-label="附加檔案（可拖曳或貼上）" type="button" id="attachBtn"></button><input type="file" id="fileInput" multiple hidden><button class="btn icon lg tip-up" data-icon="skill" aria-label="使用技能（或輸入 /）" aria-haspopup="dialog" aria-expanded="false" type="button" id="skillBtn"></button><button type="button" id="modelChip" title="目前使用的模型（點一下開啟模型設定）" hidden></button>
     <textarea id="input" placeholder="描述任務，例如：幫我查明天台北的天氣並存成 weather.md（可拖曳或貼上圖片、檔案）" rows="1"></textarea><button class="btn icon lg tip-up tip-left" data-icon="stop" aria-label="停止目前任務並改做這個" id="interruptBtn" type="button" hidden></button><button class="btn icon lg primary tip-up tip-left" data-icon="send" aria-label="送出（Enter）" id="sendBtn"></button></form>
 </main>
 <div id="sideScrim" hidden></div>
@@ -938,6 +951,12 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
       <section class="pane" data-pane="account">
         <div class="grp" id="subSec" hidden><div class="grp-h">SinoBee.ai 訂閱<span class="grp-d">訂閱後可直接使用 SinoBee.ai 提供的模型，不必自己申請金鑰；額度以 6 小時與 7 天兩個滾動區間計算，用掉的部分到期後自動釋放</span></div>
           <div id="subBody"></div></div>
+        <div class="grp" id="billSec"><div class="grp-h">訂閱額度用完時<span class="grp-d">使用順序：訂閱 → 平台點數 → 你的 API 金鑰與本地模型。每換一步都先問你；訂閱額度恢復時直接切回訂閱。剩 20% 與 5% 時會提醒。</span></div>
+          <div class="srow"><div class="sl"><b>訂閱用完時自動使用點數</b><span class="sd">關閉（預設）：扣點前先問你。開啟：不問，直接依官方牌價扣點，只通知一次</span></div>
+            <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="bAutoPts" aria-label="訂閱用完時自動使用點數"></div></div>
+          <div class="srow"><div class="sl"><b>不使用點數時</b><span class="sd">排程與無人值守的任務也照這個設定；「每次問我」時先暫停並通知你，額度恢復後自動續跑</span></div>
+            <div class="sc"><select class="inp" id="bExhausted"><option value="ask">每次問我</option><option value="pause">一律暫停到額度恢復</option><option value="fallback">一律改用我的 API 金鑰與本地模型</option></select></div></div>
+        </div>
         <div class="grp" id="acctSec"><div class="grp-h">SinoBee.ai 帳號<span class="grp-d">發佈技能、登錄工具、加密同步、分享對話時使用；權杖只存在 secrets.json，不會傳給模型</span></div>
           <div id="acctBody"></div></div>
       </section>
@@ -1109,6 +1128,7 @@ function esc(s){return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<'
 
 // ---------------- icons (inline SVG; several paths adapted from Feather Icons, MIT) ----------------
 const ICONS = {
+  key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
   send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/>',
   clip: '<path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -1553,6 +1573,8 @@ function resultCard(ev){
   const meta = [ev.steps ? `${ev.steps} 步` : '', ev.duration_s != null ? fmtDur(ev.duration_s) : '',
     u.calls ? `${fmtTok((u.input_tokens || 0) + (u.output_tokens || 0))} tokens` : '',
     u.quota_6h_pct != null ? quotaShare(u) : '',
+    u.billing?.points ? `<span class="bpill pts">扣點</span>${esc(u.billing.points.join('、'))}` : '',
+    u.billing?.own ? `<span class="bpill own">備援產出</span>${esc(u.billing.own.join('、'))}` : '',
     u.calls && (u.cost_usd || u.quota_6h_pct == null) ? fmtCost(u.cost_usd) + (u.unpriced ? '（部分模型未設定費率）' : '') : '',
     ev.run_report ? `<a href="#" data-rr="${esc(ev.run_report)}" title="每一步用了多少 tokens、時間與重送次數">每步花費</a>` : ''].filter(Boolean).join(' · ');
   const st = ev.status || 'done';
@@ -1935,6 +1957,7 @@ async function submitText(mode){
   ws.send(JSON.stringify({type: 'message', session_id: sessionId, text, client_ref: CLIENT_REF, mode}));
   if (mode === 'interrupt') $('#rbText').textContent = '正在停止，接著改做新的要求…';
 }
+$('#modelChip').onclick = () => openSettings(false, 'model');
 $('#interruptBtn').onclick = () => { if (RUNNING[sessionId]) submitText('interrupt'); };
 $('#form').onsubmit = async e => {
   e.preventDefault(); if (RUNNING[sessionId]) return submitText('steer');
@@ -2201,11 +2224,17 @@ async function fillSide(side){
       d.textContent = `⚠︎ ${data.diagnostics.length} 則技能格式提醒（sinobee skills doctor 查看）`; side.appendChild(d); }
   }
 }
+let STATUS = null;      // /api/status: version, mode (subscription | points | own | local), today's use
 async function refreshStatus(full = true){
   const s = await api('/api/status');
   CUR = {code: s.currency || 'USD', rate: s.currency_rate};
-  $('#status').innerHTML = `模型 <b>${esc(s.model)}</b><br>核准模式 ${esc(s.approval)} · 技能 ${s.skills} · 記憶 ${s.memories}<br>今日 ${fmtTok(s.today.total_tokens)} tokens · <b>${fmtCost(s.today.cost_usd)}</b><span id="footLocal"></span>`;
-  footLocal(s.model);
+  STATUS = s;
+  const st = $('#status'); st.className = 'status ver';
+  st.textContent = `SinoBee v${s.version || ''}${s.build ? ' · ' + s.build : ''}`;
+  st.title = `核准模式 ${s.approval} · 技能 ${s.skills} · 記憶 ${s.memories} · 今日 ${fmtTok(s.today.total_tokens)} tokens`;
+  const chip = $('#modelChip'); chip.hidden = !s.model; chip.textContent = String(s.model || '').replace(/^sinobee\//, '');
+  chip.setAttribute('aria-label', `目前模型 ${s.model || ''}，點一下開啟模型設定`);
+  if (s.mode === 'subscription' && (!QUOTA || QUOTA.status === 'signed_out')) loadQuota(); else paintQuota();
   NEEDS_SETUP = !!s.needs_setup;
   if (!full) return;
   if (s.needs_setup) openSettings(true);
@@ -3268,6 +3297,7 @@ function renderSettings(){
   const u = SET.usage || {};
   $('#uDaily').value = u.daily_budget_usd ?? ''; $('#uMonthly').value = u.monthly_budget_usd ?? ''; $('#uTaskUsd').value = u.task_max_usd ?? ''; $('#uTaskTok').value = u.task_max_tokens ?? '';
   $('#uCurrency').value = u.currency || 'USD'; $('#uRate').value = u.currency_rate ?? ''; $('#uEnforce').checked = !!u.enforce_budget;
+  const bl = SET.billing || {}; $('#bAutoPts').checked = !!bl.auto_points; $('#bExhausted').value = bl.on_exhausted || 'ask';
   const sk = SET.skills || {}; $('#sAuto').value = String(sk.auto_create === true ? 'auto' : sk.auto_create === false ? 'off' : sk.auto_create || 'auto');
   $('#sProject').value = sk.project_dir || ''; $('#sInterop').checked = sk.interop !== false;
   const tb = $('#priceTable tbody'); tb.innerHTML = ''; Object.entries(SET.pricing || {}).forEach(([k, v]) => addPriceRow(k, v));
@@ -3502,6 +3532,7 @@ function collectSettings(){
                         task_max_usd: $('#uTaskUsd').value, task_max_tokens: $('#uTaskTok').value, currency: $('#uCurrency').value,
                         currency_rate: $('#uRate').value, enforce_budget: $('#uEnforce').checked},
                 skills: {auto_create: $('#sAuto').value, project_dir: $('#sProject').value, interop: $('#sInterop').checked},
+                billing: {auto_points: $('#bAutoPts').checked, on_exhausted: $('#bExhausted').value},
                 api_keys: {}, custom_providers: {}, pricing: {}};
   document.querySelectorAll('#customRows .krow').forEach(r => { const [n, u] = r.querySelectorAll('input'); if (n.value.trim() && u.value.trim()) body.custom_providers[n.value.trim()] = {base_url: u.value.trim()}; });
   document.querySelectorAll('#priceTable tbody tr').forEach(tr => { const name = tr.querySelector('input').value.trim(); if (!name) return;
@@ -3620,10 +3651,17 @@ function quotaFromTurn(q){
   paintQuota(); clearTimeout(quotaTimer); quotaTimer = setTimeout(() => loadQuota(true), 4000);   // tokens left / releases
 }
 function paintQuota(){
-  const q = QUOTA, bar = $('#quotaBar');
-  // sidebar: only when a SinoBee.ai model is in use (or a subscription exists)
-  const show = q && (q.in_use || q.status === 'ok');
-  bar.hidden = !show;
+  const q = QUOTA, bar = $('#quotaBar'), mode = STATUS?.mode;
+  quotaWarn(q);
+  // bottom-left card: who pays now (subscription / points / your own keys / local) and today's use for that mode
+  if (mode && mode !== 'subscription') {
+    bar.hidden = false; bar.innerHTML = modeLine(mode); paintIcons(bar);
+    bar.setAttribute('aria-expanded', String(QUOTA_OPEN));
+    bar.setAttribute('aria-label', `目前模式與用量（點一下${QUOTA_OPEN ? '收起' : '展開明細'}）`);
+    if (mode === 'local' && QUOTA_OPEN) footLocal(STATUS.model);
+  }
+  const show = (!mode || mode === 'subscription') && q && (q.in_use || q.status === 'ok');
+  if (!mode || mode === 'subscription') bar.hidden = !show;
   if (show) {
     if (q.status === 'ok') {
       bar.innerHTML = quotaLine(q);
@@ -3644,7 +3682,40 @@ function paintQuota(){
 /** sidebar quota: one line (the tighter window: what is left, when it comes back); open = the 6-hour timeline */
 let QUOTA_OPEN = false;
 try { QUOTA_OPEN = localStorage.getItem('sb-quota-open') === '1'; } catch (e) {}
-const qLevel = p => p >= 90 ? 'full' : p >= 70 ? 'warn' : 'ok';
+const qLevel = p => p >= 95 ? 'full' : p >= 80 ? 'warn' : 'ok';     // 20% and 5% left (plan: fixed thresholds)
+/** the card for points / your own keys / local models: one line, open = details */
+function modeLine(mode){
+  const b = STATUS.billing || {}, o = STATUS.today_own || {}, until = b.until ? new Date(b.until * 1000).toISOString() : null;
+  const back = until ? `<div class="qx-foot">訂閱額度 <b style="color:var(--accent)">${esc(qClock(until))}</b> 恢復後直接切回訂閱</div>` : '';
+  const models = (o.models || []).map(m => `<div class="qx-row"><span>${esc(m.model)}</span><span>${m.local ? fmtTok(m.tokens) + ' tokens' : fmtCost(m.cost_usd)}</span></div>`).join('');
+  let cls, title, stat, more;
+  if (mode === 'points') {
+    cls = 'pts'; title = '平台點數'; stat = b.points != null ? `${Number(b.points).toLocaleString()} 點` : '扣點中';
+    more = `<div class="qx-foot">依官方牌價扣點，1 點 = NT$1</div>${back}`;
+  } else if (mode === 'local' || (mode === 'own' && STATUS.fallback_local && b.source === 'own')) {
+    cls = 'loc'; title = '本地模型'; stat = `今日 ${fmtTok(o.local_tokens || 0)} tokens`;
+    more = `${models}<div class="qx-foot" id="footLocal"></div>${back}`;
+  } else {
+    cls = 'own'; title = b.source === 'own' ? '自備金鑰與本地' : '自備金鑰'; stat = `今日 ${fmtCost(o.cost_usd || 0)}`;
+    more = `<div class="qx-head"><span>今日</span><span>${fmtTok((o.tokens || 0) + (o.local_tokens || 0))} tokens</span></div>${models}${b.source === 'own' ? '<div class="qx-foot">備援中：訂閱額度用完，你同意改用自己的模型</div>' : ''}${back}`;
+  }
+  return `<div class="qx ${cls}${QUOTA_OPEN ? ' open' : ''}"><div class="qx-line"><span class="qx-dot"></span><b>${title}</b><span class="qx-s">${esc(stat)}</span><span class="qx-chev">›</span></div>
+    ${QUOTA_OPEN ? `<div class="qx-more ${cls}">${more}<div class="qx-foot qx-end"><span></span><a href="#" data-qacct>設定 ›</a></div></div>` : ''}</div>`;
+}
+/** 20% and 5% left in a window: tell once (in the conversation), again only after it went back above */
+function quotaWarn(q){
+  if (q?.status !== 'ok' || STATUS?.mode !== 'subscription') return;
+  for (const w of q.windows || []) {
+    const left = 100 - (+w.usedPct || 0), lvl = left <= 5 ? 5 : left <= 20 ? 20 : 0, key = 'sb-qwarn-' + w.window;
+    let prev = 0; try { prev = +(localStorage.getItem(key) || 0); } catch {}
+    if (lvl && (!prev || lvl < prev) && left > 0) {
+      if (!$('#chat .msg')) continue;                  // no conversation open: tell when one is
+      const auto = STATUS.billing?.auto_points && (STATUS.billing?.points || 0) > 0;
+      add(`⚠︎ SinoBee.ai ${WIN_NAME[w.window] || ''}額度剩 ${fmtPct(left)}。${auto ? '用完時會依你的設定改用平台點數。' : '用完時會停在安全點，問你要用平台點數、改用你的 API 金鑰與本地模型，或暫停到額度恢復。'}`, 'note');
+    }
+    try { localStorage.setItem(key, String(lvl)); } catch {}
+  }
+}
 /** "23:58" for a time within a day (the 6-hour window always is), "10/24" further out */
 const qClock = iso => { const t = new Date(iso), p2 = n => String(n).padStart(2, '0');
   return t - Date.now() < 86400e3 ? `${p2(t.getHours())}:${p2(t.getMinutes())}` : `${t.getMonth() + 1}/${t.getDate()}`; };
@@ -3670,7 +3741,7 @@ function quotaLine(q){
   const bars = b.map((v, i) => `<i class="${i === first ? 'old' : ''}" style="height:${v > 0 ? Math.max(4, v / max * 100) : 0}%" title="${fmtPct(v)}"></i>`).join('');
   return `<div class="qx ${lvl}${QUOTA_OPEN ? ' open' : ''}">
     <div class="qx-line">
-      <span class="qx-dot"></span><b>${esc(q.plan?.name || 'SinoBee.ai')}</b><span class="qx-s">${esc(status)}</span><span class="qx-chev">›</span></div>
+      <span class="qx-dot"></span><b>訂閱 ${esc(q.plan?.name || 'SinoBee.ai')}</b><span class="qx-s">${esc(status)}</span><span class="qx-chev">›</span></div>
     <div class="qx-bar"><i style="width:${Math.min(100, tight.u)}%"></i></div>
     ${QUOTA_OPEN ? `<div class="qx-more ${qLevel(u6)}">
       <div class="qx-head"><span>過去 6 小時</span><span>已用 <b>${fmtPct(u6)}</b> · 剩 ${fmtPct(100 - u6)}</span></div>
@@ -3682,7 +3753,7 @@ function quotaLine(q){
     ${expiryNote()}</div>`;
 }
 $('#quotaBar').onclick = e => {
-  if (QUOTA?.status !== 'ok' || e.target.closest('[data-qacct]')) { e.preventDefault(); openSettings(false, 'account'); return; }
+  if (e.target.closest('[data-qacct]') || (STATUS?.mode === 'subscription' && QUOTA?.status !== 'ok')) { e.preventDefault(); openSettings(false, 'account'); return; }
   if (e.target.closest('a')) return;              // the renewal link in the expiry note
   QUOTA_OPEN = !QUOTA_OPEN;
   try { localStorage.setItem('sb-quota-open', QUOTA_OPEN ? '1' : '0'); } catch (err) {}
@@ -3765,26 +3836,47 @@ function sbCardBody(p){
   if (q?.status !== 'ok') return `<div class="pkey"><span class="sd" style="flex:1">${q ? esc(q.error || '讀取額度中…') : '讀取額度中…'}</span></div>`;
   return `<div class="pkey" style="flex-wrap:wrap;gap:12px"><div style="flex:1;min-width:260px">${quotaBars()}</div><span class="sd">${esc(q.plan?.name || '')} · 至 ${fmtDate(q.endsAt)}</span></div>${expiryNote()}`;
 }
-/** a model call hit the quota (stopped) or a fallback model answered instead */
+/** a model call hit the quota: stopped (the dialog follows with turn_end), or switched by your settings */
 function onQuotaEvent(ev, replay){
-  const win = WIN_NAME[ev.window] ? WIN_NAME[ev.window] + '額度' : '訂閱';
-  if (!ev.stopped) add(`ⓘ SinoBee.ai ${win}已用完，這次改由 <b>${esc(ev.answered_by || ev.fallback || '備援模型')}</b> 回答${ev.retry_at ? `；額度約 ${esc(fmtWhen(ev.retry_at))}開始釋放` : ''}`, 'note');
-  if (!replay) loadQuota(true);
+  const win = WIN_NAME[ev.window] ? WIN_NAME[ev.window] + '額度' : ev.window === 'points' ? '平台點數' : '訂閱';
+  if (ev.source === 'points') add(`ⓘ SinoBee.ai ${win}用完，依你的設定改用<b>平台點數</b>繼續（依官方牌價扣點）${ev.retry_at ? `；${esc(fmtWhen(ev.retry_at))}額度恢復後直接切回訂閱` : ''}`, 'note');
+  else if (ev.source === 'own') add(`ⓘ ${win}用完，依你的設定改由 <b>${esc(ev.fallback || '你的模型')}</b>（你的 API 金鑰或本地模型）繼續${ev.retry_at ? `；${esc(fmtWhen(ev.retry_at))}訂閱額度恢復後直接切回` : ''}`, 'note');
+  else if (!ev.stopped && !ev.ask) add(`ⓘ SinoBee.ai ${win}已用完，這次改由 <b>${esc(ev.answered_by || ev.fallback || '備援模型')}</b> 回答`, 'note');
+  if (!replay) { loadQuota(true); refreshStatus(false); }
 }
-function showQuotaModal(qe, model){
-  const sub = qe.window === 'subscription';
-  const fallbacks = (SET?.model?.fallbacks) || [];
-  $('#qmTitle').textContent = sub ? '沒有有效的 SinoBee.ai 訂閱' : `SinoBee.ai ${WIN_NAME[qe.window] || ''}額度用完了`;
-  $('#qmBody').innerHTML = sub ? '<p>訂閱已到期或尚未訂閱，所以這個任務沒有完成。</p>'
-    : `<p>這個任務因為 ${esc(WIN_NAME[qe.window] || '')}額度用完而暫停${model ? `（${esc(model)}）` : ''}。${qe.retry_at ? `額度約在 <b>${esc(fmtWhen(qe.retry_at))}</b> 開始釋放，之後就能繼續。` : ''}</p>
-       ${QUOTA?.status === 'ok' ? quotaBars() : ''}`;
-  const subUrl = QUOTA?.subscribe_url || ((ACCT?.hub_url || 'https://sinobee.ai') + '/subscribe');
-  $('#qmOpts').innerHTML = [
-    !sub && qe.retry_at ? `<button class="btn" type="button" data-q="wait">${ic('clock')} 等額度釋放後，回覆「繼續」接著做</button>` : '',
-    `<button class="btn" type="button" data-q="model">${ic('sparkles')} ${fallbacks.length ? '改用其他模型或調整備援模型' : '設定備援模型（額度用完時自動改用自己的金鑰或本機模型）'}</button>`,
-    `<a class="btn primary" href="${esc(subUrl)}" target="_blank" rel="noopener">${ic('external')} ${sub ? '訂閱方案' : '升級或加購方案'}</a>`].join('');
-  $('#qmOpts').querySelectorAll('[data-q]').forEach(b => b.onclick = () => { $('#quotaModal').classList.remove('open');
-    if (b.dataset.q === 'model') openSettings(false, 'model'); else $('#input').focus(); });
+/** the allowance (or the points) ran out and the turn stopped at a safe point: one click decides what happens.
+ *  ① subscription used up: points / your own keys and local models / pause.  ② points used up: own / pause. */
+async function showQuotaModal(qe, model){
+  let b = {}; try { b = await api('/api/billing'); } catch {}
+  const pts = qe.window === 'points', sub = qe.window === 'subscription';
+  const when = qe.retry_at ? fmtWhen(qe.retry_at) : '';
+  if (b.on_exhausted === 'pause' && !pts) {           // remembered: pause until the allowance is back, no dialog
+    add(`⏸ 訂閱額度用完，依你的設定暫停${when ? `；${esc(when)}額度恢復後自動續跑` : ''}`, 'note'); return; }
+  $('#qmTitle').textContent = pts ? '平台點數已用完' : sub ? '沒有有效的 SinoBee.ai 訂閱' : `${WIN_NAME[qe.window] || ''}額度已用完`;
+  $('#qmBody').innerHTML = `<p style="margin:0 0 4px">工作停在安全點${model ? `（${esc(model)}）` : ''}。${when ? `訂閱額度約 <b>${esc(when)}</b> 恢復，恢復後直接切回訂閱。` : ''}點一個做法：</p>`;
+  const sid = sessionId, pool = b.pool || [], offer = b.offer;
+  const ownWhat = pool.length ? pool.slice(0, 3).join('、') : offer ? `${offer.label}（加入你的模型）` : '';
+  const opts = [];
+  if (!pts && (b.points || 0) > 0) opts.push(['points', 'pts', 'database', `用平台點數繼續<span class="tag">${Number(b.points).toLocaleString()} 點</span>`, '依官方牌價扣點；訂閱額度恢復後直接切回訂閱。']);
+  if (ownWhat) opts.push(['own', 'own', 'key', '改用你的 API 金鑰或本地模型', `${esc(ownWhat)}；金鑰的費用由你的帳戶支付。`]);
+  if (!sub) opts.push(['pause', 'wait', 'clock', '暫停到額度恢復<span class="tag">不額外花費</span>', when ? `${esc(when)}自動接著做。` : '額度恢復後自動接著做。']);
+  $('#qmOpts').innerHTML = opts.map(([c, cls, icn, t, d]) => `<button class="qm-opt ${cls}" type="button" data-q="${c}"><span class="qi">${ic(icn)}</span><span><b>${t}</b><small>${d}</small></span></button>`).join('')
+    + (!ownWhat ? `<button class="btn" type="button" data-q="model">${ic('key')} 新增 API 金鑰或本地模型</button>` : '')
+    + (sub ? `<a class="btn primary" href="${esc(QUOTA?.subscribe_url || ((ACCT?.hub_url || 'https://sinobee.ai') + '/subscribe'))}" target="_blank" rel="noopener">${ic('external')} 訂閱方案</a>` : '')
+    + (!pts && !sub ? `<label class="qm-rem"><span>下次直接用這次的做法（可在設定修改）</span><input type="checkbox" class="sw" role="switch" id="qmRemember" aria-label="下次直接用這次的做法"></label>` : '');
+  $('#qmClose').textContent = sub ? '關閉' : '稍後決定（先暫停）';
+  paintIcons($('#qmOpts'));
+  $('#qmOpts').querySelectorAll('[data-q]').forEach(btn => btn.onclick = async () => {
+    const c = btn.dataset.q; $('#quotaModal').classList.remove('open');
+    if (c === 'model') { openSettings(false, 'model'); return; }
+    try {
+      const r = await post('/api/billing/choose', {choice: c, remember: !!$('#qmRemember')?.checked,
+        session_id: sid, window: qe.window, retry_at: qe.retry_at, add: !pool.length && offer ? offer.spec : undefined});
+      add(c === 'pause' ? `⏸ 已暫停${when ? `；${esc(when)}額度恢復後自動續跑` : '，額度恢復後自動續跑'}`
+        : `ⓘ ${c === 'points' ? '改用平台點數' : '改用你的 API 金鑰與本地模型'}繼續${r.resumed ? '' : '：回覆「繼續」接著做'}`, 'note');
+      refreshStatus(false); loadQuota(true);
+    } catch (err) { add('ⓘ ' + esc(err.message), 'note'); }
+  });
   $('#quotaModal').classList.add('open'); loadQuota(true);
 }
 $('#qmClose').onclick = () => $('#quotaModal').classList.remove('open');

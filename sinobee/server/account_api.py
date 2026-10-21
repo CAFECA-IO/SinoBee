@@ -6,7 +6,7 @@ import time
 
 from fastapi import FastAPI, HTTPException
 
-from .. import account
+from .. import account, billing
 
 
 def register(app: FastAPI, rt) -> None:
@@ -89,6 +89,8 @@ def register(app: FastAPI, rt) -> None:
              "in_use": any(str(s or "").startswith("sinobee/") for s in
                            [cfg.get("model.default"), *(cfg.get("model.fallbacks") or [])]),
              "fetched_at": time.time()}
+        billing.note_quota(cfg, q)            # remember the points; allowance back = straight back to the subscription
+        q["billing"] = billing_public()
         state["quota"] = (time.time(), q, account.token(cfg))
         if q.get("status") == "ok":
             w6 = next((w for w in q.get("windows") or [] if w.get("window") == "6h"), None)
@@ -98,3 +100,77 @@ def register(app: FastAPI, rt) -> None:
                 except Exception:  # noqa: BLE001
                     pass
         return q
+
+    def billing_public() -> dict:
+        cfg = rt().config
+        st = billing.active(cfg)
+        return {"source": (st or {}).get("source") or billing.SUBSCRIPTION, "until": (st or {}).get("until"),
+                "window": (st or {}).get("window"), "points": billing.points(cfg),
+                "auto_points": bool(cfg.get("billing.auto_points")),
+                "on_exhausted": cfg.get("billing.on_exhausted") or "ask"}
+
+    def pool_and_offer(failed: str | None = None) -> tuple[list[str], dict | None]:
+        """Your own keys / local models in the chain that can be called now, and (none) one to add."""
+        from ..providers import usable_now
+        r = rt()
+        prov = r.provider
+        pool = []
+        for p in (prov.pool() if hasattr(prov, "pool") else []):
+            try:
+                if usable_now(p.provider_name, r.config):
+                    pool.append(p.label)
+            except Exception:  # noqa: BLE001
+                pass
+        offer = None
+        if not pool:
+            from ..providers import fallback
+            o = fallback.suggest(r.config, failed or prov.label)
+            if o and not o["spec"].startswith("sinobee/"):
+                offer = o
+        return pool, offer
+
+    @app.get("/api/billing")
+    async def billing_get():
+        """For the allowance-used-up dialog: who pays now, points, your own keys / local models that can take over."""
+        pool, offer = pool_and_offer()
+        return {**billing_public(), "pool": pool, "offer": offer}
+
+    @app.post("/api/billing/choose")
+    async def billing_choose(body: dict):
+        """The user's click in the dialog: points | own | pause. points / own resume the stopped turn at once;
+        pause leaves it to the recovery check (resumed when the allowance is back). remember = do this next time."""
+        r = rt()
+        cfg = r.config
+        choice = body.get("choice")
+        if choice not in (billing.POINTS, billing.OWN, "pause"):
+            raise HTTPException(400, "choice must be points, own or pause")
+        if choice == billing.OWN:
+            pool, offer = pool_and_offer()
+            if not pool:
+                if not (offer and body.get("add") == offer["spec"]):
+                    raise HTTPException(409, "沒有可用的自備金鑰或本地模型")
+                cfg.save_gui_settings({"model": {"fallbacks": [*(cfg.get("model.fallbacks") or []), offer["spec"]]}})
+                r.reload()
+        if body.get("remember"):
+            billing.remember(cfg, choice)
+        if choice == "pause":
+            billing.clear(cfg, "paused")
+            return {"ok": True, "resumed": False}
+        billing.choose(cfg, choice, window=body.get("window"), retry_at=body.get("retry_at"))
+        sid = body.get("session_id")
+        resumed = False
+        if sid:
+            from ..work.hub import get_hub
+            from ..work.store import ACTIVE
+            hub = get_hub(r)
+            runs = [x for x in hub.store.runs(limit=300) if x["kind"] == "chat" and x.get("session_id") == sid]
+            if runs and runs[0]["status"] not in ACTIVE:
+                why = "改用平台點數繼續" if choice == billing.POINTS else "改用你的 API 金鑰與本地模型繼續"
+                try:
+                    hub.resume(runs[0]["id"], brief={"resume": True, "reason": why, "done": [], "remaining": [],
+                                                     "next": f"訂閱額度用完，{why}：先確認做到哪裡，從中斷處接著做"})
+                    resumed = True
+                except Exception:  # noqa: BLE001
+                    resumed = False
+        return {"ok": True, "resumed": resumed, **billing_public()}
+

@@ -27,12 +27,19 @@ class UsageScope:
     model_seconds: float = 0.0                # time spent waiting for models (retries and back-off included)
     retry_events: list = field(default_factory=list)   # [{model, status, error}] one per call sent again (last 200)
     retries: int = 0
+    billing: dict = field(default_factory=dict)  # {"points" | "own": [models]} calls not paid by the subscription
+
+    def billing_note(self, source: str, model: str) -> None:
+        ms = self.billing.setdefault(source, [])
+        if model not in ms:
+            ms.append(model)
 
     def as_dict(self) -> dict:
         return {"calls": self.calls, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
                 "cache_read_tokens": self.cache_read_tokens, "cost_usd": round(self.cost_usd, 6),
                 "unpriced": self.unpriced,
-                **({"quota_6h_pct": round(self.quota_6h_pct, 2), "quota": self.quota} if self.quota else {})}
+                **({"quota_6h_pct": round(self.quota_6h_pct, 2), "quota": self.quota} if self.quota else {}),
+                **({"billing": self.billing} if self.billing else {})}
 
     def drain_quota_events(self) -> list:
         out, self.quota_events = self.quota_events, []

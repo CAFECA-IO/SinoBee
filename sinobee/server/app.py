@@ -21,6 +21,24 @@ log = logging.getLogger("sinobee.server")
 STATIC = Path(__file__).resolve().parent / "static"
 
 
+_BUILD: list = []
+
+
+def _build() -> str:
+    """A short build id: $SINOBEE_BUILD, else the git commit the code runs from, else ''."""
+    if not _BUILD:
+        b = os.environ.get("SINOBEE_BUILD", "").strip()
+        if not b:
+            try:
+                import subprocess
+                b = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).resolve().parents[2],
+                                   capture_output=True, text=True, timeout=3).stdout.strip()
+            except Exception:  # noqa: BLE001
+                b = ""
+        _BUILD.append(b[:12])
+    return _BUILD[0]
+
+
 def create_app(runtime: Runtime | None = None) -> FastAPI:
     state: dict = {"rt": runtime, "agents": {}}
 
@@ -75,6 +93,34 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     async def index():
         return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})  # an update shows on reload
 
+    def _mode_and_usage(r) -> dict:
+        """P1 (plan "模型分配與備援機制"): the bottom-left card - version, who pays now, today's use for that mode."""
+        from .. import __version__, billing
+        primary = r.provider.label
+        local_prov = ("ollama", "lmstudio", "vllm", "llamacpp")
+        st = billing.active(r.config) if primary.startswith("sinobee/") else None
+        if primary.startswith("sinobee/"):
+            mode = (st or {}).get("source") or billing.SUBSCRIPTION
+        else:
+            mode = "local" if primary.split("/", 1)[0] in local_prov else billing.OWN
+        since = r.period_start("today")
+        rows = r.memory.usage_grouped("model", since, limit=50)
+        own = [x for x in rows if not str(x["key"]).startswith("sinobee/")]
+        is_local = lambda k: str(k).split("/", 1)[0] in local_prov  # noqa: E731
+        pool = r.provider.pool() if hasattr(r.provider, "pool") else []
+        return {
+            "version": __version__, "build": _build(),
+            "mode": mode, "fallback_local": bool(pool) and all(p.provider_name in local_prov for p in pool),
+            "billing": {"source": (st or {}).get("source"), "until": (st or {}).get("until"),
+                        "points": billing.points(r.config), "auto_points": bool(r.config.get("billing.auto_points")),
+                        "on_exhausted": r.config.get("billing.on_exhausted") or "ask"},
+            "today_own": {"cost_usd": round(sum(x["cost_usd"] or 0 for x in own if not is_local(x["key"])), 6),
+                          "tokens": sum(x["input_tokens"] + x["output_tokens"] for x in own if not is_local(x["key"])),
+                          "local_tokens": sum(x["input_tokens"] + x["output_tokens"] for x in own if is_local(x["key"])),
+                          "models": [{"model": x["key"], "cost_usd": x["cost_usd"], "local": is_local(x["key"]),
+                                      "tokens": x["input_tokens"] + x["output_tokens"]} for x in own[:6]]},
+        }
+
     @app.get("/api/status")
     async def status():
         r = rt()
@@ -94,6 +140,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             "today": r.memory.usage_totals(r.period_start("today")),
             "currency": r.config.get("usage.currency", "USD"),
             "currency_rate": r.config.get("usage.currency_rate"),
+            **_mode_and_usage(r),
         }
 
     @app.get("/api/sessions")

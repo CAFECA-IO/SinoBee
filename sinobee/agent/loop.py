@@ -1261,7 +1261,7 @@ class Agent:
                 from .errors import explain_error
                 error_info = explain_error(e)
                 error_info["kind"] = "model"
-                if error_info.get("transient"):
+                if error_info.get("transient") and not error_info.get("quota"):   # quota: the billing dialog asks
                     offer = self._fallback_offer()
                     if offer:
                         error_info["fallback_offer"] = offer

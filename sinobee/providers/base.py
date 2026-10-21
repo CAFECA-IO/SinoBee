@@ -305,10 +305,11 @@ class Provider(ABC):
 class FallbackChain:
     """Try providers in order; move on when one fails with a non-recoverable error."""
 
-    def __init__(self, providers: list[Provider]):
+    def __init__(self, providers: list[Provider], config=None):
         if not providers:
             raise ValueError("at least one provider required")
         self.providers = providers
+        self.config = config  # for billing: who pays once the subscription allowance runs out (sinobee/billing.py)
         self.recorder = None  # callable(provider, ChatResponse | None, usage) set by Runtime for cost accounting
 
     @property
@@ -319,9 +320,15 @@ class FallbackChain:
     def label(self) -> str:
         return self.primary.label
 
-    async def chat(self, messages, tools=None, **kw) -> ChatResponse:
+    def pool(self) -> list[Provider]:
+        """The user's own keys and local models in this chain (the fallback pool after the subscription)."""
+        return [p for p in self.providers if getattr(p, "provider_name", "") != "sinobee"]
+
+    async def _try(self, providers, messages, tools, kw, source: str | None):
+        """Call providers in order. Returns (response, None) or (None, last error); a QuotaExceeded from the relay
+        ends the relay part at once (every relay model shares the allowance)."""
         last: Exception | None = None
-        for p in self.providers:
+        for p in providers:
             try:
                 resp = await p.chat(messages, tools, **kw)
                 resp.model = resp.model or p.label
@@ -330,20 +337,91 @@ class FallbackChain:
                         self.recorder(p, resp.usage, None)
                     except Exception:
                         log.exception("usage recording failed")
-                return resp
+                if source:
+                    from ..accounting import current_scope
+                    current_scope.get().billing_note(source, p.label)
+                return resp, None
             except ProviderError as e:
                 log.error("provider %s failed: %s", p.label, e)
                 last = e
                 if TOO_LONG.get() and is_timeout(e):
                     raise                   # too long for any model: the agent splits the work instead (U4)
                 if isinstance(e, QuotaExceeded):
-                    from ..accounting import current_scope
-                    i = self.providers.index(p)
-                    nxt = self.providers[i + 1].label if i + 1 < len(self.providers) else None
-                    current_scope.get().quota_events.append(
-                        {"window": e.window, "retry_at": e.retry_at, "model": p.label, "fallback": nxt})
+                    return None, e
                 # auth / bad request errors on the primary still allow fallback to a different vendor
-        raise last or ProviderError("all providers failed")
+        return None, last
+
+    async def chat(self, messages, tools=None, **kw) -> ChatResponse:
+        from .. import billing
+        relay = [p for p in self.providers if getattr(p, "provider_name", "") == "sinobee"]
+        pool = self.pool()
+        if not relay:                                   # your own keys / local models only: nothing to decide
+            resp, err = await self._try(self.providers, messages, tools, kw, None)
+            if resp:
+                return resp
+            raise err or ProviderError("all providers failed")
+        st = billing.active(self.config)
+        src = st.get("source") if st else billing.SUBSCRIPTION
+        quota: QuotaExceeded | None = None
+        if src == billing.SUBSCRIPTION:
+            resp, err = await self._try(relay, messages, tools, kw, None)
+            if resp:
+                return resp
+            if not isinstance(err, QuotaExceeded):
+                if pool:                                # a broken relay (not the allowance): your models, as before
+                    resp, err2 = await self._try(pool, messages, tools, kw, None)
+                    if resp:
+                        return resp
+                    err = err2 or err
+                raise err or ProviderError("all providers failed")
+            quota = err
+            src = billing.decide(self.config, has_pool=bool(pool))
+            if src == "stop":
+                self._quota_event(quota, None, ask=True)
+                raise quota
+            billing.choose(self.config, src, window=quota.window, retry_at=quota.retry_at)
+            self._quota_event(quota, src, ask=False)
+        if src == billing.POINTS:
+            tok = billing.PAYING.set(billing.POINTS)
+            try:
+                resp, err = await self._try(relay, messages, tools, kw, billing.POINTS)
+            finally:
+                billing.PAYING.reset(tok)
+            if resp:
+                return resp
+            if not isinstance(err, QuotaExceeded):
+                raise err or ProviderError("all providers failed")
+            # the points ran out (or cannot be used): ask again before your own keys are charged
+            out = QuotaExceeded(f"{relay[0].label} SinoBee.ai quota points: {err}", "points", err.retry_at,
+                                err.status)
+            nxt = billing.decide(self.config, has_pool=bool(pool), after_points=True)
+            if nxt != billing.OWN:
+                billing.clear(self.config, "points used up")
+                self._quota_event(out, None, ask=True)
+                raise out
+            billing.choose(self.config, billing.OWN, window=(st or {}).get("window") or (quota.window if quota else None),
+                           retry_at=(quota.retry_at if quota else None))
+            self._quota_event(out, billing.OWN, ask=False)
+            src = billing.OWN
+        if src == billing.OWN:
+            if not pool:
+                billing.clear(self.config, "no own keys")
+                out = quota or QuotaExceeded(f"{relay[0].label} SinoBee.ai quota 6h: no fallback models", "6h")
+                self._quota_event(out, None, ask=True)
+                raise out
+            resp, err = await self._try(pool, messages, tools, kw, billing.OWN)
+            if resp:
+                return resp
+            raise err or ProviderError("all providers failed")
+        raise ProviderError("all providers failed")
+
+    def _quota_event(self, e: QuotaExceeded, source: str | None, *, ask: bool) -> None:
+        from ..accounting import current_scope
+        pool = self.pool()
+        nxt = (pool[0].label if pool else None) if source == "own" else (self.primary.label if source else None)
+        current_scope.get().quota_events.append(
+            {"window": e.window, "retry_at": e.retry_at, "model": self.primary.label, "fallback": nxt,
+             "source": source, "ask": ask})
 
     async def embed(self, texts):
         return await self.primary.embed(texts)

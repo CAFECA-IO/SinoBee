@@ -121,7 +121,15 @@ def test_quota_stop_is_not_retried_and_falls_back(config, relay):
             from sinobee.types import ChatResponse
             return ChatResponse(Message("assistant", "local answer"))
 
-    chain = FallbackChain([build_provider("sinobee/anthropic/claude-sonnet-5-5", config), Local()])
+    chain = FallbackChain([build_provider("sinobee/anthropic/claude-sonnet-5-5", config), Local()], config)
+    # 2026-10-21: your own keys / local models are not charged without consent - the turn stops and the GUI asks
+    with scope("s1", "agent") as sc:
+        with pytest.raises(QuotaExceeded):
+            asyncio.run(chain.chat([Message("user", "hi")]))
+    [ev] = sc.drain_quota_events()
+    assert ev["ask"] is True and ev["fallback"] is None and ev["window"] == "6h"
+    relay.seen.clear()
+    config.save_gui_settings({"billing": {"on_exhausted": "fallback"}})      # "do this next time": your own models
     with scope("s1", "agent") as sc:
         r = asyncio.run(chain.chat([Message("user", "hi")]))
     assert r.message.text() == "local answer"
@@ -129,7 +137,11 @@ def test_quota_stop_is_not_retried_and_falls_back(config, relay):
     assert len(calls) == 1, "quota stops are not retried"
     [ev] = sc.drain_quota_events()
     assert ev == {"window": "6h", "retry_at": "2026-10-16T20:00:00Z", "model": "sinobee/anthropic/claude-sonnet-5-5",
-                  "fallback": "ollama/qwen"}
+                  "fallback": "ollama/qwen", "source": "own", "ask": False}
+    assert sc.billing == {"own": ["ollama/qwen"]}
+    with scope("s1", "agent"):                                    # stays on your models until the allowance is back
+        asyncio.run(chain.chat([Message("user", "hi")]))
+    assert len([s for s in relay.seen if s[1].endswith("/messages")]) == 1
 
     with pytest.raises(QuotaExceeded) as e:
         asyncio.run(build_provider("sinobee/openai/gpt-5.6-luna", config).chat([Message("user", "hi")]))

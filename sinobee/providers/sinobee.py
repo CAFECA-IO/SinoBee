@@ -40,7 +40,11 @@ class SinoBeeProvider(Provider):
         self._inner_fmt: str | None = None
 
     def _sign(self, method: str, url: str, body: bytes) -> dict:
-        return account.relay_headers(self.config, method, url, body)
+        h = account.relay_headers(self.config, method, url, body)
+        from ..billing import PAYING
+        if PAYING.get():                    # paid with platform points (the user agreed; sinobee/billing.py)
+            h["x-sinobee-billing"] = PAYING.get()
+        return h
 
     def inner(self) -> Provider:
         fmt = guess_format(self.model)

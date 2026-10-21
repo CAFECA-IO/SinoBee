@@ -124,7 +124,7 @@ def build_chain(config: Config, spec: str | None = None) -> FallbackChain:
     specs = [spec or config.get("model.default")] + list(config.get("model.fallbacks") or [])
     if not specs[0]:
         raise ProviderError("no model selected yet")
-    return FallbackChain([build_provider(s, config) for s in specs if s])
+    return FallbackChain([build_provider(s, config) for s in specs if s], config)
 
 
 def build_auxiliary(config: Config) -> FallbackChain:

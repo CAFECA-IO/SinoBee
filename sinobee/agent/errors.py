@@ -4,10 +4,12 @@ from __future__ import annotations
 import re
 
 RULES = [
+    (r"SinoBee\.ai quota points", "平台點數用完了",
+     "可以改用自己的 API 金鑰或本地模型繼續，或等訂閱額度恢復後自動續跑。"),
     (r"SinoBee\.ai quota 6h", "SinoBee.ai 訂閱的 6 小時額度用完了",
-     "額度會隨時間逐步釋放；可以等候、改用備援模型，或到 sinobee.ai 升級方案。"),
+     "額度會隨時間逐步釋放；可以用平台點數或自己的 API 金鑰與本地模型繼續，或暫停到額度恢復。"),
     (r"SinoBee\.ai quota 168h", "SinoBee.ai 訂閱的 7 天額度用完了",
-     "額度會隨時間逐步釋放；可以改用備援模型（例如自己的 API 金鑰或本機模型），或到 sinobee.ai 升級方案。"),
+     "額度會隨時間逐步釋放；可以用平台點數或自己的 API 金鑰與本地模型繼續，或暫停到額度恢復。"),
     (r"SinoBee\.ai quota subscription", "沒有有效的 SinoBee.ai 訂閱",
      "到 sinobee.ai 訂閱或續訂方案，或在「設定 → 模型」改用自己的 API 金鑰。"),
     (r"SinoBee\.ai sign-in expired|需要先登入 sinobee\.ai|登入權杖沒有 llm", "SinoBee.ai 登入已失效",

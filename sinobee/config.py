@@ -161,6 +161,10 @@ DEFAULTS: dict[str, Any] = {
     "web": {
         "search_backend": "duckduckgo",  # duckduckgo | brave | tavily
     },
+    "billing": {                    # what happens when the SinoBee.ai subscription allowance runs out (billing.py)
+        "on_exhausted": "ask",      # ask | pause | fallback (your own keys and local models)
+        "auto_points": False,       # spend platform points without asking first
+    },
     "usage": {
         "daily_budget_usd": None,
         "monthly_budget_usd": None,
