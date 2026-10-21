@@ -144,3 +144,15 @@ def table(overrides: dict | None = None) -> list[dict]:
         rows.insert(0, {"model": k, **{f: v.get(f) for f in ("input", "cache_read", "cache_write", "output")},
                         "long": v.get("long"), "source": "override"})
     return rows
+
+
+def billed_tokens(price: dict | None, usage) -> float:
+    """Tokens as billed: fresh input and output count fully, cached reads and cache writes at their price relative to
+    a fresh input token (Anthropic: 0.1 and 1.25 when the price is not known). The per-task cap counts these, so a
+    long task re-reading its cached context is not stopped for tokens that cost a tenth."""
+    inp = float((price or {}).get("input") or 0)
+    r_read = float(price.get("cache_read", inp)) / inp if price and inp > 0 else 0.1
+    r_write = float(price.get("cache_write", inp)) / inp if price and inp > 0 else 1.25
+    cr, cw = int(getattr(usage, "cache_read_tokens", 0) or 0), int(getattr(usage, "cache_write_tokens", 0) or 0)
+    fresh = max(0, int(usage.input_tokens or 0) - cr - cw)
+    return fresh + cr * r_read + cw * r_write + int(usage.output_tokens or 0)

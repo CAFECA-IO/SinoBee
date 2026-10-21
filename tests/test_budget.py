@@ -15,10 +15,10 @@ def msg(text="", calls=None):
                                        for i, (n, a) in enumerate(calls or [])])
 
 
-def seed(store, task_type, tokens, cost, steps=10, milestones=False, status="done"):
+def seed(store, task_type, tokens, cost, steps=10, milestones=False, status="done", billed=None):
     r = store.create_run(job_id=None, name="t", kind="chat", trigger="chat", state={})
     store.update_run(r["id"], status=status, state={"usage": {"task_type": task_type, "tokens": tokens,
-                                                              "cost_usd": cost, "steps": steps,
+                                                              "cost_usd": cost, "steps": steps, "billed_tokens": billed,
                                                               "milestones": milestones}})
 
 
@@ -62,13 +62,17 @@ def test_the_very_first_tasks_use_the_default_per_step_values(home, config):
 
 def test_the_per_task_cap(home, config):
     store = get_hub(Runtime(config, provider=ScriptedProvider())).store
-    assert B.hard_cap(store, config) == {"source": "initial", "usd": 10.0, "tokens": 4_000_000}
-    for i in range(8):
+    assert B.hard_cap(store, config) == {"source": "initial", "usd": 10.0, "tokens": 4_000_000, "quota_pct": 50.0}
+    for i in range(8):   # older records without billed tokens: the token cap stays at the initial value
         seed(store, "document", tokens=100_000 * (i + 1), cost=1.0 * (i + 1), milestones=True)
     cap = B.hard_cap(store, config)
-    assert cap["source"] == "large_p95" and cap["tokens"] == round(765_000 * 1.5)
+    assert cap["source"] == "large_p95" and cap["tokens"] == 4_000_000 and cap["usd"] == round(7.65 * 1.5, 4)
+    for i in range(8):
+        seed(store, "document", tokens=1, cost=0, milestones=True, billed=10_000 * (i + 1))
+    assert B.hard_cap(store, config)["tokens"] == round(B._pct([10_000.0 * (i + 1) for i in range(8)], .95) * 1.5)
     config.data["usage"]["task_max_usd"] = 3
-    assert B.hard_cap(store, config) == {"source": "setting", "usd": 3.0, "tokens": None}
+    config.data["usage"]["task_max_quota_pct"] = 20
+    assert B.hard_cap(store, config) == {"source": "setting", "usd": 3.0, "tokens": None, "quota_pct": 20.0}
 
 
 # ------------------------------------------------------------------ soft checkpoints
@@ -112,7 +116,7 @@ async def test_the_cap_pauses_and_hands_over_what_is_finished(home, config):
     out = await agent.run("寫八個部分")
     st = agent.last_status
     assert st["status"] == "incomplete" and st["error"]["kind"] == "budget"
-    assert "已達每個任務的花費上限" in st["error"]["summary"] and "5,000 tokens（設定）" in st["error"]["summary"]
+    assert "已達每個任務的上限" in st["error"]["summary"] and "5,000 計費 tokens（設定）" in st["error"]["summary"]
     assert asked and asked[0][1] == ["停止並交付", "追加 1.5 倍並繼續"] and "達到每個任務的上限" in asked[0][0]
     assert out.startswith("⏸ 任務已暫停") and "**部分交付**" in out and "[part0.md]" in out
     assert [c["trigger"] for c in ctl(events, "budget")] == ["budget_cap", "partial_delivery"]
@@ -130,7 +134,7 @@ async def test_extending_the_cap_lets_it_finish(home, config):
     rt, agent, events = make(config, ScriptedProvider(_files_task(4)), ask=ask, cap_extend=3)
     assert await agent.run("寫四個部分") == "全部完成" and agent.last_status["status"] == "done"
     ext = [c for c in ctl(events, "budget") if c["trigger"] == "budget_extended"]
-    assert ext and "15,000 tokens（已追加）" in ext[0]["detail"]
+    assert ext and "15,000 計費 tokens（已追加）" in ext[0]["detail"]
 
 
 async def test_unattended_tasks_stop_at_the_cap(home, config):

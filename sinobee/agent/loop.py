@@ -16,7 +16,7 @@ import time
 from .. import local
 from .. import tools as _tools  # noqa: F401  (registers built-in tools)
 from ..accounting import current_scope, scope
-from ..pricing import cost_usd, price_for
+from ..pricing import billed_tokens, cost_usd, price_for
 from ..config import Config
 from ..memory.store import MemoryStore
 from ..providers import build_auxiliary, build_chain, build_embedder
@@ -174,6 +174,9 @@ class Runtime:
             except Exception:  # noqa: BLE001
                 log.debug("quota mark failed", exc_info=True)
         sc.calls += 1
+        if source not in ("subscription", "free"):
+            sc.own_calls += 1
+            sc.billed_tokens += billed_tokens(price, usage)
         sc.input_tokens += usage.input_tokens
         sc.output_tokens += usage.output_tokens
         sc.cache_read_tokens += usage.cache_read_tokens
@@ -604,10 +607,33 @@ class Agent:
             stats.setdefault("semantic", []).append({"step": stats.get("step"), "trigger": trigger, **data})
         return data
 
+    def _consult_max(self, stats: dict) -> int:
+        """How often the thinking model may be asked in this task: agent.consult_max, plus one for every
+        agent.consult_per_steps steps (40) - a long task needs advice more than twice."""
+        base = int(self.config.get("agent.consult_max", 2))
+        per = int(self.config.get("agent.consult_per_steps", 40) or 0)
+        return base + (int(stats.get("step", 0)) // per if per > 0 else 0)
+
+    def _self_check(self, stats: dict, trigger: str, detail: str) -> None:
+        """No advice left: the execution model checks its own progress instead - a note at the next step to list what
+        is still open, decide whether the approach must change (smaller parts, another way) and go on. Recorded as a
+        decision, not as a skipped request."""
+        items = checklist_tools.get(self.ctx)
+        open_items = checklist_tools.open_items(items) if items else []
+        lines = [f"[進度自我檢查] {detail}。思維模型的諮詢次數已用完，請你自己檢查："
+                 "1) 列出還沒完成的項目；2) 判斷目前做法能否完成，不能的話換做法（例如把大的檔案拆成幾段寫、先做最重要的部分）；"
+                 "3) 寫下接下來的 3 步，然後照著做。不要重做已完成的部分。"]
+        if open_items:
+            lines.append("尚未完成：" + "；".join(i["text"] for i in open_items[:8]))
+        self.history.append(Message("user", "\n".join(lines)))
+        self._persist()
+        self._control(stats, "self_check", trigger, f"{detail}；諮詢次數已用完，改請執行模型自我檢查進度並調整做法",
+                      decision="self_check")
+
     def _consult_refusal(self, stats: dict) -> str | None:
         """Why the thinking model cannot be asked now: "max" (agent.consult_max used up), "pending" (already
         asked for this step), "too_soon" (less than 5 steps after the last advice) - or None."""
-        if stats.get("consults", 0) >= int(self.config.get("agent.consult_max", 2)):
+        if stats.get("consults", 0) >= self._consult_max(stats):
             return "max"
         if stats.get("consult_pending"):
             return "pending"
@@ -624,9 +650,11 @@ class Agent:
         if trigger:
             if refusal is None:
                 self._control(stats, "consult_requested", trigger, detail or why)
+            elif refusal == "max" and trigger in ("health_steps", "budget_no_output"):
+                self._self_check(stats, trigger, detail or why)
             elif stats.get("_last_refusal") != (trigger, refusal):
                 stats["_last_refusal"] = (trigger, refusal)
-                text = {"max": f"諮詢次數已用完（agent.consult_max={self.config.get('agent.consult_max', 2)}）",
+                text = {"max": f"諮詢次數已用完（{stats.get('consults', 0)}/{self._consult_max(stats)}）",
                         "pending": "這一步已經排定請教",
                         "too_soon": f"距離上次請教（第 {stats.get('consult_at')} 步）不到 5 步"}[refusal]
                 self._control(stats, "consult_skipped", trigger, f"{detail or why}；{text}", decision=refusal)
@@ -1448,11 +1476,10 @@ class Agent:
             if self._guard and await self._guarded("預算", self._guard.check(stats), stats) == "cap" \
                     and not await self._task_cap(stats):
                 status = "incomplete"
-                error_info = {"summary": f"已達每個任務的花費上限 {self._guard.cap_text()}，任務已暫停", "kind": "budget",
-                              "detail": f"已用 {self._guard.spent()['tokens']:,} tokens／"
-                                        f"{budget_mod.money(self._guard.spent()['cost_usd'])}",
+                error_info = {"summary": f"已達每個任務的上限 {self._guard.cap_text()}，任務已暫停", "kind": "budget",
+                              "detail": f"這個任務用了{self._guard.spent_text()}",
                               "hint": "已完成的部分整理在下面。回覆「繼續」會接著做；也可以在設定 →「用量」調整每個任務的上限。"}
-                final_text = f"⏸ 任務已暫停：已達每個任務的花費上限 {self._guard.cap_text()}。"
+                final_text = f"⏸ 任務已暫停：已達每個任務的上限 {self._guard.cap_text()}。"
                 self.history.append(Message("assistant", final_text))
                 break
             self._persist()
@@ -1504,7 +1531,7 @@ class Agent:
                 trig, why, detail = stop_why
                 self._stop_control(stats, "advice_exhausted",
                                    f"{progress_mod.TRIGGERS.get(trig, trig)}：{detail}；思維模型的諮詢已用完"
-                                   f"（{stats.get('consults', 0)}/{self.config.get('agent.consult_max', 2)}）")
+                                   f"（{stats.get('consults', 0)}/{self._consult_max(stats)}）")
                 # stuck after the advice allowed: the execution model could not do it
                 status = "failed"
                 error_info = {"summary": why + "，執行模型無法完成這個任務", "kind": "capability", "trigger": trig,
@@ -1834,22 +1861,47 @@ class Agent:
         return [TextPart("\n\n".join(blocks)), TextPart(f"[User explicitly activated: {', '.join(names)}]"),
                 TextPart(body)], names, False
 
+    def _worth_continuing(self, sp: dict) -> tuple[bool, str]:
+        """At the cap: recommend going on only when there is room (the subscription's 6-hour window, or the own-key
+        daily / monthly budget) and the last steps still produced something. Returns (go on?, why)."""
+        room, why = True, []
+        if sp["quota_pct"]:
+            now = sp.get("quota_now")
+            if now is not None:
+                left = max(0.0, 100 - float(now))
+                room &= left >= 20
+                why.append(f"6 小時額度還剩 {left:.0f}%")
+        if sp["own_calls"]:
+            try:
+                b = self.rt.budget_status()
+                if b.get("warn"):
+                    room = False
+                    why.append("自備金鑰的每日或每月預算已用八成以上")
+            except Exception:  # noqa: BLE001
+                pass
+        tr = getattr(self, "_progress", None)
+        n = int(self.config.get("agent.budget.progress_window", 8))
+        moving = bool(tr and tr.produced_within(n))
+        why.append(f"最近 {n} 步{'仍有產出' if moving else '沒有產出'}")
+        return room and moving, "，".join(why)
+
     async def _task_cap(self, stats: dict) -> bool:
         """The hard cap per task is reached: ask to extend it (x agent.budget.cap_extend) or stop. True = go on."""
         g = self._guard
         sp = g.spent()
-        detail = f"已用 {sp['tokens']:,} tokens／{budget_mod.money(sp['cost_usd'])}，達到每個任務的上限 {g.cap_text()}"
+        detail = f"這個任務用了{g.spent_text(sp)}，達到每個任務的上限 {g.cap_text(sp)}"
         ask = getattr(self.ctx, "ask", None)
         if ask is None or self.platform not in ("web", "cli"):
             self._control(stats, "budget", "budget_cap", detail + "；無人可確認，暫停並交付已完成的部分", decision="stop")
             return False
         f = g.cfg["cap_extend"]
-        ans = await ask(f"{detail}。要追加上限繼續嗎？", [
-            {"label": "停止並交付", "description": "整理已完成的部分交給你，之後可以回覆「繼續」", "recommended": True},
-            {"label": f"追加 {f:g} 倍並繼續", "description": "上限提高後照計畫繼續"}], False, False)
+        go_on, why = self._worth_continuing(sp)
+        ans = await ask(f"{detail}。{why}。要追加上限繼續嗎？", [
+            {"label": "停止並交付", "description": "整理已完成的部分交給你，之後可以回覆「繼續」", "recommended": not go_on},
+            {"label": f"追加 {f:g} 倍並繼續", "description": "上限提高後照計畫繼續", "recommended": go_on}], False, False)
         if ans and any(str(c).startswith("追加") for c in ans.get("choices") or []):
             g.extend()
-            self._control(stats, "budget", "budget_extended", f"{detail}；使用者追加上限為 {g.cap_text()}", decision="extend")
+            self._control(stats, "budget", "budget_extended", f"{detail}；使用者追加上限為 {g.cap_text(sp)}", decision="extend")
             return True
         self._control(stats, "budget", "budget_cap", detail + ("；使用者選擇停止" if ans else "；沒有回覆，暫停"),
                       decision="stop")

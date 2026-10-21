@@ -21,6 +21,10 @@ class UsageScope:
     cost_usd: float = 0.0
     unpriced: bool = False
     quota_6h_pct: float = 0.0                 # SinoBee.ai subscription: share of the 6-hour limit this scope used
+    billed_tokens: float = 0.0                # own-key calls only: tokens weighted by what they are billed at (a cached
+                                              # read counts at its price share of a fresh input token); subscription
+                                              # and local models are left out - the subscription has quota_6h_pct
+    own_calls: int = 0
     quota: dict | None = None                 # latest {"6h": used %, "168h": used %} reported by sinobee.ai
     quota_events: list = field(default_factory=list)  # quota stops / fallbacks to show in the GUI
     compat_events: list = field(default_factory=list)  # calls adapted to what a model accepts (providers/compat.py)
@@ -48,6 +52,7 @@ class UsageScope:
     def as_dict(self) -> dict:
         return {"calls": self.calls, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
                 "cache_read_tokens": self.cache_read_tokens, "cost_usd": round(self.cost_usd, 6),
+                "billed_tokens": int(self.billed_tokens),
                 "unpriced": self.unpriced,
                 **({"quota_6h_pct": round(self.quota_6h_pct, 2), "quota": self.quota} if self.quota else {}),
                 **({"billing": self.billing} if self.billing else {}),

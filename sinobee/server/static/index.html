@@ -969,9 +969,11 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
         <div class="grp"><div class="grp-h">花費上限<span class="grp-d">以美元計，留空表示不限</span></div>
           <div class="srow"><div class="sl"><b>每日預算</b></div><div class="sc"><input class="inp num" id="uDaily" type="number" step="0.01" min="0" placeholder="不限"><span class="unit">USD</span><span class="lock" data-lock="usage.daily_budget_usd"></span></div></div>
           <div class="srow"><div class="sl"><b>每月預算</b></div><div class="sc"><input class="inp num" id="uMonthly" type="number" step="0.01" min="0" placeholder="不限"><span class="unit">USD</span><span class="lock" data-lock="usage.monthly_budget_usd"></span></div></div>
-          <div class="srow"><div class="sl"><b>每個任務的上限</b><span class="sd">達到時任務會暫停並問你要不要追加；留空＝自動（大型任務的 p95 × 1.5，資料不足時 10 USD／400 萬 tokens）</span></div>
+          <div class="srow"><div class="sl"><b>每個任務最多用掉的訂閱額度</b><span class="sd">SinoBee.ai 訂閱：一個任務最多用掉 6 小時額度的幾 %；達到時暫停並問你要不要追加。留空＝50%</span></div>
+            <div class="sc"><input class="inp num" id="uTaskQuota" type="number" step="1" min="1" placeholder="50"><span class="unit">%</span></div></div>
+          <div class="srow"><div class="sl"><b>每個任務的上限（自備金鑰）</b><span class="sd">用你自己的 API 金鑰時；達到時任務會暫停並問你要不要追加。留空＝自動（大型任務的 p95 × 1.5，資料不足時 10 USD／400 萬計費 tokens）</span></div>
             <div class="sc"><input class="inp num" id="uTaskUsd" type="number" step="0.01" min="0" placeholder="自動"><span class="unit">USD</span></div></div>
-          <div class="srow"><div class="sl"><b>每個任務的 token 上限</b></div>
+          <div class="srow"><div class="sl"><b>每個任務的計費 token 上限（自備金鑰）</b><span class="sd">快取讀取按費率折算（約 1/10）</span></div>
             <div class="sc"><input class="inp num" id="uTaskTok" type="number" step="1000" min="0" placeholder="自動"><span class="unit">tokens</span></div></div>
           <div class="srow"><div class="sl"><b>超過預算就停止</b><span class="sd">關閉時只會提醒，不會中斷任務</span></div>
             <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="uEnforce" aria-label="超過預算就停止"></div></div>
@@ -1503,8 +1505,8 @@ async function enhance(el){
 }
 function fmtSize(n){ return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? Math.round(n / 1024) + ' KB' : n + ' B'; }
 function clearEmpty(){const e = $('#chat .empty'); if (e) e.remove();}
-const CTL_EVENT = {consult_requested: '請教思維模型', consult: '思維模型回覆', consult_skipped: '未請教思維模型', stop: '停止任務', budget: '預算', delivery: '交付', milestone: '里程碑'};
-const CTL_DECISION = {continue: '繼續', stop: '停止', replan: '重新規劃', no_answer: '沒有回覆', max: '諮詢次數已用完', pending: '已排定', too_soon: '距上次太近', failed: '任務失敗',
+const CTL_EVENT = {consult_requested: '請教思維模型', consult: '思維模型回覆', consult_skipped: '未請教思維模型', self_check: '自我檢查', stop: '停止任務', budget: '預算', delivery: '交付', milestone: '里程碑'};
+const CTL_DECISION = {self_check: '由執行模型自行檢查', extend: '已追加', continue: '繼續', stop: '停止', replan: '重新規劃', no_answer: '沒有回覆', max: '諮詢次數已用完', pending: '已排定', too_soon: '距上次太近', failed: '任務失敗',
   on_track: '進度符合花費', behind: '進度落後於花費', at_risk: '可能超出預算', unknown: '未評估', extend: '已追加', incomplete: '未完成', error: '中斷'};
 // ---------------- milestones (a large task runs milestone by milestone) ----------------
 const MS_ST = {todo: ['○', '待辦'], doing: ['▶', '進行中'], done: ['✓', '完成'], delegated: ['⇉', '子代理執行中'], failed: ['!', '失敗'], dropped: ['–', '略過']};
@@ -3424,7 +3426,7 @@ function renderSettings(){
     return `<div class="tsrow"><span class="ti">${ic(m.icon)}</span><div class="sl"><b>${esc(m.name)}${m.risk ? `<span class="risk">${esc(m.risk)}</span>` : ''}</b><span class="sd">${esc(m.desc)}</span></div>
       <input type="checkbox" class="sw" role="switch" value="${t}" aria-label="${esc(m.name)}" ${SET.permissions.toolsets.includes(t) ? 'checked' : ''}></div>`; }).join('');
   const u = SET.usage || {};
-  $('#uDaily').value = u.daily_budget_usd ?? ''; $('#uMonthly').value = u.monthly_budget_usd ?? ''; $('#uTaskUsd').value = u.task_max_usd ?? ''; $('#uTaskTok').value = u.task_max_tokens ?? '';
+  $('#uDaily').value = u.daily_budget_usd ?? ''; $('#uMonthly').value = u.monthly_budget_usd ?? ''; $('#uTaskUsd').value = u.task_max_usd ?? ''; $('#uTaskTok').value = u.task_max_tokens ?? ''; $('#uTaskQuota').value = u.task_max_quota_pct ?? '';
   $('#uCurrency').value = u.currency || 'USD'; $('#uRate').value = u.currency_rate ?? ''; $('#uEnforce').checked = !!u.enforce_budget;
   const bl = SET.billing || {}; $('#bAutoPts').checked = !!bl.auto_points; $('#bExhausted').value = bl.on_exhausted || 'ask';
   $('#rStats').checked = !!bl.share_stats; renderRouting();
@@ -3662,7 +3664,7 @@ function collectSettings(){
                         embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto', max_output_tokens: $('#mOut').value.trim() || 'auto'},
                 permissions: {approval: $('#pApproval').value, toolsets: [...document.querySelectorAll('#pToolsets input:checked')].map(i => i.value)},
                 usage: {daily_budget_usd: $('#uDaily').value, monthly_budget_usd: $('#uMonthly').value,
-                        task_max_usd: $('#uTaskUsd').value, task_max_tokens: $('#uTaskTok').value, currency: $('#uCurrency').value,
+                        task_max_usd: $('#uTaskUsd').value, task_max_tokens: $('#uTaskTok').value, task_max_quota_pct: $('#uTaskQuota').value, currency: $('#uCurrency').value,
                         currency_rate: $('#uRate').value, enforce_budget: $('#uEnforce').checked},
                 skills: {auto_create: $('#sAuto').value, project_dir: $('#sProject').value, interop: $('#sInterop').checked},
                 billing: {auto_points: $('#bAutoPts').checked, on_exhausted: $('#bExhausted').value, share_stats: $('#rStats').checked},
@@ -3722,8 +3724,9 @@ const qWin = k => (QUOTA?.windows || []).find(w => w.window === k);
 function winSub(w){
   if (!w) return '';
   const next = (w.releases || [])[0];
-  const left = w.remainingTokens ? `約剩 ${fmtTok(w.remainingTokens)} tokens` : '';
-  return [left, w.usedPct > 0 && next ? `${fmtWhen(next.at).replace(/（.*/, '')} 起釋放` : ''].filter(Boolean).join(' · ');
+  // the quota is shown as a share only: a token count depends on which model and how much is cached, so it never
+  // matched what a task reported using
+  return w.usedPct > 0 && next ? `${fmtWhen(next.at).replace(/（.*/, '')} 起釋放` : '';
 }
 /** the year heatmap (Settings > SinoBee.ai account): one cell per day, darker = more tokens, outlined = the
  * 6-hour limit was reached that day */
@@ -3881,7 +3884,7 @@ function quotaLine(q){
       <div class="qx-chart" role="img" aria-label="過去 6 小時每 30 分鐘的用量">${bars}</div>
       <div class="qx-axis"><span>6 小時前</span><span>3 小時前</span><span>現在</span></div>
       <div class="qx-foot">${rel ? `最早的用量最先釋放：<b>${qClock(rel.at)} 起恢復約 ${fmtPct(soon)}</b>` : '過去 6 小時沒有用量'}</div>
-      <div class="qx-foot">7 天已用 ${fmtPct(u7)}${w6?.remainingTokens ? ` · 6 小時約剩 ${fmtTok(w6.remainingTokens)} tokens` : ''}</div>
+      <div class="qx-foot">7 天已用 ${fmtPct(u7)} · 剩 ${fmtPct(100 - u7)}</div>
       ${q.points?.balance != null ? `<div class="qx-row"><span>平台點數</span><span>${Number(q.points.balance).toLocaleString()} 點（1 點 = NT$1）</span></div>` : ''}
       <div class="qx-row"><span>${STATUS?.pin ? '已鎖定' : '分配偏好'}</span><span>${STATUS?.pin ? esc(shortModel(STATUS.pin)) : esc(PREF[STATUS?.preference || 'balanced'][0])}</span></div>
       <div class="qx-foot qx-end">${q.endsAt ? `方案至 ${fmtDate(q.endsAt)}` : ''}<a href="#" data-qacct>訂閱與帳號 ›</a></div></div>` : ''}

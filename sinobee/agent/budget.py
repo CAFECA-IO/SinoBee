@@ -8,9 +8,15 @@ runs, a hard cap per task, and a partial delivery when a task stops before it is
   checkpoints  when tokens or cost pass 50% and 80% of R, the thinking model compares the spending with the
                milestones / checklist done and says on_track, behind or at_risk. Only a warning: the task goes on
                (an at_risk verdict also leaves the execution model a short note)
-  hard cap     usage.task_max_usd / usage.task_max_tokens, or automatic: p95 x 1.5 of large tasks (planned with
-               milestones) once there is data, else agent.budget.initial_max_task_usd / _tokens. At the cap the task
-               pauses and asks to extend it (x1.5) or stop; without an answer (or unattended) it stops
+  hard cap     what a task may use, measured where the cost is:
+               - SinoBee.ai subscription: the share of the 6-hour window the task's answers used (the relay reports it
+                 per answer) - usage.task_max_quota_pct, else agent.budget.initial_max_task_quota_pct
+               - own API keys: usage.task_max_usd, and usage.task_max_tokens counted as BILLED tokens (a cached read
+                 weighs its price share of a fresh input token, ~0.1) - a long task re-reading its cached context is
+                 not stopped for tokens that cost a tenth. Automatic: p95 x 1.5 of large tasks (planned with
+                 milestones) once there is data, else agent.budget.initial_max_task_usd / _tokens
+               At the cap the task pauses and asks to extend it (x1.5) or stop - recommending to go on when the quota
+               (or budget) has room and the last steps still produced something; without an answer it stops
   delivery     a task that ends before it is done (cap, failure, error) hands over what is finished: the
                accepted milestones with their summaries and outputs, the files made, and the list of what is left
 
@@ -26,7 +32,8 @@ log = logging.getLogger("sinobee.budget")
 
 DEFAULTS = {"enabled": True, "checkpoints": [0.5, 0.8], "min_samples": 8, "synthetic_factor": 2.0,
             "default_step_tokens": 8000, "default_step_cost": 0.02, "initial_max_task_usd": 10.0,
-            "initial_max_task_tokens": 4_000_000, "cap_extend": 1.5, "default_steps": 30}
+            "initial_max_task_tokens": 4_000_000, "initial_max_task_quota_pct": 50.0, "cap_extend": 1.5,
+            "default_steps": 30}
 
 CHECK = """You are the THINKING model of an AI agent. A task is using its budget; judge whether the spending matches the
 progress. Do not do the task.
@@ -98,18 +105,24 @@ def baseline(store, config, task_type: str, est_steps: int | None) -> dict:
 
 
 def hard_cap(store, config) -> dict:
-    """The per-task cap: the user's setting, else p95 x 1.5 of large (milestone) tasks, else the initial values."""
+    """The per-task cap: the user's settings, else p95 x 1.5 of large (milestone) tasks, else the initial values.
+    tokens are billed tokens of own-key calls; quota_pct the share of the subscription's 6-hour window."""
     cfg = _cfg(config)
-    usd, tok = config.get("usage.task_max_usd"), config.get("usage.task_max_tokens")
+    usd, tok, qp = config.get("usage.task_max_usd"), config.get("usage.task_max_tokens"), config.get("usage.task_max_quota_pct")
+    quota = float(qp) if qp else float(cfg["initial_max_task_quota_pct"])
     if usd or tok:
-        return {"source": "setting", "usd": float(usd) if usd else None, "tokens": int(tok) if tok else None}
+        return {"source": "setting", "usd": float(usd) if usd else None, "tokens": int(tok) if tok else None,
+                "quota_pct": quota}
     large = [u for u in records(store) if u.get("milestones")]
+    billed = [float(u["billed_tokens"]) for u in large if u.get("billed_tokens") is not None]
     if len(large) >= int(cfg["min_samples"]):
         return {"source": "large_p95", "n": len(large),
                 "usd": round(_pct([float(u.get("cost_usd") or 0) for u in large], .95) * 1.5, 4) or None,
-                "tokens": round(_pct([float(u.get("tokens") or 0) for u in large], .95) * 1.5) or None}
-    return {"source": "initial", "usd": float(cfg["initial_max_task_usd"]),
-            "tokens": int(cfg["initial_max_task_tokens"])}
+                "tokens": (round(_pct(billed, .95) * 1.5) or None) if len(billed) >= int(cfg["min_samples"])
+                else int(cfg["initial_max_task_tokens"]),
+                "quota_pct": quota}
+    return {"source": "setting" if qp else "initial", "usd": float(cfg["initial_max_task_usd"]),
+            "tokens": int(cfg["initial_max_task_tokens"]), "quota_pct": quota}
 
 
 def estimate_steps(plan: dict | None) -> int | None:
@@ -143,9 +156,35 @@ class Guard:
         self.extended = 0
 
     def spent(self) -> dict:
+        """tokens: everything sent and received (the baselines); billed_tokens / cost_usd: own-key calls;
+        quota_pct: the share of the subscription's 6-hour window this task's answers used"""
         from ..accounting import current_scope
         s = current_scope.get()
-        return {"tokens": int(s.input_tokens + s.output_tokens), "cost_usd": round(s.cost_usd + self.extra_cost, 6)}
+        return {"tokens": int(s.input_tokens + s.output_tokens), "cost_usd": round(s.cost_usd + self.extra_cost, 6),
+                "billed_tokens": int(s.billed_tokens), "own_calls": s.own_calls, "quota_pct": round(s.quota_6h_pct, 2),
+                "quota_now": (s.quota or {}).get("6h")}
+
+    def hits(self, sp: dict | None = None) -> list[str]:
+        """Which caps this task has reached: quota | usd | tokens"""
+        sp = sp or self.spent()
+        c, out = self.cap, []
+        if c.get("quota_pct") and sp["quota_pct"] >= c["quota_pct"]:
+            out.append("quota")
+        if c.get("usd") and sp["cost_usd"] >= c["usd"]:
+            out.append("usd")
+        if c.get("tokens") and sp["billed_tokens"] >= c["tokens"]:
+            out.append("tokens")
+        return out
+
+    def spent_text(self, sp: dict | None = None) -> str:
+        """What the task used, in the units it is paid in: subscription share, and own-key spending when there is any"""
+        sp = sp or self.spent()
+        parts = []
+        if sp["quota_pct"] or not sp["own_calls"]:
+            parts.append(f"訂閱 6 小時額度的 {sp['quota_pct']:g}%")
+        if sp["own_calls"]:
+            parts.append(f"自備金鑰 {sp['billed_tokens']:,} 計費 tokens／{money(sp['cost_usd'])}")
+        return "、".join(parts)
 
     def summary(self) -> dict:
         return {"task_type": self.task_type, "baseline": self.base, "cap": self.cap, "spent": self.spent(),
@@ -173,9 +212,7 @@ class Guard:
         if not self.cfg["enabled"]:
             return None
         sp = self.spent()
-        cap_hit = (self.cap.get("usd") and sp["cost_usd"] >= self.cap["usd"]) or \
-            (self.cap.get("tokens") and sp["tokens"] >= self.cap["tokens"])
-        if cap_hit:
+        if self.hits(sp):
             return "cap"
         ratio = self._ratio(sp)
         for cp in sorted(float(c) for c in self.cfg["checkpoints"]):
@@ -200,7 +237,7 @@ class Guard:
         items = checklist_tools.get(a.ctx)
         ck = f"{sum(1 for i in items if i['status'] == 'done')}/{len(items)} done" if items else "(none)"
         prompt = CHECK.format(request=(stats.get("query") or "")[:3000], task_type=self.task_type,
-                              spent=f"{sp['tokens']:,} tokens, {money(sp['cost_usd'])}", reference=self.ref_text(),
+                              spent=f"{sp['tokens']:,} tokens ({self.spent_text(sp)})", reference=self.ref_text(),
                               source=self.base["source"], pct=int(ratio * 100), milestones=ms_txt, checklist=ck,
                               steps=stats.get("step", 0))
         resp = await a._thinking_call("預算檢查", [Message("user", prompt)], 400, stats)
@@ -208,7 +245,7 @@ class Guard:
         verdict = data.get("verdict") if data.get("verdict") in ("on_track", "behind", "at_risk") else "unknown"
         label = {"on_track": "進度符合花費", "behind": "進度落後於花費", "at_risk": "可能超出預算",
                  "unknown": "思維模型沒有評估"}[verdict]
-        detail = (f"已用 {sp['tokens']:,} tokens／{money(sp['cost_usd'])}，達參考預算 {int(cp * 100)}%"
+        detail = (f"已用 {sp['tokens']:,} tokens（{self.spent_text(sp)}），達參考預算 {int(cp * 100)}%"
                   f"（實際 {int(ratio * 100)}%；{self.ref_text()}）。{ms_user or '驗收清單完成 ' + ck.replace(' done', '')}。"
                   f"思維模型：{label}" + (f"，{data.get('estimate')}" if data.get("estimate") else "")
                   + (f"。{data.get('note')}" if data.get("note") else ""))
@@ -228,18 +265,25 @@ class Guard:
 
     def extend(self) -> None:
         f = float(self.cfg["cap_extend"])
-        self.cap = {**self.cap, "usd": round(self.cap["usd"] * f, 4) if self.cap.get("usd") else None,
-                    "tokens": int(self.cap["tokens"] * f) if self.cap.get("tokens") else None, "source": "extended"}
+        c = self.cap
+        self.cap = {**c, "usd": round(c["usd"] * f, 4) if c.get("usd") else None,
+                    "tokens": int(c["tokens"] * f) if c.get("tokens") else None,
+                    "quota_pct": round(c["quota_pct"] * f, 1) if c.get("quota_pct") else None, "source": "extended"}
         self.extended += 1
 
-    def cap_text(self) -> str:
-        parts = []
-        if self.cap.get("usd"):
-            parts.append(money(self.cap["usd"]))
-        if self.cap.get("tokens"):
-            parts.append(f"{self.cap['tokens']:,} tokens")
+    def cap_text(self, sp: dict | None = None) -> str:
+        """The caps that apply to how this task is paid: the subscription share, own-key spending, or both"""
+        sp = sp or self.spent()
+        c, parts = self.cap, []
+        if c.get("quota_pct") and (sp["quota_pct"] or not sp["own_calls"]):
+            parts.append(f"6 小時額度 {c['quota_pct']:g}%")
+        if sp["own_calls"] or not sp["quota_pct"]:
+            if c.get("usd"):
+                parts.append(money(c["usd"]))
+            if c.get("tokens"):
+                parts.append(f"{c['tokens']:,} 計費 tokens")
         src = {"setting": "設定", "large_p95": "大型任務 p95×1.5", "initial": "初始值", "extended": "已追加"}
-        return "／".join(parts) + f"（{src.get(self.cap.get('source'), self.cap.get('source'))}）"
+        return "／".join(parts) + f"（{src.get(c.get('source'), c.get('source'))}）"
 
 
 # ------------------------------------------------------------------ partial delivery
@@ -294,6 +338,7 @@ def usage_record(guard: Guard | None, stats: dict, turn_usage: dict, steps: int)
     plan = stats.get("plan") or {}
     return {"task_type": (guard.task_type if guard else plan.get("task_type")) or "other",
             "tokens": int((turn_usage.get("input_tokens") or 0) + (turn_usage.get("output_tokens") or 0)),
+            "billed_tokens": turn_usage.get("billed_tokens"), "quota_6h_pct": turn_usage.get("quota_6h_pct"),
             "cost_usd": round(float(turn_usage.get("cost_usd") or 0) + (guard.extra_cost if guard else 0), 6),
             "steps": steps, "milestones": bool(plan.get("milestones")), "planned": bool(plan),
             "est_steps": guard.est if guard else None}

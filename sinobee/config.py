@@ -173,7 +173,8 @@ DEFAULTS: dict[str, Any] = {
         "monthly_budget_usd": None,
         "enforce_budget": False,    # stop calling models once a budget is reached
         "task_max_usd": None,       # per-task cap; None = automatic (agent/budget.py: large-task p95 x 1.5, else initial)
-        "task_max_tokens": None,
+        "task_max_tokens": None,    # billed tokens of own-key calls (a cached read counts at its price share)
+        "task_max_quota_pct": None, # SinoBee.ai subscription: share of the 6-hour window one task may use (None = 50)
         "currency_rate": None,      # optional display conversion, e.g. 32.5 for TWD
         "currency": "USD",
     },

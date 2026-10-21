@@ -1859,3 +1859,13 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
 - `Usage.thinking_tokens` 記錄隱藏思考用量；全部用在思考時，狀態訊息與失敗報告直接說明（`thinking_tokens=N/M`）。
 - 回答在工具參數中途被截斷（max_tokens，不會送 `content_block_stop`）時，不再交出空參數的呼叫，而是標成截斷，工具回錯並請模型分段寫。
 - 這次會分到 Haiku，是因為 sinobee.ai 尚未部署「複雜任務不分配輕量級」的品質下限（§41）。
+
+## 43. 每個任務的上限以付費方式計量（2026-10-22）
+
+先前上限只看 tokens 與美元：訂閱任務花費為 $0、畫面顯示 $0.0000，而 tokens 包含大量快取讀取，長任務常被誤停。
+
+- **訂閱任務**：上限是「這個任務占了 6 小時額度的百分比」（中繼每次回覆的 `x-sinobee-cost-6h-pct` 累加到 `UsageScope.quota_6h_pct`）。設定 `usage.task_max_quota_pct`，預設 `agent.budget.initial_max_task_quota_pct` = 50%。畫面只顯示百分比。
+- **自備金鑰**：`usage.task_max_tokens` 只計計費 tokens（`pricing.billed_tokens`：快取讀取按 cache_read／input 費率折算，約 0.1；快取寫入約 1.25）。自動上限（大型任務 p95×1.5）只用有計費 tokens 紀錄的任務。美元上限不變。
+- **建議**：到上限時，額度有餘（6 小時剩 ≥20%、自備金鑰日／月預算未達八成）且最近 `agent.budget.progress_window`（8）步仍有產出，才建議追加；否則建議停止。問句寫明理由。
+- **健康檢查**：諮詢次數用完時不再記一筆「諮詢略過」，改為 `self_check`：在下一步提醒執行模型列出未完成項目、必要時換做法並寫下接下來 3 步。諮詢上限 = `agent.consult_max` + 每 `agent.consult_per_steps`（40）步加 1。
+- 側欄額度只顯示百分比（已用／剩餘），不再顯示剩餘 tokens。

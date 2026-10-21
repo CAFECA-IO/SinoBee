@@ -252,7 +252,7 @@ def register(app: FastAPI, rt_getter) -> None:
                 updates.setdefault("agent", {})["plan"] = a["plan"]
         if "usage" in body:
             u = {}
-            for k in ("daily_budget_usd", "monthly_budget_usd", "currency_rate", "task_max_usd"):
+            for k in ("daily_budget_usd", "monthly_budget_usd", "currency_rate", "task_max_usd", "task_max_quota_pct"):
                 if k in body["usage"]:
                     v = body["usage"][k]
                     u[k] = float(v) if v not in (None, "") else None
