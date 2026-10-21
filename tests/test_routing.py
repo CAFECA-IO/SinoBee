@@ -149,3 +149,67 @@ def test_task_kind_and_settings(config):
     info = c.get("/api/routing" + q).json()
     assert info["preference"] == "speed" and info["pin"] == "anthropic/claude-opus-5-5" and info["share_stats"] is True
     assert c.get("/api/status" + q).json()["pin"] == "anthropic/claude-opus-5-5"
+
+
+def test_a_failing_vendor_is_left_out_and_another_model_answers_in_the_same_step(config, monkeypatch):
+    from sinobee.providers import sinobee as S
+    from sinobee.providers.base import ProviderError, relay_error
+    asked = []
+
+    def post(cfg, path, body, timeout=8):
+        asked.append(body)
+        ex = body.get("exclude") or []
+        return {"model": "anthropic/claude-sonnet-5-5" if "openai/gpt-5.6-sol" in ex else "openai/gpt-5.6-sol",
+                "reason": "偏好品質：評鑑分數最高", "ttl": 600}
+    monkeypatch.setattr(routing, "_post", post)
+    sent = []
+
+    async def fake_chat(self, messages, tools=None, **kw):
+        sent.append(self.model)
+        if self.model == "openai/gpt-5.6-sol":
+            raise relay_error(self.label, 503, '{"error":{"message":"openai models are unavailable on SinoBee.ai for '
+                              'now (vendor_down): You have no credits remaining","type":"upstream_unavailable",'
+                              '"code":"vendor_down"}}')
+        return ChatResponse(Message("assistant", "plan"))
+    monkeypatch.setattr(S.SinoBeeProvider, "chat", fake_chat)
+    e = relay_error("sinobee/openai/gpt-5.6-sol", 503, '{"error":{"message":"x","code":"vendor_down"}}')
+    assert isinstance(e, ProviderError) and not e.retryable and "vendor_down" in str(e)
+    config.data["model"].update(default="sinobee/auto")
+    chain = build_chain(config, "sinobee/auto@thinking")
+    tok = routing.HINT.set({"task_kind": "page", "turn": "heal-1"})
+    try:
+        with scope("s", "agent") as sc:
+            r = asyncio.run(chain.chat([Message("user", "規劃")]))
+            r2 = asyncio.run(chain.chat([Message("user", "再來")]))
+    finally:
+        routing.HINT.reset(tok)
+    assert r.message.text() == "plan" and r.model == "sinobee/anthropic/claude-sonnet-5-5"
+    assert sent == ["openai/gpt-5.6-sol", "anthropic/claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"]
+    assert asked[1]["exclude"] == ["openai/gpt-5.6-sol"] and len(asked) == 2      # the new pick holds for the turn
+    note = sc.route["thinking"]
+    assert note["model"] == "sinobee/anthropic/claude-sonnet-5-5" and "已改用" in note["reason"]
+    assert note["replaced"][0]["model"] == "sinobee/openai/gpt-5.6-sol" and "no credits" in note["replaced"][0]["why"]
+    assert r2.model == "sinobee/anthropic/claude-sonnet-5-5"
+
+
+def test_the_allowance_or_a_bad_request_is_not_rerouted(config, monkeypatch):
+    from sinobee.providers import sinobee as S
+    from sinobee.providers.base import ProviderError
+    monkeypatch.setattr(routing, "_post", lambda *a, **k: {"model": "openai/gpt-5.6-sol", "ttl": 600})
+    calls = []
+
+    async def bad(self, messages, tools=None, **kw):
+        calls.append(1)
+        raise ProviderError(f"{self.label} HTTP 400: bad request", 400)
+    monkeypatch.setattr(S.SinoBeeProvider, "chat", bad)
+    config.data["model"].update(default="sinobee/auto")
+    tok = routing.HINT.set({"turn": "heal-2"})
+    try:
+        with scope("s", "agent"):
+            try:
+                asyncio.run(build_chain(config).chat([Message("user", "x")]))
+            except ProviderError:
+                pass
+    finally:
+        routing.HINT.reset(tok)
+    assert len(calls) == 1

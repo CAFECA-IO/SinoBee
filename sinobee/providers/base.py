@@ -51,6 +51,10 @@ def relay_error(label: str, status: int, text: str) -> ProviderError:
     message = str(err.get("message") or text[:500])
     if window in QUOTA_WINDOWS:
         return QuotaExceeded(f"{label} SinoBee.ai quota {window}: {message}", window, err.get("retry_at"), status)
+    if err.get("code") == "vendor_down" or window == "provider" or "vendor_down" in message:
+        # SinoBee.ai took this vendor out (its account there cannot be used for now): not worth a retry - the
+        # allocation picks another model (providers/sinobee.py SinoBeeAutoProvider)
+        return ProviderError(f"{label} HTTP {status} vendor_down: {message}", status, False)
     if status == 401:
         return ProviderError(f"{label} HTTP 401 SinoBee.ai sign-in expired: {message}", status)
     return ProviderError(f"{label} HTTP {status}: {message}", status, status in RETRYABLE_STATUS)

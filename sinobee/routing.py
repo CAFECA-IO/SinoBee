@@ -73,18 +73,20 @@ def _post(config, path: str, body: dict, timeout: float = 8):
     return r.json()
 
 
-def ask(config, role: str, needs: dict | None = None) -> dict:
+def ask(config, role: str, needs: dict | None = None, exclude: list[str] | None = None) -> dict:
     """{model, reason, preference} for one role in the current turn. Cached for the turn (prompt cache, thinking
     signatures and tool formats stay with one model) and for the answer's ttl across turns of the same kind."""
     hint = HINT.get() or {}
     body = {"role": role, "preference": preference(config), "skill": hint.get("skill"),
             "task_kind": hint.get("task_kind") or "chat", "needs": needs or {}}
+    if exclude:                  # these just failed: ask again without them, and keep the new pick for the turn
+        body["exclude"] = [m.removeprefix("sinobee/") for m in exclude]
     key = ("route", role, body["preference"], body["skill"], body["task_kind"], bool((needs or {}).get("vision")),
            hint.get("turn"))
     now = time.time()
     with _lock:
         hit = _cache.get(key)
-        if hit and hit[0] > now:
+        if hit and hit[0] > now and not exclude:
             return hit[1]
     try:
         out = _post(config, "route", body)
@@ -93,6 +95,8 @@ def ask(config, role: str, needs: dict | None = None) -> dict:
     except Exception as e:  # noqa: BLE001  SinoBee.ai unreachable: the last answer, else the plan's default
         log.info("model allocation unavailable: %s", e)
         last = _last.get(role)
+        if exclude:
+            raise RuntimeError(f"no other model available: {e}") from e
         val = {**last, "reason": "暫時無法取得分配，沿用上次的模型"} if last else \
             {"model": str(config.get("model.auto_default") or "anthropic/claude-sonnet-5-5"),
              "reason": "暫時無法取得分配，使用預設模型", "preference": body["preference"]}
@@ -104,6 +108,13 @@ def ask(config, role: str, needs: dict | None = None) -> dict:
 
 
 _last: dict[str, dict] = {}
+
+
+def forget(role: str | None = None) -> None:
+    """Drop cached picks (a picked model failed): the next ask goes to SinoBee.ai."""
+    with _lock:
+        for k in [k for k in _cache if k[0] == "route" and (role is None or k[1] == role)]:
+            _cache.pop(k, None)
 
 
 def order_pool(config, labels: list[str], role: str = "main") -> list[str]:

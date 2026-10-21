@@ -1614,6 +1614,7 @@ function resultCard(ev){
     u.quota_6h_pct != null ? quotaShare(u) : '',
     u.route?.main ? `<span class="bpill route" title="${esc(u.route.main.reason || '')}">由 SinoBee.ai 分配</span>${esc(shortModel(u.route.main.model))}・偏好：${esc(PREF[u.route.main.preference]?.[0] || '平衡')}` : '',
     !u.route?.main && STATUS?.pin ? `<span class="bpill pin">已鎖定</span>${esc(shortModel(STATUS.pin))}` : '',
+    ...Object.entries(u.route || {}).filter(([, v]) => v.replaced?.length).map(([k, v]) => `<span class="bpill pts" title="${esc(v.replaced.map(x => `${shortModel(x.model)}：${x.why}`).join('\n'))}">已改用</span>${esc({main: '執行', thinking: '思維', summary: '輔助', review: '審查'}[k] || k)}：${esc(v.reason)}`),
     u.billing?.points ? `<span class="bpill pts">扣點</span>${esc(u.billing.points.join('、'))}` : '',
     u.billing?.own ? `<span class="bpill own">備援產出</span>${esc(u.billing.own.join('、'))}` : '',
     u.calls && (u.cost_usd || u.quota_6h_pct == null) ? fmtCost(u.cost_usd) + (u.unpriced ? '（部分模型未設定費率）' : '') : '',

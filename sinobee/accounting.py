@@ -32,8 +32,13 @@ class UsageScope:
     route: dict = field(default_factory=dict)    # {role: {model, reason, preference}} picked by SinoBee.ai this turn
     served: list = field(default_factory=list)   # models that answered, in order (P5 reports the main one)
 
-    def route_note(self, role: str, model: str, reason: str, pref: str | None) -> None:
-        self.route[role] = {"model": model, "reason": reason, "preference": pref}
+    def route_note(self, role: str, model: str, reason: str, pref: str | None, replaced: list | None = None) -> None:
+        before = self.route.get(role) or {}
+        prev = before.get("replaced") or []
+        if prev and not replaced and before.get("model") == model:
+            reason = before.get("reason") or reason       # still the model that took over: keep saying so
+        self.route[role] = {"model": model, "reason": reason, "preference": pref,
+                            **({"replaced": prev + list(replaced)} if replaced or prev else {})}
 
     def billing_note(self, source: str, model: str) -> None:
         ms = self.billing.setdefault(source, [])

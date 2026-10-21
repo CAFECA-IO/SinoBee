@@ -1806,3 +1806,25 @@ SinoBee.ai 這一側：`BenchSuite` 題組庫、報告的 `visibility`、`Skill.
 - 記憶搜尋（Embedding）與回報匿名統計放在同一張卡片。
 - 行為修正：自動分配時，思維、輔助、審查一律依偏好分配，之前設定的逐角色模型不再生效（`Runtime.thinking()`、`reviewer()`、`build_auxiliary()`）。
 
+
+### 40.2 供應商熔斷與自動改派（2026-10-21）
+
+- **症狀**：思維角色被分配到 `openai/gpt-5.6-sol`，但平台的 OpenAI 帳戶沒有餘額。中繼把錯誤轉成 503；分配還要等 15 分鐘內 4 次失敗才會排除，選擇又快取 10 分鐘，SinoBee 也不會換模型，所以規劃被略過。
+- **SinoBee.ai（`lib/llm/breaker.ts`）**：
+  - 上游回 401、402、403，或訊息是沒有額度、欠費、金鑰無效時，視為硬性錯誤。
+  - 硬性錯誤立即把該廠商下線 30 分鐘：
+    - 退款列記 `upstream hard <status>: …`，所有程序都看得到；
+    - 中繼回 503、`code: vendor_down`、`retry-after: 1800`；
+    - 之後的呼叫不再送到上游；
+    - `/route` 排除該廠商。
+  - 一般的過載不熔斷。
+  - 每次上游錯誤都寫進 log（`llm upstream <model> <status>`）。
+  - `/route` 接受 `exclude`。
+- **SinoBee**：
+  - `relay_error()` 把 `vendor_down` 或 `provider` 轉成不重試的錯誤。
+  - `SinoBeeAutoProvider` 遇到廠商錯誤（vendor_down，或 502／503／504）時：
+    - 清除這個角色的快取，帶 `exclude` 重問，在同一步換模型重送，最多換兩次；
+    - 新的選擇沿用到這一輪結束。
+  - 以下情況不改派：額度用完、登入失效、請求被拒（400）、中繼連不上、內容太長的逾時。
+  - 結果卡片顯示「已改用 X（Y 暫時無法使用）」，滑過顯示原本模型的錯誤。
+- 測試：`tests/test_routing.py`；SinoBee.ai `tests/llm-relay.test.ts`（熔斷、exclude）。

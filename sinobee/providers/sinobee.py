@@ -121,22 +121,52 @@ class SinoBeeAutoProvider:
             self._inners[model] = SinoBeeProvider(model, self.base_url, config=self.config, vision=self.vision)
         return self._inners[model]
 
-    async def pick(self, messages=None, tools=None) -> dict:
+    async def pick(self, messages=None, tools=None, exclude: list[str] | None = None) -> dict:
         import asyncio
 
         from .. import routing
         needs = {"tools": bool(tools), "vision": any(getattr(m, "has_images", lambda: False)() for m in messages or [])}
-        return await asyncio.to_thread(routing.ask, self.config, self.role, needs)
+        return await asyncio.to_thread(routing.ask, self.config, self.role, needs, exclude)
+
+    @staticmethod
+    def vendor_failure(e: Exception) -> bool:
+        """The picked model's vendor cannot answer (taken out by SinoBee.ai, or down): another model can.
+        Not: the allowance (QuotaExceeded), our own sign-in, a request the model rejects, the relay unreachable."""
+        from .base import QuotaExceeded
+        msg = str(e)
+        if isinstance(e, QuotaExceeded) or "sign-in expired" in msg or "network error" in msg:
+            return False
+        return "vendor_down" in msg or getattr(e, "status", None) in (502, 503, 504)
 
     async def chat(self, messages, tools=None, **kw):
+        """One model for the turn. When its vendor fails, forget the pick and ask again without it - in the same
+        step, so the task goes on; the result says which model took over and why (at most two replacements)."""
+        from .. import routing
         from ..accounting import current_scope
-        pick = await self.pick(messages, tools)
-        inner = self._inner(pick["model"])
-        resp = await inner.chat(messages, tools, **kw)
-        resp.model = inner.label
-        resp.served_by = inner                     # usage is recorded for the model that answered
-        current_scope.get().route_note(self.role, inner.label, pick.get("reason", ""), pick.get("preference"))
-        return resp
+        from .base import TOO_LONG, ProviderError, is_timeout
+        failed: list[dict] = []
+        for attempt in range(3):
+            try:
+                pick = await self.pick(messages, tools, [f["model"] for f in failed] or None)
+            except RuntimeError as e:              # nobody else to ask: the first failure stands
+                raise ProviderError(f"{self.label}: {failed[-1]['why'] if failed else e}") from e
+            inner = self._inner(pick["model"])
+            try:
+                resp = await inner.chat(messages, tools, **kw)
+            except ProviderError as e:
+                if attempt == 2 or not self.vendor_failure(e) or (TOO_LONG.get() and is_timeout(e)):
+                    raise
+                routing.forget(self.role)
+                failed.append({"model": inner.label, "why": str(e).split(": ", 1)[-1][:160]})
+                continue
+            resp.model = inner.label
+            resp.served_by = inner                 # usage is recorded for the model that answered
+            reason = pick.get("reason", "")
+            if failed:
+                reason = f"已改用 {inner.label.removeprefix('sinobee/')}（{'、'.join(f['model'].removeprefix('sinobee/') for f in failed)} 暫時無法使用）"
+            current_scope.get().route_note(self.role, inner.label, reason, pick.get("preference"), failed)
+            return resp
+        raise ProviderError(f"{self.label}: no model answered")
 
     async def embed(self, texts):
         import asyncio
