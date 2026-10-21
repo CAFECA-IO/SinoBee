@@ -168,6 +168,10 @@ class Provider(ABC):
     async def _chat(self, messages: list[Message], tools: list[ToolSpec], *, temperature: float | None,
                     max_tokens: int) -> ChatResponse: ...
 
+    def thinking_param(self) -> dict | None:
+        """The vendor's thinking setting this call sends (Anthropic: see AnthropicProvider), None when it sends none"""
+        return None
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise ProviderError(f"{self.label} does not support embeddings")
 
@@ -205,9 +209,10 @@ class Provider(ABC):
             except httpx.TransportError as e:
                 err = ProviderError(f"{self.label} network error: {e!r}", retryable=True)
             except ProviderError as e:
-                sent = {"temperature": temperature, "reasoning_effort": REASONING_EFFORT.get()}
+                sent = {"temperature": temperature, "reasoning_effort": REASONING_EFFORT.get(),
+                        "thinking": self.thinking_param()}
                 param = None if adapted else compat.rejected_param(e, sent)
-                if param in ("temperature", "reasoning_effort"):
+                if param in ("temperature", "reasoning_effort", "thinking"):
                     # the model rejects a parameter that only tunes the answer: learn it and send the same call
                     # again without it, at once - this is not counted as a retry (a learned reasoning_effort is
                     # left out by the provider from now on)

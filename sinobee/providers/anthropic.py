@@ -113,12 +113,31 @@ class AnthropicProvider(Provider):
         if msg["stop_reason"] == "quota":            # the relay ended the answer: the plan's window is used up
             from .base import QuotaExceeded
             raise QuotaExceeded(f"{self.label} SinoBee.ai quota used up while answering", "6h")
+        for i, parts in partial.items():
+            # the answer ended inside this call's arguments (max_tokens: no content_block_stop is sent): pass on what
+            # arrived, marked cut, so the model is told to write it in parts instead of getting an empty call
+            if blocks.get(i, {}).get("type") == "tool_use":
+                raw = "".join(parts)
+                blocks[i]["input"] = {"_raw": raw[-300:], "_truncated": len(raw)}
         msg["content"] = [blocks[i] for i in sorted(blocks)]
         kinds = [b.get("type") for b in msg["content"]]
         if any(k not in ("text", "tool_use") for k in kinds):
             log.info("%s answer blocks: %s (output %s tokens)", self.label, ",".join(kinds),
                      msg["usage"].get("output_tokens"))
         return msg
+
+    def thinking_param(self) -> dict | None:
+        """
+        Claude 4.6+ models think by default (adaptive) and do not show it: on a big write the hidden thinking can use
+        the whole output limit and the answer comes back empty (finish=max_tokens, no text, no tool call). When the
+        agent asks for less reasoning (after such an empty answer, REASONING_EFFORT "low"), thinking is turned off so
+        the room goes to the answer. A model that rejects it is remembered (compat) and not sent it again.
+        """
+        from . import compat
+        from .base import REASONING_EFFORT
+        if REASONING_EFFORT.get() in ("low", "minimal", "none") and "thinking" not in compat.dropped(self.label):
+            return {"type": "disabled"}
+        return None
 
     def _headers(self) -> dict:
         return {"x-api-key": self.api_key or "", "anthropic-version": "2023-06-01", "content-type": "application/json"}
@@ -146,6 +165,9 @@ class AnthropicProvider(Provider):
             payload["system"] = system
         if temperature is not None:
             payload["temperature"] = temperature
+        thinking = self.thinking_param()
+        if thinking:
+            payload["thinking"] = thinking
         if tools:
             # eager_input_streaming: a big argument (a whole page for write_file) is sent while the model writes it,
             # not held back until it is complete - minutes of silence otherwise. The input may then be cut or invalid
@@ -164,6 +186,7 @@ class AnthropicProvider(Provider):
         u = data.get("usage") or {}
         usage = Usage(u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("cache_read_input_tokens", 0),
                       u.get("output_tokens", 0), u.get("cache_read_input_tokens", 0) or 0,
-                      u.get("cache_creation_input_tokens", 0) or 0)
+                      u.get("cache_creation_input_tokens", 0) or 0,
+                      int((u.get("output_tokens_details") or {}).get("thinking_tokens") or 0))
         return ChatResponse(Message("assistant", "\n".join(texts), calls), usage, data.get("stop_reason") or "",
                             data.get("model", self.model))

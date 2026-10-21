@@ -1848,3 +1848,12 @@ SinoBee.ai 這一側：`BenchSuite` 題組庫、報告的 `visibility`、`Skill.
 | SinoBee | 救不回來的斷線只重送 1 次（不再 4 次）；再斷就套用 U4：不重送同一請求，請模型分段寫 |
 | SinoBee | Anthropic 工具定義都加 `eager_input_streaming: true`；解析不了的參數照舊以工具錯誤回給模型 |
 | SinoBee | `routing.is_complex`：page、code、超過 600 字或 10 行的需求，分配時帶 `complex: true` |
+
+## 42. 隱藏思考用完輸出上限（2026-10-21）
+
+Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白（finish=max_tokens，輸出 8192、16384、32000 tokens）。實測（`_eval_results/block-probe.py`，經 sinobee.ai）：Claude 4.6 之後的模型預設會思考（adaptive），思考內容不顯示，`output_tokens_details.thinking_tokens` 等於整個輸出上限，回答還沒開始。送 `thinking: {"type":"disabled"}` 後同一請求直接開始寫檔；`thinking.type.enabled`（設定預算）這些模型不接受，要用 adaptive ＋ `output_config.effort`。
+
+- 代理在空白回覆後會把接下來幾步設為低推理（`REASONING_EFFORT=low`）；Anthropic 供應商以前不理會這個設定，現在在低推理時送 `thinking: disabled`。不接受的模型由 compat 記住，之後不再送。
+- `Usage.thinking_tokens` 記錄隱藏思考用量；全部用在思考時，狀態訊息與失敗報告直接說明（`thinking_tokens=N/M`）。
+- 回答在工具參數中途被截斷（max_tokens，不會送 `content_block_stop`）時，不再交出空參數的呼叫，而是標成截斷，工具回錯並請模型分段寫。
+- 這次會分到 Haiku，是因為 sinobee.ai 尚未部署「複雜任務不分配輕量級」的品質下限（§41）。

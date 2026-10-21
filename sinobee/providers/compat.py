@@ -18,7 +18,7 @@ from pathlib import Path
 log = logging.getLogger("sinobee.providers")
 
 # a parameter the request may leave out without changing what is asked; the model then uses its own default
-OPTIONAL = ("temperature", "top_p", "top_k", "reasoning_effort")
+OPTIONAL = ("temperature", "top_p", "top_k", "reasoning_effort", "thinking")
 _REJECT = [
     r"[`'\"]?{p}[`'\"]?[^\n]{{0,80}}?\b(?:is )?(?:deprecated|not supported|unsupported|not allowed|not permitted|"
     r"cannot be (?:set|used)|is not available|has been removed|no longer supported)",

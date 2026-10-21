@@ -85,6 +85,11 @@ class Registry:
         if tool is None or (allowed is not None and call.name not in allowed):
             return ToolResult.error(f"unknown or disabled tool '{call.name}'")
         args = dict(call.arguments or {})
+        if "_truncated" in args:
+            return ToolResult.error(
+                f"this {call.name} call was cut off at the output limit after {args['_truncated']} characters of "
+                "arguments, so nothing was done. Write it in smaller parts: create the file with the first part, then "
+                "add each further part with edit_file (or append) in separate calls.")
         if "_raw" in args:
             return ToolResult.error(f"could not parse tool arguments as JSON: {args['_raw'][:300]}")
 

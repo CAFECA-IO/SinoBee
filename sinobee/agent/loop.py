@@ -1350,9 +1350,13 @@ class Agent:
                 # model stalled after a tool result. Never accept it as the final answer.
                 empty_replies += 1
                 truncated = str(resp.stop_reason).lower() in ("length", "max_tokens", "max_output_tokens")
+                out_tok = getattr(resp.usage, "output_tokens", None) or 0
+                think_tok = getattr(resp.usage, "thinking_tokens", 0) or 0
+                # all of it went into hidden thinking (Claude 4.6+ think by default): the answer never started
+                all_thinking = truncated and out_tok > 0 and think_tok >= out_tok * 0.9
                 stats.setdefault("empty_replies", []).append(
                     {"step": steps, "finish": resp.stop_reason or "", "max_tokens": max_tokens,
-                     "output_tokens": getattr(resp.usage, "output_tokens", None),
+                     "output_tokens": out_tok or None, "thinking_tokens": think_tok or None,
                      "seconds": round((stats.get("last_call_s") or 0), 1)})
                 if truncated:
                     max_tokens = self._more_room(max_tokens, request, tool_specs, context_block)
@@ -1360,8 +1364,10 @@ class Agent:
                     low_effort_left = int(self.config.get("agent.low_effort_steps", 5))
                     stats["low_effort"] = stats.get("low_effort", 0) + 1
                 if empty_replies <= 2:
-                    self._emit("status", {"message": f"模型回傳空白回覆（finish_reason={resp.stop_reason or 'n/a'}），"
-                                                     f"{f'輸出上限放寬到 {max_tokens}、接下來幾步降低思考，並請它分段寫檔' if truncated else '要求繼續'}"})
+                    why = (f"模型把輸出上限的 {think_tok:,} tokens 全部用在隱藏的思考，回覆還沒開始就到上限"
+                           if all_thinking else f"模型回傳空白回覆（finish_reason={resp.stop_reason or 'n/a'}）")
+                    self._emit("status", {"message": f"{why}，"
+                                                     f"{f'輸出上限放寬到 {max_tokens}、接下來幾步關閉思考，並請它分段寫檔' if truncated else '要求繼續'}"})
                     nudge = "length" if truncated else True
                     continue
                 final_text = (f"⚠︎ 模型 {resp.model or self._prov.label} 連續 {empty_replies} 次回傳空白回覆"
@@ -1371,7 +1377,8 @@ class Agent:
                 status = "failed"
                 error_info = {"summary": f"執行模型連續 {empty_replies} 次回傳空白回覆", "kind": "capability",
                               "hint": "已保存失敗報告。建議換用能力較強的執行模型，或在設定頁提高輸出上限後重試。",
-                              "detail": f"model={resp.model}, finish_reason={resp.stop_reason or 'n/a'}"}
+                              "detail": f"model={resp.model}, finish_reason={resp.stop_reason or 'n/a'}"
+                                        + (f", thinking_tokens={think_tok}/{out_tok}" if think_tok else "")}
                 break
             self.history.append(msg)
             size_tip = size_reminder(msg, resp, max_tokens)

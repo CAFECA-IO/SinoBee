@@ -99,12 +99,14 @@ class Usage:
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0  # input_tokens is the total prompt size, including cached/cache-write tokens
+    thinking_tokens: int = 0     # part of output_tokens the model spent thinking (hidden), when the vendor says
 
     def add(self, other: "Usage") -> None:
         self.input_tokens += other.input_tokens
         self.output_tokens += other.output_tokens
         self.cache_read_tokens += other.cache_read_tokens
         self.cache_write_tokens += other.cache_write_tokens
+        self.thinking_tokens += getattr(other, "thinking_tokens", 0) or 0
 
 
 @dataclass
