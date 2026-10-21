@@ -29,6 +29,12 @@ class UsageScope:
     retries: int = 0
     billing: dict = field(default_factory=dict)  # {"points" | "own": [models]} calls not paid by the subscription
 
+    route: dict = field(default_factory=dict)    # {role: {model, reason, preference}} picked by SinoBee.ai this turn
+    served: list = field(default_factory=list)   # models that answered, in order (P5 reports the main one)
+
+    def route_note(self, role: str, model: str, reason: str, pref: str | None) -> None:
+        self.route[role] = {"model": model, "reason": reason, "preference": pref}
+
     def billing_note(self, source: str, model: str) -> None:
         ms = self.billing.setdefault(source, [])
         if model not in ms:
@@ -39,7 +45,8 @@ class UsageScope:
                 "cache_read_tokens": self.cache_read_tokens, "cost_usd": round(self.cost_usd, 6),
                 "unpriced": self.unpriced,
                 **({"quota_6h_pct": round(self.quota_6h_pct, 2), "quota": self.quota} if self.quota else {}),
-                **({"billing": self.billing} if self.billing else {})}
+                **({"billing": self.billing} if self.billing else {}),
+                **({"route": self.route} if self.route else {})}
 
     def drain_quota_events(self) -> list:
         out, self.quota_events = self.quota_events, []

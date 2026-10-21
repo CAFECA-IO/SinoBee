@@ -760,7 +760,15 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
 .qx-row{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);margin-top:5px}.qx-row span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 #status.ver{font-family:ui-monospace,Menlo,monospace;font-size:11px;display:flex;align-items:center;gap:6px;padding:8px 14px}
 #modelChip{flex:none;align-self:center;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
-#modelChip:hover{color:var(--ink);border-color:var(--accent2)}@media (max-width:640px){#modelChip{display:none}}
+#modelChip:hover{color:var(--ink);border-color:var(--accent2)}#modelChip.pin{color:var(--cap-think);border-color:color-mix(in srgb,var(--cap-think) 50%,transparent)}#modelChip svg{width:12px;height:12px;vertical-align:-1px;margin-right:4px}
+#mMenu{position:fixed;z-index:60;width:340px;max-height:70vh;overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:6px;box-shadow:var(--shadow)}
+#mMenu .mm-sec{font-size:11px;color:var(--muted);padding:8px 12px 4px}
+#mMenu button{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:8px 12px;border:0;border-radius:10px;background:none;color:var(--ink);font:inherit;cursor:pointer}
+#mMenu button:hover,#mMenu button:focus-visible{background:var(--tool)}#mMenu button.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+#mMenu .ck{width:14px;flex:none;color:var(--accent)}#mMenu small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+#mMenu .mm-pin.on{background:color-mix(in srgb,var(--cap-think) 14%,transparent)}#mMenu .mm-pin .ck{color:var(--cap-think)}
+.rboard{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}.rboard th{color:var(--muted);font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}.rboard td{padding:6px 8px;border-bottom:1px solid var(--grid)}.rboard .pk{font-size:11px;border:1px solid var(--accent2);color:var(--accent);border-radius:999px;padding:0 6px;margin-right:3px;white-space:nowrap}
+.bpill.route{--c:var(--accent)}.bpill.pin{--c:var(--cap-think)}@media (max-width:640px){#modelChip{display:none}}
 .bpill{display:inline-block;font-size:11px;padding:0 7px;border-radius:999px;border:1px solid var(--c);color:var(--c);margin-right:4px}.bpill.own{--c:var(--cap-vis)}.bpill.pts{--c:var(--warn)}
 </style>
 </head>
@@ -824,6 +832,17 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
     <div class="setpanes">
       <!-- ───── 模型 ───── -->
       <section class="pane on" data-pane="model">
+        <div class="grp" id="routeSec"><div class="grp-h">模型分配<span class="grp-d">日常由 SinoBee 依偏好挑模型：訂閱與點數由 SinoBee.ai 分配，你的金鑰與本地模型依同樣的評分排序。需要時可以鎖定一個模型：鎖定後每個角色都用它，偏好與 SinoBee.ai 的推薦都不會覆蓋。</span></div>
+          <div class="srow"><div class="sl"><b>由 SinoBee.ai 自動分配</b><span class="sd">執行、思維、輔助與審查都依偏好挑選（需要登入 SinoBee.ai）</span></div>
+            <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="rAuto" aria-label="由 SinoBee.ai 自動分配"></div></div>
+          <div class="srow"><div class="sl"><b>偏好</b><span class="sd" id="rPrefD"></span></div>
+            <div class="sc"><div class="seg" id="rPref" role="radiogroup" aria-label="偏好"><button type="button" data-p="speed">速度</button><button type="button" data-p="quality">品質</button><button type="button" data-p="cost">成本</button><button type="button" data-p="balanced">平衡</button></div></div></div>
+          <div class="srow"><div class="sl"><b>鎖定模型（進階）</b><span class="sd">鎖定後不再自動分配；訂閱用完改用你的金鑰時仍用同一個模型</span></div>
+            <div class="sc"><select class="inp" id="rPin" aria-label="鎖定模型"><option value="">不鎖定（依偏好分配）</option></select></div></div>
+          <div class="srow"><div class="sl"><b>回報匿名統計</b><span class="sd">協助改善分配：只送模型、任務類型、技能名、成敗與 token 數，不含對話與檔案。預設關閉；關閉時不送任何統計</span></div>
+            <div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="rStats" aria-label="回報匿名統計"></div></div>
+          <div id="rBoard"></div>
+        </div>
         <div class="grp"><div class="grp-h">使用哪些模型<span class="grp-d">從已連線的供應商挑選；雲端與本機模型可以混用</span></div>
           <input type="hidden" id="mDefault"><input type="hidden" id="mAux"><input type="hidden" id="mEsc"><input type="hidden" id="mRev"><input type="hidden" id="mEmb"><input type="hidden" id="mFallbacks">
           <div id="roleRows"></div>
@@ -1129,6 +1148,7 @@ function esc(s){return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<'
 // ---------------- icons (inline SVG; several paths adapted from Feather Icons, MIT) ----------------
 const ICONS = {
   key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/>',
   clip: '<path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -1573,6 +1593,8 @@ function resultCard(ev){
   const meta = [ev.steps ? `${ev.steps} 步` : '', ev.duration_s != null ? fmtDur(ev.duration_s) : '',
     u.calls ? `${fmtTok((u.input_tokens || 0) + (u.output_tokens || 0))} tokens` : '',
     u.quota_6h_pct != null ? quotaShare(u) : '',
+    u.route?.main ? `<span class="bpill route" title="${esc(u.route.main.reason || '')}">由 SinoBee.ai 分配</span>${esc(shortModel(u.route.main.model))}・偏好：${esc(PREF[u.route.main.preference]?.[0] || '平衡')}` : '',
+    !u.route?.main && STATUS?.pin ? `<span class="bpill pin">已鎖定</span>${esc(shortModel(STATUS.pin))}` : '',
     u.billing?.points ? `<span class="bpill pts">扣點</span>${esc(u.billing.points.join('、'))}` : '',
     u.billing?.own ? `<span class="bpill own">備援產出</span>${esc(u.billing.own.join('、'))}` : '',
     u.calls && (u.cost_usd || u.quota_6h_pct == null) ? fmtCost(u.cost_usd) + (u.unpriced ? '（部分模型未設定費率）' : '') : '',
@@ -1957,7 +1979,7 @@ async function submitText(mode){
   ws.send(JSON.stringify({type: 'message', session_id: sessionId, text, client_ref: CLIENT_REF, mode}));
   if (mode === 'interrupt') $('#rbText').textContent = '正在停止，接著改做新的要求…';
 }
-$('#modelChip').onclick = () => openSettings(false, 'model');
+$('#modelChip').onclick = e => { e.stopPropagation(); openModelMenu(); };
 $('#interruptBtn').onclick = () => { if (RUNNING[sessionId]) submitText('interrupt'); };
 $('#form').onsubmit = async e => {
   e.preventDefault(); if (RUNNING[sessionId]) return submitText('steer');
@@ -2225,6 +2247,54 @@ async function fillSide(side){
   }
 }
 let STATUS = null;      // /api/status: version, mode (subscription | points | own | local), today's use
+// ---------------- model allocation (plan P4/P5): preference, pinned model, anonymous stats ----------------
+const PREF = {speed: ['速度', '先求快。適合聊天、小修改'], quality: ['品質', '選評鑑分數最高的模型，額度或花費用得較快'],
+  cost: ['成本', '額度與花費用得最慢，複雜任務品質可能較低'], balanced: ['平衡', '依技能評鑑兼顧品質與成本（預設）']};
+let ROUTING = null;
+async function loadRouting(board = false){ try { ROUTING = await api('/api/routing' + (board ? '?board=1' : '')); } catch { ROUTING = ROUTING || {}; } return ROUTING; }
+const shortModel = m => String(m || '').replace(/^sinobee\//, '');
+function renderRouting(){
+  const m = SET.model || {}, pref = m.preference || 'balanced';
+  $('#rAuto').checked = m.default === 'sinobee/auto';
+  $('#rPref').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.p === pref); b.setAttribute('aria-checked', String(b.dataset.p === pref));
+    b.onclick = () => { $('#rPref').querySelectorAll('button').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); }); $('#rPrefD').textContent = PREF[b.dataset.p][1]; }; });
+  $('#rPrefD').textContent = PREF[pref][1];
+  $('#rAuto').onchange = () => { if ($('#rAuto').checked) $('#mDefault').value = 'sinobee/auto'; else if ($('#mDefault').value === 'sinobee/auto') $('#mDefault').value = ''; };
+  const sel = $('#rPin'); sel.innerHTML = '<option value="">不鎖定（依偏好分配）</option>' + (m.pin ? `<option value="${esc(m.pin)}">${esc(shortModel(m.pin))}</option>` : ''); sel.value = m.pin || '';
+  $('#rBoard').innerHTML = '<div class="sd">讀取你的模型與評鑑成績…</div>';
+  loadRouting(true).then(r => {
+    const opts = [...(r.relay_models || []).map(x => [x, `${shortModel(x)}（SinoBee.ai）`]), ...(r.own_models || []).map(x => [x, `${x}（你的金鑰／本地）`])];
+    sel.innerHTML = '<option value="">不鎖定（依偏好分配）</option>' + opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('')
+      + (m.pin && !opts.some(o => o[0] === m.pin) ? `<option value="${esc(m.pin)}">${esc(m.pin)}</option>` : ''); sel.value = m.pin || '';
+    const rows = r.board || [];
+    $('#rBoard').innerHTML = !rows.length ? (r.board_error ? `<div class="sd">暫時讀不到評鑑成績：${esc(r.board_error)}</div>` : (r.own_models || []).length ? '' : '<div class="sd">設定 API 金鑰後，這裡會列出可用的模型與它們在 SinoBee.ai 的評鑑成績。</div>')
+      : `<div class="sl" style="margin-top:6px"><b>你的金鑰與本地模型</b><span class="sd">評鑑成績來自 SinoBee.ai 公開的技能評鑑；標籤是每種偏好會優先分配的模型。這份清單只供查看。</span></div>
+        <table class="rboard"><thead><tr><th>模型</th><th>評鑑分數</th><th>每次通過成本</th><th>平均耗時</th><th>偏好</th></tr></thead><tbody>${rows.map(x => `<tr><td>${esc(x.model)}</td>
+        <td>${x.qualitySource === 'price' ? '<span class="sd">尚無評鑑</span>' : Math.round(x.quality) + (x.qualitySource === 'skill' ? '' : '')}${x.evals ? ` <span class="sd">（${x.evals} 份）</span>` : ''}</td>
+        <td>${x.costPerPass != null ? 'US$' + x.costPerPass.toFixed(3) : '—'}</td><td>${x.seconds != null ? Math.round(x.seconds) + ' 秒' : '—'}</td>
+        <td>${(x.picks || []).map(p => `<span class="pk">${esc(PREF[p]?.[0] || p)}</span>`).join('')}</td></tr>`).join('')}</tbody></table>`;
+  });
+}
+/** the input box's model chip: preferences, and pinning a model (pin outranks everything) */
+async function openModelMenu(){
+  let menu = $('#mMenu'); if (menu) { menu.remove(); return; }
+  const r = await loadRouting(false), pinned = r.pin, pref = r.preference || 'balanced';
+  menu = document.createElement('div'); menu.id = 'mMenu'; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', '模型分配');
+  const models = [...(r.relay_models || []), ...(r.own_models || [])].slice(0, 12);
+  menu.innerHTML = `<div class="mm-sec">依偏好自動分配${r.auto ? '（SinoBee.ai）' : ''}</div>`
+    + Object.entries(PREF).map(([k, [t, d]]) => `<button type="button" role="menuitemradio" aria-checked="${!pinned && k === pref}" class="${!pinned && k === pref ? 'on' : ''}" data-pref="${k}"><span class="ck">${!pinned && k === pref ? '✓' : ''}</span><span><b>${t}</b><small>${d}</small></span></button>`).join('')
+    + `<div class="mm-sec">鎖定模型（不再自動分配）</div>`
+    + models.map(x => `<button type="button" role="menuitemradio" aria-checked="${x === pinned}" class="mm-pin ${x === pinned ? 'on' : ''}" data-pin="${esc(x)}"><span class="ck">${x === pinned ? '✓' : ''}</span><span>${esc(shortModel(x))}${x.startsWith('sinobee/') ? '' : '<small>你的金鑰／本地</small>'}</span></button>`).join('')
+    + `<div class="mm-sec">下一回合生效；選偏好即解除鎖定。</div>`;
+  document.body.appendChild(menu);
+  const b = $('#modelChip').getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(b.left, innerWidth - 348)) + 'px'; menu.style.bottom = (innerHeight - b.top + 8) + 'px';
+  const save = async model => { menu.remove(); await post('/api/settings', {model}, 'PUT'); ROUTING = null; refreshStatus(false); };
+  menu.querySelectorAll('[data-pref]').forEach(x => x.onclick = () => save({preference: x.dataset.pref, pin: ''}));
+  menu.querySelectorAll('[data-pin]').forEach(x => x.onclick = () => save({pin: x.dataset.pin}));
+  setTimeout(() => document.addEventListener('click', function off(e){ if (!menu.contains(e.target) && e.target !== $('#modelChip')) { menu.remove(); document.removeEventListener('click', off); } }), 0);
+  menu.querySelector('button')?.focus();
+}
 async function refreshStatus(full = true){
   const s = await api('/api/status');
   CUR = {code: s.currency || 'USD', rate: s.currency_rate};
@@ -2232,8 +2302,9 @@ async function refreshStatus(full = true){
   const st = $('#status'); st.className = 'status ver';
   st.textContent = `SinoBee v${s.version || ''}${s.build ? ' · ' + s.build : ''}`;
   st.title = `核准模式 ${s.approval} · 技能 ${s.skills} · 記憶 ${s.memories} · 今日 ${fmtTok(s.today.total_tokens)} tokens`;
-  const chip = $('#modelChip'); chip.hidden = !s.model; chip.textContent = String(s.model || '').replace(/^sinobee\//, '');
-  chip.setAttribute('aria-label', `目前模型 ${s.model || ''}，點一下開啟模型設定`);
+  const chip = $('#modelChip'); chip.hidden = !s.model; chip.classList.toggle('pin', !!s.pin);
+  chip.innerHTML = s.pin ? ic('lock') + esc(shortModel(s.pin)) : s.model === 'sinobee/auto' ? `自動・${PREF[s.preference || 'balanced'][0]}` : esc(shortModel(s.model));
+  chip.setAttribute('aria-label', s.pin ? `已鎖定 ${s.pin}，點一下改偏好或鎖定` : `目前 ${s.model || ''}，點一下選偏好或鎖定模型`);
   if (s.mode === 'subscription' && (!QUOTA || QUOTA.status === 'signed_out')) loadQuota(); else paintQuota();
   NEEDS_SETUP = !!s.needs_setup;
   if (!full) return;
@@ -3298,6 +3369,7 @@ function renderSettings(){
   $('#uDaily').value = u.daily_budget_usd ?? ''; $('#uMonthly').value = u.monthly_budget_usd ?? ''; $('#uTaskUsd').value = u.task_max_usd ?? ''; $('#uTaskTok').value = u.task_max_tokens ?? '';
   $('#uCurrency').value = u.currency || 'USD'; $('#uRate').value = u.currency_rate ?? ''; $('#uEnforce').checked = !!u.enforce_budget;
   const bl = SET.billing || {}; $('#bAutoPts').checked = !!bl.auto_points; $('#bExhausted').value = bl.on_exhausted || 'ask';
+  $('#rStats').checked = !!bl.share_stats; renderRouting();
   const sk = SET.skills || {}; $('#sAuto').value = String(sk.auto_create === true ? 'auto' : sk.auto_create === false ? 'off' : sk.auto_create || 'auto');
   $('#sProject').value = sk.project_dir || ''; $('#sInterop').checked = sk.interop !== false;
   const tb = $('#priceTable tbody'); tb.innerHTML = ''; Object.entries(SET.pricing || {}).forEach(([k, v]) => addPriceRow(k, v));
@@ -3525,14 +3597,15 @@ async function openSettings(firstRun = false, pane = null){
   $('#settings').classList.add('open');
 }
 function collectSettings(){
-  const body = {agent: {verify: true, quality: $('#aQuality').value, plan: $('#aPlan').value}, model: {default: $('#mDefault').value, fallbacks: $('#mFallbacks').value, auxiliary: $('#mAux').value, thinking: $('#mEsc').value, reviewer: $('#mRev').value,
+  const body = {agent: {verify: true, quality: $('#aQuality').value, plan: $('#aPlan').value}, model: {default: $('#mDefault').value, fallbacks: $('#mFallbacks').value,
+                        preference: $('#rPref .on')?.dataset.p || 'balanced', pin: $('#rPin').value, auxiliary: $('#mAux').value, thinking: $('#mEsc').value, reviewer: $('#mRev').value,
                         embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto', max_output_tokens: $('#mOut').value.trim() || 'auto'},
                 permissions: {approval: $('#pApproval').value, toolsets: [...document.querySelectorAll('#pToolsets input:checked')].map(i => i.value)},
                 usage: {daily_budget_usd: $('#uDaily').value, monthly_budget_usd: $('#uMonthly').value,
                         task_max_usd: $('#uTaskUsd').value, task_max_tokens: $('#uTaskTok').value, currency: $('#uCurrency').value,
                         currency_rate: $('#uRate').value, enforce_budget: $('#uEnforce').checked},
                 skills: {auto_create: $('#sAuto').value, project_dir: $('#sProject').value, interop: $('#sInterop').checked},
-                billing: {auto_points: $('#bAutoPts').checked, on_exhausted: $('#bExhausted').value},
+                billing: {auto_points: $('#bAutoPts').checked, on_exhausted: $('#bExhausted').value, share_stats: $('#rStats').checked},
                 api_keys: {}, custom_providers: {}, pricing: {}};
   document.querySelectorAll('#customRows .krow').forEach(r => { const [n, u] = r.querySelectorAll('input'); if (n.value.trim() && u.value.trim()) body.custom_providers[n.value.trim()] = {base_url: u.value.trim()}; });
   document.querySelectorAll('#priceTable tbody tr').forEach(tr => { const name = tr.querySelector('input').value.trim(); if (!name) return;
@@ -3700,7 +3773,7 @@ function modeLine(mode){
     more = `<div class="qx-head"><span>今日</span><span>${fmtTok((o.tokens || 0) + (o.local_tokens || 0))} tokens</span></div>${models}${b.source === 'own' ? '<div class="qx-foot">備援中：訂閱額度用完，你同意改用自己的模型</div>' : ''}${back}`;
   }
   return `<div class="qx ${cls}${QUOTA_OPEN ? ' open' : ''}"><div class="qx-line"><span class="qx-dot"></span><b>${title}</b><span class="qx-s">${esc(stat)}</span><span class="qx-chev">›</span></div>
-    ${QUOTA_OPEN ? `<div class="qx-more ${cls}">${more}<div class="qx-foot qx-end"><span></span><a href="#" data-qacct>設定 ›</a></div></div>` : ''}</div>`;
+    ${QUOTA_OPEN ? `<div class="qx-more ${cls}">${more}<div class="qx-foot qx-end"><span>${STATUS.pin ? '已鎖定：' + esc(shortModel(STATUS.pin)) : '分配偏好：' + esc(PREF[STATUS.preference || 'balanced'][0])}</span><a href="#" data-qacct>設定 ›</a></div></div>` : ''}</div>`;
 }
 /** 20% and 5% left in a window: tell once (in the conversation), again only after it went back above */
 function quotaWarn(q){
@@ -3750,6 +3823,7 @@ function quotaLine(q){
       <div class="qx-foot">${rel ? `最早的用量最先釋放：<b>${qClock(rel.at)} 起恢復約 ${fmtPct(soon)}</b>` : '過去 6 小時沒有用量'}</div>
       <div class="qx-foot">7 天已用 ${fmtPct(u7)}${w6?.remainingTokens ? ` · 6 小時約剩 ${fmtTok(w6.remainingTokens)} tokens` : ''}</div>
       ${q.points?.balance != null ? `<div class="qx-row"><span>平台點數</span><span>${Number(q.points.balance).toLocaleString()} 點（1 點 = NT$1）</span></div>` : ''}
+      <div class="qx-row"><span>${STATUS?.pin ? '已鎖定' : '分配偏好'}</span><span>${STATUS?.pin ? esc(shortModel(STATUS.pin)) : esc(PREF[STATUS?.preference || 'balanced'][0])}</span></div>
       <div class="qx-foot qx-end">${q.endsAt ? `方案至 ${fmtDate(q.endsAt)}` : ''}<a href="#" data-qacct>訂閱與帳號 ›</a></div></div>` : ''}
     ${expiryNote()}</div>`;
 }

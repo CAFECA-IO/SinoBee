@@ -143,7 +143,7 @@ def test_status_and_dialog_api(config):
     assert c.post("/api/billing/choose" + q, json={"choice": "nope"}).status_code == 400
     p = c.put("/api/settings" + q, json={"billing": {"auto_points": True, "on_exhausted": "ask"}})
     assert p.status_code == 200 and config.get("billing.auto_points") is True
-    assert c.get("/api/settings" + q).json()["billing"] == {"on_exhausted": "ask", "auto_points": True}
+    assert c.get("/api/settings" + q).json()["billing"] == {"on_exhausted": "ask", "auto_points": True, "share_stats": False}
 
 
 async def test_a_scheduled_task_stopped_by_the_allowance_runs_again_when_it_is_back(config):

@@ -209,7 +209,11 @@ class Runtime:
         None when it is not configured (or is the execution model itself) - see thinker()."""
         if self._strong is not None and (self._fixed_provider or self._strong_spec is None):
             return self._strong
+        if (self.config.get("model.pin") or "").strip():
+            return None                     # a pinned model does every role (routing.py)
         spec = self.config.get("model.thinking") or self.config.get("model.escalate")
+        if not spec and self.config.get("model.default") == "sinobee/auto":
+            spec = "sinobee/auto@thinking"  # SinoBee.ai allocates the thinking role too
         if not spec or spec == self.config.get("model.default"):
             return None
         if self._strong_spec != spec:
@@ -256,6 +260,10 @@ class Runtime:
         if self._reviewer is not None and (self._fixed_provider or self._reviewer_spec is None):
             return self._reviewer
         spec = self.config.get("model.reviewer")
+        if (self.config.get("model.pin") or "").strip():
+            return None                     # a pinned model does every role (routing.py)
+        if not spec and self.config.get("model.default") == "sinobee/auto":
+            spec = "sinobee/auto@review"
         if not spec:
             return None
         if self._reviewer_spec != spec:
@@ -1015,8 +1023,40 @@ class Agent:
 
     # ------------------------------------------------------------------ main loop
     async def run(self, user_input: str | list) -> str:
+        from .. import routing
+        text = user_input if isinstance(user_input, str) else " ".join(
+            getattr(p, "text", "") or "" for p in user_input if isinstance(getattr(p, "text", None), str))
+        lead = re.match(r"^((?:/[\w.-]+\s+)+)", text or "")
+        hint = {"task_kind": routing.task_kind(text), "turn": f"{self.session_id}:{time.time()}",
+                "skill": lead.group(1).split()[0][1:] if lead else None}
+        t0 = time.time()
         with scope(self.session_id, "agent") as usage_scope:
-            return await self._run(user_input, usage_scope)
+            tok = routing.HINT.set(hint)
+            try:
+                out = await self._run(user_input, usage_scope)
+            finally:
+                routing.HINT.reset(tok)
+            self._report_outcome(usage_scope, hint, t0)
+            return out
+
+    def _report_outcome(self, sc, hint: dict, t0: float) -> None:
+        """P5: one anonymous outcome for SinoBee.ai's model allocation - only when billing.share_stats is on."""
+        if self.depth or not self.config.get("billing.share_stats"):
+            return
+        try:
+            from .. import routing
+            st = (self.last_status or {}).get("status", "done")
+            outcome = {"done": "done", "stopped": "stopped", "incomplete": "incomplete",
+                       "blocked": "incomplete"}.get(st, "failed")
+            model = (sc.route.get("main") or {}).get("model") or (sc.served[-1] if sc.served else self._prov.label)
+            routing.report(self.config, {
+                "model": model, "task_kind": hint.get("task_kind"),
+                "skill": hint.get("skill") or (self._turn_skills[0] if getattr(self, "_turn_skills", None) else None),
+                "outcome": outcome, "seconds": round(time.time() - t0, 1), "tokens_in": sc.input_tokens,
+                "tokens_out": sc.output_tokens, "retries": sc.retries,
+                "cut_off": bool(getattr(self, "_turn_cut_off", False))})
+        except Exception:  # noqa: BLE001
+            log.debug("outcome report failed", exc_info=True)
 
     async def _run(self, user_input: str | list, usage_scope) -> str:
         self._cancel = False
@@ -1487,6 +1527,8 @@ class Agent:
                 if c.name in ("skill_view", "skill_run") and c.arguments.get("name") and \
                         c.arguments["name"] not in turn_skills:
                     turn_skills.append(c.arguments["name"])
+        self._turn_skills = turn_skills
+        self._turn_cut_off = bool(stats.get("too_long_timeouts"))
         turn_id = None
         try:
             turn_id = self.rt.memory.record_turn(self.session_id, db_start, self.rt.memory.last_index(self.session_id),

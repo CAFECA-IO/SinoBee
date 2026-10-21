@@ -92,3 +92,58 @@ class SinoBeeProvider(Provider):
 
 def forget() -> None:
     _MODELS.clear()
+
+
+class SinoBeeAutoProvider:
+    """`sinobee/auto` (`sinobee/auto@thinking`, ...): SinoBee.ai picks the model per turn and role by the user's
+    preference (routing.py; plan P4). One model for the whole turn. Never built while a model is pinned."""
+
+    name = "sinobee"
+    provider_name = "sinobee"
+    model = "auto"
+
+    def __init__(self, config, role: str = "main", *, vision: bool = True):
+        from ..routing import role_of
+        self.config = config
+        self.role = role_of(f"x@{role}") if "@" not in role else role_of(role)
+        self.vision = vision
+        self.recorder = None
+        self.base_url = account.relay_base(config)
+        self.timeout = 180.0
+        self._inners: dict[str, SinoBeeProvider] = {}
+
+    @property
+    def label(self) -> str:
+        return "sinobee/auto" if self.role == "main" else f"sinobee/auto@{self.role}"
+
+    def _inner(self, model: str) -> SinoBeeProvider:
+        if model not in self._inners:
+            self._inners[model] = SinoBeeProvider(model, self.base_url, config=self.config, vision=self.vision)
+        return self._inners[model]
+
+    async def pick(self, messages=None, tools=None) -> dict:
+        import asyncio
+
+        from .. import routing
+        needs = {"tools": bool(tools), "vision": any(getattr(m, "has_images", lambda: False)() for m in messages or [])}
+        return await asyncio.to_thread(routing.ask, self.config, self.role, needs)
+
+    async def chat(self, messages, tools=None, **kw):
+        from ..accounting import current_scope
+        pick = await self.pick(messages, tools)
+        inner = self._inner(pick["model"])
+        resp = await inner.chat(messages, tools, **kw)
+        resp.model = inner.label
+        resp.served_by = inner                     # usage is recorded for the model that answered
+        current_scope.get().route_note(self.role, inner.label, pick.get("reason", ""), pick.get("preference"))
+        return resp
+
+    async def embed(self, texts):
+        import asyncio
+
+        from .. import routing
+        pick = await asyncio.to_thread(routing.ask, self.config, "embed", {})
+        return await self._inner(pick["model"]).embed(texts)
+
+    async def list_models(self):
+        return await SinoBeeProvider("_", self.base_url, config=self.config).list_models()

@@ -324,6 +324,30 @@ class FallbackChain:
         """The user's own keys and local models in this chain (the fallback pool after the subscription)."""
         return [p for p in self.providers if getattr(p, "provider_name", "") != "sinobee"]
 
+    async def ordered_pool(self) -> list[Provider]:
+        """The pool in the order to try: a pinned model's own-key twin first (the pin is kept through fallback);
+        otherwise as the user's preference ranks it (routing.order_pool; unchanged when that is not available)."""
+        pool = self.pool()
+        if self.config is None:
+            return pool
+        from .. import routing
+        pinned = routing.pin(self.config)
+        if pinned:
+            want = pinned.removeprefix("sinobee/").lower()
+            if not any(p.label.lower() == want for p in pool):
+                try:                       # the pinned model on your own key, when you have that vendor's key
+                    from . import build_provider, usable_now
+                    if usable_now(want.split("/", 1)[0], self.config):
+                        pool = [build_provider(want, self.config)] + pool
+                except Exception:  # noqa: BLE001
+                    pass
+            return sorted(pool, key=lambda p: 0 if p.label.lower() == want else 1)
+        if len(pool) < 2:
+            return pool
+        import asyncio
+        order = await asyncio.to_thread(routing.order_pool, self.config, [p.label for p in pool])
+        return sorted(pool, key=lambda p: order.index(p.label) if p.label in order else len(order))
+
     async def _try(self, providers, messages, tools, kw, source: str | None):
         """Call providers in order. Returns (response, None) or (None, last error); a QuotaExceeded from the relay
         ends the relay part at once (every relay model shares the allowance)."""
@@ -334,12 +358,15 @@ class FallbackChain:
                 resp.model = resp.model or p.label
                 if self.recorder:
                     try:
-                        self.recorder(p, resp.usage, None)
+                        self.recorder(getattr(resp, "served_by", None) or p, resp.usage, None)
                     except Exception:
                         log.exception("usage recording failed")
+                from ..accounting import current_scope
+                sc = current_scope.get()
+                sc.served.append(resp.model)
+                del sc.served[:-20]
                 if source:
-                    from ..accounting import current_scope
-                    current_scope.get().billing_note(source, p.label)
+                    sc.billing_note(source, p.label)
                 return resp, None
             except ProviderError as e:
                 log.error("provider %s failed: %s", p.label, e)
@@ -369,7 +396,7 @@ class FallbackChain:
                 return resp
             if not isinstance(err, QuotaExceeded):
                 if pool:                                # a broken relay (not the allowance): your models, as before
-                    resp, err2 = await self._try(pool, messages, tools, kw, None)
+                    resp, err2 = await self._try(await self.ordered_pool(), messages, tools, kw, None)
                     if resp:
                         return resp
                     err = err2 or err
@@ -409,7 +436,7 @@ class FallbackChain:
                 out = quota or QuotaExceeded(f"{relay[0].label} SinoBee.ai quota 6h: no fallback models", "6h")
                 self._quota_event(out, None, ask=True)
                 raise out
-            resp, err = await self._try(pool, messages, tools, kw, billing.OWN)
+            resp, err = await self._try(await self.ordered_pool(), messages, tools, kw, billing.OWN)
             if resp:
                 return resp
             raise err or ProviderError("all providers failed")

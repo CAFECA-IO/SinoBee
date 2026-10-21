@@ -110,6 +110,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         pool = r.provider.pool() if hasattr(r.provider, "pool") else []
         return {
             "version": __version__, "build": _build(),
+            "preference": r.config.get("model.preference") or "balanced", "pin": r.config.get("model.pin") or None,
             "mode": mode, "fallback_local": bool(pool) and all(p.provider_name in local_prov for p in pool),
             "billing": {"source": (st or {}).get("source"), "until": (st or {}).get("until"),
                         "points": billing.points(r.config), "auto_points": bool(r.config.get("billing.auto_points")),

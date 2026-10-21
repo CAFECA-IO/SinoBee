@@ -1753,5 +1753,46 @@ SinoBee.ai 這一側：`BenchSuite` 題組庫、報告的 `visibility`、`Skill.
   - 回應標頭 `x-sinobee-points` 是扣完後的餘額，扣點呼叫不回時段比例。
   - `/api/v1/llm/quota` 回傳 `points: {balance, available, rate: 1, unit: "TWD"}`；沒有訂閱的 402 回應也附 `points`。
   - SinoBee 記下餘額後，額度卡展開時顯示點數，額度用完的對話框出現「用平台點數繼續」。
-- **還沒做**（P4）：依偏好分配模型、鎖定模型。
+- P4、P5 見第 40 節。
 - 測試：`tests/test_billing.py`、`tests/test_sinobee_provider.py`；SinoBee.ai `tests/llm-relay.test.ts`。
+
+## 40. 依偏好分配模型、鎖定模型與匿名統計（P4、P5，2026-10-21）
+
+- **優先順序**：
+  1. **鎖定模型**（`model.pin`）最高，偏好與 SinoBee.ai 的推薦都不會覆蓋。
+     - `build_chain()` 以鎖定的模型為主模型，任何角色（傳入的 spec 也一樣）都用它。
+     - `thinking()`、`reviewer()` 回傳 None，思維與審查都落到鎖定的模型。
+     - 輔助模型也用它；鎖定時不呼叫 `/route`。
+     - 備援時維持鎖定：`FallbackChain.ordered_pool()` 把同一個模型的自備金鑰版放第一；設定裡沒有、但有該廠商的金鑰時，即時建立。
+     - 只有池子裡完全沒有這個模型時，才依偏好排序。
+  2. **`sinobee/auto`**（`sinobee/auto@thinking|summary|review`）：`SinoBeeAutoProvider` 每回合、每個角色問一次 `POST /api/v1/llm/route`。
+     - 快取鍵包含回合，所以同一回合不換模型，保留 prompt cache 與 thinking 簽章。
+     - SinoBee.ai 連不上時：沿用上次的結果；沒有上次就用 `model.auto_default`。
+     - 用量記在實際回答的模型（`resp.served_by`）。
+     - `UsageScope.route` 記下分配結果；結果卡片顯示「由 SinoBee.ai 分配：X・偏好：Y」，滑過顯示原因。
+     - `model.default = sinobee/auto` 時，思維、輔助、審查沒有另外設定也走自動分配。
+  3. **備援池**（你的金鑰與本地模型，同一個池子）依偏好排序（`routing.order_pool`）：只把模型名稱送到 `/route` 的 candidates，連不上時順序不變。
+- **回合提示**（`routing.HINT`）：
+  - `task_kind`（chat｜page｜code｜research｜data）由要求的文字判斷；skill 取 `/技能名` 前綴。
+  - 只在要求分配時送出，SinoBee.ai 不儲存。
+- **SinoBee.ai `lib/llm/route.ts`**：
+  - 品質：該技能的公開評鑑 fairScore 中位數 → 該模型所有評鑑 → 價格先驗。
+  - 品質會乘上回報的完成率：近 30 天、至少 10 筆，`× (0.7 + 0.3 × 完成率)`。
+  - 成本：中繼牌價（輸入：輸出 = 3:1），沒有牌價時用評鑑的每次通過成本。
+  - 速度：評鑑的中位耗時，沒有時用中繼近一天的中位呼叫時間。
+  - 健康：近 15 分鐘至少 4 次、一半以上 upstream 失敗就排除；兩成以上扣分。
+  - 權重依偏好（品質／速度／成本／平衡）與角色調整：thinking 偏品質，summary 與 review 偏成本；6 小時額度剩不到兩成時，成本權重加重。
+  - 視覺需求只留看得懂圖的模型。
+  - `GET /api/v1/llm/board?models=`：每個模型的評鑑事實，以及會被哪些偏好選中。公開資料，供設定頁顯示。
+- **P5 匿名統計**（尊重隱私開關）：
+  - `billing.share_stats` 預設關閉；關閉時 `Agent._report_outcome()` 直接返回，不送也不暫存。
+  - 開啟時，每個主回合結束送一筆到 `POST /api/v1/llm/stats`。只有這些欄位：model、task_kind、skill、outcome、seconds、tokens_in、tokens_out、retries、cut_off。
+  - 不送對話、session id 或檔案；子代理的回合不送。
+  - SinoBee.ai 存成 `RouteStat`：沒有 userId、只到日期；不是公開技能的名稱存成 null；一次最多 50 筆。
+- **介面**：
+  - 設定 → 模型 →「模型分配」：自動分配開關、偏好（四段按鈕）、鎖定模型（下拉）、回報匿名統計開關（預設關）、你的模型與評鑑成績表（只供查看）。
+  - 輸入框旁的模型晶片：顯示「自動・平衡」或鎖頭加鎖定的模型；點一下開啟選單，上半部選偏好（同時解除鎖定），下半部鎖定模型。
+  - 左下角卡片展開後最後一行顯示分配偏好或已鎖定的模型。
+- **測試**：`tests/test_routing.py`；SinoBee.ai `tests/llm-route.test.ts`。
+- **未做**：只用自己金鑰（沒有訂閱）時，執行模型仍由設定選擇；依偏好排序只套用在備援池。
+

@@ -88,6 +88,10 @@ def split_model(spec: str) -> tuple[str, str]:
 
 
 def build_provider(spec: str, config: Config) -> Provider:
+    if spec == "sinobee/auto" or spec.startswith("sinobee/auto@"):     # SinoBee.ai picks per turn (routing.py)
+        from .sinobee import SinoBeeAutoProvider
+        return SinoBeeAutoProvider(config, spec.split("@", 1)[1] if "@" in spec else "main",
+                                   vision=bool(config.get("model.vision", True)))
     prov, model = split_model(spec)
     override = (config.get("providers") or {}).get(prov, {}) or {}
     transport, base_url, key_env = PRESETS.get(prov, (None, None, None))
@@ -121,7 +125,9 @@ def build_provider(spec: str, config: Config) -> Provider:
 
 
 def build_chain(config: Config, spec: str | None = None) -> FallbackChain:
-    specs = [spec or config.get("model.default")] + list(config.get("model.fallbacks") or [])
+    # a pinned model is used for every role and overrides the preference and SinoBee.ai's allocation (routing.py)
+    pinned = (config.get("model.pin") or "").strip() or None
+    specs = [pinned or spec or config.get("model.default")] + list(config.get("model.fallbacks") or [])
     if not specs[0]:
         raise ProviderError("no model selected yet")
     return FallbackChain([build_provider(s, config) for s in specs if s], config)
@@ -129,6 +135,10 @@ def build_chain(config: Config, spec: str | None = None) -> FallbackChain:
 
 def build_auxiliary(config: Config) -> FallbackChain:
     aux = config.get("model.auxiliary")
+    if (config.get("model.pin") or "").strip():
+        return build_chain(config)
+    if not aux and config.get("model.default") == "sinobee/auto":
+        aux = "sinobee/auto@summary"
     return build_chain(config, aux) if aux else build_chain(config)
 
 

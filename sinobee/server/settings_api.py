@@ -50,7 +50,8 @@ def settings_payload(rt) -> dict:
         needs_setup = not usable_now(prov, cfg)
     return {
         "model": {k: cfg.get(f"model.{k}") for k in ("default", "fallbacks", "auxiliary", "thinking", "reviewer", "embedding",
-                                                      "vision", "context_window", "max_output_tokens")},
+                                                      "vision", "context_window", "max_output_tokens", "preference",
+                                                      "pin")},
         "agent": {"verify": cfg.get("agent.verify", True), "quality": cfg.get("agent.quality", "auto"),
                   "reviewer": cfg.get("agent.reviewer", True), "plan": cfg.get("agent.plan", "auto")},
         "context": _context_info(cfg),
@@ -60,7 +61,8 @@ def settings_payload(rt) -> dict:
                         "allowed_paths": cfg.get("permissions.allowed_paths")},
         "usage": cfg.get("usage"),
         "billing": {"on_exhausted": cfg.get("billing.on_exhausted") or "ask",
-                    "auto_points": bool(cfg.get("billing.auto_points"))},
+                    "auto_points": bool(cfg.get("billing.auto_points")),
+                    "share_stats": bool(cfg.get("billing.share_stats"))},
         "skills": {"auto_create": cfg.get("skills.auto_create"), "project_dir": str(cfg.project_dir),
                    "interop": cfg.get("skills.interop", True), "hub_url": cfg.get("skills.hub_url")},
         "pricing": cfg.get("pricing") or {},
@@ -112,6 +114,49 @@ def register(app: FastAPI, rt_getter) -> None:
     async def get_settings():
         return settings_payload(rt_getter())
 
+    @app.get("/api/routing")
+    async def routing_info(board: bool = False):
+        """Model allocation for the settings and the input box's menu: preference, pinned model, the models a pin
+        can choose (SinoBee.ai's and those your keys and local models offer) and, with board=1, your models'
+        evaluation facts from SinoBee.ai (only the model names are sent)."""
+        import asyncio
+
+        from .. import account, routing
+        from ..providers import usable_now
+        from ..providers.catalog import RECOMMENDED
+        r = rt_getter()
+        cfg = r.config
+        own: list[str] = []
+        for prov, models in RECOMMENDED.items():
+            if prov in ("sinobee",):
+                continue
+            try:
+                ok = usable_now(prov, cfg) and (prov != "ollama")
+            except Exception:  # noqa: BLE001
+                ok = False
+            if ok:
+                own += [f"{prov}/{m}" for m, _ in models]
+        for spec in cfg.get("model.fallbacks") or []:
+            if spec and not spec.startswith("sinobee/") and spec not in own:
+                own.append(spec)
+        relay: list[str] = []
+        if account.can_relay(cfg):
+            try:
+                from ..providers.sinobee import SinoBeeProvider
+                rows = await SinoBeeProvider("_", account.relay_base(cfg), config=cfg).model_rows()
+                relay = [f"sinobee/{x['id']}" for x in rows if x.get("available", True) and "embed" not in x["id"]]
+            except Exception:  # noqa: BLE001
+                relay = []
+        out = {"preference": routing.preference(cfg), "pin": routing.pin(cfg),
+               "share_stats": bool(cfg.get("billing.share_stats")), "auto": cfg.get("model.default") == "sinobee/auto",
+               "relay_models": relay, "own_models": own}
+        if board and own:
+            try:
+                out["board"] = await asyncio.to_thread(routing.board, cfg, own)
+            except Exception as e:  # noqa: BLE001
+                out["board_error"] = str(e)[:200]
+        return out
+
     @app.post("/api/settings/fallback-offer")
     async def fallback_offer(body: dict):
         """U5: the failure card's offer of a fallback model - declined, it is not shown again."""
@@ -144,6 +189,17 @@ def register(app: FastAPI, rt_getter) -> None:
                 m["fallbacks"] = fb
             if "vision" in body["model"]:
                 m["vision"] = bool(body["model"]["vision"])
+            if "preference" in body["model"]:
+                if body["model"]["preference"] not in ("speed", "quality", "cost", "balanced"):
+                    errors.append("model.preference must be speed | quality | cost | balanced")
+                else:
+                    m["preference"] = body["model"]["preference"]
+            if "pin" in body["model"]:          # a locked model: every role, above the preference and the allocation
+                v = (body["model"]["pin"] or "").strip() or None
+                if v and (not _valid_spec(v) or v.startswith("sinobee/auto")):
+                    errors.append("model.pin: a provider/model to lock, e.g. sinobee/anthropic/claude-opus-5-5")
+                else:
+                    m["pin"] = v
             if "context_window" in body["model"]:
                 v = str(body["model"]["context_window"] or "").strip().lower().replace(",", "").replace("_", "")
                 if v in ("", "auto"):
@@ -218,6 +274,8 @@ def register(app: FastAPI, rt_getter) -> None:
                     bl["on_exhausted"] = b["on_exhausted"]
             if "auto_points" in b:
                 bl["auto_points"] = bool(b["auto_points"])
+            if "share_stats" in b:
+                bl["share_stats"] = bool(b["share_stats"])
             updates["billing"] = bl
         if "skills" in body:
             sk = {}

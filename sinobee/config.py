@@ -29,6 +29,8 @@ DEFAULTS: dict[str, Any] = {
         "reviewer": None,        # model for the acceptance review and the independent reviewer; another family than
                                  # the execution model catches what it misses (None: thinking, then default)
         "embedding": None,       # e.g. openai/text-embedding-3-small ; None = BM25 only
+        "preference": "balanced",  # sinobee/auto and the fallback pool: speed | quality | cost | balanced (routing.py)
+        "pin": None,             # a model locked by the user: used for every role, overrides preference and allocation
         "temperature": 0.3,
         "max_output_tokens": "auto",  # output limit per step: auto = per model (providers/limits.py); a number is cut
                                       # to the model's max. SINOBEE_MAX_OUTPUT_TOKENS overrides. Every token here is
@@ -164,6 +166,7 @@ DEFAULTS: dict[str, Any] = {
     "billing": {                    # what happens when the SinoBee.ai subscription allowance runs out (billing.py)
         "on_exhausted": "ask",      # ask | pause | fallback (your own keys and local models)
         "auto_points": False,       # spend platform points without asking first
+        "share_stats": False,       # send anonymous task outcomes to SinoBee.ai (model allocation, P5); off = nothing
     },
     "usage": {
         "daily_budget_usd": None,
