@@ -126,18 +126,27 @@ class AnthropicProvider(Provider):
                      msg["usage"].get("output_tokens"))
         return msg
 
-    def thinking_param(self) -> dict | None:
+    def thinking_params(self) -> dict:
         """
         Claude 4.6+ models think by default (adaptive) and do not show it: on a big write the hidden thinking can use
         the whole output limit and the answer comes back empty (finish=max_tokens, no text, no tool call). When the
-        agent asks for less reasoning (after such an empty answer, REASONING_EFFORT "low"), thinking is turned off so
-        the room goes to the answer. A model that rejects it is remembered (compat) and not sent it again.
+        agent turns reasoning down (REASONING_EFFORT, after such an answer) the step keeps some thinking:
+        output_config.effort "medium" then "low"; "none" turns it off. Where effort cannot be set - the SinoBee.ai
+        relay does not pass it yet, or the model refused it (remembered in model_caps.json) - thinking is turned off
+        instead, so the room goes to the answer.
         """
         from . import compat
-        from .base import REASONING_EFFORT
-        if REASONING_EFFORT.get() in ("low", "minimal", "none") and "thinking" not in compat.dropped(self.label):
-            return {"type": "disabled"}
-        return None
+        from .base import RELAY_FEATURES, REASONING_EFFORT
+        level = REASONING_EFFORT.get()
+        if level not in ("medium", "low", "minimal", "none"):
+            return {}
+        drop = compat.dropped(self.label)
+        effort_ok = "output_config" not in drop and (not self.auth or "output_config" in RELAY_FEATURES)
+        if level in ("medium", "low") and effort_ok:
+            return {"output_config": {"effort": level}}
+        if "thinking" not in drop:
+            return {"thinking": {"type": "disabled"}}
+        return {}
 
     def _headers(self) -> dict:
         return {"x-api-key": self.api_key or "", "anthropic-version": "2023-06-01", "content-type": "application/json"}
@@ -165,9 +174,7 @@ class AnthropicProvider(Provider):
             payload["system"] = system
         if temperature is not None:
             payload["temperature"] = temperature
-        thinking = self.thinking_param()
-        if thinking:
-            payload["thinking"] = thinking
+        payload.update(self.thinking_params())
         if tools:
             # eager_input_streaming: a big argument (a whole page for write_file) is sent while the model writes it,
             # not held back until it is complete - minutes of silence otherwise. The input may then be cut or invalid

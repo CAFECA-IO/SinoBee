@@ -20,7 +20,7 @@ from ..pricing import cost_usd, price_for
 from ..config import Config
 from ..memory.store import MemoryStore
 from ..providers import build_auxiliary, build_chain, build_embedder
-from ..providers.base import REASONING_EFFORT, TOO_LONG, is_stream_cut, is_timeout
+from ..providers.base import EFFORT_LEVELS, REASONING_EFFORT, TOO_LONG, is_stream_cut, is_timeout
 from ..skills import manager_from_config
 from ..fileaccess import resolve_file
 from ..tools import checklist_tools
@@ -1110,6 +1110,10 @@ class Agent:
             pass
         max_tokens = base_out = self._max_tokens()     # only the default is reserved from the context window
         low_effort_left = 0
+        # how far thinking was turned down after hidden thinking filled the limit: -1 none yet, then an index into
+        # EFFORT_LEVELS (medium → low → none); step_effort is what the next low_effort_left steps send
+        think_level = -1
+        step_effort = "low"
         size_tip = None
         empty_replies = 0
         overflow_retried = False
@@ -1252,7 +1256,7 @@ class Agent:
                                           f"（健康水位每 {hs} 步檢查一次）")
             self._emit("thinking", {"iteration": iteration, "step": steps, "model": self._prov.label})
             t_call = time.monotonic()
-            effort_token = REASONING_EFFORT.set("low") if low_effort_left > 0 else None
+            effort_token = REASONING_EFFORT.set(step_effort) if low_effort_left > 0 else None
             if effort_token is not None:
                 low_effort_left -= 1
             long_token = TOO_LONG.set(True) if after_length else None
@@ -1279,6 +1283,8 @@ class Agent:
                         {"step": steps, "max_tokens": max_tokens, "seconds": round(time.monotonic() - t_call, 1),
                          **({"stream_cut": True} if cut else {})})
                     low_effort_left = max(low_effort_left, int(self.config.get("agent.low_effort_steps", 5)))
+                    if think_level < 0:
+                        step_effort = "low"
                     if cut:
                         self._emit("status", {"message": "回覆串流中途斷線，續傳與重送都沒有成功：判斷為一次要寫的內容太長，"
                                                          "改請模型分段寫"})
@@ -1358,16 +1364,27 @@ class Agent:
                     {"step": steps, "finish": resp.stop_reason or "", "max_tokens": max_tokens,
                      "output_tokens": out_tok or None, "thinking_tokens": think_tok or None,
                      "seconds": round((stats.get("last_call_s") or 0), 1)})
+                # U3: hidden thinking filled the limit - think less on the next steps (E1: 0/8 -> 3/3). Only when the
+                # vendor says thinking took (nearly) all of it, or does not say: an empty answer cut at the limit has
+                # nothing visible, so the room went to thinking. A long visible answer cut off is not this (it comes
+                # back as text or a cut tool call), and keeps its thinking.
+                thinking_cut = truncated and (think_tok == 0 or all_thinking)
+                turned = ""
                 if truncated:
                     max_tokens = self._more_room(max_tokens, request, tool_specs, context_block)
-                    # U3: the hidden thinking filled the limit - think less on the next steps (E1: 0/8 -> 3/3)
+                if thinking_cut:
+                    think_level = min(think_level + 1, len(EFFORT_LEVELS) - 1)
+                    step_effort = EFFORT_LEVELS[think_level]
                     low_effort_left = int(self.config.get("agent.low_effort_steps", 5))
                     stats["low_effort"] = stats.get("low_effort", 0) + 1
+                    stats.setdefault("effort_steps", []).append({"step": steps, "effort": step_effort})
+                    turned = {"medium": "思考強度調為中", "low": "思考強度調為低", "none": "關閉思考"}[step_effort]
                 if empty_replies <= 2:
                     why = (f"模型把輸出上限的 {think_tok:,} tokens 全部用在隱藏的思考，回覆還沒開始就到上限"
                            if all_thinking else f"模型回傳空白回覆（finish_reason={resp.stop_reason or 'n/a'}）")
-                    self._emit("status", {"message": f"{why}，"
-                                                     f"{f'輸出上限放寬到 {max_tokens}、接下來幾步關閉思考，並請它分段寫檔' if truncated else '要求繼續'}"})
+                    plan = (f"輸出上限放寬到 {max_tokens}、接下來幾步{turned + '，' if turned else ''}並請它分段寫檔"
+                            if truncated else "要求繼續")
+                    self._emit("status", {"message": f"{why}，{plan}"})
                     nudge = "length" if truncated else True
                     continue
                 final_text = (f"⚠︎ 模型 {resp.model or self._prov.label} 連續 {empty_replies} 次回傳空白回覆"

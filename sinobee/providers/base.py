@@ -104,6 +104,10 @@ def _gateway_timeout(err: ProviderError) -> bool:
 # loop around a step (proposal U3: after a reply was cut off at the output limit, thinking is turned down so the
 # answer fits); providers that support it send it, the others ignore it.
 REASONING_EFFORT: contextvars.ContextVar = contextvars.ContextVar("reasoning_effort", default=None)
+# how much a step may think when the agent turns it down: "medium" → "low" → "none" (see agent/loop.py)
+EFFORT_LEVELS = ("medium", "low", "none")
+# what the SinoBee.ai relay passes on beyond the basics (x-sinobee-relay-features), seen on its answers
+RELAY_FEATURES: set[str] = set()
 # U4: the call right after a reply cut off at the output limit. A timeout there means "too long", not a network
 # problem: the same request is not sent again (no retry, no fallback model) - the agent asks for the file in parts.
 TOO_LONG: contextvars.ContextVar = contextvars.ContextVar("too_long", default=False)
@@ -168,9 +172,9 @@ class Provider(ABC):
     async def _chat(self, messages: list[Message], tools: list[ToolSpec], *, temperature: float | None,
                     max_tokens: int) -> ChatResponse: ...
 
-    def thinking_param(self) -> dict | None:
-        """The vendor's thinking setting this call sends (Anthropic: see AnthropicProvider), None when it sends none"""
-        return None
+    def thinking_params(self) -> dict:
+        """The thinking settings this call adds to the request (Anthropic: see AnthropicProvider); {} when none"""
+        return {}
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise ProviderError(f"{self.label} does not support embeddings")
@@ -186,7 +190,7 @@ class Provider(ABC):
         timeouts = 0
         if temperature is not None and "temperature" in compat.dropped(self.label):
             temperature = None            # learned earlier: this model does not accept it
-        adapted = False
+        adapted: set[str] = set()          # parameters left out during this call, one 400 each
         attempt = 0
         t0 = time.monotonic()
         try:
@@ -209,10 +213,9 @@ class Provider(ABC):
             except httpx.TransportError as e:
                 err = ProviderError(f"{self.label} network error: {e!r}", retryable=True)
             except ProviderError as e:
-                sent = {"temperature": temperature, "reasoning_effort": REASONING_EFFORT.get(),
-                        "thinking": self.thinking_param()}
-                param = None if adapted else compat.rejected_param(e, sent)
-                if param in ("temperature", "reasoning_effort", "thinking"):
+                sent = {"temperature": temperature, "reasoning_effort": REASONING_EFFORT.get(), **self.thinking_params()}
+                param = compat.rejected_param(e, {k: v for k, v in sent.items() if k not in adapted})
+                if param in ("temperature", "reasoning_effort", "thinking", "output_config"):
                     # the model rejects a parameter that only tunes the answer: learn it and send the same call
                     # again without it, at once - this is not counted as a retry (a learned reasoning_effort is
                     # left out by the provider from now on)
@@ -220,7 +223,7 @@ class Provider(ABC):
                     compat.note(self.label, param)
                     if param == "temperature":
                         temperature = None
-                    adapted = True
+                    adapted.add(param)
                     continue
                 err = e
             if err.retryable and is_stream_cut(err):
@@ -342,6 +345,9 @@ class Provider(ABC):
         if not self.auth:
             return
         _note_quota(headers)
+        feats = headers.get("x-sinobee-relay-features")
+        if feats:
+            RELAY_FEATURES.update(f.strip() for f in feats.split(",") if f.strip())
         dropped = headers.get("x-sinobee-dropped-params")
         if dropped:                      # the relay had to leave a parameter out: stop sending it from here too
             from . import compat

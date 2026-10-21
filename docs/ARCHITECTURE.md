@@ -1853,7 +1853,9 @@ SinoBee.ai 這一側：`BenchSuite` 題組庫、報告的 `visibility`、`Skill.
 
 Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白（finish=max_tokens，輸出 8192、16384、32000 tokens）。實測（`_eval_results/block-probe.py`，經 sinobee.ai）：Claude 4.6 之後的模型預設會思考（adaptive），思考內容不顯示，`output_tokens_details.thinking_tokens` 等於整個輸出上限，回答還沒開始。送 `thinking: {"type":"disabled"}` 後同一請求直接開始寫檔；`thinking.type.enabled`（設定預算）這些模型不接受，要用 adaptive ＋ `output_config.effort`。
 
-- 代理在空白回覆後會把接下來幾步設為低推理（`REASONING_EFFORT=low`）；Anthropic 供應商以前不理會這個設定，現在在低推理時送 `thinking: disabled`。不接受的模型由 compat 記住，之後不再送。
+- 只有在思考用掉輸出的九成以上（或供應商沒回報思考量、回覆又是空的）時才調低思考；可見的長回覆被截斷時保留思考，只放寬上限並請它分段寫。
+- 逐級調低：第一次「中」、再一次「低」、第三次關閉；每次作用接下來 `agent.low_effort_steps`（預設 5）步。Anthropic 以 `output_config.effort` 設定強度；SinoBee.ai 中繼要回應 `x-sinobee-relay-features: output_config` 才送（舊中繼會默默濾掉），中繼或模型不支援時改為 `thinking: disabled`。OpenAI 相容模型三級都送 `reasoning_effort: low`（medium 是它們的預設，none 不是每個模型都接受）。
+- 模型拒絕 `output_config` 或 `thinking` 時由 compat 記住（同一次呼叫可依序退掉多個參數），中繼也會退掉並以 `x-sinobee-dropped-params` 告知。
 - `Usage.thinking_tokens` 記錄隱藏思考用量；全部用在思考時，狀態訊息與失敗報告直接說明（`thinking_tokens=N/M`）。
 - 回答在工具參數中途被截斷（max_tokens，不會送 `content_block_stop`）時，不再交出空參數的呼叫，而是標成截斷，工具回錯並請模型分段寫。
 - 這次會分到 Haiku，是因為 sinobee.ai 尚未部署「複雜任務不分配輕量級」的品質下限（§41）。

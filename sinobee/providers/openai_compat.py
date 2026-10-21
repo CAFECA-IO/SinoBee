@@ -178,6 +178,10 @@ class OpenAICompatProvider(Provider):
         from . import compat
         from .base import REASONING_EFFORT
         effort = REASONING_EFFORT.get()
+        if effort in ("medium", "none"):
+            # turned down after an empty answer: medium is these models' default (no change) and not every one
+            # takes "none" / "minimal", so both send low - as before effort levels (E1: 0/8 → 3/3)
+            effort = "low"
         if effort and (reasoning or _THINKS.match(self.model.split("/")[-1])) and \
                 "reasoning_effort" not in compat.dropped(self.label):
             payload["reasoning_effort"] = effort
@@ -202,7 +206,8 @@ class OpenAICompatProvider(Provider):
             content = "".join(c.get("text", "") for c in content if isinstance(c, dict))
         u = data.get("usage") or {}
         usage = Usage(u.get("prompt_tokens", 0), u.get("completion_tokens", 0),
-                      (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0)
+                      (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0,
+                      thinking_tokens=int((u.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0))
         return ChatResponse(Message("assistant", content, calls), usage, choice.get("finish_reason") or "",
                             data.get("model", self.model))
 

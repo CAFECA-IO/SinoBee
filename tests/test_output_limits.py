@@ -96,7 +96,8 @@ async def test_a_cut_off_reply_gets_the_models_max_and_less_thinking(home, confi
     out = await agent.run("用動畫展示風力發電機")
     assert out == "完成"
     assert [c["max_tokens"] for c in m.calls] == [32768, 65536, 65536]
-    assert [c["effort"] for c in m.calls] == [None, "low", "low"]
+    # turned down a step each time (an OpenAI-compatible provider sends both as reasoning_effort "low")
+    assert [c["effort"] for c in m.calls] == [None, "medium", "low"]
     assert "Do not write a large file in one call" in m.calls[1]["tail"]
     assert REASONING_EFFORT.get() is None                                          # never leaks out of the step
 
