@@ -31,7 +31,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from exp_large_output import (BASE_SYSTEM, EDIT, RULE3, SECTION_RE, SKELETON, TASK, WRITE, _args, apply_tool,  # noqa: E402
+from exp_large_output import (BASE_SYSTEM, EDIT, RULE3, SKELETON, TASK, WRITE, _args, apply_tool,  # noqa: E402
                               dec, enc, load, note_size, page_checks, page_of, save)
 from sinobee.agent.loop import TRUNCATED_NUDGE  # noqa: E402
 from sinobee.config import Config  # noqa: E402
@@ -113,7 +113,11 @@ async def turn(p, run, ws: Path):
 def finish(run, ws: Path, model: str):
     page = page_of(ws)
     run["page"] = page_checks(page)
-    run["completed"] = run.get("outcome") == "finished" and bool(page) and not SECTION_RE.findall(page)
+    # finished with every section written: a marker kept as a label above written content is not an empty section
+    # (counting every marker called 2 of 12 finished pages incomplete on 2026-10-21; corrected the same day)
+    from sinobee.agent.qa import empty_placeholders
+    run["empty_sections"] = len(empty_placeholders(page))
+    run["completed"] = run.get("outcome") == "finished" and bool(page) and not run["empty_sections"]
     run["longest_call_s"] = max([x.get("seconds", 0) for x in run["log"]] or [0])
     prov, _, mid = model.partition("/")
     price, _src = price_for(prov, mid)

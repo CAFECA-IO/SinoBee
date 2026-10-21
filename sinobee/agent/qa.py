@@ -13,6 +13,9 @@ Checks
   .json           parses
   .csv .tsv       every row has the same number of columns as the header
   .svg            is well-formed XML
+  pages, scripts, documents   no skeleton placeholder left EMPTY (<!-- SECTION: x --> or /* SECTION: x */ with
+                  nothing written after it): the model built the file in parts and stopped before filling them all
+                  (2026-10-21). A marker kept as a label above written content is fine.
 Browser checks need Playwright's Chromium; without it they are skipped and the file checks still run.
 """
 from __future__ import annotations
@@ -54,6 +57,32 @@ def _ctrl(path: Path, text: str) -> list[dict]:
                    repr(near))]
 
 
+PLACEHOLDER_EXT = {".html", ".htm", ".svg", ".md", ".markdown", ".js", ".mjs", ".css", ".ts", ".txt"}
+_WORDS = r"(?:SECTION|PLACEHOLDER|FILL(?:[ _-]?(?:ME|IN))?|TODO|區塊|佔位|待填|待補)"
+MARKER = re.compile(r"<!--\s*" + _WORDS + r"(?![A-Za-z])\s*[:：]?[^>]{0,120}?-->"
+                    r"|/\*\s*" + _WORDS + r"\s*[:：][^*]{0,120}?\*/"
+                    r"|//[ \t]*(?:SECTION|PLACEHOLDER)[ \t]*[:：][^\n]{0,120}", re.I)
+
+
+def empty_placeholders(text: str) -> list[str]:
+    """Skeleton markers with nothing written after them: the next thing is another marker, a closing tag or brace,
+    or the end of the file."""
+    out = []
+    for m in MARKER.finditer(text):
+        nxt = text[m.end():m.end() + 400].lstrip()
+        if not nxt or nxt.startswith(("</", "}", "]", ")")) or MARKER.match(nxt):
+            out.append(m.group(0).strip())
+    return out
+
+
+def _placeholders(path: Path, text: str) -> list[dict]:
+    left = empty_placeholders(text)
+    if not left:
+        return []
+    return [_issue(path, f"還有 {len(left)} 個骨架區塊沒有填（佔位符後面沒有內容）",
+                   "、".join(dict.fromkeys(x[:60] for x in left[:8])) + "；用 edit_file 把每個佔位符換成那一段的內容")]
+
+
 def check_file(path: Path) -> list[dict]:
     """Checks that need no browser."""
     if not path.is_file():
@@ -61,10 +90,14 @@ def check_file(path: Path) -> list[dict]:
     if path.stat().st_size == 0:
         return [_issue(path, "檔案是空的")]
     ext = path.suffix.lower()
-    if ext not in TEXT_EXT or path.stat().st_size > 8 * 1024 * 1024:
+    if path.stat().st_size > 8 * 1024 * 1024 or ext not in TEXT_EXT | PLACEHOLDER_EXT:
         return []
     text = path.read_text(encoding="utf-8", errors="replace")
+    if ext not in TEXT_EXT:                       # a script or stylesheet: only the placeholder check
+        return _placeholders(path, text)
     out = _ctrl(path, text) if ext not in (".csv", ".tsv") else []
+    if ext in PLACEHOLDER_EXT:
+        out += _placeholders(path, text)
     if ext == ".json":
         try:
             json.loads(text)
