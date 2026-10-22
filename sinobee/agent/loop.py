@@ -503,6 +503,18 @@ class Agent:
         return changed
 
     # ------------------------------------------------------------------ completion check & model escalation
+    def _turn_evidence(self) -> list[dict]:
+        """The pictures SinoBee captured during this turn (agent/evidence.py), for the bubble's 驗收證據 section."""
+        if self.depth != 0:
+            return []
+        try:
+            from .evidence import store_of
+            keep = ("id", "kind", "label", "files", "ok", "expect", "observed", "problem", "source", "playtest")
+            return [{k: e[k] for k in keep if k in e}
+                    for e in store_of(self.ctx).for_turn(self.ctx.state.get("turn_id"))][-60:]
+        except Exception:  # noqa: BLE001
+            return []
+
     def _event(self, text: str) -> None:
         self._emit("status", {"message": text})
         if getattr(self, "_run_rec", None):
@@ -863,12 +875,58 @@ class Agent:
             issues += await self._visual_check(query, paths, stats)
         stats["qa_issues"] = issues
         if not issues:
+            ask = self._playtest_gate(paths, stats)
+            if ask:
+                return ask
             self._event("成果檢查通過")
             return None
         self._event(f"成果檢查發現 {len(issues)} 個問題")
         self._emit("qa", {"issues": issues[:20]})
         return "qa", ("[自動成果檢查] 交付前檢查本次產出的檔案，發現以下問題：\n" + qa.report(issues)
                       + "\n請修正這些問題（修好後我會再檢查一次），或在回答裡說明為什麼不需要修。")
+
+    INTERACTIVE = re.compile(r"addEventListener\(\s*['\"](?:key|mouse|pointer|touch|click|wheel)|on(?:click|key\w+|"
+                             r"mouse\w+|pointer\w+)\s*=|<canvas\b|requestAnimationFrame", re.I)
+
+    def _playtest_gate(self, paths: list, stats: dict) -> tuple[str, str] | None:
+        """In the sandbox, an interactive page (a game, an app, anything with input handlers or a canvas) is tried
+        with playtest before it may be called done, and the last playtest must have no failing picture (plan V1)."""
+        if self.depth or str(self.config.get("agent.playtest", "auto")) == "off":
+            return None
+        if getattr(self.ctx.state.get("executor"), "kind", "") != "sandbox":
+            return None
+        pages = []
+        for p in paths:
+            if p.suffix.lower() in (".html", ".htm"):
+                try:
+                    if self.INTERACTIVE.search(p.read_text(encoding="utf-8", errors="ignore")[:400_000]):
+                        pages.append(p.name)
+                except OSError:
+                    continue
+        if not pages:
+            return None
+        runs = self.ctx.state.get("playtests") or []
+        if not runs:
+            if stats["gate_rounds"].get("playtest", 0) >= 1:
+                stats.setdefault("quality_skipped", []).append("互動驗收：提醒後仍沒有用 playtest 實際操作")
+                return None
+            self._event(f"互動驗收：{'、'.join(pages[:3])} 可以操作，交付前要實際操作一次")
+            return "playtest", (
+                f"[自動互動驗收] 這次做出可以操作的頁面（{'、'.join(pages[:3])}）。交付前請用 playtest 像使用者一樣實際"
+                "操作：依需求與驗收清單寫出操作步驟（點擊、按鍵、按住、拖曳、等待），在關鍵時刻用 shot 或 frames 拍下"
+                "畫面並寫出 expect（看得到什麼才算對）；遊戲與動畫用 frames 看前後變化。沒通過的修正後再測，最後在驗收清單"
+                "引用通過的證據編號（E…）。")
+        bad = [e for e in runs[-1]["shots"] if e.get("ok") is False]
+        if not bad:
+            return None
+        if stats["gate_rounds"].get("playtest", 0) >= 3:
+            stats.setdefault("quality_skipped", []).append(
+                f"互動驗收：修正三輪後仍有 {len(bad)} 個畫面不符預期（{', '.join(e['id'] for e in bad[:5])}）")
+            return None
+        lines = "\n".join(f"- {e['id']} {e['label']}：{e.get('problem') or '與預期不符'}" for e in bad[:8])
+        self._event(f"互動驗收：最近一次操作有 {len(bad)} 個畫面不符預期")
+        return "playtest", (f"[自動互動驗收] 最近一次 playtest 有 {len(bad)} 個畫面不符預期：\n{lines}\n"
+                            "請修正後重新 playtest，交付時引用通過的證據編號。")
 
     async def _visual_check(self, query: str, paths: list, stats: dict) -> list[dict]:
         """Screenshots judged by a vision model. A picture already judged acceptable this turn is not sent again;
@@ -1208,6 +1266,8 @@ class Agent:
         # every turn reports the files it made or changed - also one an earlier turn already showed (a "繼續" that
         # fixes index.html again must still end with the file, not with no output)
         self.ctx.state["artifact_seen"] = set()
+        self.ctx.state["turn_id"] = f"t{int(time.time() * 1000)}"   # groups this turn's evidence (agent/evidence.py)
+        self.ctx.state["playtests"] = []
         self._quota_noted: set = set()   # "switched to points / your models" is said once per turn, not per call
 
         hit_limit = False
@@ -1670,6 +1730,7 @@ class Agent:
             except Exception:  # noqa: BLE001
                 package_hint = False
         tl_meta, deliverables, other_files = None, None, None
+        evidence = self._turn_evidence()
         if getattr(self, "_timeline", None) is not None:
             self._timeline.finish()
             tl_meta = self._timeline.meta()
@@ -1681,6 +1742,7 @@ class Agent:
                 checklist_tools.get(self.ctx), written)
             rec = getattr(self, "_run_rec", None)
             if rec and rec.rid:
+                rec.state["evidence"] = evidence
                 rec.state["timeline"] = self._timeline.snapshot()
                 rec.state["deliverables"] = deliverables
                 rec.state["other_files"] = other_files[-60:]
@@ -1702,6 +1764,7 @@ class Agent:
                                 "session_tokens": session_usage["total_tokens"],
                                 "artifacts": stats.get("artifacts", [])[-30:],
                                 "quality_skipped": stats.get("quality_skipped") or [],
+                                "evidence": evidence,
                                 "package_hint": package_hint})
         self._timeline = None           # later events (background learning, memory upkeep) are not part of the turn
         if getattr(self, "_run_rec", None):

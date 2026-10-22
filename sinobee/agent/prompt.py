@@ -128,8 +128,15 @@ def environment_block(config) -> str:
                   "reason) to ask the user, or work without it. The sandbox has its own desktop (1440x900) that the "
                   "user can watch live: the browser tool drives the Chromium on it, and screenshot / mouse / "
                   "keyboard / wait_change / zoom / window / launch work on it - use them to try a page or app the "
-                  "way a person would (canvas, games, drag and drop). If the user takes over the desktop, those "
-                  "tools wait until it is handed back.")
+                  "way a person would (canvas, games, drag and drop). Its display is :99 (DISPLAY=:99 if a command "
+                  "needs one; never :0). Open pages with the browser tool (a file in /workspace or ~ by file:// path, "
+                  "or a server you started on localhost) instead of starting chromium yourself or writing a Playwright "
+                  "script. To check something interactive - a game, an animation, a form, a page at phone width "
+                  "(width=\"mobile\") - run playtest: it plays your steps with real timing and a vision model judges "
+                  "each picture against the `expect` you write. Every screenshot and playtest picture gets an "
+                  "evidence id (E1, E2 ...): a checklist item about what is seen on screen is done only when its "
+                  "evidence cites a passing id. If the user takes over the desktop, those tools wait until it is "
+                  "handed back, and nothing is recorded meanwhile.")
     return "# Environment\n" + "\n".join(f"- {l}" for l in lines) + (f"\n\n{paths}" if paths else "")
 
 

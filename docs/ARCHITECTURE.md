@@ -1991,3 +1991,33 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   且不含瀏覽器雜訊、設定 API、hold／drag_path 是一次 xdotool 呼叫、沙盒模式的工具清單；Docker：沙盒桌面的截圖、
   開 App、等畫面、視窗、剪貼簿、按住、拖曳、放大；接手時暫停；沙盒瀏覽器、被擋網址的提示、預覽轉接、VNC
   WebSocket 握手、接手 API）。完整測試 625 通過。
+
+## 49. 沙盒計畫 V：互動驗收與截圖證據（2026-10-22）
+
+- **證據由系統留存**（`agent/evidence.py`）：`screenshot`、瀏覽器的 screenshot、playtest 的畫面／連續畫面／影片，都由
+  SinoBee 自己存到 `~/.sinobee/evidence/<對話>/`，每對話編號 E1、E2…，`manifest.json` 記下回合（`ctx.state["turn_id"]`）、
+  標籤、來源、預期、判定（ok／observed／problem）。代理沒辦法自己寫入或改寫證據。
+- **playtest**（`agent/playtest.py`、`tools/playtest_tools.py`，只在沙盒）：一次 `docker exec -e DISPLAY=:99 … python3 -c
+  PLAY` 依真實時間執行整串步驟（click、move、down/up、drag＋秒數、key、hold＋秒數、keydown/keyup、type、wait、shot、
+  frames、record＝ffmpeg 錄影），適合遊戲與即時互動。`url` 先在沙盒瀏覽器開頁；`width="mobile"` 以 CDP 模擬 390×844。
+  有 `expect` 的畫面交給 judge 模型逐張判定（連續畫面取首尾與中間共 6 張，判斷方向與變化）；模型不能判定時記為
+  「未判定」，不算通過。工具回傳 ✓／✕、證據編號，並附上沒通過的畫面。
+- **品質關卡**（`Agent._playtest_gate`）：沙盒中本回合寫出可操作的頁面（有輸入事件處理、canvas 或
+  requestAnimationFrame）時，交付前要求跑一次 playtest；最近一次 playtest 有不符預期的畫面就列出要求修正。提醒後
+  仍未做則記入 `quality_skipped`。`agent.playtest: off` 可關閉。
+- **驗收清單規則**（`tools/checklist_tools.visual_needs`）：沙盒模式下，內容關於畫面（截圖、畫面、看到、顯示、動畫、
+  操作、screenshot、visible…）的項目，標為完成時證據必須引用本對話存在的證據編號，且不能全部是判定失敗的；引用
+  有效編號的證據也直接算可查核。
+- **隱私**（V5）：你接手沙盒桌面時不留存任何畫面（截圖與 playtest 都捨棄）；瀏覽器擷取前先把密碼欄位與含有已存
+  密鑰的文字模糊（`MASK_JS`）。保存期限 `evidence.keep_days`（30 天），總量超過 `evidence.max_mb`（1000 MB）時從最舊
+  的對話刪起，正在寫入的對話不刪。
+- **顯示與下載**：`turn_end` 與執行紀錄帶 `evidence`（本回合的證據），重新開啟對話時由 `/api/sessions/{sid}/timelines`
+  取回；泡泡多一段「驗收證據」（縮圖、✓／✕、說明，連續畫面點一下播放，影片可播），有失敗時預設展開。執行中的
+  `evidence` 事件即時顯示在過程區。API：`GET /api/evidence/{sid}`（`?turn=`）、`/api/evidence/{sid}/{檔名}`、
+  `/api/evidence/{sid}.zip?turn=`（含 manifest）。SinoBee.ai 分享頁的證據顯示留待之後。
+- **提示詞**：沙盒的顯示是 `:99`（不是 `:0`）；開頁面用 `browser` 工具，不自己啟動 chromium 或寫 Playwright 腳本；互動
+  驗證用 playtest，清單引用通過的 E 編號。
+- **測試**：`tests/test_sandbox_v.py` 12 項（不需 Docker：編號／回合／路徑防護、期限與容量清理、接手時不擷取、步驟
+  檢查與時長、判定解析與連續畫面取樣、清單規則（沙盒內外）、品質關卡、證據 API 與 zip；Docker：方向正確的頁面通過、
+  方向相反的頁面被抓出並附畫面，證據留在磁碟；截圖成為證據、接手時不留存）。Docker 測試以讀紅色方塊位置的 stub
+  代替視覺模型。完整測試 637 通過。

@@ -233,7 +233,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 tl = {**meta_of(tl.get("items") or []), **tl}
             out.append({"turn_id": st.get("turn_id"), "running": r.get("status") == "running", "items": tl.get("items") or [], "mode": tl.get("mode"),
                         "checklist": tl.get("checklist"), "counts": tl.get("counts"),
-                        "deliverables": st.get("deliverables") or [], "other_files": st.get("other_files") or []})
+                        "deliverables": st.get("deliverables") or [], "other_files": st.get("other_files") or [],
+                        "evidence": st.get("evidence") or []})
         return out
 
     @app.get("/api/sessions/{sid}/artifacts")

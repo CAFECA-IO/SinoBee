@@ -330,10 +330,18 @@ async def browser(ctx: ToolContext, action: str, url: str | None = None, ref: st
             content = h.handle(await page.content())
         return f"URL: {page.url}\n\n{content}"
     if action == "screenshot":
+        from ..agent.evidence import MASK_JS, capture, secret_snippets
+        try:                                 # passwords and stored secrets are blurred before a picture is kept
+            await page.evaluate(MASK_JS, secret_snippets(ctx.config))
+        except Exception:  # noqa: BLE001
+            pass
         png = await page.screenshot(full_page=full_page)
+        ev = capture(ctx, png, f"瀏覽器截圖：{page.url}", "browser")
         if not ctx.config.get("model.vision", True):
-            return "screenshot taken, but the model has no vision; use snapshot instead"
-        return [TextPart(f"Browser screenshot of {page.url}"), ImagePart.from_bytes(png)]
+            return "screenshot taken, but the model has no vision; use snapshot instead" + \
+                (f" (evidence {ev['id']})" if ev else "")
+        return [TextPart(f"Browser screenshot of {page.url}" + (f". Evidence {ev['id']}" if ev else "")),
+                ImagePart.from_bytes(png)]
     if action == "wait":
         if selector:
             await page.wait_for_selector(selector, timeout=int((seconds or 15) * 1000))

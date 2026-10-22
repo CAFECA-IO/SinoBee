@@ -348,6 +348,10 @@ def screenshot(ctx: ToolContext):
     ctx.state["desktop_scale"] = (in_w / w, in_h / h)
     window = backend.active_window()
     info = f"Screenshot {w}x{h} (screen {in_w}x{in_h}). Active window: {window or 'unknown'}"
+    from ..agent.evidence import capture          # kept by SinoBee as evidence the agent can cite (plan V3)
+    ev = capture(ctx, png, f"桌面截圖：{window or '桌面'}", "screenshot")
+    if ev:
+        info += f". Evidence {ev['id']}"
     if not ctx.config.get("model.vision", True):
         return info + "\n(model has no vision; prefer the browser tool's text snapshot)"
     if ctx.emit:

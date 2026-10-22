@@ -44,6 +44,7 @@ DEFAULTS: dict[str, Any] = {
     "providers": {},             # per-provider overrides: {name: {base_url, api_key_env, api_key, transport}}
     "agent": {
         "name": "SinoBee",
+        "playtest": "auto",         # sandbox: an interactive page or game is played (playtest) before the task ends; off
         # task budgets (agent/budget.py): baselines by task type, soft checkpoints, per-task cap, partial delivery
         "budget": {
             "enabled": True,
@@ -175,6 +176,10 @@ DEFAULTS: dict[str, Any] = {
             "remembered": ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org"],
         },
         "folders": [],              # authorised folders of this computer: [{"path", "name", "mode": rw|ro|review}]
+    },
+    "evidence": {                   # pictures SinoBee captures while the agent checks its work (agent/evidence.py)
+        "keep_days": 30,            # a conversation's evidence is removed this many days after its last picture
+        "max_mb": 1000,             # then the oldest conversations go until all evidence fits in this
     },
     "billing": {                    # what happens when the SinoBee.ai subscription allowance runs out (billing.py)
         "on_exhausted": "ask",      # ask | pause | fallback (your own keys and local models)

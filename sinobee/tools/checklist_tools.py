@@ -76,6 +76,14 @@ def verifiable(ctx: ToolContext, evidence: str) -> bool:
     ev = (evidence or "").strip()
     if URL.search(ev):
         return True
+    from ..agent.evidence import ID_RE, store_of
+    cited = {f"E{m.group(1)}" for m in ID_RE.finditer(ev)}
+    if cited:
+        try:
+            if cited & store_of(ctx).ids():
+                return True                # a picture SinoBee captured itself
+        except Exception:  # noqa: BLE001
+            pass
     from ..fileaccess import resolve_file
     for token in PATHISH.findall(ev):
         try:
@@ -93,6 +101,39 @@ def verifiable(ctx: ToolContext, evidence: str) -> bool:
             return True
     norm = re.sub(r"\s+", " ", ev)
     return any(norm[i:i + 16] in flat for i in range(0, max(1, len(norm) - 15), 4)) if len(norm) >= 16 else False
+
+
+VISUAL = re.compile(r"截圖|截图|畫面|画面|螢幕|看到|看得到|顯示|显示|視覺|视觉|動畫|动画|操作|遊戲|游戏|按下|點擊|點選|"
+                    r"screenshot|screen|visible|visual|looks?|displays?|shows? up|animat|playable|click|press",
+                    re.IGNORECASE)
+
+
+def visual_needs(ctx: ToolContext, item: dict, evidence: str) -> str | None:
+    """Sandbox (plan V3): an item about what is seen on screen is done only with an evidence id SinoBee captured.
+    Returns an error message, or None when the evidence is fine."""
+    try:
+        from ..sandbox import executor_kind
+        if executor_kind(ctx.config) != "sandbox":
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    if not VISUAL.search(f"{item.get('text', '')} {item.get('check', '')}"):
+        return None
+    from ..agent.evidence import ID_RE, store_of
+    store = store_of(ctx)
+    known = store.ids()
+    cited = {f"E{m.group(1)}" for m in ID_RE.finditer(evidence or "")}
+    good = cited & known
+    if not cited:
+        return ("ERROR: this item is about what is seen on screen, so its evidence must cite a picture SinoBee "
+                "captured: take a screenshot or run playtest, then give its evidence id (e.g. 'E4: the score shows 120').")
+    if not good:
+        return f"ERROR: {', '.join(sorted(cited))} is not a captured picture of this conversation (known: " \
+               f"{', '.join(sorted(known, key=lambda x: int(x[1:]))[-8:]) or 'none yet'})."
+    failed = [e for e in good if (store.get(e) or {}).get("ok") is False]
+    if failed and len(failed) == len(good):
+        return f"ERROR: {', '.join(sorted(failed))} failed its check in playtest; fix the problem and cite passing evidence."
+    return None
 
 
 @tool("task_checklist", "core",
@@ -146,6 +187,10 @@ def task_checklist(ctx: ToolContext, action: str, items: list | None = None, id:
             return ("ERROR: the evidence must be checkable: a file path that exists, a URL, or words copied from a tool "
                     "result of this task (for example a line of command output). A description of what you did, or "
                     "'the check passed', is not evidence.")
+        if status == "done":
+            need = visual_needs(ctx, item, evidence)
+            if need:
+                return need
         if status == "dropped" and not (note or evidence).strip():
             return "ERROR: say why the item is dropped (note)."
         item.update(status=status, evidence=(evidence or note).strip()[:300], updated=time.time())

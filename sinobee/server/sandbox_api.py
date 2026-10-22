@@ -4,6 +4,9 @@
     POST /api/sandbox/{sid}/takeover {on}      you take over the desktop (the agent's desktop/browser tools wait)
     WS   /api/sandbox/{sid}/vnc?token=          the desktop: VNC over a WebSocket (noVNC in the page)
     ANY  /api/sandbox/{sid}/preview/{port}/... a web server running in the sandbox, in your own browser
+    GET  /api/evidence/{sid}                   the conversation's evidence list (agent/evidence.py), ?turn=
+    GET  /api/evidence/{sid}/{file}            one captured picture, frame or clip
+    GET  /api/evidence/{sid}.zip?turn=         all of it (or one turn's) with the manifest, to keep or hand on
 
 Nothing is published from the container: every byte goes through `docker exec` (manager.open_stream / bridge),
 and only this server - behind its token - reaches it.
@@ -14,7 +17,7 @@ import asyncio
 import secrets
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
        "transfer-encoding", "upgrade", "host", "content-length", "content-encoding"}
@@ -28,6 +31,44 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         if executor_kind(cfg) != "sandbox":
             raise HTTPException(409, "the tools do not run in the sandbox (Settings → 權限與安全 → 沙盒)")
         return manager_for(cfg)
+
+    @app.get("/api/evidence/{sid}.zip")
+    async def evidence_zip(sid: str, turn: str | None = None):
+        import io
+        import json
+        import zipfile
+        from ..agent.evidence import Store
+        st = Store(rt().config, sid)
+        entries = st.for_turn(turn) if turn else st.entries()
+        if not entries:
+            raise HTTPException(404, "no evidence")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("manifest.json", json.dumps(entries, ensure_ascii=False, indent=1))
+            for e in entries:
+                for name in e.get("files") or []:
+                    f = st.file(name)
+                    if f:
+                        z.write(f, name)
+        name = f"evidence-{st.conversation}{'-' + turn if turn else ''}.zip"
+        return Response(buf.getvalue(), media_type="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @app.get("/api/evidence/{sid}")
+    async def evidence_list(sid: str, turn: str | None = None):
+        from ..agent.evidence import Store
+        st = Store(rt().config, sid)
+        return st.for_turn(turn) if turn else st.entries()
+
+    @app.get("/api/evidence/{sid}/{name}")
+    async def evidence_file(sid: str, name: str, download: bool = False):
+        from ..agent.evidence import Store
+        f = Store(rt().config, sid).file(name)
+        if not f:
+            raise HTTPException(404, "no such evidence file")
+        mime = {".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4"}.get(f.suffix, "application/octet-stream")
+        return FileResponse(f, media_type=mime, filename=f.name if download else None,
+                            headers={"Cache-Control": "private, max-age=86400"})
 
     @app.get("/api/sandbox/{sid}")
     async def sandbox_status(sid: str):

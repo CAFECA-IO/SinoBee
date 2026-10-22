@@ -609,6 +609,14 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .tb-more{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
 .tb-det{margin-top:6px}.tb-notes{margin:2px 0 6px;padding-left:18px;color:var(--muted);font-size:12.5px}.tbub .askcard{margin:6px 0 10px}
 .tb-other summary{cursor:pointer;color:var(--muted);font-size:12.5px;margin:4px 0}
+.tb-ev summary{cursor:pointer;color:var(--muted);font-size:12.5px;margin:6px 0 4px}.tb-ev summary a{margin-left:8px;color:var(--accent)}
+.tb-ev summary .bad{color:var(--err)}.tb-ev summary .ok{color:var(--ok)}
+.ev-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:4px 0 8px}
+.ev{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}.ev.bad{border-color:var(--err)}
+.ev img,.ev video{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;background:var(--panel2);cursor:zoom-in}
+.ev figcaption{padding:4px 6px;font-size:12px;color:var(--muted);overflow-wrap:anywhere}.ev figcaption code{color:var(--ink)}
+.ev-ok{color:var(--ok);margin-right:3px}.ev-bad{color:var(--err);margin-right:3px}.ev-why{display:block;color:var(--err);margin-top:2px}
+.ev-live .ev-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
 .proc-h{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;padding:6px 4px;color:var(--muted);font:inherit;font-size:14px;cursor:pointer;text-align:left;border-radius:8px}
 .proc-h:hover{background:var(--panel2)}
 .proc-st{display:inline-flex;width:18px;justify-content:center;flex:none}.proc-st svg.i{width:15px;height:15px;color:var(--ok)}
@@ -1314,6 +1322,33 @@ function artItem(f){
   if (f.kind === 'audio') return `<div class="art av" title="${title}"><audio controls preload="none" src="${esc(url)}"></audio><span>${name}</span></div>`;
   return `<span class="art doc">${attachCard(f.path, f.name)}</span>`;
 }
+// ---------------- acceptance evidence: pictures SinoBee itself captured while the agent checked its work ----------------
+const evUrl = (name, dl) => `/api/evidence/${encodeURIComponent(sessionId)}/${encodeURIComponent(name)}?token=${encodeURIComponent(token)}${dl ? '&download=1' : ''}`;
+/** the 驗收證據 section: thumbnails with ✓/✕ from the vision check, frames replay on click, a zip of it all */
+function evStrip(items, turn, live = false){
+  if (!items?.length) return '';
+  const fails = items.filter(e => e.ok === false).length, passes = items.filter(e => e.ok === true).length;
+  const cards = items.map(e => {
+    const f = e.files || [], last = f[f.length - 1] || '', clip = /\.mp4$/.test(last);
+    const badge = e.ok === true ? '<b class="ev-ok">✓</b>' : e.ok === false ? '<b class="ev-bad">✕</b>' : '';
+    const media = clip ? `<video src="${esc(evUrl(last))}" controls muted preload="metadata"></video>`
+      : `<img loading="lazy" src="${esc(evUrl(last))}" alt="${esc(e.label || e.id)}" data-ev-frames="${esc(JSON.stringify(f))}">`;
+    const tip = e.ok === false ? (e.problem || '') : (e.observed || e.expect || '');
+    return `<figure class="ev${e.ok === false ? ' bad' : ''}" title="${esc(tip)}">${media}<figcaption>${badge}<code>${esc(e.id)}</code> ${esc(e.label || '')}`
+      + `${f.length > 1 && !clip ? ` · ${f.length} 格` : ''}${e.ok === false && e.problem ? `<span class="ev-why">${esc(e.problem)}</span>` : ''}</figcaption></figure>`;
+  }).join('');
+  if (live) return `<div class="ev-live"><div class="ev-grid">${cards}</div></div>`;
+  const zip = `/api/evidence/${encodeURIComponent(sessionId)}.zip?token=${encodeURIComponent(token)}${turn ? '&turn=' + encodeURIComponent(turn) : ''}`;
+  return `<details class="tb-ev"${fails ? ' open' : ''}><summary>驗收證據 ${items.length} 項${passes ? ` · <span class="ok">✓ ${passes}</span>` : ''}`
+    + `${fails ? ` · <span class="bad">✕ ${fails}</span>` : ''}<a href="${esc(zip)}" download onclick="event.stopPropagation()">下載</a></summary><div class="ev-grid">${cards}</div></details>`;
+}
+document.addEventListener('click', e => {
+  const img = e.target.closest('.ev img'); if (!img) return;
+  let frames = []; try { frames = JSON.parse(img.dataset.evFrames || '[]'); } catch {}
+  if (frames.length < 2) { window.open(img.src, '_blank', 'noopener'); return; }
+  if (img.dataset.playing) return; img.dataset.playing = '1';
+  let i = 0; const t = setInterval(() => { img.src = evUrl(frames[i]); if (++i >= frames.length) { clearInterval(t); delete img.dataset.playing; } }, 300);
+});
 function artStrip(files, label){
   // two files with one name (shots_v2/phone.png, shots_v3/phone.png): show where each one is
   const n = {}; files.forEach(f => { n[f.name] = (n[f.name] || 0) + 1; });
@@ -1523,8 +1558,10 @@ function tbEnd(ev, tl, gIn){
   const fbox = res.querySelector('.tb-files');
   fbox.innerHTML = (key.length ? artStrip(key, '關鍵產出') : '')
     + (other.length ? `<details class="tb-other"><summary>其他檔案 ${other.length} 個（測試、截圖、備份與中間產物）</summary>${artStrip(other, '其他檔案')}</details>` : '');
+  const evid = (ev?.evidence ?? tl?.evidence) || [];
+  if (evid.length) fbox.insertAdjacentHTML('beforeend', evStrip(evid, evid[0]?.turn));
   fbox.querySelectorAll('[data-info]').forEach(fillInfo);
-  if (key.length || other.length || answer || ev?.text) res.hidden = false;
+  if (key.length || other.length || evid.length || answer || ev?.text) res.hidden = false;
   card?.querySelectorAll('.arts').forEach(a => a.remove());       // the files are listed above, once
   tbFold(g, true);
 }
@@ -2063,6 +2100,7 @@ function handle(ev, replay = false){
       add('ⓘ 已收到，會在目前這一步結束後納入。', 'note'); break;
     case 'steer_applied': add('✓ 已把你的補充納入任務', 'note'); break;
     case 'artifact': showArtifacts(ev.id, ev.files); break;
+    case 'evidence': if (ev.items?.length) { const g = procGroup(); const d = document.createElement('div'); d.innerHTML = evStrip(ev.items, null, true); g.body.appendChild(d); } break;
     case 'turn_start': if (!replay) { if (TB && TB.open) tbEnd(); tbStart(); } break;
     case 'timeline': tbOnTimeline(ev); break;
     case 'assistant':
