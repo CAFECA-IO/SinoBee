@@ -1932,7 +1932,7 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
 依步驟 0 在使用者 Mac（Docker Desktop 29.8.2）上的實測定案（專案文件 `SinoBee-SANDBOX-PLAN.md`）。
 
 - **映像**（`docker/sandbox.Dockerfile`，`sinobee sandbox build [--office]`）：`sinobee-sandbox:<版本>`，以
-  `sinobee[all]` 的 Python 套件、playwright 的 Chromium（`/usr/bin/chromium`）、Node 22＋npm、Xvfb／fluxbox／x11vnc／
+  `sinobee[all]` 的 Python 套件、playwright 的 Chromium（`/usr/bin/chromium`）、Node 24.22.1＋npm、Xvfb／fluxbox／x11vnc／
   websockify／xdotool／xclip／wmctrl、Noto CJK、ffmpeg、ImageMagick。不含伺服器：模型、記憶、設定與金鑰都留在本機。
   使用者 `bee`（uid 1000），`PIP_USER=1`、npm 全域前綴都在家目錄。`--office` 另裝 LibreOffice（`sinobee-sandbox-office`）。
   順手修正主 Dockerfile：新版 playwright 的 Chromium 路徑改用 `find` 找。

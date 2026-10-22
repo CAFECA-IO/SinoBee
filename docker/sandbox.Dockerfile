@@ -5,7 +5,7 @@
 #
 #   docker build -f docker/sandbox.Dockerfile -t sinobee-sandbox:<version> .          (or: sinobee sandbox build)
 #   docker build -f docker/sandbox.Dockerfile --build-arg OFFICE=1 -t sinobee-sandbox-office:<version> .
-FROM node:22-bookworm-slim AS node
+FROM node:24.22.1-bookworm-slim AS node
 
 FROM python:3.12-slim-bookworm
 ARG OFFICE=0
