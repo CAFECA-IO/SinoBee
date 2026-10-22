@@ -572,6 +572,34 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .wkapv .row{margin-top:8px;justify-content:flex-end}
 .wkempty{color:var(--muted);font-size:12px;padding:8px 2px}
 .proc{margin:2px 0 10px;border-radius:10px}
+.tbub{display:flex;flex-direction:column}
+.tbub.compact>.tb-h,.tbub.compact>.tb-proc,.tbub.compact>.tb-ckl,.tbub.compact>.tb-res{display:none}
+.tbub.full{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:10px 16px 12px;margin:0 0 16px}
+.tbub.full>.tb-h{order:1;display:flex;align-items:center;gap:8px;padding:2px 0 8px;border-bottom:1px solid var(--line);margin-bottom:10px;font-size:13px}
+.tbub.full>.tb-h .spin{width:13px;height:13px;border-width:2px}
+.tbub.full>.tb-h .result{margin:0;padding:0;border:0;background:none;width:100%}
+.tbub.full>.tb-res{order:2}.tb-res .tb-ans .msg{margin:0 0 8px}
+.tbub.full>.tb-ckl{order:3}.tbub.full>.tb-ckl .cklist{margin:4px 0 8px}
+.tbub.full>.tb-flow{order:4}.tbub.full>.tb-flow>*{display:none}
+.tbub.full>.tb-flow>.askcard:not(.done),.tbub.full>.tb-flow>.mscard,.tbub.full>.tb-flow>.keep,.tbub.full>.tb-flow>.learn{display:block}
+.tbub.full>.tb-proc{order:5;border-top:1px solid var(--line);margin-top:6px;padding-top:4px}
+.tb-ph{display:flex;gap:8px;align-items:center;background:none;border:0;padding:4px 0;font:inherit;font-size:14px;color:var(--ink);cursor:pointer}
+.tb-cnt{color:var(--muted);font-size:12px}.tb-cv{display:inline-flex}.tb-cv svg.i{width:14px;height:14px;transition:transform .15s;transform:rotate(90deg)}
+.tbub.folded .tb-cv svg.i{transform:none}.tbub.folded .tb-pb{display:none}
+.tb-pb{margin:2px 0 0 6px;padding-left:8px;border-left:2px solid var(--line)}
+.tb-phase{margin:4px 0}.tb-pt{background:none;border:0;padding:4px 0;font:inherit;font-size:13.5px;color:var(--ink);cursor:pointer;text-align:left}
+.tb-pt .ok{color:var(--ok)}.tb-pt .bad{color:var(--err)}.tb-pt .sd{color:var(--muted);font-size:12.5px}.tb-pt .spin{width:11px;height:11px;border-width:2px}
+.tb-phase.shut .tb-pi{display:none}.tb-pi{padding-left:12px}
+.tbi{display:flex;gap:10px;align-items:flex-start;padding:5px 0;font-size:13.5px}
+.tb-tag{flex:none;font-size:11.5px;line-height:1.6;border-radius:999px;padding:0 8px;border:1px solid var(--line);color:var(--muted);min-width:36px;text-align:center}
+.tb-tag.thk{border-color:var(--accent);color:var(--accent)}.tb-tag.you{border-color:var(--warn);color:var(--warn)}
+.tb-tag.chk.ok{border-color:var(--ok);color:var(--ok)}.tb-tag.chk.bad,.tb-tag.bad{border-color:var(--err);color:var(--err)}
+.tb-c{min-width:0;flex:1}.tb-q{color:var(--ink);overflow-wrap:anywhere}.tb-q .spin,.tb-a .spin{width:10px;height:10px;border-width:2px;vertical-align:-1px}
+.tb-a{color:var(--muted);font-size:12.5px;margin-top:2px;overflow-wrap:anywhere}.tb-a.bad{color:var(--err)}
+.tb-src{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:2px;white-space:nowrap}
+.tb-more{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
+.tb-det{margin-top:6px}.tb-notes{margin:2px 0 6px;padding-left:18px;color:var(--muted);font-size:12.5px}.tbub .askcard{margin:6px 0 10px}
+.tb-other summary{cursor:pointer;color:var(--muted);font-size:12.5px;margin:4px 0}
 .proc-h{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;padding:6px 4px;color:var(--muted);font:inherit;font-size:14px;cursor:pointer;text-align:left;border-radius:8px}
 .proc-h:hover{background:var(--panel2)}
 .proc-st{display:inline-flex;width:18px;justify-content:center;flex:none}.proc-st svg.i{width:15px;height:15px;color:var(--ok)}
@@ -1295,7 +1323,7 @@ function procGroup(){
   const el = document.createElement('div'); el.className = 'proc running';
   el.innerHTML = `<button type="button" class="proc-h" aria-expanded="false"><span class="proc-st"></span><span class="proc-t"></span>` +
     `<span class="proc-th"></span><span class="proc-d"></span><span class="proc-cv">${ic('chevron')}</span></button><div class="proc-b" hidden></div>`;
-  $('#chat').appendChild(el);
+  chatTarget().appendChild(el);
   const g = {el, body: el.querySelector('.proc-b'), counts: {}, n: 0, errs: 0, arts: [], t0: Date.now(), t1: null, running: true, current: null, live: !REPLAY};
   el._proc = g;
   el.querySelector('.proc-h').onclick = () => { const open = g.body.hidden; g.body.hidden = !open; el.classList.toggle('open', open);
@@ -1335,6 +1363,154 @@ function procClose(){
   procPaint(g); PROC = null;
 }
 setInterval(() => { if (PROC && PROC.running && PROC.live) PROC.el.querySelector('.proc-d').textContent = procDur(PROC); }, 1000);
+// ---------- proposal R (2026-10-22): a large task's whole response in one bubble ----------
+// The agent sends its timeline (agent/timeline.py): questions it asked and their answers, work and results, checks.
+// A turn starts compact - exactly the old presentation (steps row, notes, answer, result) - and turns into the full
+// bubble once it is large (planned, milestones, or more than 5 tools): status, the cards that need you, then the
+// process; when it ends the result and the key files go on top and the process folds away.
+let TB = null;
+const TB_SRC = {'思維模型': 'thk', '執行模型': 'exe', '系統檢查': 'sys', '視覺模型': 'sys', '審查模型': 'rev', '你': 'you'};
+function chatTarget(){ return TB && TB.open ? TB.flow : $('#chat'); }
+function tbStart(){
+  if (TB && TB.open) return TB;
+  clearEmpty();
+  const el = document.createElement('div'); el.className = 'tbub compact';
+  el.innerHTML = `<div class="tb-h"></div><div class="tb-res" hidden><div class="tb-ans"></div><div class="tb-files"></div></div>`
+    + `<div class="tb-ckl"></div><div class="tb-flow"></div><div class="tb-proc"><button type="button" class="tb-ph" aria-expanded="true">`
+    + `<span class="tb-cv">${ic('chevron')}</span><b>過程</b><span class="tb-cnt"></span></button><div class="tb-pb"></div></div>`;
+  $('#chat').appendChild(el);
+  const g = {el, flow: el.querySelector('.tb-flow'), pb: el.querySelector('.tb-pb'), items: new Map(), mode: 'compact',
+    open: true, live: !REPLAY, t0: Date.now(), meta: {}, phases: new Map()};
+  el._tb = g;
+  el.querySelector('.tb-ph').onclick = () => tbFold(g, !el.classList.contains('folded'));
+  TB = g; return g;
+}
+function tbFold(g, fold){
+  g.el.classList.toggle('folded', fold); g.el.querySelector('.tb-ph').setAttribute('aria-expanded', String(!fold));
+}
+function tbFull(g){
+  if (g.mode === 'full') return;
+  g.mode = 'full'; g.el.classList.replace('compact', 'full');
+  g.el.querySelectorAll('.tb-flow .cklist').forEach(c => g.el.querySelector('.tb-ckl').appendChild(c));
+  tbHead(g);
+}
+function tbHead(g){
+  if (g.mode !== 'full' || !g.open) return;
+  const r = RUNNING[sessionId], ck = g.meta.checklist || [0, 0];
+  const sec = Math.max(0, Math.round((Date.now() - g.t0) / 1000));
+  g.el.querySelector('.tb-h').innerHTML = g.live && r
+    ? `<span class="spin"></span><b>執行中</b><span class="sd">第 ${r.step || 1} 步 · ${sec >= 60 ? `${Math.floor(sec / 60)} 分 ${sec % 60} 秒` : sec + ' 秒'}${ck[1] ? ` · 驗收清單 ${ck[0]}/${ck[1]}` : ''}</span>`
+    : `<b class="sd">處理中</b>`;
+}
+function tbCount(g){
+  const c = g.meta.counts || {};
+  g.el.querySelector('.tb-cnt').textContent = [c.think ? `思考 ${c.think}` : '', c.work ? `工作 ${c.work}` : '', c.check ? `檢查 ${c.check}` : ''].filter(Boolean).join(' · ');
+}
+function tbItemHtml(it){
+  const src = it.source ? `<span class="tb-src ${TB_SRC[it.source] || ''}">${esc(it.source)}</span>` : '';
+  if (it.kind === 'think') {
+    const tag = it.source === '你' ? '決定' : '思考';
+    const a = it.a ? `<div class="tb-a">答：${esc(it.a)} ${src}</div>`
+      : it.source === '執行模型' ? `<div class="tb-a sd">（見下方工作的結果） ${src}</div>` : `<div class="tb-a sd"><span class="spin"></span> 等待${it.source === '你' ? '你的回覆' : '回覆'}</div>`;
+    return `<span class="tb-tag ${tag === '決定' ? 'you' : 'thk'}">${tag}</span><div class="tb-c"><div class="tb-q">${esc(it.q)}</div>${a}</div>`;
+  }
+  if (it.kind === 'work') {
+    const st = it.status === 'running' ? '<span class="spin"></span> ' : '';
+    const res = it.result ? `${it.status === 'err' ? '' : '結果：'}${esc(it.result)}` : it.status === 'running' ? '進行中…' : '';
+    const files = (it.files || []).length ? ` · 產出 ${it.files.map(f => esc(f.name)).slice(0, 3).join('、')}${it.files.length > 3 ? ` 等 ${it.files.length} 個` : ''}` : '';
+    const n = (it.tools || []).length, steps = (it.notes || []).length;
+    return `<span class="tb-tag work${it.status === 'err' ? ' bad' : ''}">工作</span><div class="tb-c"><div class="tb-q">${st}${esc(it.title || '處理中')}</div>`
+      + `<div class="tb-a${it.status === 'err' ? ' bad' : ''}">${res}${files}${n ? ` · <button type="button" class="tb-more" aria-expanded="false">${steps ? `${steps + 1} 個步驟、` : ''}${n} 個工具 ▸</button>` : ''}</div><div class="tb-det" hidden></div></div>`;
+  }
+  if (it.kind === 'check') {
+    const mark = it.ok === false ? 'bad' : it.ok === true ? 'ok' : '';
+    return `<span class="tb-tag chk ${mark}">${it.ok === false ? '✕' : it.ok === true ? '✓' : '·'} 檢查</span><div class="tb-c"><div class="tb-q">${esc(it.title || '')}</div>`
+      + `${it.result ? `<div class="tb-a">${esc(it.result)} ${src}</div>` : ''}</div>`;
+  }
+  if (it.kind === 'steer') return `<span class="tb-tag you">補充</span><div class="tb-c"><div class="tb-q">${esc(it.text)}</div><div class="tb-a sd">你在執行中補充的指示</div></div>`;
+  return '';
+}
+function tbPhaseEl(g, id){
+  if (!id) return g.pb;
+  let p = g.phases.get(id);
+  if (!p) { p = document.createElement('div'); p.className = 'tb-phase'; p.innerHTML = `<button type="button" class="tb-pt"></button><div class="tb-pi"></div>`;
+    p.querySelector('.tb-pt').onclick = () => p.classList.toggle('shut'); g.pb.appendChild(p); g.phases.set(id, p); }
+  return p.querySelector('.tb-pi');
+}
+function tbItem(g, it){
+  if (it.kind === 'phase') {
+    tbPhaseEl(g, it.id);
+    const p = g.phases.get(it.id), done = it.status === 'done', bad = it.status === 'failed';
+    p.className = 'tb-phase ' + (it.status || '') + (done && g.open ? ' shut' : '');
+    p.querySelector('.tb-pt').innerHTML = `${done ? `<span class="ok">✓</span>` : bad ? '<span class="bad">!</span>' : g.open ? '<span class="spin"></span>' : '·'} <b>${esc(it.title)}</b>`
+      + (it.summary ? `<span class="sd"> — ${esc(it.summary)}</span>` : '');
+    g.items.set(it.id, it); return;
+  }
+  let el = g.pb.querySelector(`[data-tbi="${it.id}"]`);
+  if (!el) { el = document.createElement('div'); el.dataset.tbi = it.id; tbPhaseEl(g, it.phase).appendChild(el); }
+  const opened = el.querySelector('.tb-det:not([hidden])');
+  el.className = 'tbi ' + it.kind;
+  el.innerHTML = tbItemHtml(it);
+  el.querySelector('.tb-more')?.addEventListener('click', e => tbTools(el, it, e.currentTarget));
+  if (opened) tbTools(el, it, el.querySelector('.tb-more'));
+  g.items.set(it.id, it);
+}
+/** a piece of work's tool calls: the very rows the steps list drew (arguments, output, screenshots) */
+function tbTools(el, it, btn){
+  const det = el.querySelector('.tb-det'); if (!det || !btn) return;
+  const show = det.hidden; det.hidden = !show; btn.setAttribute('aria-expanded', String(show));
+  btn.textContent = `${(it.notes || []).length ? `${it.notes.length + 1} 個步驟、` : ''}${(it.tools || []).length} 個工具 ${show ? '▾' : '▸'}`;
+  if (!show) return;
+  if ((it.notes || []).length && !det.querySelector('.tb-notes')) det.insertAdjacentHTML('afterbegin',
+    `<ol class="tb-notes">${[it.title, ...it.notes].filter(Boolean).map(n => `<li>${esc(n)}</li>`).join('')}</ol>`);
+  for (const t of it.tools || []) { const row = toolEls[t.id]; if (row && row.parentNode !== det) det.appendChild(row); }
+  if (!det.children.length) det.innerHTML = `<div class="sd">${(it.tools || []).map(t => esc(`${t.name} ${t.brief || ''}`)).join('<br>')}</div>`;
+}
+function tbOnTimeline(ev){
+  const g = TB && TB.open ? TB : tbStart();
+  g.meta = {mode: ev.mode, checklist: ev.checklist, counts: ev.counts};
+  if (ev.item) tbItem(g, ev.item);
+  if (ev.mode === 'full') tbFull(g);
+  tbCount(g); tbHead(g);
+}
+/** the turn ended: result and key files on top, the process folded under them */
+function tbEnd(ev, tl, gIn){
+  const g = gIn || TB; if (!g) return;
+  g.open = false; if (TB === g) TB = null;
+  const full = g.mode === 'full' || tl?.mode === 'full';
+  if (tl) { g.meta = {mode: tl.mode, checklist: tl.checklist, counts: tl.counts}; for (const it of tl.items || []) tbItem(g, it); }
+  if (!full) return;
+  tbFull(g); tbCount(g);
+  g.el.querySelectorAll('.tb-phase').forEach(p => p.classList.remove('shut'));
+  g.el.querySelectorAll('.tbi .spin, .tb-pt .spin').forEach(s => s.replaceWith('·'));
+  const card = [...g.flow.children].reverse().find(c => c.classList.contains('result'));
+  const head = g.el.querySelector('.tb-h'); head.innerHTML = '';
+  if (card) head.appendChild(card);
+  // the answer as the conversation keeps it (a partial delivery replaces the model's last words): live and reopened alike
+  let answer = null;
+  if (!ev?.text) {     // reopened: the answer may be kept as several messages (the model's words, a partial delivery)
+    const parts = [];
+    for (const c of [...g.flow.children].reverse()) {
+      if (c.matches('.msg.assistant:not(.interim)')) parts.unshift(c);
+      else if (!c.matches('.result, .note, .askcard')) break;
+    }
+    if (parts.length) { answer = document.createElement('div'); answer.className = 'tb-parts';
+      parts.forEach(p => answer.appendChild(p.cloneNode(true))); }
+  }
+  const res = g.el.querySelector('.tb-res');
+  if (ev?.text || answer) { const a = answer ? answer.cloneNode(true) : document.createElement('div');
+    if (!answer) { a.className = 'msg assistant'; a.innerHTML = md(ev.text); }
+    res.querySelector('.tb-ans').replaceChildren(a); enhance(a); res.hidden = false; }
+  const key = (ev?.deliverables ?? tl?.deliverables) || [], other = (ev?.other_files ?? tl?.other_files) || [];
+  const fbox = res.querySelector('.tb-files');
+  fbox.innerHTML = (key.length ? artStrip(key, '關鍵產出') : '')
+    + (other.length ? `<details class="tb-other"><summary>其他檔案 ${other.length} 個（測試、截圖、備份與中間產物）</summary>${artStrip(other, '其他檔案')}</details>` : '');
+  fbox.querySelectorAll('[data-info]').forEach(fillInfo);
+  if (key.length || other.length || answer || ev?.text) res.hidden = false;
+  card?.querySelectorAll('.arts').forEach(a => a.remove());       // the files are listed above, once
+  tbFold(g, true);
+}
+setInterval(() => { if (TB && TB.open && TB.live) tbHead(TB); }, 1000);
 // ---------------- document viewer: reports and pages that skills make, opened right in the app ----------------
 const DV = {path: null, raw: '', rawShown: false};
 const dirOf = p => { const i = String(p).lastIndexOf('/'); return i > 0 ? p.slice(0, i) : '.'; };
@@ -1561,7 +1737,7 @@ function controlNote(e){
     + ((e.evidence || []).length || th ? `<details><summary class="sd">觸發依據</summary>${th ? `<div class="sd">門檻：${th}</div>` : ''}`
       + `${(e.evidence || []).map(x => `<div class="sd" style="font-family:var(--mono,monospace);font-size:12px">${esc(x)}</div>`).join('')}</details>` : '');
 }
-function add(html, cls){clearEmpty(); const d = document.createElement('div'); d.className = cls; d.innerHTML = html; $('#chat').appendChild(d); if (d.querySelector('.md')) enhance(d); $('#chat').scrollTop = 1e9; return d;}
+function add(html, cls){clearEmpty(); const d = document.createElement('div'); d.className = cls; d.innerHTML = html; chatTarget().appendChild(d); if (d.querySelector('.md')) enhance(d); $('#chat').scrollTop = 1e9; return d;}
 const CLIENT_REF = Math.random().toString(36).slice(2);
 const INPUT_PH = document.querySelector('#input').placeholder;
 let SKILLS = null, SKSEL = [], SKIDX = 0, SKVIEW = [], SKSLASH = false;   // skill picker state
@@ -1773,6 +1949,7 @@ function cklShow(items){
   // one list per turn, shown under the step summary even while the steps are folded
   let d = [...document.querySelectorAll('#chat .cklist[data-live]')].pop();
   if (!d) { const g = procGroup(); d = document.createElement('div'); d.className = 'cklist'; d.dataset.live = '1'; g.el.insertBefore(d, g.body); }
+  if (TB && TB.open && TB.mode === 'full' && d.parentNode !== TB.el.querySelector('.tb-ckl')) TB.el.querySelector('.tb-ckl').appendChild(d);
   const done = items.filter(i => i.status === 'done' || i.status === 'dropped').length;
   // an item marked doing spins only while the turn runs; after it stopped it shows as unfinished, not as busy
   const live = !!RUNNING[sessionId];
@@ -1868,6 +2045,8 @@ function handle(ev, replay = false){
       add('ⓘ 已收到，會在目前這一步結束後納入。', 'note'); break;
     case 'steer_applied': add('✓ 已把你的補充納入任務', 'note'); break;
     case 'artifact': showArtifacts(ev.id, ev.files); break;
+    case 'turn_start': if (!replay) { if (TB && TB.open) tbEnd(); tbStart(); } break;
+    case 'timeline': tbOnTimeline(ev); break;
     case 'assistant':
       if (ev.final === false) { const g = procGroup(); const d = document.createElement('div'); d.className = 'msg assistant interim'; d.innerHTML = md(ev.text);
         g.body.appendChild(d); enhance(d); break; }
@@ -1922,7 +2101,7 @@ function handle(ev, replay = false){
     case 'plan': add(`<b>思維模型的計畫</b>${ev.model ? `<small>${esc(ev.model)}</small>` : ''}${ev.understanding ? `<div>${esc(ev.understanding)}</div>` : ''}`
       + (ev.steps?.length ? `<ol>${ev.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : '')
       + (ev.risks?.length ? `<small>注意：${ev.risks.map(esc).join('；')}</small>` : ''), 'note plan'); break;
-    case 'failure_diagnosed': if (ev.diagnosis?.summary) add(`ⓘ 失敗診斷（${esc(FAIL_CAT[ev.diagnosis.category] || ev.diagnosis.category || '')}${ev.diagnosis.model === 'rules' ? '・依紀錄判斷' : ''}）：${esc(ev.diagnosis.summary)}${ev.diagnosis.retry_advice ? `<small style="display:block;color:var(--muted)">${esc(ev.diagnosis.retry_advice)}</small>` : ''}`, 'note'); break;
+    case 'failure_diagnosed': if (ev.diagnosis?.summary) add(`ⓘ 失敗診斷（${esc(FAIL_CAT[ev.diagnosis.category] || ev.diagnosis.category || '')}${ev.diagnosis.model === 'rules' ? '・依紀錄判斷' : ''}）：${esc(ev.diagnosis.summary)}${ev.diagnosis.retry_advice ? `<small style="display:block;color:var(--muted)">${esc(ev.diagnosis.retry_advice)}</small>` : ''}`, 'note keep'); break;
     case 'qa': add(`<b>成果檢查發現 ${ev.issues.length} 個問題</b><ul>${ev.issues.slice(0, 8).map(i => `<li>${esc(i.name)}：${esc(i.problem)}${i.detail ? `<small>${esc(i.detail)}</small>` : ''}</li>`).join('')}</ul>`, 'note qacard'); break;
     case 'review': if (ev.verdict === 'revise') add(`<b>驗收審查：需要修正</b>${ev.summary ? `<div>${esc(ev.summary)}</div>` : ''}<ul>${(ev.problems || []).slice(0, 8).map(p => `<li>${esc(p.what)}${p.fix ? `<small>→ ${esc(p.fix)}</small>` : ''}</li>`).join('')}</ul>`, 'note qacard'); break;
     case 'turn_end': {
@@ -1933,6 +2112,7 @@ function handle(ev, replay = false){
         if (ev.snapshot && c) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm undo';
           b.innerHTML = ic('refresh') + ' 復原本輪的檔案變更'; b.title = `把這一輪修改的 ${ev.snapshot.files} 個檔案還原`;
           b.onclick = () => restoreTurn(b, ev.snapshot); c.appendChild(b); } }
+      if (TB && TB.open) tbEnd(ev);
       if (!replay && ev.usage?.quota) quotaFromTurn(ev.usage.quota);
       if (ev.error?.quota && !replay) showQuotaModal(ev.error.quota, ev.error.model);
       loadSide(); refreshStatus(false); break; }
@@ -2110,7 +2290,7 @@ function userHtml(text){
   for (let m; (m = rest.match(/^\/([\w.-]+)(?:\s+|$)/)) && names.length < 5 && !/^learn$/i.test(m[1]);) { names.push(m[1]); rest = rest.slice(m[0].length); }
   return names.map(n => `<span class="skchip">${SKILL_SVG}${esc(n)}</span>`).join('') + (rest ? md(rest) : '');
 }
-$('#newBtn').onclick = () => { PROC = null; sessionId = null; setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
+$('#newBtn').onclick = () => { PROC = null; TB = null; sessionId = null; setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
 $('#stopBtn').onclick = () => ws.send(JSON.stringify({type:'cancel', session_id: sessionId}));
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); tab = b.dataset.tab; loadSide(); });
@@ -2120,14 +2300,17 @@ function markSideSession(){
     d.classList.toggle('on', on); on ? d.setAttribute('aria-current', 'true') : d.removeAttribute('aria-current'); });
 }
 async function openSession(s){
-  sessionId = s.id; markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {}; PROC = null; REPLAY = true;
-  const [msgs, turns, arts] = await Promise.all([api('/api/sessions/' + s.id), api('/api/sessions/' + s.id + '/turns'),
-    api('/api/sessions/' + s.id + '/artifacts').catch(() => [])]);
+  sessionId = s.id; markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {}; PROC = null; TB = null; REPLAY = true;
+  const [msgs, turns, arts, tls] = await Promise.all([api('/api/sessions/' + s.id), api('/api/sessions/' + s.id + '/turns'),
+    api('/api/sessions/' + s.id + '/artifacts').catch(() => []), api('/api/sessions/' + s.id + '/timelines').catch(() => [])]);
+  const TLS = new Map((Array.isArray(tls) ? tls : []).map(t => [t.turn_id, t]));
   const chat = $('#chat');
   for (const [idx, m] of msgs.entries()) {
     const before = chat.childElementCount;
     const text = typeof m.content === 'string' ? m.content : (m.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n');
+    const steerMsg = m.role === 'user' && text.startsWith('[使用者在執行中補充指示]');
     if (m.role === 'user') procClose();
+    if (m.role === 'user' && !steerMsg && TB) { TB.open = false; TB = null; }     // each turn gets its own bubble
     if (m.role === 'user' && /^\[(自動)?續跑\]/.test(text)) resumeNote(text);
     else if (m.role === 'user' && sysNote(text)) {}
     else if (m.role === 'user' && text.startsWith('[使用者在執行中補充指示]')) add(`<span class="steer-tag">執行中補充</span>` + md(text.replace('[使用者在執行中補充指示] ', '').split('\n（請把這個補充')[0]), 'msg user steer');
@@ -2143,11 +2326,18 @@ async function openSession(s){
       else if (text) handle({type: 'assistant', text, final: !(m.tool_calls || []).length}, true);
       for (const t of m.tool_calls || []) handle({type:'tool_call', id: t.id, name: t.name, arguments: t.arguments}, true); }
     else if (m.role === 'tool') handle({type:'tool_result', id: m.tool_call_id, preview: text.slice(0, 3000), error: text.startsWith('ERROR')}, true);
+    if (m.role === 'user' && !steerMsg && !TB) tbStart();
     for (let k = before; k < chat.childElementCount; k++) chat.children[k].dataset.idx = idx;
     if (PROC) PROC.el.dataset.idx = idx;
   }
   const replayLast = PROC;
   if (!RUNNING[s.id]) procClose();
+  if (TB) {          // the last turn: still running -> it keeps receiving live events; else it is finished below
+    if (RUNNING[s.id]) { TB.live = true; TB.t0 = (RUNNING[s.id].started || Date.now() / 1000) * 1000;
+      const cur = TLS.get(null);
+      if (cur) { for (const it of cur.items || []) tbItem(TB, it); tbOnTimeline({mode: cur.mode, checklist: cur.checklist, counts: cur.counts}); } }
+    else { TB.open = false; TB = null; }
+  }
   REPLAY = false; if (replayLast && RUNNING[s.id]) { replayLast.live = true; }
   evSessionCard(s.id);
   for (const a of Array.isArray(arts) ? arts : []) showArtifacts(a.id, a.files);
@@ -2162,6 +2352,19 @@ async function openSession(s){
     const anchor = els[els.length - 1]; if (!anchor) continue;
     const ok = t.status === 'done';
     const meta = [t.duration_s != null ? fmtDur(t.duration_s) : '', t.cost_usd ? fmtCost(t.cost_usd) : ''].filter(Boolean).join(' · ');
+    const g = anchor._tb || anchor.closest?.('.tbub')?._tb;
+    if (g) {           // proposal R: the turn's bubble, redrawn from its saved timeline
+      const errCard = !ok && [...g.flow.children].reverse().find(c => c.classList.contains('result'));
+      if (errCard) { if (meta && !errCard.querySelector('.rmeta')) errCard.insertAdjacentHTML('beforeend', `<div class="rmeta">${meta}</div>`);
+        if (t.status !== 'error') attachFeedback(errCard, t.id, t.rating, t.fb_comment); }
+      else { const card = document.createElement('div');
+        const head = {incomplete: '△ 任務未完成', error: '✕ 任務中斷', failed: '✕ 任務失敗', stopped: '■ 已停止', blocked: '⏸ 已暫停'}[t.status] || '△ 這一輪狀態：' + esc(t.status);
+        card.className = 'result ' + (ok ? 'done' : t.status === 'stopped' ? 'stopped' : 'incomplete');
+        card.innerHTML = ok ? `<b>✓ 完成</b>${meta ? ' · ' + meta : ''}` : `<b>${head}</b>${meta ? `<div class="rmeta">${meta}</div>` : ''}`;
+        g.flow.appendChild(card); if (t.status !== 'error') attachFeedback(card, t.id, t.rating, t.fb_comment); }
+      const tl = TLS.get(t.id); if (tl && g !== TB) tbEnd(null, tl, g);
+      continue;
+    }
     if (!ok && anchor.classList.contains('result')) {
       // the turn already ended with its own error card (from the conversation record): one card, not two
       if (meta && !anchor.querySelector('.rmeta')) anchor.insertAdjacentHTML('beforeend', `<div class="rmeta">${meta}</div>`);
@@ -3977,9 +4180,9 @@ function sbCardBody(p){
 /** a model call hit the quota: stopped (the dialog follows with turn_end), or switched by your settings */
 function onQuotaEvent(ev, replay){
   const win = WIN_NAME[ev.window] ? WIN_NAME[ev.window] + '額度' : ev.window === 'points' ? '平台點數' : '訂閱';
-  if (ev.source === 'points') add(`ⓘ SinoBee.ai ${win}用完，依你的設定改用<b>平台點數</b>繼續（依官方牌價扣點）${ev.retry_at ? `；${esc(fmtWhen(ev.retry_at))}額度恢復後直接切回訂閱` : ''}`, 'note');
-  else if (ev.source === 'own') add(`ⓘ ${win}用完，依你的設定改由 <b>${esc(ev.fallback || '你的模型')}</b>（你的 API 金鑰或本地模型）繼續${ev.retry_at ? `；${esc(fmtWhen(ev.retry_at))}訂閱額度恢復後直接切回` : ''}`, 'note');
-  else if (!ev.stopped && !ev.ask) add(`ⓘ SinoBee.ai ${win}已用完，這次改由 <b>${esc(ev.answered_by || ev.fallback || '備援模型')}</b> 回答`, 'note');
+  if (ev.source === 'points') add(`ⓘ SinoBee.ai ${win}用完，依你的設定改用<b>平台點數</b>繼續（依官方牌價扣點）${ev.retry_at ? `；${esc(fmtWhen(ev.retry_at))}額度恢復後直接切回訂閱` : ''}`, 'note keep');
+  else if (ev.source === 'own') add(`ⓘ ${win}用完，依你的設定改由 <b>${esc(ev.fallback || '你的模型')}</b>（你的 API 金鑰或本地模型）繼續${ev.retry_at ? `；${esc(fmtWhen(ev.retry_at))}訂閱額度恢復後直接切回` : ''}`, 'note keep');
+  else if (!ev.stopped && !ev.ask) add(`ⓘ SinoBee.ai ${win}已用完，這次改由 <b>${esc(ev.answered_by || ev.fallback || '備援模型')}</b> 回答`, 'note keep');
   if (!replay) { loadQuota(true); refreshStatus(false); }
 }
 /** the allowance (or the points) ran out and the turn stopped at a safe point: one click decides what happens.

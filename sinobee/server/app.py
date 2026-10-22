@@ -201,6 +201,29 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 "at": r.get("created_at"), "will_resume": ok, "why_not": why, "model_resume": model,
                 "steps": len(st.get("steps") or []), "artifacts": (st.get("artifacts") or [])[-12:]}
 
+    @app.get("/api/sessions/{sid}/timelines")
+    async def session_timelines(sid: str):
+        """Each turn's timeline (agent/timeline.py) with its deliverables, for re-drawing the turn's bubble when the
+        conversation is reopened exactly as it was shown live."""
+        try:
+            from ..work.hub import get_hub
+            runs = get_hub(rt()).store.session_runs(sid)
+        except Exception:  # noqa: BLE001
+            return []
+        out = []
+        for r in runs:
+            st = r.get("state") or {}
+            tl = st.get("timeline")
+            if not tl or (st.get("turn_id") is None and r.get("status") != "running"):
+                continue
+            if not tl.get("mode"):
+                from ..agent.timeline import meta_of
+                tl = {**meta_of(tl.get("items") or []), **tl}
+            out.append({"turn_id": st.get("turn_id"), "running": r.get("status") == "running", "items": tl.get("items") or [], "mode": tl.get("mode"),
+                        "checklist": tl.get("checklist"), "counts": tl.get("counts"),
+                        "deliverables": st.get("deliverables") or [], "other_files": st.get("other_files") or []})
+        return out
+
     @app.get("/api/sessions/{sid}/artifacts")
     async def session_artifacts(sid: str):
         """Files produced during a conversation, per tool call, for re-drawing the links when it is reopened."""

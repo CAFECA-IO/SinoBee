@@ -153,6 +153,12 @@ class WorkStore:
         params.append(limit)
         return [self._run(d) for d in self._all(sql, params)]
 
+    def session_runs(self, session_id: str, kind: str = "chat", limit: int = 200) -> list[dict]:
+        """A conversation's turns as runs, oldest first."""
+        rows = self._all("SELECT * FROM runs WHERE session_id=? AND kind=? ORDER BY created_at DESC LIMIT ?",
+                         (session_id, kind, limit))
+        return [self._run(d) for d in reversed(rows)]
+
     def active_run(self, job_id: str) -> dict | None:
         rows = self.runs(job_id=job_id, status=ACTIVE, limit=1)
         return rows[0] if rows else None

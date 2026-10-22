@@ -26,6 +26,7 @@ from ..fileaccess import resolve_file
 from ..tools import checklist_tools
 from ..tools.registry import REGISTRY, ToolContext
 from . import artifacts
+from .timeline import Timeline
 from . import budget as budget_mod
 from . import progress as progress_mod
 from ..types import ImagePart, Message, TextPart, ToolCall, ToolResult, Usage
@@ -386,6 +387,9 @@ class Agent:
 
     # ------------------------------------------------------------------ utils
     def _emit(self, kind: str, data: dict) -> None:
+        tl = getattr(self, "_timeline", None)
+        if tl is not None and kind != "timeline":
+            tl.feed(kind, data)
         if self.emit_fn:
             try:
                 res = self.emit_fn(kind, data)
@@ -712,7 +716,7 @@ class Agent:
         self._control(stats, "consult", trigger,
                       f"思維模型 {model.label}：{reason or advice.splitlines()[0][:160] if advice else reason}"
                       + (f"（輔助模型：{'原地打轉' if sem['spinning'] else '有實質進展'}，{sem.get('pattern') or ''}）" if sem else ""),
-                      decision=decision, semantic=sem)
+                      decision=decision, semantic=sem, advice=advice[:1200])
         if trigger in progress_mod.ADVISED_TRIGGERS and getattr(self, "_progress", None):
             self._progress.advised(stats.get("step", 0))   # the advice gets K fresh steps
         if decision == "stop":
@@ -1116,12 +1120,16 @@ class Agent:
                  "skill_gap": not best or best[0][1] < 1.0, "explicit_skills": explicit,
                  "best_skill": best[0][0].name if best and best[0][1] >= 1.0 and hasattr(best[0][0], "name") else None}
         self._emit("turn_start", {"session_id": self.session_id, "input": query})
+        # what the AI asked and answered, did and got - one ordered list for the turn's bubble (agent/timeline.py)
+        self._timeline = Timeline(self._emit, self.config.workspace) if self.depth == 0 else None
         # the run record exists from the first moment, so a turn that dies while it plans or recalls is still found
         # (and resumed) by the recovery check instead of vanishing
         from ..work.chatrun import ChatRun
         self._run_rec = ChatRun(self, query, _title(query))
         if self._run_rec.rid and not self.ctx.state.get("job_run"):
             self.ctx.state["run_id"] = self._run_rec.rid
+        if self._run_rec.rid and self._timeline is not None:
+            self._run_rec.state["timeline"] = {"items": self._timeline.items}     # saved with every step
 
         context_block = await self._build_context(query)
         final_text = ""
@@ -1639,7 +1647,24 @@ class Agent:
                     mgr=getattr(self.rt, "skills", None))
             except Exception:  # noqa: BLE001
                 package_hint = False
+        tl_meta, deliverables, other_files = None, None, None
+        if getattr(self, "_timeline", None) is not None:
+            self._timeline.finish()
+            tl_meta = self._timeline.meta()
+            tr = getattr(self, "_progress", None)
+            written = {real for real, rec in (tr.files.items() if tr else []) if rec.get("history")}
+            deliverables, other_files = artifacts.key_files(
+                stats.get("artifacts") or [], final_text,
+                self._msr.plan.card({}, status)["milestones"] if self._msr else None,
+                checklist_tools.get(self.ctx), written)
+            rec = getattr(self, "_run_rec", None)
+            if rec and rec.rid:
+                rec.state["timeline"] = self._timeline.snapshot()
+                rec.state["deliverables"] = deliverables
+                rec.state["other_files"] = other_files[-60:]
         self._emit("turn_end", {"text": final_text, "status": status, "error": error_info, "steps": steps,
+                                "timeline": tl_meta, "deliverables": deliverables,
+                                "other_files": (other_files or [])[-60:],
                                 "snapshot": snap, "failure": failure, "run_report": run_report,
                                 "plan": bool(stats.get("plan")),
                                 "consults": len(stats.get("consult_log") or []),
@@ -1654,6 +1679,7 @@ class Agent:
                                 "artifacts": stats.get("artifacts", [])[-30:],
                                 "quality_skipped": stats.get("quality_skipped") or [],
                                 "package_hint": package_hint})
+        self._timeline = None           # later events (background learning, memory upkeep) are not part of the turn
         if getattr(self, "_run_rec", None):
             if self._run_rec.rid:
                 self._run_rec.state["usage"] = budget_mod.usage_record(self._guard, stats, turn_usage, steps)

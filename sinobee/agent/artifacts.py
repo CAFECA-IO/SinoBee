@@ -105,3 +105,48 @@ def collect(config, tool: str, args: dict, text: str, seen: set[str], since: flo
         if len(found) >= MAX_PER_CALL:
             break
     return found
+
+
+# ------------------------------------------------------------------ the files a turn hands over
+JUNK_DIRS = {"test", "tests", "tmp", "temp", "scratch", ".cache", "node_modules", "__pycache__", ".git"}
+JUNK_NAME = re.compile(r"(\.bak|\.orig|\.old|\.tmp|~|\.swp)$|\.(before|broken|backup)[-.\w]*$|^(tmp|temp|scratch)[-_.]",
+                       re.I)
+MAX_KEY = 6
+
+
+def is_junk(path: str) -> bool:
+    """A backup, scratch or test file: listed under 「其他檔案」, never as a deliverable."""
+    p = Path(str(path))
+    return any(part.lower() in JUNK_DIRS for part in p.parts[:-1]) or bool(JUNK_NAME.search(p.name))
+
+
+def key_files(artifacts: list[dict], final_text: str = "", milestones: list | None = None,
+              checklist: list | None = None, written: set[str] | None = None) -> tuple[list[dict], list[dict]]:
+    """(deliverables, other files) among the files a turn reported.
+
+    A deliverable is named by the work itself: a milestone's declared or reported outputs, a file given as evidence in
+    the acceptance checklist, or a file the final answer mentions. Without any of these, files the turn wrote with the
+    file tools that are not backups, tests or scratch. At most MAX_KEY; the rest stay available as other files."""
+    seen, files = set(), []
+    for a in artifacts or []:
+        if a.get("path") and a["path"] not in seen:
+            seen.add(a["path"])
+            files.append(a)
+    named: list[str] = []
+    for m in milestones or []:
+        named += [str(x) for x in (m.get("result_outputs") or m.get("outputs") or [])]
+    for it in checklist or []:
+        named.append(str(it.get("evidence") or ""))
+    named.append(final_text or "")
+    blob = "\n".join(named)
+
+    def mentioned(a: dict) -> bool:
+        return a["path"] in blob or (a.get("name") and re.search(r"(?<![\w.-])" + re.escape(a["name"]) + r"(?![\w-])",
+                                                                     blob) is not None)
+    key = [a for a in files if not is_junk(a["path"]) and mentioned(a)]
+    if not key:
+        key = [a for a in files if not is_junk(a["path"]) and (written is None or any(
+            w == a["path"] or w.endswith("/" + a["path"]) for w in written))]
+    key = key[:MAX_KEY]
+    ids = {a["path"] for a in key}
+    return key, [a for a in files if a["path"] not in ids]
