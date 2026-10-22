@@ -146,9 +146,34 @@ def user_turns(messages: list[dict]) -> list[str]:
             if m.get("role") == "user" and _text(m.get("content")).strip()]
 
 
+TL_TEXT = ("title", "q", "a", "source", "result", "status", "text", "summary", "kind", "phase", "id")
+TL_MAX_ITEMS = 300
+
+
+def _timeline(tl: dict, deliverables: list, clean) -> dict:
+    """A turn's timeline (agent/timeline.py) as the share page shows it: the same questions, work and checks,
+    redacted like the rest; tool rows keep their name and a short brief."""
+    items = []
+    for it in (tl.get("items") or [])[-TL_MAX_ITEMS:]:
+        x = {k: clean(_clip(str(it[k]), 600)) for k in TL_TEXT if it.get(k) not in (None, "")}
+        if it.get("ok") is not None:
+            x["ok"] = bool(it["ok"])
+        if it.get("notes"):
+            x["notes"] = [clean(_clip(str(n), 300)) for n in it["notes"][:20]]
+        if it.get("tools"):
+            x["tools"] = [{"name": str(t.get("name"))[:80], "brief": clean(_clip(str(t.get("brief") or ""), 200))}
+                          for t in it["tools"][:40]]
+        if it.get("files"):
+            x["files"] = [clean(str(f.get("name") or f.get("path") or ""))[:200] for f in it["files"][:20]]
+        items.append(x)
+    return {"mode": "full", "items": items,
+            "key": [clean(str(d.get("name") or d.get("path") or ""))[:200] for d in (deliverables or [])][:6]}
+
+
 def build(config, messages: list[dict], *, include_tools: bool = True, title: str | None = None,
           until_turn: int | None = None, query_rows: int = 20, mask_hosts: bool = False,
-          extra_mask: list[str] | None = None, keep_paths: bool = False, attach: bool = True) -> dict:
+          extra_mask: list[str] | None = None, keep_paths: bool = False, attach: bool = True,
+          timelines: dict[int, dict] | None = None) -> dict:
     """messages: session messages as dicts (Message.to_dict()). Returns the redacted share body.
 
     until_turn   share up to (and including the answer to) the N-th user message (1-based)
@@ -156,6 +181,8 @@ def build(config, messages: list[dict], *, include_tools: bool = True, title: st
     mask_hosts   also mask internal IPs and host names (*.local, *.internal, 10.x, 192.168.x …)
     extra_mask   more words to mask (names, customer ids …)
     keep_paths   do not shorten the home directory to ~
+    timelines    {index of a turn's last message: {"timeline", "deliverables"}} for large turns: the share shows the
+                 turn as SinoBee did - its answer, key files and the folded process - instead of every interim note
     """
     red = Redactor(config)
     if keep_paths:
@@ -177,10 +204,17 @@ def build(config, messages: list[dict], *, include_tools: bool = True, title: st
     pending: dict[str, dict] = {}
     skills: list[str] = []
     turns = 0
-    for m in messages:
+    final_parts: list[str] = []          # this turn's closing words (assistant messages after its last tool call)
+    for i, m in enumerate(messages):
         role = m.get("role")
+        if role == "assistant":
+            if m.get("tool_calls"):
+                final_parts = []
+            elif _text(m.get("content")).strip():
+                final_parts.append(_text(m.get("content")))
         if role == "user":
             t = _text(m.get("content"))
+            final_parts = []
             if not t.strip():
                 continue
             turns += 1
@@ -223,6 +257,11 @@ def build(config, messages: list[dict], *, include_tools: bool = True, title: st
                     continue
                 content = _limit_table_rows(content, query_rows)
             t["output"] = clean(_clip(content))
+        tl = (timelines or {}).get(i)
+        if tl and out and out[-1]["role"] == "assistant" and (tl.get("timeline") or {}).get("mode") == "full":
+            out[-1]["timeline"] = _timeline(tl["timeline"], tl.get("deliverables") or [], clean)
+            if final_parts:
+                out[-1]["text"] = clean("\n\n".join(final_parts))
     if not out:
         raise ShareError("這段對話沒有可分享的內容")
     files = attach_files(config, out, clean) if attach else []

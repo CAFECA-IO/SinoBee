@@ -120,3 +120,24 @@ async def test_a_small_turn_keeps_the_simple_presentation(home, config):
     rt = Runtime(config, provider=ScriptedProvider([msg("", [("list_dir", {"path": "."})]), msg("好了")]))
     await Agent(rt, session_id="sm", platform="web", emit=lambda k, d: k == "turn_end" and ends.append(d)).run("看看")
     assert ends[-1]["timeline"]["mode"] == "compact"
+
+
+async def test_a_shared_large_turn_carries_its_timeline_and_only_its_answer(home, config):
+    steps = [msg(f"問題：第 {i} 部分要寫什麼？\n寫第 {i} 部分。", [("write_file", {"path": f"r/p{i}.txt", "content": f"# {i}"})])
+             for i in range(6)]
+    steps += [msg("答：都寫好了。\n報告在 r/p0.txt。")]
+    rt = Runtime(config, provider=ScriptedProvider(steps))
+    await Agent(rt, session_id="sh", platform="web").run("寫六個部分")
+    from fastapi.testclient import TestClient
+    from sinobee.server import create_app
+    with TestClient(create_app(Runtime(config, provider=ScriptedProvider()))) as c:
+        b = c.post("/api/share/preview", json={"session_id": "sh"}).json()
+    body = b.get("body") or b
+    [ans] = [m for m in body["messages"] if m["role"] == "assistant"]
+    tl = ans["timeline"]
+    assert tl["mode"] == "full" and tl["key"] == ["p0.txt"]
+    assert ans["text"].startswith("答：都寫好了。") and "寫第 3 部分" not in ans["text"], "the answer, not every note"
+    q = next(i for i in tl["items"] if i["kind"] == "think")
+    assert q["q"] == "第 0 部分要寫什麼？" and "id" in q
+    work = next(i for i in tl["items"] if i["kind"] == "work")
+    assert work["tools"][0] == {"name": "write_file", "brief": "r/p0.txt"}

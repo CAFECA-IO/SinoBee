@@ -32,6 +32,21 @@ def register(app: FastAPI, rt) -> None:
             raise HTTPException(404, "找不到這段對話")
         return msgs
 
+    def timelines_of(sid: str) -> dict[int, dict]:
+        """Saved timelines of the conversation's large turns, keyed by the index of the turn's last message."""
+        try:
+            from ..work.hub import get_hub
+            runs = {(r.get("state") or {}).get("turn_id"): r.get("state") or {}
+                    for r in get_hub(rt()).store.session_runs(sid)}
+            out = {}
+            for t in rt().memory.turns(sid):
+                st = runs.get(t["id"]) or {}
+                if (st.get("timeline") or {}).get("mode") == "full":
+                    out[int(t["end_idx"])] = {"timeline": st["timeline"], "deliverables": st.get("deliverables") or []}
+            return out
+        except Exception:  # noqa: BLE001 - a share without timelines still shares the conversation
+            return {}
+
     def build(body: dict) -> dict:
         try:
             if body.get("doc_path"):
@@ -40,8 +55,9 @@ def register(app: FastAPI, rt) -> None:
                                     extra_mask=o["extra_mask"], keep_paths=o["keep_paths"])
                 b["doc_path"] = str(body["doc_path"])
                 return b
-            msgs = msgs_of(str(body.get("session_id") or ""))
-            b = share.build(rt().config, msgs, **_opts(body))
+            sid = str(body.get("session_id") or "")
+            msgs = msgs_of(sid)
+            b = share.build(rt().config, msgs, **_opts(body), timelines=timelines_of(sid))
         except share.ShareError as e:
             raise HTTPException(400, str(e)) from None
         b["session_id"] = body.get("session_id")
