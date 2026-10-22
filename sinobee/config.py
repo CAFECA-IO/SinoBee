@@ -163,6 +163,10 @@ DEFAULTS: dict[str, Any] = {
     "web": {
         "search_backend": "duckduckgo",  # duckduckgo | brave | tavily
     },
+    "sandbox": {                    # where the tools run (sinobee/sandbox; the sandbox plan)
+        "executor": "host",         # host = on this computer (the only one so far); sandbox = Docker (plan B)
+        "folders": [],              # authorised folders of this computer: [{"path", "name", "mode": rw|ro|review}]
+    },
     "billing": {                    # what happens when the SinoBee.ai subscription allowance runs out (billing.py)
         "on_exhausted": "ask",      # ask | pause | fallback (your own keys and local models)
         "auto_points": False,       # spend platform points without asking first

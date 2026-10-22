@@ -221,12 +221,18 @@ def grab_screen(max_width: int = 1280) -> tuple[bytes, int, int, int, int]:
     return buf.getvalue(), img.size[0], img.size[1], raw_w, raw_h
 
 
+def _ex(ctx: ToolContext):
+    """The session's executor: the screen and the input backend are reached through it (sandbox plan A1)."""
+    from ..sandbox import executor_of
+    return executor_of(ctx)
+
+
 def _scale(ctx: ToolContext) -> tuple[float, float]:
     """image-space -> input-space factors (set by the last screenshot)."""
     s = ctx.state.get("desktop_scale")
     if s:
         return s
-    backend = get_backend(ctx.config)
+    backend = _ex(ctx).input()
     in_w, in_h = backend.size()
     max_w = int(ctx.config.get("desktop.screenshot_max_width", 1280))
     img_w = min(in_w, max_w)
@@ -243,8 +249,9 @@ def _map(ctx, x, y) -> tuple[int, int]:
       "Always look before clicking and verify after acting.",
       {"properties": {}}, check=available)
 def screenshot(ctx: ToolContext):
-    backend = get_backend(ctx.config)
-    png, w, h, raw_w, raw_h = grab_screen(int(ctx.config.get("desktop.screenshot_max_width", 1280)))
+    ex = _ex(ctx)
+    backend = ex.input()
+    png, w, h, raw_w, raw_h = ex.screenshot(int(ctx.config.get("desktop.screenshot_max_width", 1280)))
     in_w, in_h = backend.size()
     ctx.state["desktop_scale"] = (in_w / w, in_h / h)
     window = backend.active_window()
@@ -272,7 +279,7 @@ def screenshot(ctx: ToolContext):
 def mouse(ctx: ToolContext, action: str, x: float | None = None, y: float | None = None,
           to_x: float | None = None, to_y: float | None = None, direction: str = "down", amount: int = 3,
           screenshot_after: bool = False):
-    b = get_backend(ctx.config)
+    b = _ex(ctx).input()
     if x is None or y is None:
         cx, cy = b.cursor()
         sx, sy = _scale(ctx)
@@ -312,7 +319,7 @@ def mouse(ctx: ToolContext, action: str, x: float | None = None, y: float | None
       }, "required": ["action"]},
       writes=True, check=available)
 def keyboard(ctx: ToolContext, action: str, text: str = "", keys: str = "", screenshot_after: bool = False):
-    b = get_backend(ctx.config)
+    b = _ex(ctx).input()
     if action == "type":
         if not text:
             return "ERROR: text required"
@@ -332,7 +339,7 @@ def keyboard(ctx: ToolContext, action: str, text: str = "", keys: str = "", scre
 @tool("screen_info", "desktop", "Get screen size, cursor position and the active window title.",
       {"properties": {}}, check=available)
 def screen_info(ctx: ToolContext):
-    b = get_backend(ctx.config)
+    b = _ex(ctx).input()
     w, h = b.size()
     cx, cy = b.cursor()
     sx, sy = _scale(ctx)

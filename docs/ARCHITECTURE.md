@@ -1899,3 +1899,30 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   的通知每回合只出現一次（`Agent._quota_once`）；需要詢問你的事件（扣點對話框）一律照常送出。
 - **部分交付顯示路徑**：部分交付以工作區相對路徑列出檔案（`shots_v2/phone.png`），介面上的檔案列遇到同名檔案時
   改顯示路徑。
+
+## 46. 沙盒計畫 A：執行層抽象化與路徑對照（2026-10-22）
+
+沙盒計畫（Claude Docs「SinoBee 沙盒執行與本機檔案存取規劃」，摘要在專案文件 `SinoBee-SANDBOX-PLAN.md`）的第一階段：
+不改行為的重構，讓之後的 `SandboxExecutor` 只需實作同一個介面。
+
+- **Executor**（`sinobee/sandbox/executor.py`）：工具不再自己呼叫 subprocess、檔案系統或螢幕，而是經過
+  `executor_of(ctx)`（每個 session 一個，存在 `ctx.state["executor"]`）。介面：`run(command, cwd, timeout, env)`
+  → `RunResult(code, output, timed_out)`；檔案 `read_bytes`／`read_text`／`write_text`／`mkdir`／`exists`／
+  `stat`／`walk`（都是這台電腦的路徑，沙盒以掛載提供）；`screenshot`、`input`（滑鼠鍵盤後端）、
+  `desktop_available`；`python()`（技能 .py 腳本用的直譯器）。`HostExecutor` 就是原本的行為。
+- **改走介面的工具**：`shell`（逾時、停止時結束整個行程群組、評鑑沙盒的環境變數都不變）、`read_file`／
+  `write_file`／`edit_file`／`list_dir`／`search_files`、`skill_run`（直譯器與腳本路徑）、桌面工具
+  `screenshot`／`mouse`／`keyboard`／`screen_info`。
+- **路徑對照**（`sinobee/sandbox/paths.py`）：`PathMap` 是掛載表。`to_host`（代理或工具輸出寫的路徑 → 這台電腦的
+  檔案；`..` 先正規化）、`to_exec`（這台電腦的檔案 → 工具看到的路徑）、`visible`、`to_host_text`（工具輸出裡的沙盒
+  路徑改回本機路徑，只換完整的路徑前綴）、`describe`（系統提示詞的對照表）。`sandbox_map(workspace, folders)` 建出
+  `/workspace` 與 `/host/<名稱>`（同名資料夾自動加 `-2`）。主機執行時沒有掛載，所有轉換都是恆等。
+- **接上對照的地方**：檔案工具的 `resolve`、`shell` 的 cwd 與輸出、`skill_run`、`fileaccess.resolve_file`（介面開檔，
+  也因此涵蓋產出檔案偵測）、`artifacts.collect` 的資料夾參數、系統提示詞的環境區塊（只有沙盒時才多一段說明）。
+- **設定**：`sandbox.executor`（`host`，B 階段加入 `sandbox`；尚未提供的種類會記警告並退回 host）、
+  `sandbox.folders`（授權資料夾，E 階段使用）。
+- **關卡 G1**：完整測試 596 通過（原有 584 ＋ `tests/test_sandbox_a.py` 12 項：路徑雙向轉換、`..` 與符號連結、
+  同名資料夾、輸出路徑改寫、逾時、每個工具都經過 executor、主機模式輸出不變、介面開檔、提示詞）。
+- **步驟 0 檢查腳本**（`scripts/sandbox-check-mac.sh`）：在 Mac 的 Docker Desktop 上實測主機連容器（內部 IP 與
+  127.0.0.1 發佈埠）、internal 網路與 sidecar 代理、工作區掛載速度與檔案擁有者、在已掛載資料夾裡做 APFS 副本、
+  `docker exec` 延遲、資源上限與唯讀根目錄，輸出 `~/.sinobee/sandbox-check/report.md`。結果決定 C1、D1/D3、E2 的做法。

@@ -110,7 +110,9 @@ def environment_block(config) -> str:
         f"Approval mode: {config.get('permissions.approval')}",
         f"Enabled toolsets: {', '.join(config.get('permissions.toolsets') or [])}",
     ]
-    return "# Environment\n" + "\n".join(f"- {l}" for l in lines)
+    from ..sandbox import for_config
+    paths = for_config(config).describe()          # empty while the tools run on this computer
+    return "# Environment\n" + "\n".join(f"- {l}" for l in lines) + (f"\n\n{paths}" if paths else "")
 
 
 def build_system_prompt(config, core_memory: str, tool_names: list[str]) -> str:

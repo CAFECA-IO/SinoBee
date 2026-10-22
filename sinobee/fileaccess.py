@@ -25,12 +25,11 @@ def allowed_roots(config) -> list[Path]:
 
 
 def resolve_file(config, path: str) -> Path:
-    try:
-        p = Path(path).expanduser()
+    from .sandbox import for_config
+    try:                           # a sandbox path (/workspace/..., /host/<name>/...) means a file on this computer
+        p = for_config(config).to_host(path, config.workspace)
     except RuntimeError:           # "~name" of a user that does not exist (e.g. "~250kg" in a sentence)
         raise FileAccessError(404, "file not found") from None
-    if not p.is_absolute():
-        p = config.workspace / p
     p = p.resolve()
     home = config.home.resolve()
     if p.name in PRIVATE_NAMES or (home in p.parents and config.workspace.resolve() not in [p, *p.parents]):

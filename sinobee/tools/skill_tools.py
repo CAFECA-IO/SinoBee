@@ -145,8 +145,10 @@ async def skill_run(ctx: ToolContext, name: str, script: str = "", args: str = "
             f"skill {name} needs Python packages that SinoBee's Python does not have: {', '.join(missing)}. "
             f"Install them (ask the user first) with: {shlex.quote(sys.executable)} -m pip install {pkgs}  "
             f"- or install SinoBee with the office extra: pip install \"sinobee[office]\"")
-    runner = {"py": shlex.quote(sys.executable), "sh": "bash", "js": "node"}.get(target.suffix.lstrip("."), "")
-    cmd = f"{runner} {shlex.quote(str(target))} {args}".strip()
+    from ..sandbox import executor_of
+    ex = executor_of(ctx)
+    runner = {"py": shlex.quote(ex.python()), "sh": "bash", "js": "node"}.get(target.suffix.lstrip("."), "")
+    cmd = f"{runner} {shlex.quote(ex.paths.to_exec(target))} {args}".strip()
     ctx.state.setdefault("skills_used", set()).add(name)
     out = await shell(ctx, cmd, timeout=timeout, cwd=None)
     m = re.match(r"\[exit (-?\d+)", out)

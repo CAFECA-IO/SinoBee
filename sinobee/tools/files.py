@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import fnmatch
-import os
 import re
 from pathlib import Path
 
@@ -14,11 +13,14 @@ IMAGE_EXT = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", "
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".next", "dist", "build"}
 
 
+def _ex(ctx: ToolContext):
+    from ..sandbox import executor_of
+    return executor_of(ctx)
+
+
 def resolve(ctx: ToolContext, path: str) -> Path:
-    p = Path(path).expanduser()
-    if not p.is_absolute():
-        p = ctx.config.workspace / p
-    p = p.resolve()
+    """The file on this computer a path given to a file tool means (a sandbox path is translated)."""
+    p = _ex(ctx).paths.to_host(path, ctx.config.workspace).resolve()
     allowed = [Path(a).expanduser().resolve() for a in (ctx.config.get("permissions.allowed_paths") or [])]
     if allowed and not any(p == a or a in p.parents for a in allowed + [ctx.config.workspace.resolve()]):
         raise PermissionError(f"{p} is outside permissions.allowed_paths")
@@ -31,19 +33,21 @@ def resolve(ctx: ToolContext, path: str) -> Path:
                       "limit": {"type": "integer", "description": "max lines (default 400)"}},
        "required": ["path"]})
 def read_file(ctx: ToolContext, path: str, offset: int = 1, limit: int = 400):
+    ex = _ex(ctx)
     p = resolve(ctx, path)
+    shown = ex.paths.to_exec(p)
     if p.suffix.lower() in IMAGE_EXT:
-        return [TextPart(f"Image file {p}"), ImagePart.from_bytes(p.read_bytes(), IMAGE_EXT[p.suffix.lower()])]
+        return [TextPart(f"Image file {shown}"), ImagePart.from_bytes(ex.read_bytes(p), IMAGE_EXT[p.suffix.lower()])]
     from ..docread import EXT as DOC_BINARY, extract
     if p.suffix.lower() in DOC_BINARY:      # Office / PDF: their text, not the bytes of the zip or PDF
         lines = extract(p).splitlines()
     else:
-        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+        lines = ex.read_text(p, errors="replace").splitlines()
     start = max(1, int(offset or 1))
     chunk = lines[start - 1:start - 1 + int(limit or 400)]
     body = "\n".join(f"{i:>6}\t{l}" for i, l in enumerate(chunk, start))
     more = len(lines) - (start - 1 + len(chunk))
-    return f"{p} ({len(lines)} lines)\n{body}" + (f"\n... {more} more lines" if more > 0 else "")
+    return f"{shown} ({len(lines)} lines)\n{body}" + (f"\n... {more} more lines" if more > 0 else "")
 
 
 DOC_EXT = {".html", ".htm", ".xhtml", ".svg", ".md", ".markdown", ".tex", ".mdx"}
@@ -75,19 +79,17 @@ def repair_tex(path, text: str) -> tuple[str, int]:
        "required": ["path", "content"]},
       writes=True)
 def write_file(ctx: ToolContext, path: str, content: str, append: bool = False):
+    ex = _ex(ctx)
     p = resolve(ctx, path)
-    p.parent.mkdir(parents=True, exist_ok=True)
+    ex.mkdir(p.parent)
     content, fixed = repair_tex(p, content)
-    if append:
-        with p.open("a", encoding="utf-8") as f:
-            f.write(content)
-    else:
-        p.write_text(content, encoding="utf-8")
+    ex.write_text(p, content, append=append)
+    shown = ex.paths.to_exec(p)
     note = (f" (restored {fixed} LaTeX backslash(es) lost in the JSON arguments: write \\\\frac in JSON for \\frac)"
             if fixed else "")
     if append:
-        return f"appended {len(content)} chars to {p} (now {p.stat().st_size} bytes){note}"
-    return f"wrote {len(content)} chars to {p}{note}"
+        return f"appended {len(content)} chars to {shown} (now {ex.stat(p).st_size} bytes){note}"
+    return f"wrote {len(content)} chars to {shown}{note}"
 
 
 @tool("edit_file", "files",
@@ -97,26 +99,27 @@ def write_file(ctx: ToolContext, path: str, content: str, append: bool = False):
                       "replace_all": {"type": "boolean"}}, "required": ["path", "old_string", "new_string"]},
       writes=True)
 def edit_file(ctx: ToolContext, path: str, old_string: str, new_string: str, replace_all: bool = False):
+    ex = _ex(ctx)
     p = resolve(ctx, path)
-    text = p.read_text(encoding="utf-8")
+    text = ex.read_text(p)
     n = text.count(old_string)
     if n == 0:
         return "ERROR: old_string not found (read the file first and copy text exactly)"
     if n > 1 and not replace_all:
         return f"ERROR: old_string occurs {n} times; add context or set replace_all"
     new_string, _ = repair_tex(p, new_string)
-    p.write_text(text.replace(old_string, new_string) if replace_all else text.replace(old_string, new_string, 1),
-                 encoding="utf-8")
-    return f"edited {p} ({n if replace_all else 1} replacement(s))"
+    ex.write_text(p, text.replace(old_string, new_string) if replace_all else text.replace(old_string, new_string, 1))
+    return f"edited {ex.paths.to_exec(p)} ({n if replace_all else 1} replacement(s))"
 
 
 @tool("list_dir", "files", "List a directory (optionally recursive, depth-limited).",
       {"properties": {"path": {"type": "string"}, "depth": {"type": "integer", "description": "default 1, max 4"}}})
 def list_dir(ctx: ToolContext, path: str = ".", depth: int = 1):
+    ex = _ex(ctx)
     root = resolve(ctx, path)
     depth = max(1, min(int(depth or 1), 4))
     out = []
-    for cur, dirs, files in os.walk(root):
+    for cur, dirs, files in ex.walk(root):
         rel = Path(cur).relative_to(root)
         level = 0 if str(rel) == "." else len(rel.parts)
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
@@ -127,14 +130,14 @@ def list_dir(ctx: ToolContext, path: str = ".", depth: int = 1):
             out.append(f"{indent}{d}/")
         for f in sorted(files):
             try:
-                size = (Path(cur) / f).stat().st_size
+                size = ex.stat(Path(cur) / f).st_size
             except OSError:
                 size = 0
             out.append(f"{indent}{f}  ({size} B)")
         if len(out) > 800:
             out.append("... (truncated)")
             break
-    return f"{root}\n" + "\n".join(out)
+    return f"{ex.paths.to_exec(root)}\n" + "\n".join(out)
 
 
 @tool("search_files", "files", "Search file contents with a regex (like grep -rn). Returns matching lines.",
@@ -142,19 +145,20 @@ def list_dir(ctx: ToolContext, path: str = ".", depth: int = 1):
                       "glob": {"type": "string", "description": "filename filter, e.g. *.py"},
                       "max_results": {"type": "integer"}}, "required": ["pattern"]})
 def search_files(ctx: ToolContext, pattern: str, path: str = ".", glob: str | None = None, max_results: int = 100):
+    ex = _ex(ctx)
     root = resolve(ctx, path)
     rx = re.compile(pattern)
     hits = []
-    for cur, dirs, files in os.walk(root):
+    for cur, dirs, files in ex.walk(root):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for f in files:
             if glob and not fnmatch.fnmatch(f, glob):
                 continue
             fp = Path(cur) / f
             try:
-                if fp.stat().st_size > 2_000_000:
+                if ex.stat(fp).st_size > 2_000_000:
                     continue
-                for i, line in enumerate(fp.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+                for i, line in enumerate(ex.read_text(fp, errors="ignore").splitlines(), 1):
                     if rx.search(line):
                         hits.append(f"{fp.relative_to(root)}:{i}: {line.strip()[:200]}")
                         if len(hits) >= max_results:

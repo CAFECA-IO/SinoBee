@@ -55,6 +55,8 @@ def candidates(tool: str, args: dict, text: str) -> list[str]:
 
 def collect(config, tool: str, args: dict, text: str, seen: set[str], since: float | None = None) -> list[dict]:
     """Existing, viewable files mentioned by a tool call that were not reported before (newest first)."""
+    from ..sandbox import for_config
+    pmap = for_config(config)
     found = []
     # folders named in the arguments (e.g. `render videos/duel`) are bases for paths the script prints relative
     bases = []
@@ -64,13 +66,10 @@ def collect(config, tool: str, args: dict, text: str, seen: set[str], since: flo
             if not tok or len(tok) > 1024:
                 continue
             try:
-                d = Path(tok).expanduser()
-                d = d if d.is_absolute() else config.workspace / d
+                d = pmap.to_host(tok, config.workspace)      # a sandbox path means a file on this computer
                 is_file, is_dir = d.is_file(), d.is_dir()
             except (OSError, ValueError, RuntimeError):   # a sentence is not a path; "~250" is no user's home
                 continue
-            d = Path(tok).expanduser()
-            d = d if d.is_absolute() else config.workspace / d
             if d.name in ("project.json", "plan.json"):
                 d = d.parent
             if d.is_file() and d.suffix in (".mjs", ".js", ".py", ".sh", ".ts"):
