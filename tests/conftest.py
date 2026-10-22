@@ -63,3 +63,20 @@ def config(home):
 @pytest.fixture
 def provider():
     return ScriptedProvider()
+
+
+def pytest_collection_modifyitems(config, items):
+    """@pytest.mark.docker tests run only where Docker and the sandbox image are there."""
+    if not any("docker" in i.keywords for i in items):
+        return
+    import shutil
+    import subprocess
+    ok, why = bool(shutil.which("docker")), "docker is not installed"
+    if ok:
+        from sinobee import __version__
+        r = subprocess.run(["docker", "image", "inspect", f"sinobee-sandbox:{__version__}"], capture_output=True)
+        ok, why = r.returncode == 0, "Docker or the sinobee-sandbox image is not available"
+    if not ok:
+        for i in items:
+            if "docker" in i.keywords:
+                i.add_marker(pytest.mark.skip(reason=why))

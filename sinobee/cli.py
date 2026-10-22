@@ -1203,6 +1203,10 @@ def main(argv: list[str] | None = None) -> None:
     tn.add_argument("--apply", nargs="*", help="apply recommendations: all, or keys like agent.progress.k")
     tn.add_argument("--json", action="store_true")
     tn.set_defaults(action="tune")
+    sb = sub.add_parser("sandbox", help="the Docker sandbox the tools run in (build the image, list, stop, remove)")
+    sb.add_argument("action", choices=["build", "status", "stop", "rm", "sweep"])
+    sb.add_argument("conversation", nargs="?", help="stop / rm: the conversation (session id)")
+    sb.add_argument("--office", action="store_true", help="build: the image with LibreOffice")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -1248,6 +1252,47 @@ def main(argv: list[str] | None = None) -> None:
         _replay_cmd(args)
     elif args.cmd in ("observe", "tune"):
         _observe_cmd(args)
+    elif args.cmd == "sandbox":
+        _sandbox_cmd(args)
+
+
+def _sandbox_cmd(args) -> None:
+    """sinobee sandbox build | status | stop <conversation> | rm <conversation> | sweep"""
+    import subprocess
+    from pathlib import Path as _P
+
+    from .sandbox import executor_kind, wanted_kind
+    from .sandbox.manager import image_name, manager_for
+    cfg = Config.load()
+    m = manager_for(cfg)
+    if args.action == "build":
+        root = _P(__file__).resolve().parent.parent
+        dockerfile = root / "docker" / "sandbox.Dockerfile"
+        if not dockerfile.exists():
+            sys.exit(f"{dockerfile} not found: build from a SinoBee source checkout")
+        if args.office:
+            cfg.data.setdefault("sandbox", {})["image"] = "office"
+        tag = image_name(cfg)
+        cmd = ["docker", "build", "-f", str(dockerfile), "-t", tag] + (["--build-arg", "OFFICE=1"] if args.office else []) + [str(root)]
+        print("building", tag, "(the first time downloads about 2 GB) ...")
+        sys.exit(subprocess.call(cmd))
+    if args.action == "status":
+        why = m.unavailable(max_age=0)
+        print(f"wanted: {wanted_kind(cfg)}   running tools on: {executor_kind(cfg)}   image: {image_name(cfg)}")
+        print("sandbox: " + ("ready" if not why else f"not available - {why}"))
+        if not why:
+            print(f"limits per sandbox: {' CPU / '.join(m.limits())}")
+            for r in asyncio.run(m.list()):
+                print(f"  {r['name']:<40} {r['state']:<9} {r['status']}")
+        return
+    if args.action in ("stop", "rm"):
+        if not args.conversation:
+            sys.exit("give the conversation (session id); `sinobee sandbox status` lists them")
+        asyncio.run(m.stop(args.conversation) if args.action == "stop" else m.remove(args.conversation))
+        print("done")
+        return
+    if args.action == "sweep":
+        print(asyncio.run(m.sweep()))
 
 
 if __name__ == "__main__":

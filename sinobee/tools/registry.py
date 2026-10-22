@@ -30,6 +30,10 @@ class Tool:
         return ToolSpec(self.name, self.description, self.parameters)
 
 
+# tools whose whole effect stays inside the sandbox when the tools run there (approval mode "sandbox")
+CONTAINED = {"shell", "read_file", "write_file", "edit_file", "list_dir", "search_files", "skill_run"}
+
+
 @dataclass
 class ToolContext:
     """Everything a tool handler may need. Created per agent session."""
@@ -99,6 +103,11 @@ class Registry:
             if refused:
                 return ToolResult.error(refused)
         mode = ctx.config.get("permissions.approval", "confirm")
+        if mode == "sandbox":
+            # the sandbox: what stays inside it needs no approval; anything else is asked as in "confirm"
+            from ..sandbox import executor_of
+            contained = tool.name in CONTAINED and executor_of(ctx).kind == "sandbox"
+            mode = "auto" if contained and not tool.always_confirm else "confirm"
         if mode == "readonly" and tool.writes:
             return ToolResult.error(f"'{tool.name}' is blocked: SinoBee is running in readonly mode")
         reason = None

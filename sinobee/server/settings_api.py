@@ -22,6 +22,17 @@ PROVIDER_LABELS = {
 }
 
 
+
+def _sandbox_info(cfg) -> dict:
+    """Whether the sandbox can run here (Docker, the image) - checked only when someone asks for it."""
+    from ..sandbox import executor_kind, wanted_kind
+    from ..sandbox.manager import image_name, manager_for
+    info = {"wanted": wanted_kind(cfg), "image": image_name(cfg)}
+    if info["wanted"] == "sandbox" or cfg.get("permissions.approval") == "sandbox":
+        info["unavailable"] = manager_for(cfg).unavailable()
+        info["running"] = executor_kind(cfg)
+    return info
+
 def _valid_spec(spec) -> bool:
     try:
         return bool(spec) and all(split_model(spec))
@@ -59,6 +70,7 @@ def settings_payload(rt) -> dict:
                         "toolsets": sorted(set(cfg.get("permissions.toolsets") or [])
                                            | ({"work"} if int(cfg.get("permissions.toolsets_v") or 1) < 2 else set())),
                         "allowed_paths": cfg.get("permissions.allowed_paths")},
+        "sandbox": _sandbox_info(cfg),
         "usage": cfg.get("usage"),
         "billing": {"on_exhausted": cfg.get("billing.on_exhausted") or "ask",
                     "auto_points": bool(cfg.get("billing.auto_points")),
@@ -231,8 +243,8 @@ def register(app: FastAPI, rt_getter) -> None:
             p = body["permissions"]
             perm = {}
             if "approval" in p:
-                if p["approval"] not in ("auto", "confirm", "readonly"):
-                    errors.append("approval must be auto | confirm | readonly")
+                if p["approval"] not in ("auto", "confirm", "readonly", "sandbox"):
+                    errors.append("approval must be sandbox | auto | confirm | readonly")
                 perm["approval"] = p["approval"]
             if "toolsets" in p:
                 perm["toolsets"] = [t for t in p["toolsets"] if t in ALL_TOOLSETS]

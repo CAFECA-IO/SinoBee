@@ -53,3 +53,4 @@ include = ["sinobee*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["docker: needs a running Docker and the sinobee-sandbox image (skipped otherwise)"]

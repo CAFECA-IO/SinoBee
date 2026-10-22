@@ -71,11 +71,15 @@ def test_tool_output_paths_back_to_this_computer(tmp_path):
 
 
 # ------------------------------------------------------------------ executor
-def test_host_is_the_default_and_an_unknown_kind_falls_back(config):
+def test_host_is_the_default_and_an_unavailable_sandbox_falls_back(config, monkeypatch):
+    from sinobee.sandbox.manager import SandboxManager
     assert executor_kind(config) == "host"
-    config.data["sandbox"]["executor"] = "sandbox"          # plan B: not there yet
+    monkeypatch.setattr(SandboxManager, "unavailable", lambda self, max_age=60: "Docker is not running")
+    config.data["sandbox"]["executor"] = "sandbox"
     assert executor_kind(config) == "host"
     assert for_config(config).identity
+    config.data["sandbox"]["executor"] = "something-else"
+    assert executor_kind(config) == "host"
 
 
 def test_host_executor_runs_commands_and_times_out(config, tmp_path):
@@ -148,9 +152,9 @@ def test_the_gui_resolves_sandbox_paths(config):
 
 def test_the_prompt_explains_the_paths_only_in_a_sandbox(config, monkeypatch):
     from sinobee.agent.prompt import environment_block
-    from sinobee.sandbox import executor as exmod
+    from sinobee.sandbox.manager import SandboxManager
     assert "sandbox" not in environment_block(config).lower()
-    monkeypatch.setattr(exmod, "IMPLEMENTED", {"host", "sandbox"})
+    monkeypatch.setattr(SandboxManager, "unavailable", lambda self, max_age=60: None)
     config.data["sandbox"]["executor"] = "sandbox"
     block = environment_block(config)
     assert "/workspace = " in block and "Your tools run in a sandbox" in block

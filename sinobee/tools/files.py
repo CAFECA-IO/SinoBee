@@ -18,9 +18,12 @@ def _ex(ctx: ToolContext):
     return executor_of(ctx)
 
 
-def resolve(ctx: ToolContext, path: str) -> Path:
-    """The file on this computer a path given to a file tool means (a sandbox path is translated)."""
-    p = _ex(ctx).paths.to_host(path, ctx.config.workspace).resolve()
+def resolve(ctx: ToolContext, path: str, write: bool = False) -> Path:
+    """The file on this computer a path given to a file tool means (a sandbox path is translated). In a sandbox
+    only what is mounted there can be reached, and a read-only mount cannot be written."""
+    ex = _ex(ctx)
+    p = ex.paths.to_host(path, ctx.config.workspace).resolve()
+    ex.check(p, write)
     allowed = [Path(a).expanduser().resolve() for a in (ctx.config.get("permissions.allowed_paths") or [])]
     if allowed and not any(p == a or a in p.parents for a in allowed + [ctx.config.workspace.resolve()]):
         raise PermissionError(f"{p} is outside permissions.allowed_paths")
@@ -80,7 +83,7 @@ def repair_tex(path, text: str) -> tuple[str, int]:
       writes=True)
 def write_file(ctx: ToolContext, path: str, content: str, append: bool = False):
     ex = _ex(ctx)
-    p = resolve(ctx, path)
+    p = resolve(ctx, path, write=True)
     ex.mkdir(p.parent)
     content, fixed = repair_tex(p, content)
     ex.write_text(p, content, append=append)
@@ -100,7 +103,7 @@ def write_file(ctx: ToolContext, path: str, content: str, append: bool = False):
       writes=True)
 def edit_file(ctx: ToolContext, path: str, old_string: str, new_string: str, replace_all: bool = False):
     ex = _ex(ctx)
-    p = resolve(ctx, path)
+    p = resolve(ctx, path, write=True)
     text = ex.read_text(p)
     n = text.count(old_string)
     if n == 0:

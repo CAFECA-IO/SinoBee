@@ -1926,3 +1926,37 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
 - **步驟 0 檢查腳本**（`scripts/sandbox-check-mac.sh`）：在 Mac 的 Docker Desktop 上實測主機連容器（內部 IP 與
   127.0.0.1 發佈埠）、internal 網路與 sidecar 代理、工作區掛載速度與檔案擁有者、在已掛載資料夾裡做 APFS 副本、
   `docker exec` 延遲、資源上限與唯讀根目錄，輸出 `~/.sinobee/sandbox-check/report.md`。結果決定 C1、D1/D3、E2 的做法。
+
+## 47. 沙盒計畫 B＋C1：Docker 沙盒與對外代理（2026-10-22）
+
+依步驟 0 在使用者 Mac（Docker Desktop 29.8.2）上的實測定案（專案文件 `SinoBee-SANDBOX-PLAN.md`）。
+
+- **映像**（`docker/sandbox.Dockerfile`，`sinobee sandbox build [--office]`）：`sinobee-sandbox:<版本>`，以
+  `sinobee[all]` 的 Python 套件、playwright 的 Chromium（`/usr/bin/chromium`）、Node 22＋npm、Xvfb／fluxbox／x11vnc／
+  websockify／xdotool／xclip／wmctrl、Noto CJK、ffmpeg、ImageMagick。不含伺服器：模型、記憶、設定與金鑰都留在本機。
+  使用者 `bee`（uid 1000），`PIP_USER=1`、npm 全域前綴都在家目錄。`--office` 另裝 LibreOffice（`sinobee-sandbox-office`）。
+  順手修正主 Dockerfile：新版 playwright 的 Chromium 路徑改用 `find` 找。
+- **容器**（`sinobee/sandbox/manager.py`，全部用 docker CLI）：每個對話一個 `sinobee-<對話>`，只接 internal 網路
+  `sinobee-int`；`--read-only`、`--tmpfs /tmp`、`--user 1000:1000`、`--cap-drop ALL`、`no-new-privileges`、CPU／記憶體／
+  行程數上限（預設 4 CPU、Docker 記憶體的 60% 且最多 8 GB，`sandbox.cpus`／`sandbox.memory`）。掛載：`/workspace`
+  （共用工作區）、`/home/bee` = 每對話的 volume `sinobee-home-<對話>`（套件與快取：Mac 上掛載的小檔慢 9.5 倍）、
+  `/sinobee/skills` 與 `/sinobee/bundled_skills` 唯讀。第一次用到工具時建立或啟動；閒置 `sandbox.idle_minutes`（30）
+  停止、停止超過 `sandbox.prune_days`（14）連同 volume 刪除（工作中心每分鐘 `sweep`）。`sinobee sandbox status|stop|rm|sweep`。
+- **對外代理**（`sinobee/sandbox/egress.py`，C1）：`sinobee-egress` 容器同時接 `sinobee-int`（別名 `egress:3128`）與
+  `sinobee-ext`，用 `python:3.12-alpine` 以 `python -c` 執行（不需要自建映像），唯讀、無 capability、uid 65534。
+  沙盒的 `HTTP(S)_PROXY` 指向它；直連一律不通（internal 網路）。放行依「來源 IP（＝哪個對話）＋網域」：網域含子網域，
+  IP 只在明列時放行；`sandbox.network.remembered` 預設 pypi.org、files.pythonhosted.org、registry.npmjs.org，
+  `sandbox.network.mode=open` 全部放行。被擋的連線回 403，內容寫明網域與「request_network」。伺服器經
+  `127.0.0.1:<隨機埠>` 的控制 API（權杖，存在 `~/.sinobee/sandbox/egress.json`）推送每個沙盒的規則、讀回連線紀錄。
+- **SandboxExecutor**（B3）：`docker exec -w <沙盒路徑> <容器> setsid --wait bash -c 'echo $$ > pidfile; exec bash -lc
+  <指令>'`。逾時或使用者按停止時以 `kill -KILL -- -<pgid>` 結束整個行程群組。`setsid` 必須加 `--wait`：行程群組
+  領頭者的 setsid 會 fork 後立刻返回，docker exec 因此在輸出結束前就收尾（曾經實際掉過最後幾行）。檔案工具仍讀寫
+  本機路徑（同一份檔案），但 `check()` 擋下沙盒看不到的路徑，以及唯讀掛載的寫入。`python()` = 沙盒的 `python3`。
+- **審批模式 `sandbox`**（B4，`permissions.approval`）：`sandbox.executor=auto`（預設）時選了 sandbox 就在 Docker 執行。
+  `CONTAINED`（shell、read/write/edit_file、list_dir、search_files、skill_run）在沙盒裡執行時不再詢問，連未審核技能
+  的腳本也不問；其他工具（桌面、已登入瀏覽器、資料庫、排程…）照 confirm 規則。Docker 沒開或映像沒建時退回本機、
+  一樣照 confirm 規則，設定頁顯示原因與 `sinobee sandbox build`。系統提示詞列出路徑對照、可連的網域與「套件裝在 ~」。
+- **測試**：`tests/test_sandbox_b.py`（14 項；`@pytest.mark.docker` 的 6 項需要 Docker 與映像，否則自動略過）：
+  審批、退回、只在需要時檢查 Docker、設定 API、記憶體上限、提示詞、網域規則、代理放行／拒絕／紀錄（不需 Docker）、
+  沙盒內執行與權限、只能經代理連網、逾時與停止會結束沙盒內的行程、閒置停止後自動重啟、G2 情境（寫 Python、
+  pip 與 npm 安裝、刪檔，0 次審批，本機家目錄沒有新檔案）。完整測試 610 通過。

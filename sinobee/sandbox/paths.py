@@ -127,11 +127,16 @@ def _replace_prefix(text: str, old: str, new: str) -> str:
     return re.sub(rf"(?<![\w./-]){re.escape(old)}(?=$|[/\s\"'`),:;\]>])", lambda _: new, text)
 
 
-def sandbox_map(workspace: Path, folders: list[dict] | None = None) -> PathMap:
+def sandbox_map(workspace: Path, folders: list[dict] | None = None,
+                extra: list[tuple[Path, str, str]] | None = None) -> PathMap:
     """The table a sandbox uses: the workspace at /workspace and each authorised folder at /host/<name>.
-    folders: [{"path": "~/Documents/報告", "name": "報告", "mode": "review"}, ...]"""
+    folders: [{"path": "~/Documents/報告", "name": "報告", "mode": "review"}, ...];
+    extra: further mounts as (this computer, in the sandbox, rw|ro) - the skills folders."""
     ws = _norm_host(Path(workspace).expanduser())
     mounts = [Mount(ws, PurePosixPath("/workspace"), "rw", "workspace")]
+    for host, inner, mode in extra or []:
+        if inner != "/workspace":
+            mounts.append(Mount(_norm_host(Path(host)), PurePosixPath(inner), mode, PurePosixPath(inner).name))
     used = set()
     for f in folders or []:
         host = _norm_host(Path(str(f.get("path", ""))).expanduser())
@@ -150,5 +155,6 @@ def for_config(config) -> PathMap:
     from .executor import executor_kind
     ws = getattr(config, "workspace", None)
     if executor_kind(config) == "sandbox":
-        return sandbox_map(ws, config.get("sandbox.folders") or [])
+        from .manager import manager_for
+        return sandbox_map(ws, config.get("sandbox.folders") or [], manager_for(config).mounts())
     return PathMap(workspace=ws)

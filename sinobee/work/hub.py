@@ -458,6 +458,14 @@ class WorkHub:
                 self.tick()
             except Exception:  # noqa: BLE001
                 log.exception("scheduler tick failed")
+            if time.time() - getattr(self, "_sandbox_swept", 0) > 60:   # idle sandboxes stop (sandbox/manager.py)
+                self._sandbox_swept = time.time()
+                try:
+                    from ..sandbox.manager import active_managers
+                    for m in active_managers():
+                        await m.sweep()
+                except Exception:  # noqa: BLE001
+                    log.exception("sandbox sweep failed")
             if self.recovery.due():            # interrupted work is looked for every minute
                 try:
                     await self.recovery.check()

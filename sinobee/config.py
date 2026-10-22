@@ -99,7 +99,7 @@ DEFAULTS: dict[str, Any] = {
     "permissions": {
         "toolsets": ["shell", "files", "desktop", "browser", "web", "memory", "skills", "usage", "database", "work"],
         "toolsets_v": 2,
-        "approval": "confirm",      # auto | confirm | readonly
+        "approval": "confirm",      # sandbox | auto | confirm | readonly
         "allowed_paths": [],        # empty = unrestricted
     },
     "memory": {
@@ -164,7 +164,16 @@ DEFAULTS: dict[str, Any] = {
         "search_backend": "duckduckgo",  # duckduckgo | brave | tavily
     },
     "sandbox": {                    # where the tools run (sinobee/sandbox; the sandbox plan)
-        "executor": "host",         # host = on this computer (the only one so far); sandbox = Docker (plan B)
+        "executor": "auto",         # auto = the Docker sandbox when permissions.approval is "sandbox"; host | sandbox
+        "image": "standard",        # standard | office (with LibreOffice)
+        "cpus": "auto",             # auto = up to 4
+        "memory": "auto",           # auto = 60% of Docker's memory, at most 8 GB; or e.g. "6g"
+        "idle_minutes": 30,         # a sandbox not used this long is stopped
+        "prune_days": 14,           # a stopped sandbox (and its home volume) is removed after this many days
+        "network": {
+            "mode": "ask",          # ask = only the domains below (and ones you allow); open = everything
+            "remembered": ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org"],
+        },
         "folders": [],              # authorised folders of this computer: [{"path", "name", "mode": rw|ro|review}]
     },
     "billing": {                    # what happens when the SinoBee.ai subscription allowance runs out (billing.py)

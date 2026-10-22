@@ -132,7 +132,9 @@ async def skill_run(ctx: ToolContext, name: str, script: str = "", args: str = "
                 f"({', '.join(scripts) or 'none'}); put the command and file paths in `args`, e.g. "
                 f"skill_run(name=\"{name}\", script=\"{scripts[0] if scripts else 'scripts/<file>.py'}\", "
                 f"args=\"<command> <folder>\")")
-    if pol.scripts == "confirm" and ctx.config.get("permissions.approval") != "auto":
+    from ..sandbox import executor_of
+    contained = executor_of(ctx).kind == "sandbox"      # a script in the sandbox cannot reach this computer
+    if pol.scripts == "confirm" and ctx.config.get("permissions.approval") != "auto" and not contained:
         ok = bool(ctx.approve) and await ctx.approve(
             "skill_run", {"skill": name, "trust": s.trust, "script": script, "args": args},
             f"runs a script from a {s.trust} skill that has not been reviewed")

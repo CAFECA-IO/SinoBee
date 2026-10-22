@@ -5,3 +5,8 @@
 tests
 docs
 *.db
+.venv
+venv
+node_modules
+**/node_modules
+.ccr-ca.crt

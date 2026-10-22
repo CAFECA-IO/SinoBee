@@ -110,8 +110,22 @@ def environment_block(config) -> str:
         f"Approval mode: {config.get('permissions.approval')}",
         f"Enabled toolsets: {', '.join(config.get('permissions.toolsets') or [])}",
     ]
-    from ..sandbox import for_config
+    from ..sandbox import executor_kind, for_config
     paths = for_config(config).describe()          # empty while the tools run on this computer
+    if paths and executor_kind(config) == "sandbox":
+        from ..sandbox.manager import REMEMBERED
+        allowed = config.get("sandbox.network.remembered")
+        allowed = ", ".join(REMEMBERED if allowed is None else allowed) or "none"
+        paths += ("\n\nThe sandbox is a Linux container (user bee without sudo; Python 3.12, Node with npm, Chromium; install packages "
+                  "with pip and npm). Commands, installs and deletions there need no approval. Install dependencies "
+                  "under your home folder (~, e.g. ~/projects/<name> for a node project; pip installs to ~/.local): "
+                  "it is fast, while /workspace is shared with the user's computer and slow for many small files - "
+                  "put results the user should get in /workspace. The network is off except through a proxy that "
+                  f"allows only: {allowed}"
+                  + (" (everything is allowed: the user set the network to open)"
+                     if config.get("sandbox.network.mode") == "open" else "")
+                  + ". A refused connection answers HTTP 403 naming the domain: tell the user which domain you need "
+                  "and why, or work without it.")
     return "# Environment\n" + "\n".join(f"- {l}" for l in lines) + (f"\n\n{paths}" if paths else "")
 
 

@@ -939,12 +939,13 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
       <!-- ───── 權限與安全 ───── -->
       <section class="pane" data-pane="perm">
         <div class="grp"><div class="grp-h">危險操作要不要先問我<span class="lock" data-lock="permissions.approval"></span></div>
-          <select id="pApproval" hidden><option value="confirm">confirm</option><option value="auto">auto</option><option value="readonly">readonly</option></select>
+          <select id="pApproval" hidden><option value="sandbox">sandbox</option><option value="confirm">confirm</option><option value="auto">auto</option><option value="readonly">readonly</option></select>
           <div class="cardseg" data-for="pApproval">
+            <button type="button" data-v="sandbox"><b>沙盒（實驗）</b><span>指令與檔案在 Docker 沙盒裡執行，不再逐次詢問；沙盒預設不能連網，只放行 pypi 與 npm</span></button>
             <button type="button" data-v="confirm"><b>先問我</b><span>刪檔、執行指令、寫入資料庫等操作會先等你核准（建議）</span></button>
             <button type="button" data-v="auto"><b>全部自動</b><span>不再詢問，只建議在隔離的沙箱或 Docker 裡使用</span></button>
             <button type="button" data-v="readonly"><b>唯讀</b><span>只能查看，不能修改檔案或任何資料</span></button>
-          </div></div>
+          </div><div class="sd" id="pSandboxNote" style="margin-top:8px"></div></div>
         <div class="grp"><div class="grp-h">SinoBee 可以使用的能力<span class="grp-d">關掉後模型就看不到這類工具</span><span class="lock" data-lock="permissions.toolsets"></span></div>
           <div id="pToolsets"></div></div>
       </section>
@@ -3630,6 +3631,10 @@ function renderSettings(){
   const customs = SET.providers.filter(p => p.custom);
   $('#customRows').innerHTML = ''; customs.forEach(c => addCustomRow(c.name, c.base_url));
   $('#pApproval').value = SET.permissions.approval;
+  const sb = SET.sandbox || {};
+  $('#pSandboxNote').textContent = SET.permissions.approval === 'sandbox' && sb.unavailable
+    ? `⚠︎ 沙盒目前無法使用：${sb.unavailable}。在那之前改在本機執行，危險操作仍會先問你。需要 Docker Desktop，並在終端機執行 sinobee sandbox build。`
+    : (SET.permissions.approval === 'sandbox' ? `沙盒執行中（映像 ${sb.image || ''}）` : '');
   $('#pToolsets').innerHTML = SET.all_toolsets.map(t => { const m = TOOLSET_INFO[t] || {name: t, desc: '', icon: 'zap'};
     return `<div class="tsrow"><span class="ti">${ic(m.icon)}</span><div class="sl"><b>${esc(m.name)}${m.risk ? `<span class="risk">${esc(m.risk)}</span>` : ''}</b><span class="sd">${esc(m.desc)}</span></div>
       <input type="checkbox" class="sw" role="switch" value="${t}" aria-label="${esc(m.name)}" ${SET.permissions.toolsets.includes(t) ? 'checked' : ''}></div>`; }).join('');
