@@ -1684,6 +1684,8 @@ class Agent:
                 rec.state["timeline"] = self._timeline.snapshot()
                 rec.state["deliverables"] = deliverables
                 rec.state["other_files"] = other_files[-60:]
+        if self.depth == 0:
+            await self._sandbox_task_end()
         self._emit("turn_end", {"text": final_text, "status": status, "error": error_info, "steps": steps,
                                 "timeline": tl_meta, "deliverables": deliverables,
                                 "other_files": (other_files or [])[-60:],
@@ -1721,6 +1723,19 @@ class Agent:
         return final_text
 
     IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)\s]+\.(?:png|jpe?g|gif|webp))\)", re.I)
+
+    async def _sandbox_task_end(self) -> None:
+        """Network allowed "only for this task" (request_network) ends with the task (sandbox plan C2)."""
+        ex = self.ctx.state.get("executor")
+        if getattr(ex, "kind", "") != "sandbox":
+            return
+        m, conv = ex.manager, ex.conversation
+        if m.grants.pop(conv, None) is not None or conv in m.open_all:
+            m.open_all.discard(conv)
+            try:
+                await m.push_policy(conv)
+            except Exception:  # noqa: BLE001
+                log.warning("could not narrow the sandbox network again", exc_info=True)
 
     def _quota_once(self, qe: dict) -> bool:
         """A quota event to show: always when it asks you (the billing dialog); a switch to points / your own models

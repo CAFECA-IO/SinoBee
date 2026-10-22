@@ -77,7 +77,8 @@ class Registry:
                 continue
             if t.check is not None:
                 try:
-                    if not t.check():
+                    takes_config = bool(inspect.signature(t.check).parameters)
+                    if not (t.check(config) if takes_config else t.check()):
                         continue
                 except Exception:
                     continue
@@ -103,10 +104,19 @@ class Registry:
             if refused:
                 return ToolResult.error(refused)
         mode = ctx.config.get("permissions.approval", "confirm")
+        if tool.toolset in ("desktop", "browser"):
+            from ..sandbox import executor_of
+            ex = executor_of(ctx)
+            if ex.kind == "sandbox":
+                try:
+                    await ex.prepare()          # the sandbox's desktop must be up before a desktop / browser tool
+                except Exception as e:  # noqa: BLE001
+                    return ToolResult.error(f"the sandbox desktop is not available: {e}")
         if mode == "sandbox":
             # the sandbox: what stays inside it needs no approval; anything else is asked as in "confirm"
             from ..sandbox import executor_of
-            contained = tool.name in CONTAINED and executor_of(ctx).kind == "sandbox"
+            contained = (tool.name in CONTAINED or tool.toolset in ("desktop", "browser")) \
+                and executor_of(ctx).kind == "sandbox"
             mode = "auto" if contained and not tool.always_confirm else "confirm"
         if mode == "readonly" and tool.writes:
             return ToolResult.error(f"'{tool.name}' is blocked: SinoBee is running in readonly mode")

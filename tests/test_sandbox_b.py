@@ -227,8 +227,8 @@ def test_network_only_through_the_proxy(box_config):
     ctx = sandbox_ctx(config, conv, [])
     out = dispatch(ctx, "shell", command="curl -s -m 8 -o /dev/null -w 'blocked=%{http_code}' https://example.com; "
                                          "curl -s -m 5 --noproxy '*' https://example.com || echo ' direct=refused'").content
-    assert "direct=refused" in out
-    log = asyncio.run(manager_for(config).connection_log())
+    assert "direct=refused" in out and "network blocked: example.com" in out
+    log = manager_for(config).connections
     assert any(e["host"] == "example.com" and not e["allowed"] and e["conversation"] == conv for e in log)
 
 

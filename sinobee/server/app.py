@@ -15,7 +15,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from ..agent import Agent, Runtime
 from ..config import Config
 from ..tools import desktop as desktop_tools
-from . import account_api, db_api, evals_api, share_api, files_api, local_api, quality_api, settings_api, skills_api, work_api
+from . import (account_api, db_api, evals_api, share_api, files_api, local_api, quality_api, sandbox_api, settings_api,
+               skills_api, work_api)
 
 log = logging.getLogger("sinobee.server")
 STATIC = Path(__file__).resolve().parent / "static"
@@ -23,6 +24,15 @@ STATIC = Path(__file__).resolve().parent / "static"
 
 _BUILD: list = []
 
+
+
+def _sandbox_on(config) -> bool:
+    """The tools run in the Docker sandbox now (the GUI shows the live view then)."""
+    from ..sandbox import executor_kind
+    try:
+        return executor_kind(config) == "sandbox"
+    except Exception:  # noqa: BLE001
+        return False
 
 def _build() -> str:
     """A short build id: $SINOBEE_BUILD, else the git commit the code runs from, else ''."""
@@ -75,7 +85,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     @app.middleware("http")
     async def auth(request: Request, call_next):
         if request.url.path.startswith("/api/"):
-            token = request.headers.get("x-sinobee-token") or request.query_params.get("token")
+            token = request.headers.get("x-sinobee-token") or request.query_params.get("token") \
+                or request.cookies.get("sb_token")      # a sandbox page preview's own requests (sandbox_api.py)
             try:
                 check_token(token)
             except HTTPException as e:
@@ -131,6 +142,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             "toolsets": r.config.get("permissions.toolsets"),
             "approval": r.config.get("permissions.approval"),
             "desktop": desktop_tools.available(),
+            "sandbox": _sandbox_on(r.config),
             "vnc_url": os.environ.get("SINOBEE_VNC_URL", ""),
             "skills": len(r.skills.skills),
             "memories": len(r.memory.list(limit=100000)),
@@ -502,6 +514,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     skills_api.register_feedback(app, rt, lambda k, d: broadcast(k, d))
     work_api.register(app, rt, lambda: run_snapshot())
+    sandbox_api.register(app, rt, lambda k, d: broadcast(k, d))
     quality_api.register(app, rt, lambda k, d: broadcast(k, d))
     evals_api.register(app, rt, lambda k, d: broadcast(k, d))
     state["local"] = local_api.register(app, rt, lambda k, d: broadcast(k, d))

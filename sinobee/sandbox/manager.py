@@ -37,6 +37,35 @@ ROLE = "org.sinobee.role"
 REMEMBERED = ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org"]
 _managers: dict[str, "SandboxManager"] = {}
 
+# a byte pipe to a TCP port inside the sandbox over `docker exec -i` stdio: the sandbox is on an internal network,
+# which Docker does not publish ports from, so the live view, the browser's DevTools and page previews come this way
+BRIDGE = r"""import socket, sys, threading
+s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=15)
+s.settimeout(None)
+def up():
+    try:
+        while True:
+            d = sys.stdin.buffer.read1(65536)
+            if not d:
+                break
+            s.sendall(d)
+    except OSError:
+        pass
+    finally:
+        try:
+            s.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+threading.Thread(target=up, daemon=True).start()
+out = sys.stdout.buffer
+while True:
+    d = s.recv(65536)
+    if not d:
+        break
+    out.write(d)
+    out.flush()
+"""
+
 
 @dataclass
 class Box:
@@ -94,11 +123,13 @@ class SandboxManager:
         self.boxes: dict[str, Box] = {}          # conversation -> running box
         self.grants: dict[str, set[str]] = {}    # conversation -> domains allowed for it (plan C2)
         self.open_all: set[str] = set()          # conversations allowed all network this task (plan C2)
-        self._lock = asyncio.Lock()
+        self._locks: dict = {}                   # one asyncio.Lock per event loop
         self._avail: tuple[float, str | None] = (0.0, "not checked")
         self._egress: dict | None = None
         self._log_seq = 0
         self._checked: dict[str, float] = {}     # conversation -> when its box was last confirmed running
+        self.takeover: dict[str, float] = {}     # conversation -> since when you control its desktop (plan D1)
+        self._bridges: dict[tuple[str, int], asyncio.base_events.Server] = {}
         self.connections: list[dict] = []       # recent connection log from the egress proxy
 
     # ----------------------------------------------------------------- can we run at all
@@ -271,17 +302,25 @@ class SandboxManager:
         if box and time.time() - self._checked.get(conversation, 0) < 20:     # checked a moment ago
             self.last_used[box.name] = time.time()
             return box
-        async with self._lock:
+        loop = asyncio.get_running_loop()
+        lock = self._locks.get(id(loop))
+        if lock is None:
+            lock = self._locks[id(loop)] = asyncio.Lock()
+        async with lock:
             why = await asyncio.to_thread(self.unavailable)
             if why:
                 raise DockerError(why)
             await self._networks()
             await self._egress_ready()
             name = self.name_of(conversation)
-            rc, out, _ = await docker("inspect", "-f", "{{.State.Running}}", name, timeout=20)
+            rc, out, _ = await docker("inspect", "-f", "{{.State.Running}} {{.Image}}", name, timeout=20)
+            if rc == 0 and out.split()[1:] and out.split()[1] != await self._image_id():
+                # the image was rebuilt (a new SinoBee): a new container on it; the home volume stays
+                await docker("rm", "-f", name, timeout=60)
+                rc = 1
             if rc != 0:
                 await self._create(conversation, name)
-            elif out.strip() != "true":
+            elif out.split()[0] != "true":
                 rc, _, err = await docker("start", name, timeout=60)
                 if rc != 0:
                     raise DockerError(f"cannot start {name}: {err.strip()[:300]}")
@@ -296,6 +335,71 @@ class SandboxManager:
             self.last_used[name] = self._checked[conversation] = time.time()
             await self.push_policy(conversation)
             return box
+
+    async def _image_id(self) -> str:
+        rc, out, _ = await docker("image", "inspect", "-f", "{{.Id}}", image_name(self.config), timeout=20)
+        return out.strip() if rc == 0 else ""
+
+    # ----------------------------------------------------------------- reaching ports inside a sandbox
+    async def open_stream(self, conversation: str, port: int):
+        """(reader, writer, process): a byte stream to 127.0.0.1:<port> inside the conversation's sandbox."""
+        box = await self.ensure(conversation)
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "exec", "-i", box.name, "python3", "-u", "-c", BRIDGE, str(int(port)),
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        return proc.stdout, proc.stdin, proc
+
+    async def bridge(self, conversation: str, port: int) -> int:
+        """A port on 127.0.0.1 of this computer that reaches <port> inside the sandbox (one docker exec per
+        connection). Kept until the sandbox stops."""
+        key = (conversation, int(port))
+        srv = self._bridges.get(key)
+        loop = asyncio.get_running_loop()
+        if srv is not None and srv.is_serving() and getattr(srv, "_sb_loop", None) is loop:
+            return srv.sockets[0].getsockname()[1]
+
+        async def handle(reader, writer):
+            try:
+                r2, w2, proc = await self.open_stream(conversation, port)
+            except Exception:  # noqa: BLE001
+                writer.close()
+                return
+
+            async def pump(src, dst):
+                try:
+                    while True:
+                        data = await src.read(65536)
+                        if not data:
+                            break
+                        dst.write(data)
+                        await dst.drain()
+                except (ConnectionError, OSError, asyncio.CancelledError):
+                    pass
+                finally:
+                    try:
+                        dst.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+            await asyncio.gather(pump(reader, w2), pump(r2, writer))
+            if proc.returncode is None:
+                proc.kill()
+        srv = await asyncio.start_server(handle, "127.0.0.1", 0)
+        srv._sb_loop = loop
+        self._bridges[key] = srv
+        return srv.sockets[0].getsockname()[1]
+
+    def _close_bridges(self, conversation: str) -> None:
+        for key in [k for k in self._bridges if k[0] == conversation]:
+            try:
+                self._bridges.pop(key).close()
+            except RuntimeError:          # its event loop is already closed
+                pass
+
+    def set_takeover(self, conversation: str, on: bool) -> None:
+        if on:
+            self.takeover[conversation] = time.time()
+        else:
+            self.takeover.pop(conversation, None)
 
     async def _create(self, conversation: str, name: str) -> None:
         cpus, mem = self.limits()
@@ -338,6 +442,8 @@ class SandboxManager:
 
     async def stop(self, conversation: str) -> None:
         self._checked.pop(conversation, None)
+        self._close_bridges(conversation)
+        self.takeover.pop(conversation, None)
         await docker("stop", "-t", "3", self.name_of(conversation), timeout=60)
         box = self.boxes.pop(conversation, None)
         if box and self._egress:
@@ -396,6 +502,7 @@ def manager_for(config) -> SandboxManager:
         if old is not None:                      # keep what a reload must not forget
             m.last_used, m.boxes, m.grants, m.open_all = old.last_used, old.boxes, old.grants, old.open_all
             m._egress, m._log_seq, m.connections = old._egress, old._log_seq, old.connections
+            m.takeover, m._bridges = old.takeover, old._bridges
     return m
 
 

@@ -280,7 +280,12 @@ textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:12px;padd
 #desk{width:0;border-left:1px solid var(--line);display:flex;flex-direction:column;background:#000;transition:width .2s}
 #desk.open{width:min(52vw,900px)}
 #desk iframe{border:0;flex:1;width:100%}
-#desk .bar{background:var(--panel);padding:6px 10px;font-size:12px;color:var(--muted);display:flex;justify-content:space-between}
+#desk .bar{background:var(--panel);padding:6px 10px;font-size:12px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:8px}
+#desk .desk-st{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#desk .desk-st.take{color:var(--warn,#c80)}
+#vncScreen{flex:1;min-height:0;background:#000;display:flex}
+#vncScreen>div{flex:1}
+#deskBtn.pulse{box-shadow:0 0 0 2px var(--accent)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px}
 .modal.open{display:flex}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;max-width:560px;width:100%;box-shadow:var(--shadow)}
@@ -842,7 +847,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
     <textarea id="input" placeholder="描述任務，例如：幫我查明天台北的天氣並存成 weather.md（可拖曳或貼上圖片、檔案）" rows="1"></textarea><button class="btn icon lg tip-up tip-left" data-icon="stop" aria-label="停止目前任務並改做這個" id="interruptBtn" type="button" hidden></button><button class="btn icon lg primary tip-up tip-left" data-icon="send" aria-label="送出（Enter）" id="sendBtn"></button></form>
 </main>
 <div id="sideScrim" hidden></div>
-<section id="desk"><div class="bar"><span>Agent 桌面（可直接接手操作）</span><a href="#" id="deskPop" target="_blank" style="color:inherit">新視窗開啟</a></div><iframe id="vnc" title="desktop"></iframe></section>
+<section id="desk"><div class="bar"><span id="deskLabel">Agent 桌面（可直接接手操作）</span><span id="deskState" class="desk-st"></span><button type="button" class="btn sm" id="deskTake" hidden>接手操作</button><a href="#" id="deskPop" target="_blank" style="color:inherit">新視窗開啟</a></div><iframe id="vnc" title="desktop"></iframe><div id="vncScreen" hidden></div></section>
 <div class="modal" id="approval"><div class="card"><h3 style="margin-top:0">需要你的核准</h3>
   <div id="apReason"></div><pre id="apArgs"></pre>
   <div class="row"><button class="btn" id="apNo">拒絕</button><button class="btn primary" id="apYes">允許</button></div></div></div>
@@ -950,6 +955,9 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
             <button type="button" data-v="auto"><b>全部自動</b><span>不再詢問，只建議在隔離的沙箱或 Docker 裡使用</span></button>
             <button type="button" data-v="readonly"><b>唯讀</b><span>只能查看，不能修改檔案或任何資料</span></button>
           </div><div class="sd" id="pSandboxNote" style="margin-top:8px"></div></div>
+        <div class="grp"><div class="grp-h">沙盒的網路<span class="grp-d">只在「沙盒」模式使用：沙盒預設不能連網，只能連到下列網域；需要其他網域時 SinoBee 會先問你</span></div>
+          <div class="srow"><div class="sl"><b>連網方式</b></div><select id="pNetMode"><option value="ask">只允許下列網域，其他先問我（建議）</option><option value="open">一律允許</option></select></div>
+          <div class="srow"><div class="sl"><b>已記住的網域</b><span class="sd">每行一個；網域也包含它的子網域</span></div><textarea id="pNetDomains" rows="4" style="width:100%;font-family:var(--mono,monospace);font-size:12px"></textarea></div></div>
         <div class="grp"><div class="grp-h">SinoBee 可以使用的能力<span class="grp-d">關掉後模型就看不到這類工具</span><span class="lock" data-lock="permissions.toolsets"></span></div>
           <div id="pToolsets"></div></div>
       </section>
@@ -2064,6 +2072,7 @@ function handle(ev, replay = false){
     case 'ask': askBind(ev); break;
     case 'ask_resolved': askDone(document.querySelector(`.askcard[data-rid="${ev.request_id}"]`), ev); break;
     case 'tool_call': {
+      if (!replay && SANDBOX_ON && DESK_TOOLS.has(ev.name) && !$('#desk').classList.contains('open')) $('#deskBtn').classList.add('pulse');
       if (ev.name === 'ask_user') { procClose(); toolEls[ev.id] = askCard(ev.arguments || {}, replay); break; }
       const d = document.createElement('details'); d.className = 'tool pending';
       d.innerHTML = `<summary><span class="st"></span> <b>${esc(ev.name)}</b> ${esc(summarize(ev.name, ev.arguments))}<span class="dur"></span></summary><div class="body">${esc(JSON.stringify(ev.arguments, null, 2))}</div>`;
@@ -2088,6 +2097,7 @@ function handle(ev, replay = false){
     case 'approval_request': pendingApproval = ev.request_id; $('#apReason').innerHTML = `<b>${esc(ev.tool)}</b>：${esc(DANGER_ZH[ev.reason] || ev.reason)}`;
       $('#apArgs').textContent = JSON.stringify(ev.arguments, null, 2); $('#approval').classList.add('open'); break;
     case 'approval_resolved': if (ev.request_id === pendingApproval) $('#approval').classList.remove('open'); break;
+    case 'sandbox': if (ev.session_id === sessionId && !!ev.takeover !== DESK_TAKE) { DESK_TAKE = !!ev.takeover; deskConnect(); } break;
     case 'recall': add('🧠 想起：' + ev.memories.map(m => mathText(m.content)).join('；'), 'note'); break;
     case 'memory': {
       const verb = {update: '已更新記憶', forget: '已移除記憶', compress: '已壓縮記憶', maintain: '已自動整理記憶'}[ev.action] || '已記住';
@@ -2300,12 +2310,43 @@ function userHtml(text){
   for (let m; (m = rest.match(/^\/([\w.-]+)(?:\s+|$)/)) && names.length < 5 && !/^learn$/i.test(m[1]);) { names.push(m[1]); rest = rest.slice(m[0].length); }
   return names.map(n => `<span class="skchip">${SKILL_SVG}${esc(n)}</span>`).join('') + (rest ? md(rest) : '');
 }
-$('#newBtn').onclick = () => { PROC = null; TB = null; sessionId = null; setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
+$('#newBtn').onclick = () => { PROC = null; TB = null; sessionId = null; setTimeout(deskSession); setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
 $('#stopBtn').onclick = () => ws.send(JSON.stringify({type:'cancel', session_id: sessionId}));
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); tab = b.dataset.tab; loadSide(); });
 
+// ---------------- the sandbox's live view (sandbox plan D1) ----------------
+let SANDBOX_ON = false, RFBOBJ = null, DESK_SID = null, DESK_TAKE = false;
+const DESK_TOOLS = new Set(['screenshot', 'mouse', 'keyboard', 'screen_info', 'wait_change', 'zoom', 'clipboard', 'window', 'launch', 'browser']);
+function loadRFB(){ return window.RFB ? Promise.resolve() : new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = '/vendor/novnc-rfb.min.js'; sc.onload = ok; sc.onerror = no; document.head.appendChild(sc); }); }
+function deskClose(){ if (RFBOBJ) { const r = RFBOBJ; RFBOBJ = null; try { r.disconnect(); } catch (e) {} } DESK_SID = null; }
+function deskPaint(msg){ const st = $('#deskState'); st.textContent = msg; st.classList.toggle('take', DESK_TAKE);
+  $('#deskTake').textContent = DESK_TAKE ? '交還給 SinoBee' : '接手操作'; $('#deskTake').classList.toggle('primary', DESK_TAKE); }
+async function deskConnect(){
+  if (!SANDBOX_ON || !$('#desk').classList.contains('open')) return;
+  deskClose();
+  const sid = sessionId; DESK_SID = sid; $('#vncScreen').innerHTML = '';
+  if (!sid) { DESK_TAKE = false; deskPaint('對話開始、用到工具後，這裡會顯示這個對話的沙盒桌面'); return; }
+  try { const st = await (await fetch(`/api/sandbox/${encodeURIComponent(sid)}?token=${encodeURIComponent(token)}`)).json(); DESK_TAKE = !!st.takeover; } catch (e) {}
+  deskPaint('連線中…');
+  try { await loadRFB(); } catch (e) { deskPaint('無法載入即時畫面元件'); return; }
+  if (DESK_SID !== sid) return;
+  const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/sandbox/${encodeURIComponent(sid)}/vnc?token=${encodeURIComponent(token)}`;
+  const rfb = new RFB($('#vncScreen'), url, {shared: true}); RFBOBJ = rfb;
+  rfb.viewOnly = !DESK_TAKE; rfb.scaleViewport = true; rfb.background = '#000';
+  rfb.addEventListener('connect', () => deskPaint(DESK_TAKE ? '你正在操作：SinoBee 的桌面與瀏覽器工具會等你交還' : '即時畫面（只看）'));
+  rfb.addEventListener('disconnect', () => { if (RFBOBJ !== rfb) return; RFBOBJ = null; deskPaint('連線中斷，重新連線中…');
+    setTimeout(() => { if (DESK_SID === sid && !RFBOBJ) deskConnect(); }, 2500); });
+}
+function deskSession(){ if (SANDBOX_ON && $('#desk').classList.contains('open') && DESK_SID !== sessionId) deskConnect(); }
+$('#deskTake').onclick = async () => {
+  if (!sessionId) return;
+  const on = !DESK_TAKE;
+  try { await post(`/api/sandbox/${encodeURIComponent(sessionId)}/takeover`, {on}); } catch (e) { return; }
+  DESK_TAKE = on; deskConnect();      // view-only and control are two VNC servers: reconnect to the other one
+};
 function markSideSession(){
+  deskSession();
   document.querySelectorAll('#side .item[data-sid]').forEach(d => { const on = d.dataset.sid === sessionId;
     d.classList.toggle('on', on); on ? d.setAttribute('aria-current', 'true') : d.removeAttribute('aria-current'); });
 }
@@ -2582,7 +2623,13 @@ async function refreshStatus(full = true){
   NEEDS_SETUP = !!s.needs_setup;
   if (!full) return;
   if (s.needs_setup) openSettings(true);
-  if (s.desktop) {
+  SANDBOX_ON = !!s.sandbox;
+  if (SANDBOX_ON) {                    // the live view of this conversation's sandbox (noVNC over /api/sandbox/…/vnc)
+    $('#deskBtn').hidden = false; $('#deskPop').hidden = true; $('#vnc').hidden = true; $('#vncScreen').hidden = false;
+    $('#deskLabel').textContent = '沙盒桌面'; $('#deskTake').hidden = false;
+    $('#deskBtn').onclick = () => { $('#deskBtn').classList.remove('pulse'); const d = $('#desk'); d.classList.toggle('open');
+      if (d.classList.contains('open')) deskConnect(); else deskClose(); };
+  } else if (s.desktop) {
     const url = s.vnc_url || `${location.protocol}//${location.hostname}:6080/vnc.html?autoconnect=1&resize=scale&reconnect=1`;
     $('#deskBtn').hidden = false; $('#deskPop').href = url;
     $('#deskBtn').onclick = () => { const d = $('#desk'); if (!$('#vnc').src) $('#vnc').src = url; d.classList.toggle('open'); };
@@ -3636,6 +3683,8 @@ function renderSettings(){
   $('#customRows').innerHTML = ''; customs.forEach(c => addCustomRow(c.name, c.base_url));
   $('#pApproval').value = SET.permissions.approval;
   const sb = SET.sandbox || {};
+  $('#pNetMode').value = (sb.network || {}).mode || 'ask';
+  $('#pNetDomains').value = ((sb.network || {}).remembered || []).join('\n');
   $('#pSandboxNote').textContent = SET.permissions.approval === 'sandbox' && sb.unavailable
     ? `⚠︎ 沙盒目前無法使用：${sb.unavailable}。在那之前改在本機執行，危險操作仍會先問你。需要 Docker Desktop，並在終端機執行 sinobee sandbox build。`
     : (SET.permissions.approval === 'sandbox' ? `沙盒執行中（映像 ${sb.image || ''}）` : '');
@@ -3880,6 +3929,7 @@ function collectSettings(){
                         preference: $('#rPref .on')?.dataset.p || 'balanced', pin: $('#rPin').value, auxiliary: $('#mAux').value, thinking: $('#mEsc').value, reviewer: $('#mRev').value,
                         embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto', max_output_tokens: $('#mOut').value.trim() || 'auto'},
                 permissions: {approval: $('#pApproval').value, toolsets: [...document.querySelectorAll('#pToolsets input:checked')].map(i => i.value)},
+                sandbox: {network: {mode: $('#pNetMode').value, remembered: $('#pNetDomains').value.split(/\s+/).filter(Boolean)}},
                 usage: {daily_budget_usd: $('#uDaily').value, monthly_budget_usd: $('#uMonthly').value,
                         task_max_usd: $('#uTaskUsd').value, task_max_tokens: $('#uTaskTok').value, task_max_quota_pct: $('#uTaskQuota').value, currency: $('#uCurrency').value,
                         currency_rate: $('#uRate').value, enforce_budget: $('#uEnforce').checked},

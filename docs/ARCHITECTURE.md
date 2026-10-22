@@ -1960,3 +1960,34 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   審批、退回、只在需要時檢查 Docker、設定 API、記憶體上限、提示詞、網域規則、代理放行／拒絕／紀錄（不需 Docker）、
   沙盒內執行與權限、只能經代理連網、逾時與停止會結束沙盒內的行程、閒置停止後自動重啟、G2 情境（寫 Python、
   pip 與 npm 安裝、刪檔，0 次審批，本機家目錄沒有新檔案）。完整測試 610 通過。
+
+## 48. 沙盒計畫 D＋C2：沙盒桌面、即時畫面、預覽與連網許可（2026-10-22）
+
+- **桌面**（`docker/sandbox-init.sh`）：容器啟動時開 Xvfb `:99`（1440×900）＋fluxbox，以及兩個只聽容器內 localhost 的
+  x11vnc：5900 只看（即時畫面）、5901 可操作（你接手時）。映像重建後，既有容器會在下次使用時以新映像重建（家目錄
+  volume 保留，`manager.ensure` 比對映像 ID）。
+- **不開任何埠**（`manager.open_stream` / `bridge`）：internal 網路的容器 Docker 不發佈埠，所以 VNC、DevTools、預覽都經
+  `docker exec -i <容器> python3 -c BRIDGE <port>` 的 stdio 轉接；`bridge()` 在本機 127.0.0.1 開一個轉接埠（每個連線一次
+  docker exec）。轉接埠與瀏覽器狀態記住建立它的 event loop，換 loop 時重建（CLI、測試）。
+- **桌面工具在沙盒**（D2）：`SandboxExecutor.input()` 是在容器裡跑 xdotool 的 `SandboxDesktop`；截圖用容器內的 mss
+  （比 ImageMagick 快約 10 倍）。新動作：`mouse` 的 `drag_path`（路徑＋秒數，一次 xdotool 呼叫）、`keyboard` 的
+  `hold`（按住幾秒）、新工具 `wait_change`（等畫面變化或靜止）、`zoom`（區域放大）、`clipboard`、`window`（列出、
+  切換、最大化、關閉）、`launch`（開 App）。主機的 xdotool 後端也支援這些；pyautogui 只支援 hold 與 drag_path。
+  沙盒模式下桌面工具一律可用（`available(config)`），且不需要審批。
+- **瀏覽器在沙盒**（D3）：`browser` 工具的狀態改成每個對話一份。沙盒模式下在容器桌面上啟動 Chromium（`--no-sandbox`、
+  代理 `egress:3128`、localhost 不走代理、關掉背景連線），經 `bridge(9222)` 用 `connect_over_cdp` 操作，你在即時
+  畫面看得到。被代理擋下的網址回傳「request_network(domains=[...])」提示；上傳檔案以內容傳送。
+- **即時畫面**（D1，`server/sandbox_api.py`、前端 `#desk`）：沙盒模式時頂列的螢幕按鈕打開右側面板，以 noVNC
+  （`static/vendor/novnc-rfb.min.js`，@novnc/novnc 1.5.0 用 esbuild 打包，MPL-2.0）連 `WS /api/sandbox/{sid}/vnc`。
+  預設只看；「接手操作」→ `POST /api/sandbox/{sid}/takeover` 並改連 5901。接手期間代理的桌面與瀏覽器工具回報
+  「使用者正在操作，等候交還」。代理用到桌面工具而面板沒開時，按鈕會亮起。
+- **預覽**（D4）：`/api/sandbox/{sid}/preview/{port}/…` 把沙盒裡的網頁伺服器轉給你的瀏覽器；第一次帶 `?token=`，
+  之後由 cookie `sb_token`（只限該預覽路徑）帶著。只轉 HTTP，絕對路徑的連結不會改寫。
+- **連網許可**（C2，`tools/sandbox_tools.py`）：`request_network(domains, reason)` 以對話中的選項詢問：只這次任務／
+  記住這些網域（寫入 `sandbox.network.remembered`）／這次任務允許全部網路／不允許；答案立即推給代理。「只這次」在
+  回合結束時收回（`Agent._sandbox_task_end`）。指令執行中被擋的網域會附在 shell 輸出最後（瀏覽器自己的背景連線不算），
+  提示要申請哪個網域。設定 →「權限與安全」→「沙盒的網路」可改連網方式（只允許列出的網域／一律允許）與記住的網域。
+- **測試**：`tests/test_sandbox_d.py` 15 項（不需 Docker：網域整理、四種回答與已允許、任務結束收回、擋下提示只報一次
+  且不含瀏覽器雜訊、設定 API、hold／drag_path 是一次 xdotool 呼叫、沙盒模式的工具清單；Docker：沙盒桌面的截圖、
+  開 App、等畫面、視窗、剪貼簿、按住、拖曳、放大；接手時暫停；沙盒瀏覽器、被擋網址的提示、預覽轉接、VNC
+  WebSocket 握手、接手 API）。完整測試 625 通過。

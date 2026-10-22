@@ -124,8 +124,12 @@ def environment_block(config) -> str:
                   f"allows only: {allowed}"
                   + (" (everything is allowed: the user set the network to open)"
                      if config.get("sandbox.network.mode") == "open" else "")
-                  + ". A refused connection answers HTTP 403 naming the domain: tell the user which domain you need "
-                  "and why, or work without it.")
+                  + ". A refused connection answers HTTP 403 naming the domain: call request_network(domains, "
+                  "reason) to ask the user, or work without it. The sandbox has its own desktop (1440x900) that the "
+                  "user can watch live: the browser tool drives the Chromium on it, and screenshot / mouse / "
+                  "keyboard / wait_change / zoom / window / launch work on it - use them to try a page or app the "
+                  "way a person would (canvas, games, drag and drop). If the user takes over the desktop, those "
+                  "tools wait until it is handed back.")
     return "# Environment\n" + "\n".join(f"- {l}" for l in lines) + (f"\n\n{paths}" if paths else "")
 
 

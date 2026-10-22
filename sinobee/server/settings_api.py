@@ -27,7 +27,11 @@ def _sandbox_info(cfg) -> dict:
     """Whether the sandbox can run here (Docker, the image) - checked only when someone asks for it."""
     from ..sandbox import executor_kind, wanted_kind
     from ..sandbox.manager import image_name, manager_for
-    info = {"wanted": wanted_kind(cfg), "image": image_name(cfg)}
+    from ..sandbox.manager import REMEMBERED
+    remembered = cfg.get("sandbox.network.remembered")
+    info = {"wanted": wanted_kind(cfg), "image": image_name(cfg),
+            "network": {"mode": cfg.get("sandbox.network.mode", "ask") or "ask",
+                        "remembered": list(REMEMBERED if remembered is None else remembered)}}
     if info["wanted"] == "sandbox" or cfg.get("permissions.approval") == "sandbox":
         info["unavailable"] = manager_for(cfg).unavailable()
         info["running"] = executor_kind(cfg)
@@ -277,6 +281,20 @@ def register(app: FastAPI, rt_getter) -> None:
             if "currency" in body["usage"]:
                 u["currency"] = str(body["usage"]["currency"] or "USD")[:8]
             updates["usage"] = u
+        if "sandbox" in body:
+            sb = body["sandbox"] or {}
+            net = sb.get("network") or {}
+            out = {}
+            if "mode" in net:
+                if net["mode"] not in ("ask", "open"):
+                    errors.append("sandbox.network.mode must be ask | open")
+                else:
+                    out["mode"] = net["mode"]
+            if "remembered" in net:
+                from ..tools.sandbox_tools import clean
+                out["remembered"] = clean(net["remembered"])
+            if out:
+                updates["sandbox"] = {"network": out}
         if "billing" in body:
             b = body["billing"] or {}
             bl = {}

@@ -55,10 +55,10 @@ SNAPSHOT_JS = r"""
 """
 
 _lock = asyncio.Lock()
-_state: dict = {}
+_states: dict[str, dict] = {}    # "host" (this computer's browser) or "sandbox:<conversation>" -> pw, context, tab
 
 
-def available() -> bool:
+def available(config=None) -> bool:
     try:
         import playwright  # noqa: F401
         return True
@@ -66,15 +66,81 @@ def available() -> bool:
         return False
 
 
+def _key(ctx: ToolContext) -> str:
+    from ..sandbox import executor_of
+    ex = executor_of(ctx)
+    return f"sandbox:{ex.conversation}" if ex.kind == "sandbox" else "host"
+
+
+def _st(ctx: ToolContext) -> dict:
+    return _states.setdefault(_key(ctx), {})
+
+
+SANDBOX_CHROME = ("chromium --remote-debugging-port=9222 --user-data-dir=/home/bee/.config/sinobee-chromium "
+                  "--no-first-run --no-default-browser-check --no-sandbox --disable-dev-shm-usage "
+                  "--start-maximized --disable-blink-features=AutomationControlled --lang=zh-TW "
+                  "--disable-background-networking --disable-component-update --disable-sync --no-pings "
+                  "--disable-default-apps --disable-domain-reliability --metrics-recording-only "
+                  "--disable-features=OptimizationHints,MediaRouter,AutofillServerCommunication "
+                  "--proxy-server=http://egress:3128 --proxy-bypass-list='localhost;127.0.0.1;[::1]' "
+                  "about:blank")
+
+
+async def _sandbox_context(ctx: ToolContext, st: dict):
+    """The Chromium on the sandbox's desktop (you see it in the live view), driven over DevTools (plan D3)."""
+    import json as _json
+    import urllib.request
+    from ..sandbox import executor_of
+    ex = executor_of(ctx)
+    m, conv = ex.manager, ex.conversation
+    name = m.name_of(conv)
+    proc = await asyncio.create_subprocess_exec("docker", "exec", name, "pgrep", "-f", "remote-debugging-port=9222",
+                                                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+    if await proc.wait() != 0:
+        await (await asyncio.create_subprocess_exec(
+            "docker", "exec", "-d", "-e", "DISPLAY=:99", name, "bash", "-lc",
+            f"exec {SANDBOX_CHROME} >/tmp/chromium.log 2>&1")).wait()
+    port = await m.bridge(conv, 9222)
+
+    def version():
+        op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with op.open(f"http://127.0.0.1:{port}/json/version", timeout=3) as r:
+            return _json.loads(r.read())
+    info = None
+    for _ in range(60):
+        try:
+            info = await asyncio.to_thread(version)
+            break
+        except Exception:  # noqa: BLE001
+            await asyncio.sleep(0.25)
+    if not info:
+        raise RuntimeError("the sandbox browser did not start (see /tmp/chromium.log in the sandbox)")
+    ws = info["webSocketDebuggerUrl"]
+    ws = "ws://127.0.0.1:%d/%s" % (port, ws.split("/", 3)[3])
+    from playwright.async_api import async_playwright
+    pw = await async_playwright().start()
+    browser = await pw.chromium.connect_over_cdp(ws)
+    bctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+    st.update(pw=pw, browser=browser, context=bctx, current=0, loop=asyncio.get_running_loop())
+    return bctx
+
+
 async def _context(ctx: ToolContext):
     async with _lock:
-        bctx = _state.get("context")
+        st = _st(ctx)
+        if st.get("loop") is not None and st["loop"] is not asyncio.get_running_loop():
+            st.clear()                       # made by another event loop (a CLI run, a test): start again
+        bctx = st.get("context")
         if bctx is not None:
             try:
                 _ = bctx.pages
-                return bctx
+                if st.get("browser") is None or st["browser"].is_connected():
+                    return bctx
             except Exception:
-                _state.clear()
+                pass
+            st.clear()
+        if _key(ctx) != "host":
+            return await _sandbox_context(ctx, st)
         from playwright.async_api import async_playwright
         pw = await async_playwright().start()
         headless = ctx.config.get("browser.headless")
@@ -94,12 +160,13 @@ async def _context(ctx: ToolContext):
         if os.environ.get("SINOBEE_CHROMIUM"):
             kwargs["executable_path"] = os.environ["SINOBEE_CHROMIUM"]
         bctx = await pw.chromium.launch_persistent_context(str(ctx.config.browser_profile), **kwargs)
-        _state.update(pw=pw, context=bctx, current=0)
+        st.update(pw=pw, context=bctx, current=0, loop=asyncio.get_running_loop())
         return bctx
 
 
 async def _page(ctx: ToolContext, new: bool = False):
     bctx = await _context(ctx)
+    _state = _st(ctx)
     pages = bctx.pages
     if new or not pages:
         page = await bctx.new_page()
@@ -174,6 +241,11 @@ async def browser(ctx: ToolContext, action: str, url: str | None = None, ref: st
                   seconds: float | None = None, index: int | None = None, script: str | None = None,
                   path: str | None = None):
     action = action.lower().strip()
+    from ..sandbox import executor_of
+    ex = executor_of(ctx)
+    if ex.kind == "sandbox" and ex.conversation in ex.manager.takeover:
+        return f"ERROR: {ex.TAKEN}"
+    _state = _st(ctx)
     if action == "new_tab":
         page = await _page(ctx, new=True)
         if url:
@@ -185,8 +257,16 @@ async def browser(ctx: ToolContext, action: str, url: str | None = None, ref: st
     if action == "navigate":
         if not url:
             return "ERROR: url required"
-        await page.goto(url if "://" in url or url.startswith("about:") else "https://" + url,
-                        wait_until="domcontentloaded", timeout=45000)
+        target = url if "://" in url or url.startswith("about:") else "https://" + url
+        try:
+            await page.goto(target, wait_until="domcontentloaded", timeout=45000)
+        except Exception as e:  # noqa: BLE001
+            if ex.kind == "sandbox" and ("ERR_TUNNEL_CONNECTION_FAILED" in str(e) or "ERR_PROXY" in str(e)):
+                from urllib.parse import urlsplit
+                host = urlsplit(target).hostname or target
+                return (f"ERROR: the sandbox network does not allow {host}. If the task needs it, call "
+                        f"request_network(domains=['{host}'], reason=...); otherwise work without it.")
+            raise
         await asyncio.sleep(0.8)
         return await _snapshot(page)
     if action == "snapshot":
@@ -280,16 +360,30 @@ async def browser(ctx: ToolContext, action: str, url: str | None = None, ref: st
         result = await page.evaluate(script or "document.title")
         return f"{result}"
     if action == "upload":
-        await _loc(page, ref, selector).set_input_files(path)
+        if not path:
+            return "ERROR: path required"
+        host = ex.paths.to_host(path, ctx.config.workspace).resolve()
+        ex.check(host)
+        import mimetypes                   # sent as content: the browser may be in the sandbox
+        await _loc(page, ref, selector).set_input_files(
+            {"name": host.name, "mimeType": mimetypes.guess_type(host.name)[0] or "application/octet-stream",
+             "buffer": host.read_bytes()})
         return f"uploaded {path}"
     return f"ERROR: unknown action '{action}'"
 
 
 async def shutdown():
-    if _state.get("context"):
+    loop = asyncio.get_running_loop()
+    for st in list(_states.values()):
+        if st.get("loop") is not None and st["loop"] is not loop:
+            continue                         # its event loop is gone: nothing left to close from here
         try:
-            await _state["context"].close()
-            await _state["pw"].stop()
+            if st.get("browser") is not None:        # the sandbox's browser keeps running in its container
+                await st["browser"].close()
+            elif st.get("context") is not None:
+                await st["context"].close()
+            if st.get("pw") is not None:
+                await st["pw"].stop()
         except Exception:
             pass
-    _state.clear()
+    _states.clear()

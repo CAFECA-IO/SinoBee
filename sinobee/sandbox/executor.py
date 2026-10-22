@@ -34,6 +34,16 @@ log = logging.getLogger(__name__)
 
 IMPLEMENTED = {"host", "sandbox"}
 
+# hosts browsers reach on their own (updates, safe browsing, sign-in): blocked and logged, but not reported
+BACKGROUND = ("googleapis.com", "gvt1.com", "clients2.google.com", "accounts.google.com", "clients1.google.com",
+              "safebrowsing.google.com", "update.googleapis.com", "content-autofill.googleapis.com")
+
+# the sandbox screen as 4+4 bytes of width / height, then BGRX pixels (sandbox plan D2)
+GRAB = ("import mss, sys\n"
+        "with (mss.MSS() if hasattr(mss, 'MSS') else mss.mss()) as s:\n"
+        "    g = s.grab(s.monitors[1])\n"
+        "    sys.stdout.buffer.write(g.width.to_bytes(4, 'big') + g.height.to_bytes(4, 'big') + bytes(g.bgra))\n")
+
 
 @dataclass
 class RunResult:
@@ -58,6 +68,9 @@ class Executor:
 
     def check(self, p: Path, write: bool = False) -> None:
         """Raise PermissionError when the tools may not reach (or write) this file of the computer."""
+
+    async def prepare(self) -> None:
+        """Before a desktop or browser tool: make sure its desktop is there (the sandbox starts its container)."""
 
     # ----------------------------------------------------------------- files (paths on this computer)
     def read_bytes(self, p: Path) -> bytes:
@@ -147,6 +160,48 @@ class SandboxExecutor(Executor):
     def python(self) -> str:
         return "python3"
 
+    TAKEN = ("The user has taken over the sandbox desktop (live view, 「接手操作」) and is using it now: do not use "
+             "the desktop or the browser until they hand it back. Do other work, or tell the user what you are "
+             "waiting for.")
+
+    async def prepare(self) -> None:
+        box = await self.manager.ensure(self.conversation)
+        for _ in range(50):                      # a new container: its X server takes a moment
+            rc = await _rc("exec", box.name, "test", "-e", "/tmp/.X11-unix/X99")
+            if rc == 0:
+                return
+            await asyncio.sleep(0.1)
+
+    def _taken(self) -> None:
+        if self.conversation in self.manager.takeover:
+            raise RuntimeError(self.TAKEN)
+
+    def desktop_available(self) -> bool:
+        return True
+
+    def input(self):
+        self._taken()
+        return SandboxDesktop(self.manager.name_of(self.conversation))
+
+    def screenshot(self, max_width: int = 1280) -> tuple[bytes, int, int, int, int]:
+        self._taken()
+        import io
+        import subprocess
+        from PIL import Image
+        # mss in the container is ~10x faster than ImageMagick's import; raw pixels, compressed here
+        r = subprocess.run(["docker", "exec", "-e", "DISPLAY=:99", self.manager.name_of(self.conversation),
+                            "python3", "-c", GRAB], capture_output=True, timeout=30)
+        if r.returncode != 0 or len(r.stdout) < 8:
+            raise RuntimeError("cannot capture the sandbox desktop: " + r.stderr.decode(errors="replace")[-200:])
+        w, h = int.from_bytes(r.stdout[:4], "big"), int.from_bytes(r.stdout[4:8], "big")
+        img = Image.frombytes("RGB", (w, h), r.stdout[8:], "raw", "BGRX")
+        raw_w, raw_h = img.size
+        if raw_w > max_width:
+            img = img.resize((max_width, int(raw_h * max_width / raw_w)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", compress_level=3)
+        return buf.getvalue(), img.size[0], img.size[1], raw_w, raw_h
+
     def check(self, p: Path, write: bool = False) -> None:
         m = self.paths.mount_of(p)
         if m is None:
@@ -187,7 +242,29 @@ class SandboxExecutor(Executor):
         if proc.returncode in (125, 126, 127) and ("No such container" in text or "is not running" in text):
             self.manager.forget(self.conversation)          # the box went away: start it again next time
         asyncio.ensure_future(_quiet("exec", box.name, "rm", "-f", pidf))
-        return RunResult(proc.returncode, text)
+        return RunResult(proc.returncode, text + await self._blocked_note())
+
+    async def _blocked_note(self) -> str:
+        """Connections the egress proxy refused during the command: say which domains to ask for (plan C2)."""
+        try:
+            await self.manager.connection_log()
+        except Exception:  # noqa: BLE001
+            return ""
+        seen = getattr(self, "_seen_seq", 0)
+        new = [e for e in self.manager.connections if e.get("seq", 0) > seen]
+        if new:
+            self._seen_seq = max(e.get("seq", 0) for e in new)
+        hosts: dict[str, int] = {}
+        for e in new:
+            if e.get("host", "").endswith(BACKGROUND):      # Chromium phoning home, not the task's doing
+                continue
+            if e.get("conversation") == self.conversation and not e.get("allowed"):
+                hosts[e["host"]] = hosts.get(e["host"], 0) + 1
+        if not hosts:
+            return ""
+        listed = ", ".join(f"{h} ({n}×)" if n > 1 else h for h, n in hosts.items())
+        return (f"\n[SinoBee sandbox] network blocked: {listed}. If the task needs them, call request_network("
+                f"domains=[{', '.join(repr(h) for h in hosts)}], reason=...); otherwise work without them.")
 
     @staticmethod
     async def _kill(name: str, pidf: str, proc) -> None:
@@ -196,6 +273,48 @@ class SandboxExecutor(Executor):
             proc.kill()
         except ProcessLookupError:
             pass
+
+
+def _sandbox_desktop_class():
+    from ..tools.desktop import XdotoolBackend
+
+    class SandboxDesktop(XdotoolBackend):
+        """The xdotool backend, run in the conversation's container (sandbox plan D2)."""
+        name = "sandbox"
+
+        def __init__(self, container: str):
+            self.container = container
+
+        def _run(self, argv, stdin=None, timeout=30):
+            import subprocess
+            cmd = ["docker", "exec"] + (["-i"] if stdin is not None else []) + ["-e", "DISPLAY=:99", self.container]
+            return subprocess.run(cmd + list(argv), capture_output=True, text=True, timeout=timeout, input=stdin)
+
+        def launch(self, command):
+            import subprocess
+            subprocess.run(["docker", "exec", "-d", "-e", "DISPLAY=:99", "-w", "/workspace", self.container,
+                            "bash", "-lc", f"{command} >/tmp/launch.log 2>&1"], capture_output=True, timeout=30)
+            return f"started: {command}"
+    return SandboxDesktop
+
+
+def SandboxDesktop(container: str):        # noqa: N802 - a class made on first use (desktop imports PIL lazily)
+    global _SD
+    if _SD is None:
+        _SD = _sandbox_desktop_class()
+    return _SD(container)
+
+
+_SD = None
+
+
+async def _rc(*args: str) -> int:
+    try:
+        p = await asyncio.create_subprocess_exec("docker", *args, stdout=asyncio.subprocess.DEVNULL,
+                                                 stderr=asyncio.subprocess.DEVNULL)
+        return await asyncio.wait_for(p.wait(), 20)
+    except Exception:  # noqa: BLE001
+        return 1
 
 
 async def _quiet(*args: str) -> None:
