@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 
+from ..images import IMAGE_ERROR
+
 RULES = [
     (r"SinoBee\.ai quota points", "平台點數用完了",
      "可以改用自己的 API 金鑰或本地模型繼續，或等訂閱額度恢復後自動續跑。"),
@@ -46,6 +48,9 @@ RULES = [
      "這個模型不接受 SinoBee 送出的某個參數",
      "SinoBee 會自動拿掉 temperature 這類不影響內容的參數並重送；若仍出現這個錯誤，代表是其他參數，"
      "請把下方詳細內容回報給開發者，或暫時換用其他模型。"),
+    (r"(?:HTTP 4\d\d|INVALID_ARGUMENT|invalid_request)[\s\S]{0,300}?(?:" + IMAGE_ERROR + ")",
+     "圖片超過模型可接受的尺寸或大小",
+     "SinoBee 已自動把圖片縮小後重試，仍被拒絕。可以改用較小的截圖（例如只截一個畫面的高度），或換一個接受大圖的模型。"),
     (r"HTTP 400|INVALID_ARGUMENT|invalid_request", "模型服務拒絕了這次請求",
      "通常是模型與 SinoBee 的格式不相容；請把下方詳細內容回報給開發者，或先改用其他模型。"),
 ]

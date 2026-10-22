@@ -1301,7 +1301,12 @@ function artItem(f){
   if (f.kind === 'audio') return `<div class="art av" title="${title}"><audio controls preload="none" src="${esc(url)}"></audio><span>${name}</span></div>`;
   return `<span class="art doc">${attachCard(f.path, f.name)}</span>`;
 }
-function artStrip(files, label){ return `<div class="arts"><div class="arts-h">${ic('file')} ${esc(label)}（${files.length}）</div><div class="arts-b">${files.map(artItem).join('')}</div></div>`; }
+function artStrip(files, label){
+  // two files with one name (shots_v2/phone.png, shots_v3/phone.png): show where each one is
+  const n = {}; files.forEach(f => { n[f.name] = (n[f.name] || 0) + 1; });
+  const shown = files.map(f => n[f.name] > 1 && f.path && f.path !== f.name ? {...f, name: f.path} : f);
+  return `<div class="arts"><div class="arts-h">${ic('file')} ${esc(label)}（${files.length}）</div><div class="arts-b">${shown.map(artItem).join('')}</div></div>`;
+}
 function showArtifacts(callId, files){
   if (!files?.length) return;
   const anchor = toolEls[callId]; const html = artStrip(files, '產出檔案');

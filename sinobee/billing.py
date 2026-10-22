@@ -126,7 +126,10 @@ def note_quota(config, q: dict) -> None:
         used = {w.get("window"): w.get("usedPct") for w in q.get("windows") or [] if isinstance(w, dict)}
         win = d.get("window")
         vals = [used.get(win)] if win in used else list(used.values())
-        if vals and all(isinstance(v, (int, float)) and v < 100 for v in vals):
+        # back to the subscription only with some room again: right under 100% the next call would run out and
+        # switch again, call after call (billing.switch_back_pct, 95 by default)
+        back = float(config.get("billing.switch_back_pct", 95) or 95)
+        if vals and all(isinstance(v, (int, float)) and v < back for v in vals):
             clear(config, "allowance back")
 
 

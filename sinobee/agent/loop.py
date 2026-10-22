@@ -33,6 +33,10 @@ from ..types import ImagePart, Message, TextPart, ToolCall, ToolResult, Usage
 from .context import OVERFLOW_RE, compact, context_budget, context_window, estimate_tokens, prune_images, with_summary
 from .prompt import build_context_block, build_system_prompt
 
+from ..images import IMAGE_ERROR
+
+# a provider refused the request because of its pictures (images.IMAGE_ERROR after a 4xx)
+IMAGE_REJECTED = re.compile(r"(?:HTTP 4\d\d|INVALID_ARGUMENT|invalid_request)[\s\S]{0,300}?(?:" + IMAGE_ERROR + ")", re.I)
 log = logging.getLogger("sinobee.agent")
 
 EmitFn = Callable[[str, dict], Any]
@@ -1001,9 +1005,9 @@ class Agent:
                                       reviewer=reviewer, level=level, work_log=log_text,
                                       unbacked="\n".join(unbacked))
         parts: list = [TextPart(prompt)]
+        from ..images import parts as image_parts
         for path, img in list(shots.items())[:3]:
-            parts += [TextPart(f"Screenshot of {Path(path).name} as the user sees it:"),
-                      ImagePart.from_bytes(img, "image/jpeg")]
+            parts += image_parts(img, "image/jpeg", f"Screenshot of {Path(path).name} as the user sees it:")
         model = self.rt.judge()
         self._event(f"驗收審查：由 {model.label} 以全新上下文檢查結果")
         deadline = float(self.config.get("agent.model_deadline", 240)) or None
@@ -1153,6 +1157,7 @@ class Agent:
         size_tip = None
         empty_replies = 0
         overflow_retried = False
+        image_retries = 2             # a provider refused the pictures: shrink them and send again (images.shrink)
         after_length = False          # the last reply was cut off at the output limit (U4)
         too_long_left = 2             # timeouts right after a cut-off taken as "too long" before giving up
         nudge = False
@@ -1203,6 +1208,7 @@ class Agent:
         # every turn reports the files it made or changed - also one an earlier turn already showed (a "繼續" that
         # fixes index.html again must still end with the file, not with no output)
         self.ctx.state["artifact_seen"] = set()
+        self._quota_noted: set = set()   # "switched to points / your models" is said once per turn, not per call
 
         hit_limit = False
         for iteration in itertools.count():
@@ -1337,7 +1343,8 @@ class Agent:
                 for qe in current_scope.get().drain_quota_events():
                     if qe.get("window") == "6h":
                         self.rt.memory.mark_quota(100)
-                    self._emit("quota", {**qe, "stopped": True})
+                    if self._quota_once(qe):
+                        self._emit("quota", {**qe, "stopped": True})
                 if OVERFLOW_RE.search(str(e)) and not overflow_retried:
                     # the estimate was too optimistic for this model: compact hard and try once more
                     overflow_retried = True
@@ -1352,6 +1359,20 @@ class Agent:
                                                      force=True, keep_ratio=0.25, reason="overflow")
                     stats["compactions"] = stats.get("compactions", 0) + 1
                     if dieted or self._last_compaction_changed or len(self.history) != before:
+                        continue
+                if image_retries > 0 and IMAGE_REJECTED.search(str(e)):
+                    # the provider refused the pictures (too large, too many): make every picture in the history
+                    # smaller - fewer of them on the second try - and send again instead of stopping the task
+                    from ..images import shrink
+                    side, keep = (1200, 4) if image_retries == 2 else (768, 2)
+                    image_retries -= 1
+                    changed = shrink(self.history, side=side, keep_last=keep)
+                    if changed:
+                        stats.setdefault("image_retries", []).append({"step": steps, "changed": changed, "side": side,
+                                                                      "error": str(e)[:300]})
+                        self._emit("status", {"message": f"模型不接受送出的圖片（太大或太多）：已把 {changed} 張圖片"
+                                                         f"縮小到 {side}px 以內後重試"})
+                        self._event(f"模型拒絕圖片：{changed} 張圖片縮小到 {side}px 以內（最多保留 {keep} 張）後重試")
                         continue
                 from .errors import explain_error
                 error_info = explain_error(e)
@@ -1382,7 +1403,8 @@ class Agent:
             for qe in current_scope.get().drain_quota_events():   # quota used up; a fallback model answered
                 if qe.get("window") == "6h":
                     self.rt.memory.mark_quota(100)
-                self._emit("quota", {**qe, "stopped": False, "answered_by": resp.model})
+                if self._quota_once(qe):
+                    self._emit("quota", {**qe, "stopped": False, "answered_by": resp.model})
             self.usage.add(resp.usage)
             msg = resp.message
             if effort_token is not None:
@@ -1700,6 +1722,20 @@ class Agent:
 
     IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)\s]+\.(?:png|jpe?g|gif|webp))\)", re.I)
 
+    def _quota_once(self, qe: dict) -> bool:
+        """A quota event to show: always when it asks you (the billing dialog); a switch to points / your own models
+        only the first time in this turn (a window near 100% can flip back and forth between calls)."""
+        if qe.get("ask"):
+            return True
+        key = (qe.get("source"), qe.get("window"))
+        noted = getattr(self, "_quota_noted", None)
+        if noted is None:
+            noted = self._quota_noted = set()
+        if key in noted:
+            return False
+        noted.add(key)
+        return True
+
     def _attach_images(self, user_input):
         """Images the user attached (markdown refs to local files) are also sent to the model as pictures."""
         if not isinstance(user_input, str) or not self.config.get("model.vision", True):
@@ -1711,10 +1747,11 @@ class Agent:
             if not p.is_absolute():
                 p = self.config.workspace / p
             try:
-                if p.is_file() and p.stat().st_size < 5_000_000:
+                if p.is_file() and p.stat().st_size < 40_000_000:
                     mt = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
                           ".webp": "image/webp"}.get(p.suffix.lower(), "image/png")
-                    images.append(ImagePart.from_bytes(p.read_bytes(), mt))
+                    from ..images import parts as image_parts
+                    images += image_parts(p.read_bytes(), mt, f"附圖 {p.name}")
             except OSError:
                 continue
         return [TextPart(user_input), *images] if images else user_input

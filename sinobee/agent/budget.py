@@ -307,7 +307,8 @@ def partial_delivery(agent, stats: dict, status: str, reason: str) -> dict | Non
         p = f.get("path") if isinstance(f, dict) else str(f)
         if p and p not in seen:
             seen.add(p)
-            files.append({"path": p, "name": (f.get("name") if isinstance(f, dict) else None) or p.rsplit("/", 1)[-1]})
+            # the path relative to the workspace, not the bare name: shots_v2/phone.png and shots_v3/phone.png differ
+            files.append({"path": p, "name": p})
     checked = [i for i in items if i.get("status") == "done" and not (msr and i.get("milestone"))]
     if not done and not files and not checked:
         return None

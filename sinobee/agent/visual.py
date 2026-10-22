@@ -153,12 +153,13 @@ def to_issues(shots: list[dict], items: list[dict]) -> list[dict]:
 
 
 def message(query: str, lang: str, shots: list[dict]):
-    from ..types import ImagePart, Message, TextPart
+    from ..images import parts as image_parts
+    from ..types import Message, TextPart
     parts: list = [TextPart(RUBRIC.format(query=query[:2000], lang=lang))]
     for n, s in enumerate(shots, 1):
         cap = f"；圖說／標題：「{s['caption']}」" if s.get("caption") else ""
-        parts += [TextPart(f"Picture {n}: {s['label']}{cap}"),
-                  ImagePart.from_bytes(s["image"], s.get("mime", "image/jpeg"))]
+        # a tall picture arrives as strips; they all still belong to Picture n
+        parts += image_parts(s["image"], s.get("mime", "image/jpeg"), f"Picture {n}: {s['label']}{cap}")
     return Message("user", parts)
 
 

@@ -127,20 +127,16 @@ def context_budget(config, max_output: int, model_spec: str | None = None) -> in
 
 # ------------------------------------------------------------------ pruning
 def prune_images(messages: list[Message], keep_last: int = 2) -> None:
-    """Old screenshots are the biggest token cost in computer use; keep only the most recent ones."""
+    """Old screenshots are the biggest token cost in computer use; keep only the most recent ones. Counted per
+    message, so the strips one tall picture was cut into (images.py) stay together."""
     seen = 0
     for m in reversed(messages):
-        if not isinstance(m.content, list):
+        if not isinstance(m.content, list) or not any(isinstance(p, ImagePart) for p in m.content):
             continue
-        new = []
-        for p in reversed(m.content):
-            if isinstance(p, ImagePart):
-                seen += 1
-                if seen > keep_last:
-                    new.append(TextPart("[older screenshot removed]"))
-                    continue
-            new.append(p)
-        m.content = list(reversed(new))
+        seen += 1
+        if seen <= keep_last:
+            continue
+        m.content = [TextPart("[older screenshot removed]") if isinstance(p, ImagePart) else p for p in m.content]
 
 
 def _cut_text(text: str, max_tokens: int) -> str:

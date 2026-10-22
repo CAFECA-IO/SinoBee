@@ -166,6 +166,7 @@ DEFAULTS: dict[str, Any] = {
     "billing": {                    # what happens when the SinoBee.ai subscription allowance runs out (billing.py)
         "on_exhausted": "ask",      # ask | pause | fallback (your own keys and local models)
         "auto_points": False,       # spend platform points without asking first
+        "switch_back_pct": 95,      # after a switch to points / your models, back to the subscription below this use %
         "share_stats": False,       # send anonymous task outcomes to SinoBee.ai (model allocation, P5); off = nothing
     },
     "usage": {

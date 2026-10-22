@@ -163,7 +163,9 @@ def _normalise(value: Any, limit: int) -> ToolResult:
     if isinstance(res.content, str):
         res.content = _truncate(res.content, limit)
     else:
-        res.content = [TextPart(_truncate(p.text, limit)) if isinstance(p, TextPart) else p for p in res.content]
+        from ..images import fit_content       # a full-page screenshot is cut into strips / scaled to fit
+        res.content = fit_content([TextPart(_truncate(p.text, limit)) if isinstance(p, TextPart) else p
+                                   for p in res.content])
     return res
 
 
