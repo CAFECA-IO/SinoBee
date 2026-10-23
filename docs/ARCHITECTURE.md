@@ -2218,3 +2218,20 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   備妥時整批檢查權限與空間、從檢查點取出舊內容、保存目前的檔案（任何問題都不動資料夾），再逐檔原子寫入並記錄進度、寫前再確認；
   中斷後在對話設定的檢查點面板「繼續完成」或「全部復原」；這個對話的任務在執行時不能從介面還原（409）。
 - 測試：tests/test_memory_scope.py（注入情境、範圍、合併、舊資料、工具、詢問、記憶頁 API）、tests/test_sandbox_big.py（還原中斷）。
+
+## 60. 沙盒階段 1：同時執行上限、排隊、健康提示、沙盒資源與管理（2026-10-24）
+
+- **容量**：`SandboxManager.capacity()` 依 Docker 的 CPU 與記憶體算出同時執行上限（自動＝ Docker 記憶體 80% ÷ 2 GB，1–6 個；
+  7.7 GB 約 3 個）與每個沙盒的記憶體（80% 平分，1.5–8 GB）；設定 `sandbox.max_running`（auto 或 1–12）、`sandbox.queue_minutes`（預設 30）。
+- **排隊**：`ensure()` 在沙盒未執行時先取得名額（`_slot`）：未滿就啟動；滿了且有閒置沙盒（沒有任務在跑、最久沒用）就停止它（容器保留，
+  下次再啟動）；否則排隊並廣播 `sandbox_queue`（第幾位、執行中數、上限），輸入框上方顯示「等待沙盒空出來 · 第 n 位」；等太久則以原因結束。
+  任務開始/結束時 `begin`/`end` 標記忙碌，忙碌的沙盒不會被停。
+- **健康與修復**（`sandbox/admin.py`）：`health()` 回報一個問題與可做的動作——沒有 Docker（下載）、Docker 未執行（開啟 Docker／重新檢查）、
+  映像未建立或 SinoBee 更新後過期（建立／重建映像）、建立中（進度）。介面在輸入框上方顯示 `#sbHint` 與按鈕；`build()` 在背景執行
+  `docker build`（標準或含 LibreOffice），保留最後 200 行輸出，完成時廣播 `sandbox_health`。
+- **設定 → 權限與安全 → 沙盒資源與管理**：同時執行的沙盒（自動/1/2/3/4/6 分段切換）、兩種映像狀態與建立按鈕、每個對話的沙盒
+  （狀態、環境大小、副本與備份、工作區）與「停止／重建／清除環境」（任務執行中不可重建或清除，409），以及總用量。
+- API：`GET /api/sandbox/health`、`POST /api/sandbox/repair`、`GET /api/sandbox/build`、`GET /api/sandbox/usage`、
+  `PUT /api/sandbox/resources`、`POST /api/sandbox/{sid}/admin/{stop|recreate|clear}`。
+- 測試：tests/test_sandbox_resources.py（容量公式、讓出名額、排隊順序與逾時、健康、背景建立、用量、API、Docker 實測上限 1）。
+- 待使用者驗收 G6：5 個對話同時建置不 OOM；Docker 重啟後能恢復。

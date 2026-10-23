@@ -1339,6 +1339,10 @@ class Agent:
         self.ctx.state["turn_id"] = f"t{int(time.time() * 1000)}"   # groups this turn's evidence (agent/evidence.py)
         if self.depth == 0:
             if getattr(self.ctx.state.get("executor"), "kind", "") == "sandbox":
+                try:
+                    self.ctx.state["executor"].manager.begin(self.sandbox_conversation)   # not stopped for room
+                except Exception:  # noqa: BLE001
+                    pass
                 try:                         # a new conversation gets its own /workspace; an older one keeps the shared
                     from ..sandbox import workspaces
                     workspaces.settle(self.config, self.sandbox_conversation, legacy=self._persisted > 0)
@@ -1887,6 +1891,8 @@ class Agent:
         if getattr(ex, "kind", "") != "sandbox":
             return
         m, conv = ex.manager, ex.conversation
+        if hasattr(m, "end"):
+            m.end(conv)
         if m.grants.pop(conv, None) is not None or conv in m.open_all:
             m.open_all.discard(conv)
             try:

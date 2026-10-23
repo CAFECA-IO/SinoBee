@@ -170,7 +170,9 @@ DEFAULTS: dict[str, Any] = {
         "executor": "auto",         # auto = the Docker sandbox when permissions.approval is "sandbox"; host | sandbox
         "image": "standard",        # standard | office (with LibreOffice)
         "cpus": "auto",             # auto = up to 4
-        "memory": "auto",           # auto = 60% of Docker's memory, at most 8 GB; or e.g. "6g"
+        "memory": "auto",           # auto = 80% of Docker's memory shared by max_running sandboxes (1.5-8 GB); or "6g"
+        "max_running": "auto",      # sandboxes running at once; auto = from Docker's memory (7.7 GB -> 3); more wait
+        "queue_minutes": 30,        # a task waiting this long for a sandbox gives up
         "idle_minutes": 30,         # a sandbox not used this long is stopped
         "prune_days": 14,           # a stopped sandbox (and its home volume) is removed after this many days
         "network": {

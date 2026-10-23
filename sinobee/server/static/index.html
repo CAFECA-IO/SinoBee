@@ -670,6 +670,10 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 #folderChips small{color:var(--muted)}#folderChips button{all:unset;cursor:pointer;color:var(--muted);padding:0 5px}#folderChips button:hover{color:var(--err)}
 .restarting{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)}.restarting>div{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:8px;align-items:center;max-width:420px;text-align:center}
 .memflag{display:inline-block;font-size:11px;border:1px solid var(--warn);color:var(--warn);border-radius:999px;padding:0 7px;margin-right:6px}.memflag.dim{border-color:var(--line);color:var(--muted)}
+#sbHint{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:860px;margin:0 auto 6px;padding:8px 12px;border:1px solid var(--warn);border-radius:12px;font-size:13px;background:var(--panel)}#sbHint[hidden]{display:none}#sbHint .sd{flex:1;min-width:200px}
+.sbimg{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:2px 0}.sbimg .ok,.sbr .ok{color:var(--ok, #2fbf71)}
+.sbtbl{margin-top:10px;border:1px solid var(--line);border-radius:10px;font-size:12.5px;overflow:auto}.sbh,.sbr{display:grid;grid-template-columns:minmax(120px,2fr) 90px 70px 90px 70px minmax(150px,auto);gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line)}
+.sbh{color:var(--muted);font-size:11.5px}.sbr>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sbr .acts{display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap}.sbf{padding:6px 10px;color:var(--muted)}
 #hcToast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:400;display:flex;align-items:center;gap:10px;padding:9px 10px 9px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 12px 30px rgba(0,0,0,.4);font-size:13px;max-width:calc(100vw - 32px)}#hcToast[hidden]{display:none}#hcToast .ad-fold{all:unset;cursor:pointer;color:var(--muted);padding:2px 6px}
 #folderPop .fp-sec{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;margin:14px 0 4px;padding-top:10px;border-top:1px solid var(--line)}#folderPop .fp-h+.fp-msg+.fp-sec,#folderPop .fp-h+.fp-sec{border-top:0;padding-top:0;margin-top:8px}
 #folderPop .fp-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
@@ -965,6 +969,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
   <div id="runbar" role="status" aria-live="polite"><div class="spin"></div><div class="rb-txt" id="rbText"></div><span class="rb-time" id="rbTime"></span><button class="btn icon sm tip-up tip-left" data-icon="stop" aria-label="停止任務" id="rbStop" type="button"></button></div>
   <div id="folderPop" role="dialog" aria-label="這個對話的設定" hidden></div>
   <div id="askDock" role="region" aria-label="SinoBee 需要你決定" hidden></div>
+  <div id="sbHint" role="alert" hidden></div>
   <div id="folderChips" role="status" hidden></div>
   <div id="attachRow"></div>
   <div id="skillRow" aria-live="polite"></div>
@@ -1101,6 +1106,8 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
             <div class="srow"><div class="sl"><b>寫入前審核</b><span class="sd">開：對話中授權的資料夾，SinoBee 改的是副本，你看過變更才寫回（可復原）。關：直接寫入原資料夾。</span></div><div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="pReview" aria-label="寫入前審核"></div></div>
             <div class="sd" style="padding-top:8px">資料夾在每個對話裡授權：對話上方的「📁 資料夾」，或 SinoBee 向你申請時。授權只對那個對話有效；改這個開關只影響之後授權的資料夾。</div>
           </div></details>
+        <details class="pacc" id="accBox"><summary><span class="pa-i" data-icon="monitor"></span><b>沙盒資源與管理</b><span class="pa-s" id="accBoxSum"></span></summary>
+          <div class="pa-b" id="sbAdmin"><div class="sd"><span class="spin"></span> 讀取中…</div></div></details>
         <details class="pacc" id="accTools"><summary><span class="pa-i" data-icon="zap"></span><b>可以使用的能力</b><span class="pa-s" id="accToolsSum"></span><span class="lock" data-lock="permissions.toolsets"></span></summary>
           <div class="pa-b"><div class="sd" style="margin-bottom:8px">關掉後模型就看不到這類工具</div><div id="pToolsets" class="tsgrid"></div></div></details>
       </section>
@@ -1974,8 +1981,8 @@ function renderRun(){
   $('#input').placeholder = r ? (r.activity === '等待你回覆' ? 'SinoBee 在等你回覆上面的問題：點一個選項，或直接在這裡輸入你的想法' : '任務執行中：輸入補充或修改需求，Enter 送出會在下一步納入；按 ■ 則停止並改做') : skPlaceholder();
   if (!r) { bar.classList.remove('on', 'wait'); return; }
   bar.classList.add('on'); bar.classList.toggle('wait', r.activity === '等待你核准' || r.activity === '等待你回覆');
-  const what = r.tool ? `${r.activity}：${TOOL_LABEL[r.tool] || r.tool}` : r.activity;
-  $('#rbText').textContent = `執行中 · 第 ${r.step || 1} 步 · ${what}`;
+  const what = r.tool ? `${r.activity}：${TOOL_LABEL[r.tool] || r.tool}` : r.activity, q = SBQUEUE[sessionId];
+  $('#rbText').textContent = q?.position ? `等待沙盒空出來 · 第 ${q.position} 位（同時最多 ${q.max} 個在執行）` : `執行中 · 第 ${r.step || 1} 步 · ${what}`;
   const sec = Math.max(0, Math.round(Date.now() / 1000 - r.started));
   $('#rbTime').textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 }
@@ -2331,6 +2338,8 @@ function handle(ev, replay = false){
     case 'artifact': showArtifacts(ev.id, ev.files); break;
     case 'host_changes': hostBar(ev.session_id, ev.count, ev.interrupted || 0); if (!$('#folderPop').hidden) folderRefresh(); break;
     case 'folders': folderRefresh(); break;
+    case 'sandbox_queue': if (ev.position) SBQUEUE[ev.session_id] = ev; else delete SBQUEUE[ev.session_id]; renderRun(); break;
+    case 'sandbox_health': sbHealthCheck(); if (document.querySelector('#accBox[open]')) sbAdmin(); break;
     case 'evidence': if (ev.items?.length) { const g = procGroup(); const d = document.createElement('div'); d.innerHTML = evStrip(ev.items, null, true); g.body.appendChild(d); } break;
     case 'turn_start': if (!replay) { if (TB && TB.open) tbEnd(); tbStart(); } break;
     case 'timeline': tbOnTimeline(ev); break;
@@ -2587,7 +2596,7 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); tab = b.dataset.tab; loadSide(); });
 
 // ---------------- the sandbox's live view (sandbox plan D1) ----------------
-let SANDBOX_ON = false, RFBOBJ = null, DESK_SID = null, DESK_TAKE = false;
+let SANDBOX_ON = false, SANDBOX_WANTED = false, RFBOBJ = null, DESK_SID = null, DESK_TAKE = false;
 const DESK_TOOLS = new Set(['screenshot', 'mouse', 'keyboard', 'screen_info', 'wait_change', 'zoom', 'clipboard', 'window', 'launch', 'browser']);
 function loadRFB(){ return window.RFB ? Promise.resolve() : new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = '/vendor/novnc-rfb.min.js'; sc.onload = ok; sc.onerror = no; document.head.appendChild(sc); }); }
 function deskClose(){ if (RFBOBJ) { const r = RFBOBJ; RFBOBJ = null; try { r.disconnect(); } catch (e) {} } DESK_SID = null; }
@@ -2919,7 +2928,7 @@ async function refreshStatus(full = true){
   NEEDS_SETUP = !!s.needs_setup;
   if (!full) return;
   if (s.needs_setup) openSettings(true);
-  SANDBOX_ON = !!s.sandbox; folderRefresh();
+  SANDBOX_ON = !!s.sandbox; SANDBOX_WANTED = s.approval === 'sandbox'; folderRefresh(); sbHealthCheck();
   if (SANDBOX_ON) {                    // the live view of this conversation's sandbox (noVNC over /api/sandbox/…/vnc)
     $('#deskBtn').hidden = false; $('#deskPop').hidden = true; $('#vnc').hidden = true; $('#vncScreen').hidden = false;
     $('#deskLabel').textContent = '沙盒桌面'; $('#deskTake').hidden = false;
@@ -4315,10 +4324,10 @@ function hcPicked(){
     force: [...f.querySelectorAll('.hc-row')].filter(r => r.querySelector('.hc-force')?.checked).map(r => r.dataset.p)})).filter(x => x.paths.length);
 }
 /** a review request that cannot hang the window: it gives up after 2 minutes, and errors come back as messages */
-async function hcFetch(path, body){
+async function hcFetch(path, body, method = 'POST'){
   const ac = new AbortController(), t = setTimeout(() => ac.abort(), 120000);
   try {
-    const r = await fetch(path + '?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal: ac.signal});
+    const r = await fetch(path + '?token=' + encodeURIComponent(token), {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal: ac.signal});
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
     return j;
@@ -4457,6 +4466,26 @@ async function folderRefresh(){
   }
 }
 const folderBadge = () => { const n = FOLD?.folders?.length || 0; $('#folderN').textContent = n || ''; $('#folderBtn').classList.toggle('has', !!n); folderChips(); };
+/** the sandbox cannot run (Docker missing or stopped, image not built or outdated): said above the input box with
+ *  what to do, instead of only failing inside a task */
+const SBQUEUE = {};
+let SBH = null, SBH_T = null;
+async function sbHealthCheck(){
+  clearTimeout(SBH_T);
+  const box = $('#sbHint');
+  if (!SANDBOX_WANTED) { box.hidden = true; return; }
+  try { SBH = await api('/api/sandbox/health'); } catch { return; }
+  if (!SBH || SBH.ok || !SBH.wanted) { box.hidden = true; if (SBH && !SBH.ok) SBH_T = setTimeout(sbHealthCheck, 60000); return; }
+  box.hidden = false;
+  box.innerHTML = `<b>${esc(SBH.title)}</b><span class="sd">${esc(SBH.message || '')}</span>`
+    + (SBH.problem === 'building' ? '<span class="spin"></span>' : '')
+    + (SBH.actions || []).map(a => a.url ? `<a class="btn sm" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.label)}</a>`
+      : `<button class="btn sm${a.id === 'build' || a.id === 'start_docker' ? ' primary' : ''}" type="button" data-act="${esc(a.id)}" data-kind="${esc(a.kind || '')}">${esc(a.label)}</button>`).join('');
+  box.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => { b.disabled = true;
+    try { await hcFetch('/api/sandbox/repair', {action: b.dataset.act, kind: b.dataset.kind || undefined}); } catch (e) { uiAlert(e.message); }
+    setTimeout(sbHealthCheck, b.dataset.act === 'start_docker' ? 8000 : 1000); });
+  SBH_T = setTimeout(sbHealthCheck, SBH.problem === 'building' ? 3000 : SBH.problem === 'docker_down' ? 10000 : 60000);
+}
 /** before the first message of a new conversation, the folders it will use are said right above the input box -
  *  a folder added while trying things out must not ride along unnoticed */
 function folderChips(){
@@ -4611,10 +4640,55 @@ function renderPermHero(){
   const note = $('#pSandboxNote');
   note.hidden = mode !== 'sandbox';
   note.className = 'sh-status' + (sb.unavailable ? ' bad' : '');
-  note.innerHTML = sb.unavailable ? `⚠︎ 沙盒目前無法使用：${esc(sb.unavailable)}。在那之前改在本機執行，危險操作仍會先問你。需要 Docker Desktop，並在終端機執行 <code>sinobee sandbox build</code>。`
+  note.innerHTML = sb.unavailable ? `⚠︎ 沙盒目前無法使用：${esc(sb.unavailable)}。在那之前改在本機執行，危險操作仍會先問你。下方「沙盒資源與管理」可以開啟 Docker 或建立映像。`
     : `<span class="dot"></span>Docker 正常 · 映像 ${esc(sb.image || '')}`;
   permSummaries();
 }
+/** Settings → 權限與安全 → 沙盒資源與管理: health, images, how many run at once, each conversation's sandbox */
+const fmtSizeG = n => n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? Math.round(n / 1e6) + ' MB' : n >= 1e3 ? Math.round(n / 1e3) + ' KB' : (n || 0) + ' B';
+let SBA_T = null;
+async function sbAdmin(){
+  clearTimeout(SBA_T);
+  const el = $('#sbAdmin'); if (!el) return;
+  let h, u;
+  try { h = await api('/api/sandbox/health'); } catch { el.innerHTML = '<div class="sd">無法讀取沙盒狀態</div>'; return; }
+  try { u = h.ok ? await api('/api/sandbox/usage') : null; } catch { u = null; }
+  $('#accBoxSum').textContent = h.ok ? `${u?.running ?? 0}／${h.capacity?.max_running ?? '?'} 個執行中 · 共 ${fmtSizeG(u?.total || 0)}` : h.title;
+  const cap = h.capacity || u?.capacity || {}, mr = SET?.sandbox?.max_running ?? 'auto';
+  const img = u?.images_built || {};
+  const imgRow = (k, label) => { const i = img[k] || {}; return `<div class="sbimg"><span>${label}</span>`
+    + (i.building ? '<span class="sd"><span class="spin"></span> 建立中…</span>' : i.built ? '<span class="ok">✓ 已建立</span>' : '<span class="sd">尚未建立</span>')
+    + (i.building ? '' : `<button class="btn sm" type="button" data-build="${k}">${i.built ? '重建' : '建立'}</button>`) + '</div>'; };
+  el.innerHTML = (h.ok ? '' : `<div class="sh-status bad">⚠︎ <b>${esc(h.title)}</b> ${esc(h.message || '')} ${(h.actions || []).map(a => a.url
+      ? `<a class="btn sm" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.label)}</a>` : `<button class="btn sm" type="button" data-act="${esc(a.id)}" data-kind="${esc(a.kind || '')}">${esc(a.label)}</button>`).join(' ')}</div>`)
+    + `<div class="srow"><div class="sl"><b>同時執行的沙盒</b><span class="sd">超過時新的任務排隊；沒有任務在用、最久沒用的沙盒會先停下讓位。每個沙盒最多 ${esc(cap.memory || '?')} 記憶體、${esc(cap.cpus || '?')} CPU（Docker 共 ${fmtSizeG(cap.docker_memory || 0)}）。</span></div>`
+    + `<select id="sbMax" data-seg aria-label="同時執行的沙盒"><option value="auto">自動（${cap.max_running ?? '?'}）</option>${[1, 2, 3, 4, 6].map(n => `<option value="${n}">${n}</option>`).join('')}</select></div>`
+    + (u ? `<div class="srow"><div class="sl"><b>沙盒映像</b><span class="sd">映像共 ${fmtSizeG(u.images)}</span></div><div>${imgRow('standard', '標準')}${imgRow('office', '含 LibreOffice')}</div></div>` : '')
+    + (u ? `<div class="sbtbl"><div class="sbh"><span>對話</span><span>狀態</span><span title="容器＋安裝的套件與快取">環境</span><span title="審核副本、檢查點與寫回備份（APFS 複製的檔案共用空間，實際更少）">副本與備份</span><span>工作區</span><span></span></div>`
+      + (u.items.length ? u.items.map(r => `<div class="sbr"><span title="${esc(r.conversation)}">${esc(r.title || r.conversation)}</span>`
+        + `<span>${r.state === 'running' ? (r.busy ? '<b class="ok">執行任務中</b>' : '執行中') : r.state === 'stopped' ? '已停止' : '—'}</span>`
+        + `<span>${fmtSizeG(r.container + r.volume)}</span><span>${fmtSizeG(r.files)}</span><span>${fmtSizeG(r.workspace)}</span><span class="acts">`
+        + (r.state === 'running' ? `<button class="btn sm" type="button" data-a="stop" data-c="${esc(r.conversation)}">停止</button>` : '')
+        + (r.state !== 'none' ? `<button class="btn sm" type="button" data-a="recreate" data-c="${esc(r.conversation)}" title="下次使用時用最新的映像重新建立；安裝的套件保留">重建</button>`
+          + `<button class="btn sm" type="button" data-a="clear" data-c="${esc(r.conversation)}" title="移除容器與安裝的套件、快取；工作區與你的檔案保留">清除環境</button>` : '')
+        + `</span></div>`).join('') : '<div class="sd" style="padding:8px">還沒有沙盒</div>')
+      + `<div class="sbf">合計 ${fmtSizeG(u.total)}${u.waiting?.length ? ` · ${u.waiting.length} 個任務在排隊` : ''}</div></div>` : '');
+  segify($('#sbMax')); $('#sbMax').value = String(mr);
+  $('#sbMax').onchange = async () => { try { await hcFetch('/api/sandbox/resources', {max_running: $('#sbMax').value}, 'PUT'); SET.sandbox = {...(SET.sandbox || {}), max_running: $('#sbMax').value === 'auto' ? 'auto' : +$('#sbMax').value}; sbAdmin(); } catch (e) { uiAlert(e.message); } };
+  el.querySelectorAll('[data-build]').forEach(b => b.onclick = async () => { b.disabled = true;
+    try { await hcFetch('/api/sandbox/repair', {action: 'build', kind: b.dataset.build}); } catch (e) { uiAlert(e.message); } sbAdmin(); });
+  el.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => { b.disabled = true;
+    try { await hcFetch('/api/sandbox/repair', {action: b.dataset.act, kind: b.dataset.kind || undefined}); } catch (e) { uiAlert(e.message); } setTimeout(sbAdmin, 1500); });
+  el.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+    const msg = {stop: null, recreate: '下次使用時重新建立這個對話的沙盒？執行中的程式會停止，安裝的套件保留。',
+                 clear: '清除這個對話的沙盒環境？容器與安裝的套件、快取會移除（下次重新安裝）；工作區、副本與你的檔案都保留。'}[b.dataset.a];
+    if (msg && !await uiConfirm(msg)) return;
+    b.disabled = true;
+    try { await hcFetch(`/api/sandbox/${encodeURIComponent(b.dataset.c)}/admin/${b.dataset.a}`, {}); } catch (e) { uiAlert(e.message); }
+    sbAdmin(); });
+  if (Object.values(img).some(i => i.building) || !h.ok) SBA_T = setTimeout(() => { if ($('#accBox').open && $('#settings').classList.contains('open')) sbAdmin(); }, 3000);
+}
+$('#accBox').addEventListener('toggle', () => { if ($('#accBox').open) sbAdmin(); });
 function permSummaries(){
   const open = $('#pNetMode').value === 'open';
   $('#pNetList').hidden = open; $('#pNetOpenNote').hidden = !open;

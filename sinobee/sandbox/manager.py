@@ -36,6 +36,15 @@ EGRESS_IMAGE = "python:3.12-alpine"
 ROLE = "org.sinobee.role"
 REMEMBERED = ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org"]
 _managers: dict[str, "SandboxManager"] = {}
+EVENT_HOOKS: list = []          # (kind, data) -> None: the server forwards them to the GUI (sandbox_queue, ...)
+
+
+def emit(kind: str, data: dict) -> None:
+    for fn in list(EVENT_HOOKS):
+        try:
+            fn(kind, data)
+        except Exception:  # noqa: BLE001
+            log.debug("sandbox event hook failed", exc_info=True)
 
 # a byte pipe to a TCP port inside the sandbox over `docker exec -i` stdio: the sandbox is on an internal network,
 # which Docker does not publish ports from, so the live view, the browser's DevTools and page previews come this way
@@ -136,6 +145,11 @@ class SandboxManager:
         self.takeover: dict[str, float] = {}     # conversation -> since when you control its desktop (plan D1)
         self._bridges: dict[tuple[str, int], asyncio.base_events.Server] = {}
         self.connections: list[dict] = []       # recent connection log from the egress proxy
+        self.busy: dict[str, float] = {}        # conversation -> since when a task of it runs (never stopped for room)
+        self.waiting: list[str] = []            # conversations waiting for a sandbox to be free, first come first
+        self.starting: set[str] = set()         # let through, being started (counted as running)
+        self._cap: tuple[float, dict] | None = None
+        self._running_seen: tuple[float, set] = (0.0, set())
 
     # ----------------------------------------------------------------- can we run at all
     def unavailable(self, max_age: float = 60) -> str | None:
@@ -156,21 +170,105 @@ class SandboxManager:
         self._avail = (time.time(), why)
         return why
 
-    def limits(self) -> tuple[str, str]:
-        """(cpus, memory) for a sandbox: settings, or 4 CPUs / 60% of Docker's memory up to 8 GB."""
+    def capacity(self, max_age: float = 300) -> dict:
+        """How many sandboxes may run at once and what each gets: {"max_running", "cpus", "memory", "docker_memory",
+        "docker_cpus"}. auto: as many as fit in 80% of Docker's memory at ~2 GB each (at least 1, at most 6), each
+        limited to its share, so together they never exhaust Docker Desktop's VM."""
+        if self._cap and time.time() - self._cap[0] < max_age:
+            return self._cap[1]
+        rc, out, _ = docker_sync("info", "--format", "{{.NCPU}} {{.MemTotal}}", timeout=8)
+        try:
+            ncpu, total = (int(x) for x in out.split())
+        except ValueError:
+            ncpu, total = 4, 8 << 30
+        want = self.config.get("sandbox.max_running", "auto")
+        try:
+            n = max(1, int(want))
+        except (TypeError, ValueError):
+            n = max(1, min(6, int(total * 0.8) // (2 << 30)))
         cpus = self.config.get("sandbox.cpus", "auto")
+        if cpus in (None, "", "auto"):
+            cpus = str(min(4, ncpu))
         mem = self.config.get("sandbox.memory", "auto")
-        if cpus in (None, "", "auto") or mem in (None, "", "auto"):
-            rc, out, _ = docker_sync("info", "--format", "{{.NCPU}} {{.MemTotal}}", timeout=8)
-            try:
-                ncpu, total = (int(x) for x in out.split())
-            except ValueError:
-                ncpu, total = 4, 8 << 30
-            if cpus in (None, "", "auto"):
-                cpus = str(min(4, ncpu))
-            if mem in (None, "", "auto"):
-                mem = f"{min(8 << 30, int(total * 0.6)) // (1 << 20)}m"
-        return str(cpus), str(mem)
+        if mem in (None, "", "auto"):
+            share = int(total * 0.8 / n)
+            mem = f"{max(1536 << 20, min(8 << 30, share)) // (1 << 20)}m"
+        cap = {"max_running": n, "cpus": str(cpus), "memory": str(mem), "docker_memory": total, "docker_cpus": ncpu}
+        self._cap = (time.time(), cap)
+        return cap
+
+    def limits(self) -> tuple[str, str]:
+        """(cpus, memory) for a sandbox (capacity())."""
+        cap = self.capacity()
+        return cap["cpus"], cap["memory"]
+
+    # ----------------------------------------------------------------- how many run at once (sandbox plan, stage 1)
+    def begin(self, conversation: str) -> None:
+        """A task of this conversation started: its sandbox is not stopped to make room."""
+        self.busy[conversation] = time.time()
+
+    def end(self, conversation: str) -> None:
+        self.busy.pop(conversation, None)
+
+    def _busy(self, conversation: str) -> bool:
+        t = self.busy.get(conversation)
+        return bool(t and time.time() - t < 6 * 3600) or conversation in self.takeover
+
+    async def running(self, max_age: float = 2.0) -> set[str]:
+        """Conversations whose sandbox container is running now."""
+        t, seen = self._running_seen
+        if time.time() - t < max_age:
+            return set(seen)
+        rc, out, _ = await docker("ps", "--filter", f"label={ROLE}=sandbox", "--filter", "status=running",
+                                  "--format", "{{.Label \"org.sinobee.conversation\"}}", timeout=20)
+        seen = {line.strip() for line in out.splitlines() if line.strip()} if rc == 0 else set(self.boxes)
+        self._running_seen = (time.time(), seen)
+        return set(seen)
+
+    def _victim(self, running: set[str], conversation: str) -> str | None:
+        """The running sandbox to stop for room: no task of it is running; the one unused longest."""
+        free = [c for c in running if c != conversation and not self._busy(c) and c not in self.starting]
+        return min(free, key=lambda c: self.last_used.get(self.name_of(c), 0)) if free else None
+
+    async def _slot(self, conversation: str) -> None:
+        """Wait until this conversation's sandbox may start: under sandbox.max_running, stopping an idle one when
+        that makes room; otherwise in line (first come, first served), telling the GUI where it stands."""
+        timeout = float(self.config.get("sandbox.queue_minutes", 30) or 30) * 60
+        t0, told = time.time(), None
+        try:
+            while True:
+                running = await self.running()
+                if conversation in running:
+                    return
+                running |= self.starting
+                cap = self.capacity()["max_running"]
+                first = not self.waiting or self.waiting[0] == conversation
+                if len(running) < cap and first:
+                    self.starting.add(conversation)
+                    return
+                victim = self._victim(running, conversation) if first else None
+                if victim:
+                    log.info("stopping the idle sandbox of %s to make room for %s", victim, conversation)
+                    await self.stop(victim)
+                    self._running_seen = (0.0, set())
+                    continue
+                if conversation not in self.waiting:
+                    self.waiting.append(conversation)
+                pos = self.waiting.index(conversation) + 1
+                if told != pos:
+                    told = pos
+                    emit("sandbox_queue", {"session_id": conversation, "position": pos, "running": len(running),
+                                           "max": cap})
+                if time.time() - t0 > timeout:
+                    raise DockerError(f"等了 {int(timeout // 60)} 分鐘仍沒有空出的沙盒（同時最多 {cap} 個）：請等其他任務結束，"
+                                      "或在設定 → 權限與安全 → 沙盒資源提高上限")
+                await asyncio.sleep(3)
+                self._running_seen = (0.0, set())
+        finally:
+            if conversation in self.waiting:
+                self.waiting.remove(conversation)
+            if told:
+                emit("sandbox_queue", {"session_id": conversation, "position": 0})
 
     # ----------------------------------------------------------------- networks and the egress proxy
     async def _networks(self) -> None:
@@ -332,6 +430,14 @@ class SandboxManager:
         if box and time.time() - self._checked.get(conversation, 0) < 20:     # checked a moment ago
             self.last_used[box.name] = time.time()
             return box
+        if conversation not in await self.running():
+            await self._slot(conversation)            # under the limit of sandboxes running at once (or in line)
+        try:
+            return await self._ensure(conversation)
+        finally:
+            self.starting.discard(conversation)
+
+    async def _ensure(self, conversation: str) -> Box:
         loop = asyncio.get_running_loop()
         lock = self._locks.get(id(loop))
         if lock is None:
@@ -372,6 +478,7 @@ class SandboxManager:
             box = Box(name, conversation, ip)
             self.boxes[conversation] = box
             self.last_used[name] = self._checked[conversation] = time.time()
+            self._running_seen = (0.0, set())
             await self.push_policy(conversation)
             return box
 

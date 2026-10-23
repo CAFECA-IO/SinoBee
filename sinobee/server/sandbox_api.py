@@ -55,6 +55,87 @@ def register(app: FastAPI, rt, broadcast=None, running=None) -> None:
             raise HTTPException(409, "the tools do not run in the sandbox (Settings → 權限與安全 → 沙盒)")
         return manager_for(cfg)
 
+    # ----------------------------------------------------------------- health, images, resources (stage 1)
+    from ..sandbox import manager as _mgr
+    if broadcast:
+        _mgr.EVENT_HOOKS.append(broadcast)        # sandbox_queue (waiting for a free sandbox), sandbox_health
+
+    @app.get("/api/sandbox/health")
+    async def sb_health():
+        from ..sandbox import admin
+        return await asyncio.to_thread(admin.health, rt().config)
+
+    @app.post("/api/sandbox/repair")
+    async def sb_repair(body: dict):
+        from ..sandbox import admin
+        from ..sandbox.manager import manager_for
+        cfg = rt().config
+        what = str(body.get("action") or "")
+        if what == "start_docker":
+            res = await asyncio.to_thread(admin.start_docker)
+        elif what == "build":
+            res = admin.build(cfg, str(body.get("kind") or "standard"))
+            res = {k: v for k, v in res.items() if k != "lines"} | {"tail": res["lines"][-3:]}
+        elif what == "retry":
+            manager_for(cfg)._avail = (0.0, "retry")
+            res = {"ok": True}
+        else:
+            raise HTTPException(400, "action: start_docker | build | retry")
+        return {**res, "health": await asyncio.to_thread(admin.health, cfg)}
+
+    @app.get("/api/sandbox/build")
+    async def sb_build(kind: str = "standard"):
+        from ..sandbox import admin
+        job = admin.BUILDS.get("office" if kind == "office" else "standard")
+        if not job:
+            return {"state": "none"}
+        return {k: v for k, v in job.items() if k != "lines"} | {"tail": job["lines"][-12:]}
+
+    @app.get("/api/sandbox/usage")
+    async def sb_usage():
+        from ..sandbox import admin
+        mem = getattr(rt(), "memory", None)
+        titles = {s["id"]: s.get("title") for s in mem.sessions(5000, exclude_platforms=())} if mem else {}
+        out = await admin.usage(rt().config, titles)
+        out["images_built"] = await asyncio.to_thread(admin.images, rt().config)
+        return out
+
+    @app.put("/api/sandbox/resources")
+    async def sb_resources(body: dict):
+        from ..sandbox.manager import manager_for
+        cfg = rt().config
+        v = body.get("max_running", "auto")
+        if v != "auto":
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "max_running: auto or a number") from None
+            if not 1 <= v <= 12:
+                raise HTTPException(400, "max_running: 1-12")
+        cfg.save_gui_settings({"sandbox": {"max_running": v}})
+        m = manager_for(cfg)
+        m._cap = None
+        return {"max_running": v, "capacity": m.capacity(max_age=0)}
+
+    @app.post("/api/sandbox/{sid}/admin/{what}")
+    async def sb_admin(sid: str, what: str):
+        """Settings → 沙盒資源: stop a conversation's sandbox, make it again, or remove it with its home volume."""
+        from ..sandbox import admin
+        from ..sandbox.manager import manager_for
+        m = manager_for(rt().config)
+        if what in ("recreate", "clear") and m._busy(sid):
+            raise HTTPException(409, "這個對話的任務正在執行：等它結束或先停止")
+        if what == "stop":
+            await m.stop(sid)
+        elif what == "recreate":
+            await m.recreate(sid)
+        elif what == "clear":
+            await admin.clear(rt().config, sid)
+        else:
+            raise HTTPException(400, "stop | recreate | clear")
+        m._running_seen = (0.0, set())
+        return {"ok": True}
+
     def _folder(sid: str, name: str) -> dict:
         from ..sandbox.folders import folders_for
         f = next((x for x in folders_for(rt().config, sid) if x["name"] == name and x["mode"] == "review"), None)

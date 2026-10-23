@@ -32,7 +32,8 @@ def _sandbox_info(cfg) -> dict:
     info = {"wanted": wanted_kind(cfg), "image": image_name(cfg),
             "network": {"mode": cfg.get("sandbox.network.mode", "ask") or "ask",
                         "remembered": list(REMEMBERED if remembered is None else remembered)},
-            "review_writes": cfg.get("sandbox.review_writes", True) is not False}
+            "review_writes": cfg.get("sandbox.review_writes", True) is not False,
+            "max_running": cfg.get("sandbox.max_running", "auto") or "auto"}
     if info["wanted"] == "sandbox" or cfg.get("permissions.approval") == "sandbox":
         info["unavailable"] = manager_for(cfg).unavailable()
         info["running"] = executor_kind(cfg)

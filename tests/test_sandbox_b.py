@@ -99,7 +99,8 @@ def test_settings_accept_the_sandbox_mode(config):
 def test_limits_follow_dockers_memory(config, monkeypatch):
     from sinobee.sandbox import manager as mgr
     monkeypatch.setattr(mgr, "docker_sync", lambda *a, **k: (0, f"10 {int(7.7 * (1 << 30))}\n", ""))
-    assert SandboxManager(config).limits() == ("4", f"{int(7.7 * (1 << 30) * 0.6) // (1 << 20)}m")
+    # 7.7 GB: three at once, each with its share of 80% (stage 1: sandbox.max_running)
+    assert SandboxManager(config).limits() == ("4", f"{int(7.7 * (1 << 30) * 0.8 / 3) // (1 << 20)}m")
     monkeypatch.setattr(mgr, "docker_sync", lambda *a, **k: (0, f"16 {64 << 30}\n", ""))
     assert SandboxManager(config).limits() == ("4", "8192m")                  # at most 8 GB
     config.data["sandbox"].update(cpus="2", memory="6g")
