@@ -18,9 +18,12 @@ def allowed_roots(config) -> list[Path]:
     # folders given to conversations' sandboxes, and the review copies of them
     roots.append(Path(config.home) / "sandbox")
     import json as _json
-    for g in (Path(config.home) / "sandbox").glob("*/grants.json"):      # folders one conversation was given
+    for g in [*(Path(config.home) / "sandbox").glob("*/conversation.json"),     # folders a conversation was given
+              *(Path(config.home) / "sandbox").glob("*/grants.json")]:          # (before conversation.json)
         try:
-            roots += [Path(str(x["path"])) for x in _json.loads(g.read_text(encoding="utf-8")) if x.get("path")]
+            data = _json.loads(g.read_text(encoding="utf-8"))
+            items = data.get("folders", []) if isinstance(data, dict) else data
+            roots += [Path(str(x["path"])) for x in items if x.get("path")]
         except (OSError, ValueError, TypeError, KeyError):
             continue
     out = []

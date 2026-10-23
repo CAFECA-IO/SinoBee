@@ -658,6 +658,11 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 #folderPop .fb-d i{font-style:normal;color:var(--muted)}#folderPop .fb-d.lock span{color:var(--muted)}
 #folderPop .fb-hid{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin:8px 0 4px}
 #folderPop .fb-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+#folderPop{max-height:calc(100vh - 80px);overflow:auto}
+#folderPop .fp-sec{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;margin:14px 0 4px;padding-top:10px;border-top:1px solid var(--line)}#folderPop .fp-h+.fp-msg+.fp-sec,#folderPop .fp-h+.fp-sec{border-top:0;padding-top:0;margin-top:8px}
+#folderPop .fp-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+#folderPop .fp-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:999px;padding:2px 4px 2px 10px;font-size:12.5px}#folderPop .fp-chip button{all:unset;cursor:pointer;color:var(--muted);padding:0 5px;border-radius:999px}#folderPop .fp-chip button:hover{color:var(--err)}
+#folderPop .fp-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;margin:8px 0}#folderPop .fp-row .seg{flex-wrap:wrap;max-width:100%}#folderPop .sd .mono{white-space:nowrap}#folderPop .fp-row>span{flex:none}
 #folderPop .fp-msg{font-size:12px;color:var(--warn);min-height:0}#folderPop .fp-msg:empty{display:none}
 .safehero{border:1px solid var(--accent-solid);border-radius:14px;padding:14px 16px;margin:4px 0 14px;background:linear-gradient(135deg,var(--glow),transparent 65%)}
 .safehero[data-mode=auto]{border-color:var(--err);background:linear-gradient(135deg,rgba(255,125,136,.10),transparent 65%)}
@@ -938,7 +943,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
   <header><button class="btn icon" data-icon="menu" aria-label="對話、記憶、技能與資料庫" id="menuBtn" type="button"></button><div class="title" id="title">新對話</div>
     <button class="btn icon" data-icon="plus" aria-label="新對話" id="newBtn"></button>
     <button class="btn icon" data-icon="stop" aria-label="停止任務" id="stopBtn" hidden></button>
-    <button class="btn folderbtn" type="button" aria-label="這個對話可用的資料夾" id="folderBtn" aria-expanded="false" hidden><span data-icon="folder"></span><span>資料夾</span><b id="folderN"></b></button>
+    <button class="btn folderbtn" type="button" aria-label="這個對話的設定（資料夾、網路）" id="folderBtn" aria-expanded="false" hidden><span data-icon="folder"></span><span>對話設定</span><b id="folderN"></b></button>
     <button class="btn icon" data-icon="monitor" aria-label="即時桌面" id="deskBtn" hidden></button>
     <button class="btn icon" data-icon="sparkles" aria-label="把這個任務打包成技能" title="把這個任務打包成技能" id="learnBtn" hidden></button>
     <button class="btn icon" data-icon="share" aria-label="分享對話" id="shareBtn" hidden></button>
@@ -946,7 +951,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
     <button class="btn icon" data-icon="gear" aria-label="設定" id="settingsBtn"></button><button class="btn icon tip-left" data-icon="sun" aria-label="切換深色／淺色" id="themeBtn"></button></header>
   <div id="chat"><div class="empty"><div class="hero"><canvas data-ht="hero"></canvas></div><h2>今天要我做什麼？</h2><div>我可以操作瀏覽器、滑鼠鍵盤、終端機與檔案，並記住你的偏好與做事方法。</div></div></div>
   <div id="runbar" role="status" aria-live="polite"><div class="spin"></div><div class="rb-txt" id="rbText"></div><span class="rb-time" id="rbTime"></span><button class="btn icon sm tip-up tip-left" data-icon="stop" aria-label="停止任務" id="rbStop" type="button"></button></div>
-  <div id="folderPop" role="dialog" aria-label="這個對話可用的資料夾" hidden></div>
+  <div id="folderPop" role="dialog" aria-label="這個對話的設定" hidden></div>
   <div id="askDock" role="region" aria-label="SinoBee 需要你決定" hidden></div>
   <div id="attachRow"></div>
   <div id="skillRow" aria-live="polite"></div>
@@ -4238,7 +4243,7 @@ function segify(sel){
   const seg = document.createElement('div'); seg.className = 'seg seg2'; seg.setAttribute('role', 'radiogroup');
   if (sel.getAttribute('aria-label')) seg.setAttribute('aria-label', sel.getAttribute('aria-label'));
   const paint = () => seg.querySelectorAll('button').forEach(b => { const on = b.dataset.v === SELECT_VALUE.get.call(sel);
-    b.classList.toggle('on', on); b.setAttribute('aria-checked', on); b.disabled = sel.disabled; });
+    b.classList.toggle('on', on); b.setAttribute('aria-checked', on); b.disabled = sel.disabled || !![...sel.options].find(o => o.value === b.dataset.v)?.disabled; });
   seg.innerHTML = [...sel.options].map(o => `<button type="button" role="radio" data-v="${esc(o.value)}">${esc(o.textContent)}</button>`).join('');
   seg.querySelectorAll('button').forEach(b => b.onclick = () => { if (sel.disabled || SELECT_VALUE.get.call(sel) === b.dataset.v) return;
     SELECT_VALUE.set.call(sel, b.dataset.v); paint(); sel.dispatchEvent(new Event('change', {bubbles: true})); });
@@ -4262,14 +4267,29 @@ async function folderRefresh(){
   if (!SANDBOX_ON) { b.hidden = true; $('#folderPop').hidden = true; return; }
   b.hidden = false;
   const sid = folderSid();
-  try { FOLD = await api(`/api/sandbox/${encodeURIComponent(sid)}/folders`); } catch { return; }
+  try { FOLD = await api(`/api/sandbox/${encodeURIComponent(sid)}/settings`); } catch { return; }
   if (sid !== folderSid()) return;
-  $('#folderN').textContent = FOLD.folders?.length || ''; b.classList.toggle('has', !!FOLD.folders?.length);
-  if (!$('#folderPop').hidden) renderFolderPop();
+  folderBadge();
+  if (!$('#folderPop').hidden && !$('#folderPop .fb-list')) renderFolderPop($('#fpMsg')?.textContent || '');
+}
+const folderBadge = () => { const n = FOLD?.folders?.length || 0; $('#folderN').textContent = n || ''; $('#folderBtn').classList.toggle('has', !!n); };
+/** change this conversation's settings (network, overrides); saved at once in its conversation.json */
+async function convSet(body, msg = '已儲存'){
+  const r = await fetch(`/api/sandbox/${encodeURIComponent(folderSid())}/settings?token=${encodeURIComponent(token)}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { renderFolderPop(j.detail || '無法儲存'); return; }
+  FOLD = j; folderBadge(); renderFolderPop(msg);
 }
 function renderFolderPop(msg = ''){
-  const pop = $('#folderPop'), f = FOLD || {folders: []}, write = f.review_writes ? '可寫入（審核後寫回）' : '可寫入（直接寫入）';
-  pop.innerHTML = `<div class="fp-h"><b>這個對話可用的資料夾</b><button class="ad-fold" type="button" data-x aria-label="關閉">✕</button></div>`
+  const pop = $('#folderPop'), f = FOLD || {folders: [], network: {domains: [], all: false}, overrides: {}, defaults: {review_writes: true, image: 'standard'}, effective: {}},
+    net = f.network || {domains: [], all: false}, ov = f.overrides || {}, df = f.defaults || {},
+    write = f.review_writes ? '可寫入（審核後寫回）' : '可寫入（直接寫入）', onoff = v => v ? '開' : '關',
+    IMG = {standard: '標準', office: '含 LibreOffice'};
+  const rv = ov.review_writes === true ? 'on' : ov.review_writes === false ? 'off' : '', im = ov.image || '';
+  pop.innerHTML = `<div class="fp-h"><b>這個對話的設定</b><button class="ad-fold" type="button" data-x aria-label="關閉">✕</button></div>`
+    + `<div class="fp-msg${msg ? ' on' : ''}" id="fpMsg">${esc(msg)}</div>`
+    // folders
+    + `<div class="fp-sec">資料夾</div>`
     + (f.folders.length ? f.folders.map(x => `<div class="fp-r"><div class="fp-n"><b>${esc(x.inner)}</b><span class="mono">${esc(x.shown)}${x.exists ? '' : '（找不到）'}</span></div>`
       + `<span class="fp-m ${FOLD_MODE[x.mode]?.[1] || ''}">${FOLD_MODE[x.mode]?.[0] || x.mode}</span>`
       + (x.pending ? `<button class="btn sm" type="button" data-rev>${x.pending} 待審</button>` : '')
@@ -4277,8 +4297,20 @@ function renderFolderPop(msg = ''){
       : '<div class="sd" style="padding:6px 0">還沒有資料夾。沙盒只看得到工作區；加入後在沙盒裡的 /host/名稱。</div>')
     + `<div class="fp-add"><input class="inp" id="fpPath" placeholder="加入資料夾，例如 ~/Documents/報告" aria-label="資料夾路徑"><button class="btn" type="button" id="fpBrowse">瀏覽…</button></div>`
     + `<div class="fp-add2"><select id="fpMode" data-seg aria-label="使用方式"><option value="write">${write}</option><option value="ro">唯讀</option></select><button class="btn primary" type="button" id="fpAdd">加入</button></div>`
-    + `<div class="fp-msg${msg ? ' on' : ''}" id="fpMsg">${esc(msg)}</div>`
-    + `<div class="sd">只對這個對話有效。可寫入時是否先審核，依設定 → 權限與安全 →「寫入前審核」（目前：${f.review_writes ? '開' : '關'}）。家目錄、系統資料夾與存放金鑰的資料夾不能加入。</div>`;
+    + `<div class="sd">家目錄、系統資料夾與存放金鑰的資料夾不能加入。</div>`
+    // network
+    + `<div class="fp-sec">網路</div>`
+    + `<div class="fp-row"><span>這個對話</span><select id="fpNetAll" data-seg aria-label="這個對話的網路"><option value="list">只允許下列網域</option><option value="all">一律允許</option></select></div>`
+    + (net.all ? '<div class="sd">這個對話的沙盒可以連到任何網站。</div>'
+      : `<div class="fp-chips">${net.domains.length ? net.domains.map(d => `<span class="fp-chip">${esc(d)}<button type="button" data-dom="${esc(d)}" aria-label="移除 ${esc(d)}">✕</button></span>`).join('') : '<span class="sd">沒有這個對話專屬的網域</span>'}</div>`
+        + `<div class="fp-add"><input class="inp" id="fpDom" placeholder="加入網域，例如 github.com" aria-label="網域"><button class="btn" type="button" id="fpDomAdd">加入</button></div>`
+        + '<div class="sd">另外也允許設定 → 權限與安全裡所有對話共用的網域。</div>')
+    // overrides
+    + `<div class="fp-sec">不同於設定</div>`
+    + `<div class="fp-row"><span>寫入前審核</span><select id="fpReview" data-seg aria-label="寫入前審核"><option value="">依設定（${onoff(df.review_writes)}）</option><option value="on">開</option><option value="off">關</option></select></div>`
+    + `<div class="fp-row"><span>沙盒映像</span><select id="fpImage" data-seg aria-label="沙盒映像"><option value="">依設定（${IMG[df.image] || df.image}）</option><option value="standard">標準</option><option value="office"${f.office_built ? '' : ' disabled'}>含 LibreOffice</option></select></div>`
+    + (f.office_built ? '' : '<div class="sd">含 LibreOffice 的映像還沒建立：在終端機執行 <span class="mono">sinobee sandbox build --office</span>。</div>')
+    + '<div class="sd">寫入前審核只影響之後加入的資料夾；換映像會重新啟動這個對話的沙盒。</div>';
   pop.querySelector('[data-x]').onclick = () => folderPop(false);
   pop.querySelectorAll('[data-rev]').forEach(b => b.onclick = () => openHostReview(folderSid()));
   pop.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => folderRemove(b.dataset.rm));
@@ -4286,9 +4318,16 @@ function renderFolderPop(msg = ''){
     const r = await fetch(`/api/sandbox/${encodeURIComponent(folderSid())}/folders?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path, mode: $('#fpMode').value})});
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { renderFolderPop(j.detail || '無法加入'); $('#fpPath').value = path; return; }
-    FOLD = j; $('#folderN').textContent = j.folders.length || ''; $('#folderBtn').classList.add('has'); renderFolderPop('已加入；SinoBee 下一步就看得到'); };
+    FOLD = {...FOLD, ...j}; folderBadge(); renderFolderPop('已加入；SinoBee 下一步就看得到'); };
   $('#fpBrowse').onclick = () => folderBrowse($('#fpPath').value.trim() || '');
   $('#fpAdd').onclick = add; $('#fpPath').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } };
+  const sel = (id, v, fn) => { const el = $(id); el.value = v; el.onchange = () => fn(el.value); };
+  sel('#fpNetAll', net.all ? 'all' : 'list', v => convSet({network: {all: v === 'all'}}, v === 'all' ? '這個對話一律允許連網' : '只允許列出的網域'));
+  sel('#fpReview', rv, v => convSet({overrides: {review_writes: v === '' ? null : v === 'on'}}));
+  sel('#fpImage', im, v => convSet({overrides: {image: v || null}}, '已儲存；下一個指令會用新的映像'));
+  pop.querySelectorAll('[data-dom]').forEach(b => b.onclick = () => convSet({network: {domains: net.domains.filter(d => d !== b.dataset.dom)}}, '已移除'));
+  const addDom = () => { const v = $('#fpDom').value.trim(); if (v) convSet({network: {domains: [...net.domains, ...v.split(/[\s,]+/)]}}, '已加入'); };
+  if ($('#fpDomAdd')) { $('#fpDomAdd').onclick = addDom; $('#fpDom').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addDom(); } }; }
 }
 /** pick a folder by browsing your home (folder names only; ones that can never be given are locked) */
 async function folderBrowse(path, hidden = false){
@@ -4321,7 +4360,7 @@ async function folderRemove(path, force = false){
   const j = await r.json().catch(() => ({}));
   if (r.status === 409) { if (await uiConfirm(`${j.detail}。仍要移除這個資料夾嗎？`, {danger: true})) return folderRemove(path, true); return; }
   if (!r.ok) { renderFolderPop(j.detail || '無法移除'); return; }
-  FOLD = j; $('#folderN').textContent = j.folders.length || ''; $('#folderBtn').classList.toggle('has', !!j.folders.length); renderFolderPop('已移除');
+  FOLD = {...FOLD, ...j}; folderBadge(); renderFolderPop('已移除');
 }
 function folderPop(open){
   const pop = $('#folderPop'); pop.hidden = !open; $('#folderBtn').setAttribute('aria-expanded', open);

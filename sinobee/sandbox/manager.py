@@ -82,9 +82,11 @@ def bundled_skills_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "bundled_skills"
 
 
-def image_name(config) -> str:
+def image_name(config, conversation: str | None = None) -> str:
+    """The sandbox image: Settings' sandbox.image, or the conversation's own choice (convconf overrides.image)."""
     from .. import __version__
-    flavour = str(config.get("sandbox.image", "standard") or "standard")
+    from .convconf import image
+    flavour = image(config, conversation)
     return f"sinobee-sandbox{'-office' if flavour == 'office' else ''}:{__version__}"
 
 
@@ -254,7 +256,11 @@ class SandboxManager:
         remembered = self.config.get("sandbox.network.remembered")
         domains = list(REMEMBERED if remembered is None else remembered)
         domains += sorted(self.grants.get(conversation, set()))
-        open_all = (self.config.get("sandbox.network.mode", "ask") == "open") or conversation in self.open_all
+        from .convconf import domains as kept
+        mine, mine_all = kept(self.config, conversation)          # allowed for this conversation and kept
+        domains += [d for d in mine if d not in domains]
+        open_all = (self.config.get("sandbox.network.mode", "ask") == "open") or conversation in self.open_all \
+            or mine_all
         return {"conversation": conversation, "domains": domains, "all": open_all}
 
     async def push_policy(self, conversation: str) -> None:
@@ -335,7 +341,7 @@ class SandboxManager:
                                       "{{.State.Running}} {{.Image}} {{index .Config.Labels \"org.sinobee.mounts\"}}",
                                       name, timeout=20)
             parts = out.split()
-            if rc == 0 and len(parts) > 1 and (parts[1] != await self._image_id()
+            if rc == 0 and len(parts) > 1 and (parts[1] != await self._image_id(conversation)
                                                or (parts[2] if len(parts) > 2 else "") != self.mount_key(conversation)):
                 # the image was rebuilt (a new SinoBee) or a folder was granted: a new container; the home volume
                 # stays, what ran in the old one stops
@@ -363,8 +369,8 @@ class SandboxManager:
             await self.push_policy(conversation)
             return box
 
-    async def _image_id(self) -> str:
-        rc, out, _ = await docker("image", "inspect", "-f", "{{.Id}}", image_name(self.config), timeout=20)
+    async def _image_id(self, conversation: str | None = None) -> str:
+        rc, out, _ = await docker("image", "inspect", "-f", "{{.Id}}", image_name(self.config, conversation), timeout=20)
         return out.strip() if rc == 0 else ""
 
     # ----------------------------------------------------------------- reaching ports inside a sandbox
@@ -415,6 +421,15 @@ class SandboxManager:
         self._bridges[key] = srv
         return srv.sockets[0].getsockname()[1]
 
+    async def recreate(self, conversation: str) -> None:
+        """Replace the conversation's container on its next use (another image); the home volume stays."""
+        from ..tools import browser
+        await browser.forget_sandbox(conversation)
+        self.boxes.pop(conversation, None)
+        self._checked.pop(conversation, None)
+        self._close_bridges(conversation)
+        await docker("rm", "-f", self.name_of(conversation), timeout=60)
+
     async def refresh(self, conversation: str) -> bool:
         """After a folder grant: check the container again now; True when it had to be replaced (its programs and
         browser stopped). Review copies need nothing: they appear under /host at once."""
@@ -443,6 +458,10 @@ class SandboxManager:
             self.takeover.pop(conversation, None)
 
     async def _create(self, conversation: str, name: str) -> None:
+        img = image_name(self.config, conversation)
+        if not await self._image_id(conversation):
+            raise DockerError(f"the sandbox image {img} is not built yet: run "
+                              + ("sinobee sandbox build --office" if "-office" in img else "sinobee sandbox build"))
         cpus, mem = self.limits()
         args = ["run", "-d", "--name", name, "--hostname", "sandbox",
                 "--label", f"{ROLE}=sandbox", "--label", f"org.sinobee.conversation={conversation}",
@@ -458,7 +477,7 @@ class SandboxManager:
         for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
             args += ["-e", f"{k}={proxy}"]
         args += ["-e", "NO_PROXY=localhost,127.0.0.1", "-e", "no_proxy=localhost,127.0.0.1",
-                 image_name(self.config)]
+                 image_name(self.config, conversation)]
         rc, _, err = await docker(*args, timeout=120)
         if rc != 0:
             raise DockerError(f"cannot create the sandbox {name}: {err.strip()[:400]}")
@@ -499,8 +518,16 @@ class SandboxManager:
         await docker("rm", "-f", self.name_of(conversation), timeout=60)
         await docker("volume", "rm", "-f", f"sinobee-home-{safe(conversation)}", timeout=60)
 
-    async def sweep(self) -> dict:
-        """Stop sandboxes idle for sandbox.idle_minutes; remove ones stopped for sandbox.prune_days."""
+    async def sweep(self, known=None) -> dict:
+        """Stop sandboxes idle for sandbox.idle_minutes; remove ones stopped for sandbox.prune_days; once an hour
+        tidy the conversations' files (convconf.sweep_files). known(conversation) -> bool says it still exists."""
+        if time.time() - getattr(self, "_files_swept", 0) > 3600:
+            self._files_swept = time.time()
+            from .convconf import sweep_files
+            try:
+                await asyncio.to_thread(sweep_files, self.config, known)
+            except Exception:  # noqa: BLE001
+                log.exception("sandbox files sweep failed")
         idle = float(self.config.get("sandbox.idle_minutes", 30) or 30) * 60
         prune = float(self.config.get("sandbox.prune_days", 14) or 14) * 86400
         stopped, removed = [], []

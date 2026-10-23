@@ -1,7 +1,7 @@
 """Folders of this computer the sandbox may see (sandbox plan E1).
 
 Folders are given to one conversation at a time - by you (the 「📁 資料夾」 button of the conversation) or when
-SinoBee asks (request_host_access) - and kept in ~/.sinobee/sandbox/<conversation>/grants.json. They appear at
+SinoBee asks (request_host_access) - and kept in the conversation's settings file (convconf.py). They appear at
 /host/<name>. Settings has one switch, `sandbox.review_writes` (寫入前審核, on by default): a folder given for writing
 is then a review copy; off, it is written directly. The switch decides when a folder is given; a folder keeps its mode.
 
@@ -19,7 +19,6 @@ read-only or read/write only.
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 from pathlib import Path
@@ -93,41 +92,39 @@ def entry(path: str | os.PathLike, mode: str = "review", name: str | None = None
     return {"path": str(p), "name": nm[:60], "mode": mode if mode in MODES else "review"}
 
 
-# ----------------------------------------------------------------- a conversation's own grants
-def conv_dir(config, conversation: str) -> Path:
-    from .manager import safe
-    return Path(config.home) / "sandbox" / safe(conversation or "default")
+# ----------------------------------------------------------------- a conversation's own grants (convconf.py)
+from .convconf import conv_dir  # noqa: E402,F401 - kept here for the callers that import it from folders
 
 
 def grants(config, conversation: str) -> list[dict]:
-    try:
-        data = json.loads((conv_dir(config, conversation) / "grants.json").read_text(encoding="utf-8"))
-        return [g for g in data if isinstance(g, dict) and g.get("path")]
-    except (OSError, ValueError):
-        return []
+    from . import convconf
+    return [g for g in convconf.load(config, conversation)["folders"] if isinstance(g, dict) and g.get("path")]
 
 
 def add_grant(config, conversation: str, item: dict) -> None:
-    cur = [g for g in grants(config, conversation) if g["path"] != item["path"]] + [item]
-    d = conv_dir(config, conversation)
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "grants.json").write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+    from . import convconf
+    convconf.update(config, conversation, lambda d: d.__setitem__(
+        "folders", [g for g in d["folders"] if g.get("path") != item["path"]] + [item]))
 
 
-def review_writes(config) -> bool:
-    return config.get("sandbox.review_writes", True) is not False
+def review_writes(config, conversation: str | None = None) -> bool:
+    from . import convconf
+    return convconf.review_writes(config, conversation)
 
 
-def write_mode(config, asked: str = "write") -> str:
-    """The mode a folder given now gets: read-only when asked, else review or direct writing as Settings say."""
+def write_mode(config, asked: str = "write", conversation: str | None = None) -> str:
+    """The mode a folder given now gets: read-only when asked, else review or direct writing as Settings (or this
+    conversation's own setting) say."""
     if asked == "ro":
         return "ro"
-    return "review" if review_writes(config) else "rw"
+    return "review" if review_writes(config, conversation) else "rw"
 
 
 def remove_grant(config, conversation: str, path: str) -> dict | None:
     """Take a folder away from the conversation; its review copy and baseline go too. Returns the removed grant."""
     import shutil
+
+    from . import convconf
     target = str(Path(path).expanduser().resolve())
     cur = grants(config, conversation)
     gone = next((g for g in cur if g["path"] == target), None)
@@ -135,8 +132,8 @@ def remove_grant(config, conversation: str, path: str) -> dict | None:
         return None
     d = conv_dir(config, conversation)
     name = next((f["name"] for f in folders_for(config, conversation) if f["path"] == target), None)
-    (d / "grants.json").write_text(json.dumps([g for g in cur if g["path"] != target], ensure_ascii=False, indent=1),
-                                   encoding="utf-8")
+    convconf.update(config, conversation, lambda data: data.__setitem__(
+        "folders", [g for g in data["folders"] if g.get("path") != target]))
     if name:
         shutil.rmtree(d / "host" / name, ignore_errors=True)
         (d / "base" / f"{name}.json").unlink(missing_ok=True)

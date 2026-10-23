@@ -2,6 +2,7 @@
 
 The answer is pushed to the egress proxy at once (sandbox/manager.py):
     只這次任務   these domains, for this conversation until the task (turn) ends
+    這個對話一直允許 these domains, kept in the conversation's settings (convconf.py)
     記住這些網域 these domains, added to sandbox.network.remembered (every sandbox, from now on)
     全部網路     everything, for this conversation until the task ends
     不允許       nothing changes
@@ -12,7 +13,7 @@ import re
 
 from .registry import ToolContext, ToolResult, tool
 
-ONCE, REMEMBER, ALL, NO = "只這次任務允許", "記住這些網域", "這次任務允許全部網路", "不允許"
+ONCE, HERE, REMEMBER, ALL, NO = "只這次任務允許", "這個對話一直允許", "所有對話都允許", "這次任務允許全部網路", "不允許"
 DOMAIN = re.compile(r"^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,63}$|^\d{1,3}(\.\d{1,3}){3}$")
 
 
@@ -60,7 +61,8 @@ async def request_network(ctx: ToolContext, domains: list, reason: str = ""):
     question = (f"沙盒要連到 {', '.join(names)}。\n理由：{reason or '（未說明）'}"
                 + (f"\n注意：這個任務可以讀到 {', '.join(mounts)}，連網後資料有可能被傳出。" if mounts else ""))
     options = [{"label": ONCE, "description": "這次任務結束就收回", "recommended": True},
-               {"label": REMEMBER, "description": "之後的任務也不再問（設定 → 沙盒的網路可移除）"},
+               {"label": HERE, "description": "這個對話之後的任務也不再問（對話設定可移除）"},
+               {"label": REMEMBER, "description": "每個對話都不再問（設定 → 沙盒的網路可移除）"},
                {"label": ALL, "description": "這次任務不限制連線"},
                {"label": NO, "description": "SinoBee 會不連網繼續，或說明做不到的部分"}]
     ans = await ctx.ask(question, options, False, False)
@@ -71,13 +73,19 @@ async def request_network(ctx: ToolContext, domains: list, reason: str = ""):
         m.open_all.add(conv)
     else:
         m.grants.setdefault(conv, set()).update(names)
+        if choice == HERE:
+            from ..sandbox import convconf
+            convconf.update(ctx.config, conv, lambda d: d["network"].__setitem__(
+                "domains", d["network"]["domains"] + [n for n in names if n not in d["network"]["domains"]]))
         if choice == REMEMBER:
+            from ..sandbox.manager import REMEMBERED
             current = ctx.config.get("sandbox.network.remembered")
-            current = list(current) if current is not None else list(allowed["domains"])
+            current = list(current) if current is not None else list(REMEMBERED)
             ctx.config.save_gui_settings({"sandbox": {"network": {"remembered": current + [n for n in names
                                                                                           if n not in current]}}})
     await m.push_policy(conv)
-    scope = {ONCE: "for this task", REMEMBER: "from now on", ALL: "all network, for this task"}[choice]
+    scope = {ONCE: "for this task", HERE: "for this conversation", REMEMBER: "from now on",
+             ALL: "all network, for this task"}[choice]
     return f"allowed {scope}: {', '.join(names) if choice != ALL else 'everything'}. Run the command again."
 
 
@@ -105,7 +113,7 @@ async def request_host_access(ctx: ToolContext, path: str, reason: str = "", mod
     ex = executor_of(ctx)
     if ex.kind != "sandbox":
         return "The tools run on this computer: folders are not limited."
-    want = fd.write_mode(ctx.config, "ro" if mode == "ro" else "write")
+    want = fd.write_mode(ctx.config, "ro" if mode == "ro" else "write", ex.conversation)
     why = fd.refuse(ctx.config, path)
     if why:
         return ToolResult.error(f"{why}（{path}）")

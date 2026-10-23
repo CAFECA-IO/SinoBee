@@ -4,6 +4,8 @@
     POST /api/sandbox/{sid}/takeover {on}      you take over the desktop (the agent's desktop/browser tools wait)
     WS   /api/sandbox/{sid}/vnc?token=          the desktop: VNC over a WebSocket (noVNC in the page)
     ANY  /api/sandbox/{sid}/preview/{port}/... a web server running in the sandbox, in your own browser
+    GET  /api/sandbox/{sid}/settings           the conversation's settings file (convconf.py): folders, network, overrides
+    PUT  /api/sandbox/{sid}/settings           {network: {domains, all}, overrides: {review_writes, image}} (null = as Settings)
     GET  /api/sandbox/{sid}/folders            the folders of this computer given to the conversation (📁 資料夾)
     POST /api/sandbox/{sid}/folders            {path, mode: write|ro}   give one (write = review or direct, as Settings say)
     DELETE /api/sandbox/{sid}/folders?path=&force=   take one away (its review copy too; force when changes wait)
@@ -119,6 +121,66 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         return {"path": str(p), "shown": _shown(str(p)), "parent": str(parent) if parent else None, "crumbs": crumbs,
                 "can_pick": why is None, "why": why, "dirs": dirs, "shortcuts": shortcuts}
 
+    async def _conv_settings(sid: str) -> dict:
+        from ..sandbox import convconf
+        from .. import __version__
+        from ..sandbox.manager import docker
+        cfg = rt().config
+        data = convconf.load(cfg, sid)
+        try:
+            rc, _, _ = await docker("image", "inspect", f"sinobee-sandbox-office:{__version__}", timeout=10)
+        except Exception:  # noqa: BLE001 - no Docker here: the office image is not there either
+            rc = 1
+        return {"network": data["network"], "overrides": data["overrides"],
+                "effective": {"review_writes": convconf.review_writes(cfg, sid), "image": convconf.image(cfg, sid)},
+                "defaults": {"review_writes": convconf.review_writes(cfg), "image": convconf.image(cfg)},
+                "office_built": rc == 0, **(await conv_folders(sid))}
+
+    @app.get("/api/sandbox/{sid}/settings")
+    async def conv_settings(sid: str):
+        return await _conv_settings(sid)
+
+    @app.put("/api/sandbox/{sid}/settings")
+    async def conv_settings_put(sid: str, body: dict):
+        from ..sandbox import convconf
+        from ..sandbox.manager import manager_for
+        from ..tools.sandbox_tools import clean
+        cfg = rt().config
+        before = convconf.load(cfg, sid)
+        net, ov = body.get("network"), body.get("overrides")
+
+        def change(d):
+            if isinstance(net, dict):
+                if "domains" in net:
+                    d["network"]["domains"] = clean(net.get("domains") or [])
+                if "all" in net:
+                    d["network"]["all"] = bool(net["all"])
+            if isinstance(ov, dict):
+                if "review_writes" in ov:
+                    if ov["review_writes"] is None:
+                        d["overrides"].pop("review_writes", None)
+                    else:
+                        d["overrides"]["review_writes"] = bool(ov["review_writes"])
+                if "image" in ov:
+                    if ov["image"] in (None, ""):
+                        d["overrides"].pop("image", None)
+                    elif ov["image"] in convconf.IMAGES:
+                        d["overrides"]["image"] = ov["image"]
+                    else:
+                        raise HTTPException(400, "image must be standard | office")
+        after = convconf.update(cfg, sid, change)
+        m = manager_for(cfg)
+        if after["network"] != before["network"] and sid in m.boxes:
+            await m.push_policy(sid)
+        if convconf.image(cfg, sid) != (before["overrides"].get("image") or convconf.image(cfg)):
+            try:
+                await m.recreate(sid)
+            except Exception:  # noqa: BLE001 - no Docker now: the next sandbox is made on the new image anyway
+                pass
+        if broadcast:
+            broadcast("folders", {"session_id": sid})
+        return await _conv_settings(sid)
+
     @app.get("/api/sandbox/{sid}/folders")
     async def conv_folders(sid: str):
         from pathlib import Path
@@ -131,7 +193,7 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
             n = len(await asyncio.to_thread(staging.changes, cfg, sid, f, False)) if f["mode"] == "review" else 0
             out.append({**f, "shown": _shown(f["path"]), "inner": f"/host/{f['name']}",
                         "exists": Path(f["path"]).is_dir(), "pending": n})
-        return {"folders": out, "review_writes": review_writes(cfg), "sandbox": executor_kind(cfg) == "sandbox"}
+        return {"folders": out, "review_writes": review_writes(cfg, sid), "sandbox": executor_kind(cfg) == "sandbox"}
 
     @app.post("/api/sandbox/{sid}/folders")
     async def conv_folder_add(sid: str, body: dict):
@@ -148,7 +210,7 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         why = fd.refuse(cfg, path)
         if why:
             raise HTTPException(400, why)
-        mode = fd.write_mode(cfg, "ro" if body.get("mode") == "ro" else "write")
+        mode = fd.write_mode(cfg, "ro" if body.get("mode") == "ro" else "write", sid)
         target = Path(path).expanduser().resolve()
         if mode == "review" and await asyncio.to_thread(fd.count_files, target, fd.review_max(cfg)) > fd.review_max(cfg):
             raise HTTPException(400, f"這個資料夾超過 {fd.review_max(cfg):,} 個檔案，太大無法做審核用的副本：請選唯讀，"

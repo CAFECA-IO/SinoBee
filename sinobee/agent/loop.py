@@ -1330,6 +1330,11 @@ class Agent:
         self.ctx.state["turn_id"] = f"t{int(time.time() * 1000)}"   # groups this turn's evidence (agent/evidence.py)
         if self.depth == 0:
             self._refresh_folders()
+            try:
+                from ..sandbox import convconf
+                convconf.touch(self.config, self.sandbox_conversation)
+            except Exception:  # noqa: BLE001
+                pass
         self.ctx.state["playtests"] = []
         self._quota_noted: set = set()   # "switched to points / your models" is said once per turn, not per call
 

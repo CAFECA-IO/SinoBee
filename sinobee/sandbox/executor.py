@@ -159,11 +159,8 @@ class SandboxExecutor(Executor):
         super().__init__(config, paths)
 
     def _grants_key(self):
-        from .folders import conv_dir
-        try:
-            return (conv_dir(self.config, self.conversation) / "grants.json").stat().st_mtime_ns
-        except OSError:
-            return None
+        from .convconf import mtime
+        return mtime(self.config, self.conversation)
 
     @property
     def paths(self) -> PathMap:

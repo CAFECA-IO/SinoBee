@@ -2114,3 +2114,20 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   - `Agent(sandbox_conversation=…)`：子代理的 executor、系統提示詞的路徑表、證據庫都用所屬對話；`work/agents.py` 以
     `SANDBOX_ROOT` 讓子代理的子代理也回到同一個對話。
   - 審核比對與寫回另外略過 `.next`、`.turbo`、`.cache`、`.pytest_cache`、`.mypy_cache`（原本已略過 node_modules、.git 等）。
+
+## 55. 每個對話一份設定檔 conversation.json；對話設定；清理（2026-10-23）
+
+- `~/.sinobee/sandbox/<對話>/conversation.json`（`sandbox/convconf.py`）：
+  `{"version":1,"conversation","created","used","folders":[…],"network":{"domains":[…],"all":false},"overrides":{"review_writes","image"}}`。
+  只有 grants.json 的舊對話第一次讀到時轉成 conversation.json（grants.json 刪除）。檔案壞了視為空白設定，不會報錯。
+- 資料夾（📁 或 request_host_access）、request_network 選「這個對話一直允許」的網域都寫在這裡；「只這次任務」與「這次任務全部網路」
+  仍只在記憶體、任務結束收回。`manager.policy()` = 全域記住的網域 + 這次任務 + 這個對話保留的網域；`network.all` 讓這個對話一律連網。
+- `overrides` 沒有值就依設定：`review_writes`（寫入前審核，只影響之後加入的資料夾）、`image`（standard / office；改了就重建這個對話的容器，
+  `ensure` 也會比對映像 id）。`folders.write_mode`、`manager.image_name` 都帶對話 id。
+- 介面：標題列的「對話設定」（原 📁 資料夾）分三段——資料夾、網路（網域 chip + 「只允許下列網域 / 一律允許」）、不同於設定（三段開關，
+  含 LibreOffice 的映像未建立時停用並提示 `sinobee sandbox build --office`）。每個變更立即 `PUT /api/sandbox/{sid}/settings` 儲存；
+  `GET` 回傳 network、overrides、effective、defaults、office_built 與資料夾。
+- 清理（`convconf.sweep_files`，沙盒管理每小時跑）：一天以上、對話不存在的草稿資料夾刪除；超過 `sandbox.keep_days`（30 天）沒用的對話刪
+  審核副本、基準與寫回備份（設定檔保留，下次用到時重新從資料夾建立副本）；超過保存期的寫回備份刪除；有待審變更的對話一律不動。
+  對話開始時 `convconf.touch` 更新 used。
+- 測試：tests/test_sandbox_conv.py。

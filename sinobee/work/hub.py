@@ -463,7 +463,7 @@ class WorkHub:
                 try:
                     from ..sandbox.manager import active_managers
                     for m in active_managers():
-                        await m.sweep()
+                        await m.sweep(known=self.rt.memory.session_exists)
                 except Exception:  # noqa: BLE001
                     log.exception("sandbox sweep failed")
             if self.recovery.due():            # interrupted work is looked for every minute

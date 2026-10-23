@@ -10,7 +10,7 @@ from sinobee.sandbox import sandbox_map
 from sinobee.sandbox.executor import Executor, RunResult, SandboxExecutor
 from sinobee.sandbox.manager import SandboxManager, manager_for
 from sinobee.tools.registry import REGISTRY, ToolContext
-from sinobee.tools.sandbox_tools import ALL, NO, ONCE, REMEMBER, clean
+from sinobee.tools.sandbox_tools import ALL, HERE, NO, ONCE, REMEMBER, clean
 from sinobee.types import ToolCall
 
 
@@ -71,7 +71,7 @@ def test_domain_names_are_cleaned():
         == ["github.com", "api.github.com", "*.npmjs.org", "8.8.8.8"]
 
 
-@pytest.mark.parametrize("answer", [ONCE, REMEMBER, ALL, NO, None])
+@pytest.mark.parametrize("answer", [ONCE, HERE, REMEMBER, ALL, NO, None])
 def test_request_network_answers(config, answer):
     ctx, m, asked = sandbox_ctx(config, answer)
     out = dispatch(ctx, "request_network", domains=["github.com"], reason="下載範例").content
@@ -87,6 +87,11 @@ def test_request_network_answers(config, answer):
     remembered = config.get("sandbox.network.remembered")
     assert ("github.com" in remembered) == (answer == REMEMBER)
     assert "pypi.org" in remembered
+    from sinobee.sandbox import convconf
+    assert convconf.domains(config, "c1") == ((["github.com"] if answer == HERE else []), False)
+    if answer == HERE:                         # kept: still allowed after the task, in this conversation only
+        m.grants.clear()
+        assert "github.com" in m.policy("c1")["domains"] and "github.com" not in m.policy("c2")["domains"]
 
 
 def test_already_allowed_is_not_asked(config):

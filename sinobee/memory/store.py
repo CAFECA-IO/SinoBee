@@ -690,6 +690,10 @@ class MemoryStore:
             self.db.execute("DELETE FROM context_checkpoints WHERE session_id=?", (sid,))
             self.db.commit()
 
+    def session_exists(self, sid: str) -> bool:
+        with self._lock:
+            return self.db.execute("SELECT 1 FROM sessions WHERE id=?", (sid,)).fetchone() is not None
+
     def sessions(self, limit: int = 50, exclude_platforms: tuple = ("subagent", "job")) -> list[dict]:
         """Conversations for the sidebar; background work (sub-agents, jobs) is listed under 工作 instead."""
         q = "SELECT * FROM sessions"
