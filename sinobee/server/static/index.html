@@ -661,6 +661,8 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 #folderPop .fb-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 #folderPop{max-height:calc(100vh - 80px);overflow:auto}
 .hc-fh .fp-m{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:0 8px;color:var(--muted)}
+.hc-hist a.btn{text-decoration:none}
+.hc-cut{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;margin-bottom:10px;border:1px solid var(--warn);border-radius:10px;font-size:13px}.hc-cut .acts{margin-left:auto;display:flex;gap:6px}
 #hcToast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:400;display:flex;align-items:center;gap:10px;padding:9px 10px 9px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 12px 30px rgba(0,0,0,.4);font-size:13px;max-width:calc(100vw - 32px)}#hcToast[hidden]{display:none}#hcToast .ad-fold{all:unset;cursor:pointer;color:var(--muted);padding:2px 6px}
 #folderPop .fp-sec{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;margin:14px 0 4px;padding-top:10px;border-top:1px solid var(--line)}#folderPop .fp-h+.fp-msg+.fp-sec,#folderPop .fp-h+.fp-sec{border-top:0;padding-top:0;margin-top:8px}
 #folderPop .fp-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
@@ -2317,7 +2319,7 @@ function handle(ev, replay = false){
       add('ⓘ 已收到，會在目前這一步結束後納入。', 'note'); break;
     case 'steer_applied': add('✓ 已把你的補充納入任務', 'note'); break;
     case 'artifact': showArtifacts(ev.id, ev.files); break;
-    case 'host_changes': hostBar(ev.session_id, ev.count); if (!$('#folderPop').hidden) folderRefresh(); break;
+    case 'host_changes': hostBar(ev.session_id, ev.count, ev.interrupted || 0); if (!$('#folderPop').hidden) folderRefresh(); break;
     case 'folders': folderRefresh(); break;
     case 'evidence': if (ev.items?.length) { const g = procGroup(); const d = document.createElement('div'); d.innerHTML = evStrip(ev.items, null, true); g.body.appendChild(d); } break;
     case 'turn_start': if (!replay) { if (TB && TB.open) tbEnd(); tbStart(); } break;
@@ -4189,31 +4191,47 @@ async function openSettings(firstRun = false, pane = null){
 // ---------- 本機檔案變更: what the sandbox changed in the copies of your folders (sandbox/staging.py) ----------
 const HC_KIND = {added: '新增', modified: '修改', deleted: '刪除'};
 let HC = {sid: null, data: null};
-function hostBar(sid, count){
+function hostBar(sid, count, cut = 0){
   document.querySelectorAll('#chat .hostbar').forEach(b => b.remove());
-  if (!count || sid !== sessionId) return;
-  const d = add(`${ic('file')}<b>本機檔案變更 ${count} 個</b><span class="sd">審核後才會寫回你的資料夾</span><button class="btn sm primary" type="button">審核變更</button>`, 'hostbar');
+  if ((!count && !cut) || sid !== sessionId) return;
+  const d = add(cut ? `${ic('file')}<b>上次寫回你的資料夾時中斷了</b><span class="sd">可以繼續完成或全部還原</span><button class="btn sm primary" type="button">處理</button>`
+    : `${ic('file')}<b>本機檔案變更 ${count} 個</b><span class="sd">審核後才會寫回你的資料夾</span><button class="btn sm primary" type="button">審核變更</button>`, 'hostbar');
   d.querySelector('button').onclick = () => openHostReview(sid);
 }
-async function hostCheck(sid){ try { const r = await api(`/api/sandbox/${encodeURIComponent(sid)}/changes`); if (sid === sessionId) hostBar(sid, r.count || 0); } catch {} }
+async function hostCheck(sid){ try { const r = await api(`/api/sandbox/${encodeURIComponent(sid)}/changes`); if (sid === sessionId) hostBar(sid, r.count || 0, r.interrupted?.length || 0); } catch {} }
 const diffHtml = t => esc(t).split('\n').map(l => `<span class="${/^(\+\+\+|---|@@)/.test(l) ? 'h' : l[0] === '+' ? 'a' : l[0] === '-' ? 'd' : ''}">${l}</span>`).join('\n');
 async function openHostReview(sid){
   HC = {sid, data: null, busy: false}; $('#hcBody').innerHTML = '<div class="sd"><span class="spin"></span> 比對中…</div>'; $('#hcState').textContent = ''; $('#hostModal').classList.add('open');
   const r = await api(`/api/sandbox/${encodeURIComponent(sid)}/changes`); HC.data = r;
   const home = (r.folders[0]?.origin || '').match(/^\/(Users|home)\/[^/]+/)?.[0];
   const short = p => home && p.startsWith(home) ? '~' + p.slice(home.length) : p;
-  let html = r.folders.filter(f => f.changes.length).map(f => `<div class="hc-f" data-f="${esc(f.name)}"><div class="hc-fh"><b>${esc(f.name)}</b>${f.via === 'git' ? '<span class="fp-m">git</span>' : ''}<span class="sd mono">${esc(short(f.origin))}</span><span class="sd">${f.changes.length} 個變更</span>`
-    + `<span class="acts"><button class="btn sm" type="button" data-all="1">全選</button></span></div>`
+  const cutFolders = new Set((r.interrupted || []).map(x => x.folder));
+  let html = r.folders.filter(f => f.changes.length && !cutFolders.has(f.name)).map(f => `<div class="hc-f" data-f="${esc(f.name)}"><div class="hc-fh"><b>${esc(f.name)}</b>${f.via === 'git' ? '<span class="fp-m">git</span>' : ''}<span class="sd mono">${esc(short(f.origin))}</span><span class="sd">${f.changes.length} 個變更</span>`
+    + `<span class="acts"><button class="btn sm" type="button" data-all="1">全選</button><button class="btn sm" type="button" data-export title="把勾選的變更存成${f.via === 'git' ? ' .patch（git apply）' : ' .zip（含差異與檔案）'}，不寫回">匯出差異</button></span></div>`
     + f.changes.map(c => `<div class="hc-row${c.conflict ? ' conflict' : ''}" data-p="${esc(c.path)}"><div class="hc-rh"><input type="checkbox" class="hc-pick"${c.conflict ? '' : ' checked'} aria-label="選取 ${esc(c.path)}">`
       + `<span class="hc-k ${c.kind}">${HC_KIND[c.kind]}</span><span class="p">${esc(c.path)}</span>${c.size != null ? `<span class="sd">${fmtSize(c.size)}</span>` : ''}</div>`
       + (c.conflict ? `<div class="hc-cf" style="padding:0 10px 6px">⚠︎ 副本做出後你也改過原檔。<label><input type="checkbox" class="hc-force"> 仍以副本覆蓋（原檔會先保存，可復原）</label></div>` : '')
       + (c.diff ? `<details${r.count <= 3 ? ' open' : ''}><summary>差異</summary><pre class="hc-diff">${diffHtml(c.diff)}</pre></details>` : c.binary ? '<details><summary>二進位檔，沒有文字差異</summary></details>' : '')
       + `</div>`).join('') + `</div>`).join('');
-  if (!html) html = '<div class="sd">沒有等你審核的變更。</div>';
+  if (!html && !cutFolders.size) html = '<div class="sd">沒有等你審核的變更。</div>';
+  if (cutFolders.size) html += `<div class="sd">${[...cutFolders].map(esc).join('、')} 的其他變更，處理完上面中斷的寫回後才會列出。</div>`;
+  html = (r.interrupted || []).map(x => `<div class="hc-cut" data-cut="${esc(x.id)}">⚠︎ ${new Date(x.t * 1000).toLocaleString()} 寫回 <b>${esc(x.folder)}</b> 時中斷：${x.total} 個檔案已寫入 ${x.done} 個。`
+    + `<span class="acts"><button class="btn sm primary" type="button" data-resume>繼續完成</button><button class="btn sm" type="button" data-rollback>全部還原</button></span></div>`).join('') + html;
   html = r.folders.filter(f => f.error).map(f => `<div class="hc-cf" style="padding:6px 0">⚠︎ ${esc(f.name)} 無法比較：${esc(f.error)}</div>`).join('') + html;
   const hist = (r.applied || []).filter(b => b.id);
-  if (hist.length) html += `<div class="hc-hist"><b>最近套用</b>${hist.map(b => `<div><span>${new Date(b.t * 1000).toLocaleString()} · ${esc(b.folder)} · ${b.files} 個檔案</span>${b.undone ? '<span>（已復原）</span>' : `<button class="btn sm" type="button" data-undo="${esc(b.id)}">復原</button>`}</div>`).join('')}</div>`;
+  if (hist.length) html += `<div class="hc-hist"><b>最近套用</b>${hist.map(b => `<div><span>${new Date(b.t * 1000).toLocaleString()} · ${esc(b.folder)} · ${b.files} 個檔案</span>${b.undone ? '<span>（已復原）</span>' : `<button class="btn sm" type="button" data-undo="${esc(b.id)}">復原</button>`}<a class="btn sm" href="/api/sandbox/${encodeURIComponent(sid)}/applied/${encodeURIComponent(b.id)}/export?token=${encodeURIComponent(token)}" download>下載差異</a></div>`).join('')}</div>`;
   $('#hcBody').innerHTML = html;
+  $('#hcBody').querySelectorAll('[data-export]').forEach(b => b.onclick = () => { const f = b.closest('.hc-f');
+    const picked = [...f.querySelectorAll('.hc-row')].filter(x => x.querySelector('.hc-pick').checked).map(x => x.dataset.p);
+    location.href = `/api/sandbox/${encodeURIComponent(sid)}/changes/export?folder=${encodeURIComponent(f.dataset.f)}${picked.map(p => '&path=' + encodeURIComponent(p)).join('')}&token=${encodeURIComponent(token)}`; });
+  $('#hcBody').querySelectorAll('[data-cut]').forEach(box => {
+    const run = async (what, label) => { box.querySelectorAll('button').forEach(x => x.disabled = true); $('#hcState').textContent = label;
+      try { const j = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/changes/${what}`, {id: box.dataset.cut});
+        hcDone(sid, what === 'resume' ? `已完成寫回：${j.applied.length} 個檔案` + (j.conflicts.length ? `，${j.conflicts.length} 個因你改過而跳過` : '')
+          : `已還原 ${j.restored.length} 個檔案` + (j.trashed.length ? `，${j.trashed.length} 個移到垃圾桶` : '') + '；變更回到待審核', j.pending, what === 'resume' && j.id ? [j.id] : [], j.interrupted); }
+      catch (e) { $('#hcState').textContent = '失敗：' + e.message; box.querySelectorAll('button').forEach(x => x.disabled = false); } };
+    box.querySelector('[data-resume]').onclick = () => run('resume', '繼續寫回中…');
+    box.querySelector('[data-rollback]').onclick = async () => { if (await uiConfirm('把這次中斷前已寫入的檔案還原成原本的樣子？（它新增的檔案移到垃圾桶）')) run('rollback', '還原中…'); }; });
   $('#hcBody').querySelectorAll('[data-all]').forEach(b => b.onclick = () => b.closest('.hc-f').querySelectorAll('.hc-row:not(.conflict) .hc-pick').forEach(x => x.checked = true));
   $('#hcBody').querySelectorAll('.hc-force').forEach(x => x.onchange = () => { if (x.checked) x.closest('.hc-row').querySelector('.hc-pick').checked = true; });
   $('#hcBody').querySelectorAll('[data-undo]').forEach(b => b.onclick = async () => {
@@ -4240,10 +4258,10 @@ async function hcFetch(path, body){
 }
 /** after apply / discard / undo: the window is free at once; it closes when nothing is left to review, and a note
  *  (with 復原 for an apply) says what happened - the list refresh runs on its own and can never keep it locked */
-function hcDone(sid, msg, pending, undoIds = []){
-  hostBar(sid, pending); loadSide(); if (!$('#folderPop').hidden) folderRefresh();
+function hcDone(sid, msg, pending, undoIds = [], cut = 0){
+  hostBar(sid, pending, cut); loadSide(); if (!$('#folderPop').hidden) folderRefresh();
   const open = $('#hostModal').classList.contains('open') && HC?.sid === sid;
-  if (!pending) { $('#hostModal').classList.remove('open'); hcToast(sid, msg, undoIds); return; }
+  if (!pending && !cut) { $('#hostModal').classList.remove('open'); hcToast(sid, msg, undoIds); return; }
   if (open) openHostReview(sid).then(() => { $('#hcState').textContent = msg; }).catch(() => {});
   else hcToast(sid, msg, undoIds);
 }
@@ -4271,9 +4289,9 @@ async function hcRun(label, work){
   finally { if (HC.sid === sid) { HC.busy = false; $('#hcApply').disabled = $('#hcDiscard').disabled = !(HC.data?.count); } }
 }
 $('#hcApply').onclick = () => { const sel = hcPicked(); if (!sel.length) return;
-  hcRun('寫回中…', async sid => { let ok = 0, skipped = [], pending = 0; const ids = [];
-    for (const s of sel) { const j = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/changes/apply`, s); ok += j.applied.length; skipped.push(...j.conflicts); pending = j.pending; if (j.id) ids.push(j.id); }
-    hcDone(sid, `已寫回 ${ok} 個檔案` + (skipped.length ? `，${skipped.length} 個衝突沒有套用` : ''), pending, ids); }); };
+  hcRun('寫回中…', async sid => { let ok = 0, skipped = [], pending = 0, cut = 0; const ids = [];
+    for (const s of sel) { const j = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/changes/apply`, s); ok += j.applied.length; skipped.push(...j.conflicts); pending = j.pending; cut = j.interrupted || 0; if (j.id) ids.push(j.id); }
+    hcDone(sid, `已寫回 ${ok} 個檔案` + (skipped.length ? `，${skipped.length} 個衝突沒有套用` : ''), pending, ids, cut); }); };
 $('#hcDiscard').onclick = async () => { const sel = hcPicked(); if (!sel.length) return;
   if (!await uiConfirm(`捨棄選取的 ${sel.reduce((n, s) => n + s.paths.length, 0)} 個變更？副本會換回原檔的內容。`)) return;
   hcRun('捨棄中…', async sid => { let n = 0, pending = 0;

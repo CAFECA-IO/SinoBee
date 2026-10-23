@@ -14,6 +14,10 @@
     POST /api/sandbox/{sid}/changes/apply      {folder, paths?, force?}  bring them to your folder
     POST /api/sandbox/{sid}/changes/discard    {folder, paths?}          drop them (the copy gets the original back)
     POST /api/sandbox/{sid}/changes/undo       {id}                      put back what an apply replaced
+    POST /api/sandbox/{sid}/changes/resume     {id}                      finish a write-back that was cut off
+    POST /api/sandbox/{sid}/changes/rollback   {id}                      or put back what it had written
+    GET  /api/sandbox/{sid}/changes/export?folder=&path=   the waiting changes as .patch (git) / .zip
+    GET  /api/sandbox/{sid}/applied/{id}/export            what a write-back wrote, as .zip
     GET  /api/sandbox/{sid}/checkpoints?folder= checkpoints of a folder written directly (checkpoints.py)
     POST /api/sandbox/{sid}/checkpoints        {folder, label}           take one now
     GET  /api/sandbox/{sid}/checkpoints/{id}?folder=                     what going back would change
@@ -57,11 +61,13 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
 
     async def _after(sid: str) -> dict:
         from ..sandbox import staging
+        from ..sandbox import writeback
         items = await asyncio.to_thread(staging.pending, rt().config, sid, False)
         staging.remember_pending(rt().config, sid, items)
+        cut = len(writeback.interrupted(rt().config, sid))
         if broadcast:
-            broadcast("host_changes", {"session_id": sid, "count": len(items)})
-        return {"pending": len(items)}
+            broadcast("host_changes", {"session_id": sid, "count": len(items), "interrupted": cut})
+        return {"pending": len(items), "interrupted": cut}
 
     def _shown(p: str) -> str:
         from pathlib import Path
@@ -281,7 +287,8 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
                             "error": err})
         n = sum(len(f["changes"]) for f in folders)
         staging.remember_pending(cfg, sid, [c for f in folders for c in f["changes"]])
-        return {"folders": folders, "count": n,
+        from ..sandbox import writeback
+        return {"folders": folders, "count": n, "interrupted": writeback.interrupted(cfg, sid),
                 "applied": [{k: b.get(k) for k in ("id", "folder", "t", "undone")} | {"files": len(b.get("items") or [])}
                             for b in staging.applied_batches(cfg, sid)[:10]]}
 
@@ -290,9 +297,12 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         from ..sandbox import staging
         f = _folder(sid, str(body.get("folder") or ""))
         paths = body.get("paths")
-        res = await asyncio.to_thread(staging.apply, rt().config, sid, f,
-                                      [str(p) for p in paths] if isinstance(paths, list) else None,
-                                      [str(p) for p in body.get("force") or []])
+        try:
+            res = await asyncio.to_thread(staging.apply, rt().config, sid, f,
+                                          [str(p) for p in paths] if isinstance(paths, list) else None,
+                                          [str(p) for p in body.get("force") or []])
+        except staging.StagingError as e:          # found while preparing: nothing in your folder was changed
+            raise HTTPException(409, f"沒有寫回任何檔案：{e}") from None
         return {**res, **await _after(sid)}
 
     @app.post("/api/sandbox/{sid}/changes/discard")
@@ -303,6 +313,48 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         done = await asyncio.to_thread(staging.discard, rt().config, sid, f,
                                        [str(p) for p in paths] if isinstance(paths, list) else None)
         return {"discarded": done, **await _after(sid)}
+
+    @app.post("/api/sandbox/{sid}/changes/resume")
+    async def host_resume(sid: str, body: dict):
+        from ..sandbox import staging, writeback
+        try:
+            res = await asyncio.to_thread(writeback.resume, rt().config, sid, str(body.get("id") or ""))
+        except staging.StagingError as e:
+            raise HTTPException(409, str(e)) from None
+        return {**res, **await _after(sid)}
+
+    @app.post("/api/sandbox/{sid}/changes/rollback")
+    async def host_rollback(sid: str, body: dict):
+        from ..sandbox import staging, writeback
+        try:
+            res = await asyncio.to_thread(writeback.rollback, rt().config, sid, str(body.get("id") or ""))
+        except staging.StagingError as e:
+            raise HTTPException(409, str(e)) from None
+        return {**res, **await _after(sid)}
+
+    def _download(name: str, data: bytes, media: str):
+        from urllib.parse import quote
+
+        from fastapi.responses import Response
+        return Response(data, media_type=media, headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}", "Cache-Control": "no-store"})
+
+    @app.get("/api/sandbox/{sid}/changes/export")
+    async def host_export(sid: str, folder: str, request: Request):
+        from ..sandbox import writeback
+        f = _folder(sid, folder)
+        paths = request.query_params.getlist("path") or None
+        name, data, media = await asyncio.to_thread(writeback.export_current, rt().config, sid, f, paths)
+        return _download(name, data, media)
+
+    @app.get("/api/sandbox/{sid}/applied/{bid}/export")
+    async def host_export_batch(sid: str, bid: str):
+        from ..sandbox import staging, writeback
+        try:
+            name, data, media = await asyncio.to_thread(writeback.export_batch, rt().config, sid, bid)
+        except staging.StagingError as e:
+            raise HTTPException(404, str(e)) from None
+        return _download(name, data, media)
 
     @app.post("/api/sandbox/{sid}/changes/undo")
     async def host_undo(sid: str, body: dict):

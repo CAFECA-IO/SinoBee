@@ -272,47 +272,11 @@ def _follow(config, conversation: str, name: str, base: dict, copy: Path, now: d
 
 def apply(config, conversation: str, folder: dict, paths: list[str] | None = None,
           force: list[str] | None = None) -> dict:
-    """Bring the copy's changes (all, or `paths`) to the original. Conflicts are skipped unless listed in `force`.
+    """Bring the copy's changes (all, or `paths`) to the original - prepared first, then written file by file with a
+    log, so an interruption can be finished or undone (writeback.py). Conflicts are skipped unless listed in `force`.
     Returns {"id", "applied": [...], "conflicts": [...], "trashed": [...]}."""
-    name = folder["name"]
-    todo = [c for c in changes(config, conversation, folder, with_diff=False) if paths is None or c["path"] in paths]
-    force = set(force or [])
-    base = _baseline(config, conversation, name)
-    orig_root = Path(base.get("path") or folder["path"])
-    copy = copy_dir(config, conversation, name)
-    bid = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
-    store = conv_dir(config, conversation) / "applied" / bid
-    record = {"id": bid, "folder": name, "origin": str(orig_root), "t": time.time(), "items": []}
-    applied, conflicts, trashed = [], [], []
-    now: dict[str, Path | None] = {}
-    for c in todo:
-        rel = c["path"]
-        if c["conflict"] and rel not in force:
-            conflicts.append(rel)
-            continue
-        orig, src = orig_root / rel, copy / rel
-        saved = None
-        if orig.is_file():                                   # what is replaced, for undo
-            saved = store / "files" / rel
-            saved.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(orig, saved)
-        if c["kind"] == "deleted":
-            if orig.exists():
-                trashed.append(str(_trash(orig)))
-            now[rel] = None
-        else:
-            orig.parent.mkdir(parents=True, exist_ok=True)
-            tmp = orig.with_name(f".{orig.name}.sinobee-tmp")
-            clone.clone_file(src, tmp)
-            os.replace(tmp, orig)
-            now[rel] = orig
-        record["items"].append({"path": rel, "kind": c["kind"], "saved": bool(saved)})
-        applied.append(rel)
-    if applied:
-        store.mkdir(parents=True, exist_ok=True)
-        (store / "record.json").write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
-        _follow(config, conversation, name, base, copy, now)
-    return {"id": bid if applied else None, "applied": applied, "conflicts": conflicts, "trashed": trashed}
+    from . import writeback
+    return writeback.apply(config, conversation, folder, paths, force)
 
 
 def discard(config, conversation: str, folder: dict, paths: list[str] | None = None) -> list[str]:
@@ -348,9 +312,11 @@ def applied_batches(config, conversation: str) -> list[dict]:
     out = []
     for d in sorted(root.iterdir() if root.is_dir() else [], reverse=True):
         try:
-            out.append(json.loads((d / "record.json").read_text(encoding="utf-8")))
+            rec = json.loads((d / "record.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
+        if rec.get("state", "done") == "done":          # interrupted ones: writeback.interrupted
+            out.append(rec)
     return out
 
 
@@ -364,6 +330,8 @@ def undo(config, conversation: str, batch: str) -> list[str]:
         raise StagingError("找不到這次套用的紀錄") from None
     if rec.get("undone"):
         return []
+    if rec.get("state", "done") != "done":
+        raise StagingError("這次寫回沒有完成：請用「繼續完成」或「全部還原」處理")
     orig_root = Path(rec["origin"])
     base = _baseline(config, conversation, rec["folder"])
     done, now = [], {}

@@ -271,7 +271,7 @@ def test_review_api_lists_applies_discards_and_undoes(config, home):
         assert r["count"] == 2 and r["folders"][0]["origin"].endswith("報告") and "+新版" in r["folders"][0]["changes"][0]["diff"]
         assert c.get("/api/sandbox-pending").json() == {"s1": 2}
         j = c.post("/api/sandbox/s1/changes/apply", json={"folder": "報告", "paths": ["a.md"]}).json()
-        assert j["applied"] == ["a.md"] and j["pending"] == 1 and events[-1] == ("host_changes", {"session_id": "s1", "count": 1})
+        assert j["applied"] == ["a.md"] and j["pending"] == 1 and events[-1] == ("host_changes", {"session_id": "s1", "count": 1, "interrupted": 0})
         assert (home / "Documents" / "報告" / "a.md").read_text() == "新版\n"
         assert c.post("/api/sandbox/s1/changes/discard", json={"folder": "報告"}).json()["pending"] == 0
         assert c.get("/api/sandbox-pending").json() == {}

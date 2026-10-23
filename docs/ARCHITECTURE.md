@@ -2159,3 +2159,24 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   可「復原」的提示。對話設定的重新整理不會再用較舊的回應覆蓋較新的狀態。
 - `CONTAINER_REV` 改變時既有沙盒會重建一次（這次是 git 設定）。
 - 測試：tests/test_sandbox_big.py（含 Docker：沙盒內在 git 副本 commit、直接寫入後還原）。
+
+## 57. 寫回是一筆交易：先備妥、再寫入、記錄進度；中斷可繼續或還原；差異檔匯出（2026-10-23）
+
+原本的寫回邊讀副本邊寫，套用紀錄與基準到最後才更新：中途中斷會留下半套、無法從介面復原、已寫的檔案被誤判為衝突，也可能殘留暫存檔。
+只改用 .patch 寫回並不會更安全（git apply 也是逐檔寫），安全來自交易式的流程（`sandbox/writeback.py`，`staging.apply` 交給它）：
+
+- **備妥**：不碰你的資料夾。整批檢查衝突、寫入權限、磁碟空間；把被取代的原檔存到 `applied/<id>/files/`、把新內容從副本凍結到
+  `new/`（APFS clone），記下每個原檔當時的大小與時間；同時產出 `changes.patch`（git）或 `changes.diff`。任何問題都在這裡停下，
+  API 回 409「沒有寫回任何檔案」。沙盒之後再改副本，寫回的仍是你審核的那一版。
+- **寫入**：`record.json` 狀態 writing；逐檔「寫成暫存檔、fsync、rename」，寫之前再確認原檔沒被你改過（改過就跳過、列為衝突），
+  每完成一個就在 `progress.log` 追加一行並 fsync。
+- **完成**：基準跟上、清掉暫存檔、狀態 done；「最近套用」才列出它，復原整批。
+- **中斷後**：`writeback.interrupted` 找出 prepared/writing 的紀錄；審核視窗與對話中的提示列顯示「寫回時中斷：N 個已寫入 k 個」，
+  可「繼續完成」（`resume`：用凍結的新內容補完；已寫入但沒來得及記錄的檔案以內容辨認）或「全部還原」（`rollback`：寫過的檔案換回原檔、
+  新增的移到垃圾桶、刪掉的找回，變更回到待審核）。有中斷的資料夾不能再開始新的寫回。
+- **匯出差異**：審核視窗每個資料夾的「匯出差異」匯出勾選的變更——git 資料夾是 `.patch`（`git apply --3way`，含二進位），其他是 `.zip`
+  （`changes.diff` 可 `patch -p1`、`files/`、`deleted.txt`、README）；「最近套用」每筆有「下載差異」（從該次紀錄產生）。
+  .env、金鑰、credentials 等可能含機密的檔名不匯出，README 會列出。API：`GET /api/sandbox/{sid}/changes/export`、
+  `GET /api/sandbox/{sid}/applied/{id}/export`、`POST …/changes/resume`、`POST …/changes/rollback`。
+- 測試：tests/test_sandbox_writeback.py（在第 k 個檔案模擬斷電、寫入未記錄、殘留暫存檔、準備後你又改了原檔、磁碟不足、匯出可被
+  patch / git apply 套用）。
