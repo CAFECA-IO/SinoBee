@@ -661,7 +661,7 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 #folderPop .fb-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 #folderPop{max-height:calc(100vh - 80px);overflow:auto}
 .hc-fh .fp-m{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:0 8px;color:var(--muted)}
-.hc-hist a.btn{text-decoration:none}
+.hc-hist a.btn{text-decoration:none}#folderPop .btn.warn{border-color:var(--warn);color:var(--warn)}
 .hc-cut{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;margin-bottom:10px;border:1px solid var(--warn);border-radius:10px;font-size:13px}.hc-cut .acts{margin-left:auto;display:flex;gap:6px}
 .places{margin:10px 0 2px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:13px}.places>b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
 .place{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:3px 0}.place .mono{overflow-wrap:anywhere}.place .btn{margin-left:auto}
@@ -669,6 +669,7 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 #folderChips .fchip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:2px 4px 2px 8px;background:var(--panel)}#folderChips .fchip svg{width:14px;height:14px}
 #folderChips small{color:var(--muted)}#folderChips button{all:unset;cursor:pointer;color:var(--muted);padding:0 5px}#folderChips button:hover{color:var(--err)}
 .restarting{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)}.restarting>div{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:8px;align-items:center;max-width:420px;text-align:center}
+.memflag{display:inline-block;font-size:11px;border:1px solid var(--warn);color:var(--warn);border-radius:999px;padding:0 7px;margin-right:6px}.memflag.dim{border-color:var(--line);color:var(--muted)}
 #hcToast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:400;display:flex;align-items:center;gap:10px;padding:9px 10px 9px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 12px 30px rgba(0,0,0,.4);font-size:13px;max-width:calc(100vw - 32px)}#hcToast[hidden]{display:none}#hcToast .ad-fold{all:unset;cursor:pointer;color:var(--muted);padding:2px 6px}
 #folderPop .fp-sec{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;margin:14px 0 4px;padding-top:10px;border-top:1px solid var(--line)}#folderPop .fp-h+.fp-msg+.fp-sec,#folderPop .fp-h+.fp-sec{border-top:0;padding-top:0;margin-top:8px}
 #folderPop .fp-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
@@ -2719,22 +2720,43 @@ async function fillMemory(side){
   const cu = st.core_usage;
   bar.innerHTML = [['', '全部'], ...Object.entries(MEM_TIER)].map(([k, n]) =>
     `<button data-t="${k}" class="${MEM_FILTER === k ? 'on' : ''}">${n}${k ? ' ' + (st[k]?.count ?? 0) : ''}</button>`).join('')
+    + `<button data-t="review" class="${MEM_FILTER === 'review' ? 'on' : ''}" title="其他對話要等你核准才會用到的記憶，以及升級前的舊記憶">待檢視${st.pending ? ' ' + st.pending : ''}</button>`
+    + (sessionId ? `<button data-t="here" class="${MEM_FILTER === 'here' ? 'on' : ''}" title="這個對話學到的記憶">這個對話</button>` : '')
     + `<small>核心 ${cu.chars}/${cu.limit} 字${cu.over_limit ? '（超出）' : ''}${st.short_expiring_3d ? ` · ${st.short_expiring_3d} 則短期記憶 3 天內到期` : ''}`
     + ` · 上次整理 ${st.last_maintain?.at ? new Date(st.last_maintain.at * 1000).toLocaleString() : '尚未'} <a href="#" id="memTidy">立即整理</a></small>`;
   bar.querySelectorAll('button').forEach(b => b.onclick = () => { MEM_FILTER = b.dataset.t; loadSide(); });
   bar.querySelector('#memTidy').onclick = async e => { e.preventDefault(); e.target.textContent = '整理中…';
     await post('/api/memories/maintain', {}); loadSide(); };
   side.appendChild(bar);
-  for (const m of await api('/api/memories' + (MEM_FILTER ? '?tier=' + MEM_FILTER : ''))) {
+  const memQ = MEM_FILTER === 'review' ? '?review=true' : MEM_FILTER === 'here' ? `?conversation=${encodeURIComponent(sessionId || '')}` : MEM_FILTER ? '?tier=' + MEM_FILTER : '';
+  if (MEM_FILTER === 'here' && sessionId) {
+    const tools = document.createElement('div'); tools.className = 'memfilter';
+    tools.innerHTML = '<small>這個對話學到的記憶。<a href="#" id="memForgetConv">封存這個對話的記憶</a></small>';
+    tools.querySelector('#memForgetConv').onclick = async e => { e.preventDefault();
+      if (!await uiConfirm('封存這個對話學到的記憶？\n只限這個對話的記憶與尚未核准的記憶會封存；已核准、用在所有對話的偏好會保留（可在下方逐則封存）。')) return;
+      const j = await post(`/api/memories/forget-conversation/${encodeURIComponent(sessionId)}`, {});
+      uiAlert(`已封存 ${j.archived.length} 則` + (j.kept_global ? `；保留 ${j.kept_global} 則全域記憶` : '')); loadSide(); };
+    side.appendChild(tools);
+  }
+  for (const m of await api('/api/memories' + memQ)) {
     if (!MEM_FILTER && m.tier === 'archive') continue;
     const d = document.createElement('div'); d.className = 'item' + (m.tier === 'archive' ? ' dim' : '');
     const cls = m.pinned ? 'permanent' : m.tier;
     const exp = m.expires_at ? ` · ${new Date(m.expires_at * 1000).toLocaleDateString()} 到期` : '';
-    d.innerHTML = `${m.pinned ? '📌 ' : ''}${mathText(m.content)}<small>${m.id} · ${MEM_TIER[cls] || cls} · ${m.kind} · 重要度 ${m.importance}${exp}</small>`
-      + (m.tier === 'archive' ? '' : `<span class="memact"><button data-a="pin">${m.pinned ? '取消永久' : '設為永久'}</button><button data-a="del">封存</button></span>`);
+    const where = m.scope === 'conversation' ? '只限' : m.status === 'pending' ? '待核准・目前只限' : '來自';
+    const src = m.source && m.source !== 'compress' ? `<small>${where}「<a href="#" data-src="${esc(m.source)}">${esc(m.source_title || '另一個對話')}</a>」</small>` : (m.scope === 'conversation' ? '<small>只限原對話</small>' : '');
+    d.innerHTML = `${m.pinned ? '📌 ' : ''}${m.status === 'pending' ? '<span class="memflag">待核准</span>' : ''}${m.legacy ? '<span class="memflag dim">舊記憶・所有對話</span>' : ''}${mathText(m.content)}<small>${m.id} · ${MEM_TIER[cls] || cls} · ${m.kind} · 重要度 ${m.importance}${exp}</small>${src}`
+      + (m.tier === 'archive' ? '' : `<span class="memact">`
+        + (m.status === 'pending' || (m.scope === 'conversation' && m.source) ? '<button data-a="approve" title="用在所有對話">核准為全域</button>' : '')
+        + (m.scope !== 'conversation' && m.source && m.source !== 'compress' ? '<button data-a="local" title="只用在學到它的那個對話">只限原對話</button>' : '')
+        + `<button data-a="pin">${m.pinned ? '取消永久' : '設為永久'}</button><button data-a="del">封存</button></span>`);
+    d.querySelectorAll('[data-src]').forEach(a => a.onclick = e => { e.preventDefault(); e.stopPropagation();
+      openSession({id: a.dataset.src, title: a.textContent}); });
     d.querySelectorAll('.memact button').forEach(b => b.onclick = async e => {
       e.stopPropagation();
       if (b.dataset.a === 'pin') await post('/api/memories/' + m.id, {pinned: !m.pinned}, 'PATCH');
+      else if (b.dataset.a === 'approve') { if (!await uiConfirm('讓這則記憶用在所有對話？\n' + m.content)) return; await post('/api/memories/' + m.id, {scope: 'global', status: 'ok'}, 'PATCH'); }
+      else if (b.dataset.a === 'local') await post('/api/memories/' + m.id, {scope: 'conversation', status: 'ok'}, 'PATCH');
       else if (await uiConfirm((m.pinned ? '這是永久記憶，確定封存？\n' : '封存這則記憶？\n') + m.content))
         await api('/api/memories/' + m.id + (m.pinned ? '?force=true' : ''), {method: 'DELETE'});
       loadSide();
@@ -4386,6 +4408,8 @@ async function folderCheckpoints(name, msg = ''){
   pop.innerHTML = `<div class="fp-h"><b>檢查點：/host/${esc(name)}</b><button class="ad-fold" type="button" data-x aria-label="返回">✕</button></div>`
     + `<div class="sd mono" style="margin-bottom:6px">${esc(j.shown)}</div>`
     + `<div class="fp-msg${msg ? ' on' : ''}" id="fpMsg">${esc(msg)}</div>`
+    + (j.interrupted || []).map(x => `<div class="hc-cut" data-rcut="${esc(x.id)}">⚠︎ ${esc(when(x.t))} 的還原中斷：${x.total} 個檔案已處理 ${x.done} 個。`
+      + `<span class="acts"><button class="btn sm primary" type="button" data-rres>繼續完成</button><button class="btn sm" type="button" data-rrb>全部復原</button></span></div>`).join('')
     + (j.items.length ? j.items.map(c => `<div class="fp-r"><div class="fp-n"><b>${esc(when(c.t))}</b><span class="sd">${esc(c.label || '（未命名）')} · ${c.kind === 'git' ? 'git' : '副本'}</span></div>`
       + `<button class="btn sm" type="button" data-back="${esc(c.id)}">還原到這裡</button></div>`).join('')
       : '<div class="sd" style="padding:6px 0">還沒有檢查點。下一個任務開始前會自動建立。</div>')
@@ -4393,6 +4417,14 @@ async function folderCheckpoints(name, msg = ''){
     + '<div class="sd">還原會把不同的檔案換回當時的內容，之後新增的檔案移到垃圾桶；還原前會先為現況建立一個檢查點，所以也能復原。</div>';
   const back = () => renderFolderPop();
   pop.querySelector('[data-x]').onclick = back; pop.querySelector('[data-cancel]').onclick = back;
+  pop.querySelectorAll('[data-rcut]').forEach(box => {
+    const run = async (what, ask) => { if (ask && !await uiConfirm(ask)) return; box.querySelectorAll('button').forEach(x => x.disabled = true);
+      try { const r = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/checkpoints/restores/${encodeURIComponent(box.dataset.rcut)}/${what}`, {folder: name});
+        folderCheckpoints(name, what === 'resume' ? `已完成還原：${r.restored.length} 個檔案` + (r.conflicts.length ? `，${r.conflicts.length} 個在還原中被改過而跳過` : '')
+          : `已復原 ${r.restored.length} 個檔案` + (r.trashed.length ? `，${r.trashed.length} 個移到垃圾桶` : '')); }
+      catch (e) { folderCheckpoints(name, '失敗：' + e.message); } };
+    box.querySelector('[data-rres]').onclick = () => run('resume');
+    box.querySelector('[data-rrb]').onclick = () => run('rollback', '把這次中斷的還原已寫入的檔案換回還原前的樣子？'); });
   pop.querySelector('[data-now]').onclick = async e => { e.target.disabled = true;
     try { await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/checkpoints`, {folder: name, label: '手動建立'}); folderCheckpoints(name, '已建立檢查點'); }
     catch (err) { folderCheckpoints(name, err.message); } };
@@ -4406,7 +4438,7 @@ async function folderCheckpoints(name, msg = ''){
     const what = [n('modified') && `改回 ${n('modified')} 個檔案`, n('deleted') && `找回 ${n('deleted')} 個被刪除的檔案`, n('added') && `之後新增的 ${n('added')} 個檔案移到垃圾桶`].filter(Boolean).join('、');
     if (!await uiConfirm(`還原到 ${when(j.items.find(c => c.id === b.dataset.back).t)} 的狀態？\n${what}。\n\n${list}`, {danger: true})) { folderCheckpoints(name); return; }
     try { const r = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/checkpoints/${encodeURIComponent(b.dataset.back)}/restore`, {folder: name});
-      folderCheckpoints(name, `已還原 ${r.restored.length} 個檔案` + (r.trashed.length ? `，${r.trashed.length} 個移到垃圾桶` : '') + '；還原前的狀態已存成最新的檢查點'); }
+      folderCheckpoints(name, `已還原 ${r.restored.length} 個檔案` + (r.trashed.length ? `，${r.trashed.length} 個移到垃圾桶` : '') + (r.conflicts?.length ? `，${r.conflicts.length} 個在還原中被改過而跳過` : '') + '；還原前的狀態已存成最新的檢查點'); }
     catch (err) { folderCheckpoints(name, '還原失敗：' + err.message); } });
 }
 async function folderRefresh(){
@@ -4456,7 +4488,7 @@ function renderFolderPop(msg = ''){
     + (f.folders.length ? f.folders.map(x => `<div class="fp-r"><div class="fp-n"><b>${esc(x.inner)}</b><span class="mono">${esc(x.shown)}${x.exists ? '' : '（找不到）'}</span></div>`
       + `<span class="fp-m ${FOLD_MODE[x.mode]?.[1] || ''}" title="${esc(FOLD_HELP[x.mode === 'review' && x.via === 'git' ? 'git' : x.mode] || '')}">${x.mode === 'review' && x.via === 'git' ? '審核（git）' : FOLD_MODE[x.mode]?.[0] || x.mode}</span>`
       + (x.pending ? `<button class="btn sm" type="button" data-rev>${x.pending} 待審</button>` : '')
-      + (x.mode === 'rw' ? `<button class="btn sm" type="button" data-cp="${esc(x.name)}">檢查點${x.checkpoints ? ' ' + x.checkpoints : ''}</button>` : '')
+      + (x.mode === 'rw' ? `<button class="btn sm${x.restore_cut ? ' warn' : ''}" type="button" data-cp="${esc(x.name)}">${x.restore_cut ? '⚠︎ 還原中斷' : '檢查點' + (x.checkpoints ? ' ' + x.checkpoints : '')}</button>` : '')
       + `<button class="btn sm" type="button" data-rm="${esc(x.path)}">移除</button></div>`).join('')
       : '<div class="sd" style="padding:6px 0">還沒有資料夾。沙盒只看得到工作區；加入後在沙盒裡的 /host/名稱。</div>')
     + `<div class="fp-add2"><span>加入方式</span><select id="fpMode" data-seg aria-label="加入方式"><option value="review">審核後寫回</option><option value="direct">直接寫入</option><option value="ro">唯讀</option></select></div>`
@@ -4480,6 +4512,7 @@ function renderFolderPop(msg = ''){
     + `<div class="fp-row"><span>寫入前審核</span><select id="fpReview" data-seg aria-label="寫入前審核"><option value="">依設定（${onoff(df.review_writes)}）</option><option value="on">開</option><option value="off">關</option></select></div>`
     + `<div class="fp-row"><span>沙盒映像</span><select id="fpImage" data-seg aria-label="沙盒映像"><option value="">依設定（${IMG[df.image] || df.image}）</option><option value="standard">標準</option><option value="office"${f.office_built ? '' : ' disabled'}>含 LibreOffice</option></select></div>`
     + (f.office_built ? '' : '<div class="sd">含 LibreOffice 的映像還沒建立：在終端機執行 <span class="mono">sinobee sandbox build --office</span>。</div>')
+    + `<div class="fp-row"><span>讀取其他對話</span><select id="fpCross" data-seg aria-label="讀取其他對話"><option value="">依設定（${df.cross_conversations ? '允許' : '先詢問'}）</option><option value="on">允許</option></select></div>`
     + '<div class="sd">寫入前審核只影響之後加入的資料夾；換映像會重新啟動這個對話的沙盒。</div>';
   pop.querySelector('[data-x]').onclick = () => folderPop(false);
   pop.querySelectorAll('[data-rev]').forEach(b => b.onclick = () => openHostReview(folderSid()));
@@ -4497,6 +4530,7 @@ function renderFolderPop(msg = ''){
   }
   sel('#fpNetAll', net.all ? 'all' : 'list', v => convSet({network: {all: v === 'all'}}, v === 'all' ? '這個對話一律允許連網' : '只允許列出的網域'));
   sel('#fpReview', rv, v => convSet({overrides: {review_writes: v === '' ? null : v === 'on'}}));
+  sel('#fpCross', ov.cross_conversations ? 'on' : '', v => convSet({overrides: {cross_conversations: v === 'on' ? true : null}}, v === 'on' ? '這個對話可以搜尋你其他對話的內容' : '查看其他對話前會先詢問'));
   sel('#fpImage', im, v => convSet({overrides: {image: v || null}}, '已儲存；下一個指令會用新的映像'));
   pop.querySelectorAll('[data-dom]').forEach(b => b.onclick = () => convSet({network: {domains: net.domains.filter(d => d !== b.dataset.dom)}}, '已移除'));
   const addDom = () => { const v = $('#fpDom').value.trim(); if (v) convSet({network: {domains: [...net.domains, ...v.split(/[\s,]+/)]}}, '已加入'); };

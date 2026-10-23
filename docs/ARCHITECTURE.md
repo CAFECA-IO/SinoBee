@@ -2199,3 +2199,22 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   系統提示詞要求告訴使用者電腦上的路徑，不只沙盒路徑。
 - **新對話的資料夾提醒**：第一則訊息送出前，輸入框上方列出「送出後，這個新對話可以使用：…」，可直接 ✕ 移除；按「＋」換新的草稿 id，不沿用。
 - 測試：tests/test_sandbox_isolation.py（含 Docker：兩個對話互相看不到）、tests/test_profiles.py。
+
+## 59. 記憶的範圍；檢查點還原改為交易（2026-10-24）
+
+- **記憶範圍**（`memory/scope.py`，memories 新增 `scope`、`status` 欄位）：
+  - `scope=conversation`：任務或專案的事實，只在學到它的對話（`source`）使用；`scope=global`：關於你的偏好、做事方式、環境，所有對話使用。
+  - `status=pending`：對話讀過外部內容（web、browser 工具集；`registry.dispatch` 標記 `tainted:<對話>`）之後存成全域的記憶，在你於記憶頁
+    核准前只在原對話有效——網頁偷塞的「以後都…」不會跑到其他對話。
+  - 讀取一律依對話過濾（`store.visible`）：系統提示詞的核心記憶（`render_core(conv)`）、每回合自動回想、memory_search、memory_update／
+    forget（看不到的就當不存在）、壓縮分群與合併（不同範圍不合併，待核准不併入已核准）。
+  - memory_save 預設 `scope=conversation`；背景學習把 preference／profile／lesson／procedure／environment 存全域，其他（含 episode、
+    context-flush）存對話範圍。升級前的記憶維持全域，記憶頁標「舊記憶」可逐則改。
+  - session_search 預設只搜目前對話；`everywhere=true` 與讀其他對話的 session_read 先用輸入欄詢問（只這次任務／這個對話一直允許／不允許）；
+    `memory.cross_conversation: allow` 或對話設定「讀取其他對話：允許」免問。
+  - 記憶頁：來源對話（可點開）、「待檢視」篩選（待核准＋舊記憶）、「這個對話」篩選與「封存這個對話的記憶」（對話範圍與待核准的封存，
+    已核准的全域記憶保留並回報數量）、「核准為全域」「只限原對話」。
+- **檢查點還原交易化**：`checkpoints.restore` 改用寫回的同一套流程（`writeback.execute` / `rollback_store`）：先為現況建立檢查點，
+  備妥時整批檢查權限與空間、從檢查點取出舊內容、保存目前的檔案（任何問題都不動資料夾），再逐檔原子寫入並記錄進度、寫前再確認；
+  中斷後在對話設定的檢查點面板「繼續完成」或「全部復原」；這個對話的任務在執行時不能從介面還原（409）。
+- 測試：tests/test_memory_scope.py（注入情境、範圍、合併、舊資料、工具、詢問、記憶頁 API）、tests/test_sandbox_big.py（還原中斷）。

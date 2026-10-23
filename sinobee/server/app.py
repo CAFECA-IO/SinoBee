@@ -266,15 +266,54 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                     out.append({"id": m.tool_call_id, "tool": name, "files": files})
         return out
 
+    def _mem_rows(mems) -> list[dict]:
+        """Memories for the memory page, each with the conversation it came from."""
+        titles = {s["id"]: s.get("title") for s in rt().memory.sessions(5000, exclude_platforms=())}
+        since = rt().memory.meta_get("scopes_since")
+        out = []
+        for m in mems:
+            b = m.brief()
+            if m.source:
+                b["source_title"] = titles.get(m.source)
+            if since and m.scope == "global" and m.status == "ok" and m.created_at < float(since):
+                b["legacy"] = True          # from before scopes: used everywhere, worth a look
+            out.append(b)
+        return out
+
     @app.get("/api/memories")
-    async def memories(tier: str | None = None, q: str | None = None):
+    async def memories(tier: str | None = None, q: str | None = None, conversation: str | None = None,
+                       review: bool = False):
+        """review: memories waiting for approval, and global ones from before scopes."""
         r = rt()
         if q:
             hits = await r.memory.asearch(q, k=30, tiers=("core", "short", "long", "archive"), touch=False)
-            return [m.brief() for m in hits]
-        if tier == "permanent":
-            return [m.brief() for m in r.memory.list(None, 2000) if m.pinned][:500]
-        return [m.brief() for m in r.memory.list(tier, 500)]
+            mems = hits
+        elif tier == "permanent":
+            mems = [m for m in r.memory.list(None, 2000) if m.pinned][:500]
+        else:
+            mems = r.memory.list(tier, 2000 if (conversation or review) else 500)
+        if conversation:
+            mems = [m for m in mems if m.source == conversation]
+        rows = _mem_rows(mems[:500])
+        if review:
+            rows = [b for b in rows if b.get("status") == "pending" or b.get("legacy")]
+        return rows
+
+    @app.post("/api/memories/forget-conversation/{sid}")
+    async def forget_conversation_memories(sid: str, everything: bool = False):
+        """Archive what a conversation learned: its own memories and unapproved ones (everything: also the global
+        ones it taught, e.g. preferences)."""
+        r = rt()
+        done, kept = [], 0
+        for m in r.memory.list(None, 5000):
+            if m.source != sid or m.tier == "archive":
+                continue
+            if everything or m.scope == "conversation" or m.status == "pending":
+                if not m.pinned:
+                    done.append(r.memory.forget(m.id)["id"])
+            else:
+                kept += 1
+        return {"archived": done, "kept_global": kept}
 
     @app.get("/api/memories/stats")
     async def memory_stats():
@@ -311,7 +350,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         try:
             return await rt().memory.aupdate(mid, body.get("content"), importance=body.get("importance"),
                                              tier=body.get("tier"), pinned=body.get("pinned"),
-                                             ttl_days=body.get("ttl_days"))
+                                             ttl_days=body.get("ttl_days"), scope=body.get("scope"),
+                                             status=body.get("status"))
         except Exception as e:
             raise HTTPException(400, str(e))
 
@@ -348,7 +388,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         if item["kind"] == "memory_save":
             return r.memory.save(p["content"], kind=p.get("kind", "fact"), tier=p.get("tier", "long"),
                                  tags=p.get("tags"), importance=float(p.get("importance", 0.5)),
-                                 ttl_days=p.get("ttl_days"))
+                                 ttl_days=p.get("ttl_days"), source=p.get("source"),
+                                 scope=p.get("scope", "global"))      # you approved it: no longer pending
         res = r.skills.apply_pending(item)
         if item["kind"] == "skill_create" and res.get("name") in r.skills.skills:
             r.skills.approve(res["name"])      # the user adopted the suggestion -> trusted as local
@@ -526,7 +567,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     skills_api.register_feedback(app, rt, lambda k, d: broadcast(k, d))
     work_api.register(app, rt, lambda: run_snapshot())
-    sandbox_api.register(app, rt, lambda k, d: broadcast(k, d))
+    sandbox_api.register(app, rt, lambda k, d: broadcast(k, d), running=lambda sid: sid in state.get("running", {}))
     quality_api.register(app, rt, lambda k, d: broadcast(k, d))
     evals_api.register(app, rt, lambda k, d: broadcast(k, d))
     state["local"] = local_api.register(app, rt, lambda k, d: broadcast(k, d))

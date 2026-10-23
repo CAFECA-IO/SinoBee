@@ -253,7 +253,8 @@ async def folder_checkpoint(ctx: ToolContext, folder: str, action: str, id: str 
         if action == "restore":
             r = await asyncio.to_thread(checkpoints.restore, ctx.config, ex.conversation, f, id, paths or None)
             return (f"restored {len(r['restored'])} files, {len(r['trashed'])} made since went to the Trash; "
-                    f"the state before is checkpoint {r['before']}")
+                    f"the state before is checkpoint {r['before']}"
+                    + (f"; skipped (changed while restoring): {', '.join(r['conflicts'])}" if r.get("conflicts") else ""))
     except Exception as e:  # noqa: BLE001
         return ToolResult.error(str(e))
     return ToolResult.error("action: make | list | diff | restore")

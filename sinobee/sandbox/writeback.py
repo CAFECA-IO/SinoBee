@@ -239,8 +239,9 @@ def _write_one(store: Path, orig_root: Path, it: dict) -> dict:
     return {"path": rel, "ok": True}
 
 
-def _run(config, conversation: str, folder: dict, store: Path, rec: dict, stop_after: int | None = None) -> dict:
-    from .staging import _baseline, _follow, copy_dir
+def execute(store: Path, rec: dict, stop_after: int | None = None) -> dict[str, dict]:
+    """Write a prepared batch file by file with its log (also what is left of an interrupted one); returns the log
+    {path: {"ok"|"conflict", "trashed"?}}. Shared by write-backs and checkpoint restores (checkpoints.py)."""
     orig_root = Path(rec["origin"])
     if rec["state"] != "writing":
         rec["state"] = "writing"
@@ -254,14 +255,20 @@ def _run(config, conversation: str, folder: dict, store: Path, rec: dict, stop_a
             raise _Stop(it["path"])
         _log(store, _write_one(store, orig_root, it))
         n += 1
-    prog = _progress(store)
+    for it in rec["items"]:
+        _tmp(orig_root / it["path"]).unlink(missing_ok=True)
+    return _progress(store)
+
+
+def _run(config, conversation: str, folder: dict, store: Path, rec: dict, stop_after: int | None = None) -> dict:
+    from .staging import _baseline, _follow, copy_dir
+    orig_root = Path(rec["origin"])
+    prog = execute(store, rec, stop_after)
     applied = [it for it in rec["items"] if prog.get(it["path"], {}).get("ok")]
     late = [it["path"] for it in rec["items"] if prog.get(it["path"], {}).get("conflict")]
     name = rec["folder"]
     _follow(config, conversation, name, _baseline(config, conversation, name), copy_dir(config, conversation, name),
             {it["path"]: (orig_root / it["path"] if it["kind"] != "deleted" else None) for it in applied})
-    for it in rec["items"]:
-        _tmp(orig_root / it["path"]).unlink(missing_ok=True)
     rec.update(state="done", items=applied, late_conflicts=late, finished=time.time())
     _save(store, rec)
     return {"id": rec["id"] if applied else None, "applied": [it["path"] for it in applied],
@@ -303,8 +310,13 @@ def resume(config, conversation: str, bid: str) -> dict:
 def rollback(config, conversation: str, bid: str) -> dict:
     """Undo an interrupted write-back: every file it already wrote gets its original back (files it made go to the
     Trash, files it deleted come back). The changes wait for review again."""
-    from .staging import _trash
     store, rec = _unfinished(config, conversation, bid)
+    return rollback_store(store, rec)
+
+
+def rollback_store(store: Path, rec: dict) -> dict:
+    """Put back every file an unfinished batch wrote (from its saved originals); made files go to the Trash."""
+    from .staging import _trash
     orig_root = Path(rec["origin"])
     prog = _progress(store)
     restored, trashed = [], []

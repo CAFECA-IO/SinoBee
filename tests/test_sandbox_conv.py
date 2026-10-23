@@ -111,7 +111,8 @@ def test_settings_api_reads_and_changes_this_conversation(config, home, monkeypa
     with TestClient(app) as c:
         s = c.get("/api/sandbox/s1/settings").json()
         assert s["network"] == {"domains": [], "all": False} and s["overrides"] == {} and s["folders"] == []
-        assert s["effective"] == s["defaults"] == {"review_writes": True, "image": "standard"}
+        assert s["effective"] == {"review_writes": True, "image": "standard"}
+        assert s["defaults"] == {"review_writes": True, "image": "standard", "cross_conversations": False}
         s = c.put("/api/sandbox/s1/settings", json={"network": {"domains": ["https://GitHub.com/x", "bad one"]}}).json()
         assert s["network"]["domains"] == ["github.com"] and events[-1] == ("folders", {"session_id": "s1"})
         s = c.put("/api/sandbox/s1/settings", json={"overrides": {"review_writes": False}}).json()

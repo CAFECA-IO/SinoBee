@@ -105,6 +105,7 @@ DEFAULTS: dict[str, Any] = {
         "allowed_paths": [],        # empty = unrestricted
     },
     "memory": {
+        "cross_conversation": "ask",   # reading other conversations' transcripts: ask | allow (memory/scope.py)
         "core_char_limit": 1500,
         "recall_k": 6,
         "recall_min_score": 0.15,

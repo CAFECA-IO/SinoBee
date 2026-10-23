@@ -161,8 +161,9 @@ async def _reflect(rt, session_id: str, turn: list[Message], stats: dict, unrate
     mode = _mode(rt)
     try:
         user_text = " ".join(m.text() for m in turn if m.role == "user")[-2000:]
-        core = rt.memory.render_core() or "(empty)"
-        related = await rt.memory.asearch(user_text, k=8, tiers=("short", "long"), touch=False)
+        core = rt.memory.render_core(session_id) or "(empty)"
+        related = await rt.memory.asearch(user_text, k=8, tiers=("short", "long"), touch=False,
+                                          conversation=session_id)
         related_txt = "\n".join(f"[{m.id}] {m.content}" for m in related if m.kind != "episode") or "(none)"
         # repetition detection: similar past episodes (other sessions)
         episodes = [m for m in rt.memory.search(user_text, k=8, tiers=("long",), kinds=["episode"], touch=False,
@@ -217,9 +218,12 @@ async def _reflect(rt, session_id: str, turn: list[Message], stats: dict, unrate
             if rt.config.get("memory.write_approval"):
                 rt.memory.stage("memory_save", mem)
                 continue
+            from ..memory.scope import scope_for_kind, status_for
+            scope = scope_for_kind(mem.get("kind", "fact"))      # about you: everywhere; facts: this conversation
             res = await rt.memory.asave(mem["content"], kind=mem.get("kind", "fact"), tier=_reflect_tier(mem),
                                         tags=mem.get("tags"), importance=float(mem.get("importance", 0.5)),
-                                        source=session_id)
+                                        source=session_id, scope=scope,
+                                        status=status_for(rt.memory, session_id, scope))
             report["memories"].append(res)
         except Exception as e:
             report["errors"].append(f"memory: {e}")
@@ -248,7 +252,7 @@ async def _reflect(rt, session_id: str, turn: list[Message], stats: dict, unrate
         rt.memory.set_summary(session_id, (prev + "\n" if prev else "") + summary)
         try:
             await rt.memory.asave(summary, kind="episode", tier="long", importance=0.3, source=session_id,
-                                  tags=["episode"])
+                                  tags=["episode"], scope="conversation")
         except Exception:
             pass
     report["consolidation"] = rt.memory.consolidate(

@@ -44,6 +44,9 @@ def cluster(mems: list[Memory], threshold: float = 0.2) -> list[list[Memory]]:
         for g in groups:
             if g[0].kind != m.kind:
                 continue
+            if (g[0].scope, g[0].status, g[0].source if g[0].scope == "conversation" else None) != \
+                    (m.scope, m.status, m.source if m.scope == "conversation" else None):
+                continue                     # never merge across scopes: a conversation's memory stays its own
             s = max(_jaccard(toks[m.id], toks[o.id]) for o in g)
             shared_tag = any(set(m.tags) & set(o.tags) for o in g)
             if (s >= threshold or (shared_tag and s >= threshold / 2)) and s > best_s:

@@ -131,7 +131,7 @@ async def flush_to_memory(rt, session_id: str, text: str, *, max_items: int = 5)
                 continue
             saved.append(await rt.memory.asave(str(m["content"]), kind=m.get("kind", "fact"), tier=tier,
                                                importance=float(m.get("importance", 0.5)),
-                                               tags=["context-flush"], source=session_id))
+                                               tags=["context-flush"], source=session_id, scope="conversation"))
         except Exception as e:  # noqa: BLE001 - e.g. refused by the content scan
             log.info("flushed memory not saved: %s", e)
     return saved

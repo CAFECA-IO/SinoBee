@@ -44,7 +44,9 @@ HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", 
        "transfer-encoding", "upgrade", "host", "content-length", "content-encoding"}
 
 
-def register(app: FastAPI, rt, broadcast=None) -> None:
+def register(app: FastAPI, rt, broadcast=None, running=None) -> None:
+    """running(sid) -> bool: that conversation's task is working now (its folders are not restored under it)."""
+    running = running or (lambda sid: False)
     def manager():
         from ..sandbox import executor_kind
         from ..sandbox.manager import manager_for
@@ -161,7 +163,8 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         return {"network": data["network"], "overrides": data["overrides"],
                 "workspace": {"mode": wmode, "path": str(wdir), "shown": workspaces.shown(wdir)},
                 "effective": {"review_writes": convconf.review_writes(cfg, sid), "image": convconf.image(cfg, sid)},
-                "defaults": {"review_writes": convconf.review_writes(cfg), "image": convconf.image(cfg)},
+                "defaults": {"review_writes": convconf.review_writes(cfg), "image": convconf.image(cfg),
+                             "cross_conversations": cfg.get("memory.cross_conversation", "ask") == "allow"},
                 "office_built": _office["built"], **(await conv_folders(sid))}
 
     @app.get("/api/sandbox/{sid}/settings")
@@ -194,6 +197,11 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
                         d["overrides"].pop("review_writes", None)
                     else:
                         d["overrides"]["review_writes"] = bool(ov["review_writes"])
+                if "cross_conversations" in ov:        # may search the user's other conversations without asking
+                    if ov["cross_conversations"]:
+                        d["overrides"]["cross_conversations"] = True
+                    else:
+                        d["overrides"].pop("cross_conversations", None)
                 if "image" in ov:
                     if ov["image"] in (None, ""):
                         d["overrides"].pop("image", None)
@@ -223,6 +231,7 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         cfg = rt().config
         out = []
         from ..sandbox import checkpoints
+        cut = checkpoints.interrupted_restores(cfg, sid)
         for f in folders_for(cfg, sid):
             try:
                 n = len(await asyncio.to_thread(staging.changes, cfg, sid, f, False)) if f["mode"] == "review" else 0
@@ -230,7 +239,8 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
                 n = 0
             out.append({**f, "shown": _shown(f["path"]), "inner": f"/host/{f['name']}",
                         "exists": Path(f["path"]).is_dir(), "pending": n,
-                        "checkpoints": len(checkpoints.listing(cfg, sid, f["name"])) if f["mode"] == "rw" else 0})
+                        "checkpoints": len(checkpoints.listing(cfg, sid, f["name"])) if f["mode"] == "rw" else 0,
+                        "restore_cut": sum(1 for x in cut if x["folder"] == f["name"])})
         return {"folders": out, "review_writes": review_writes(cfg, sid), "sandbox": executor_kind(cfg) == "sandbox"}
 
     @app.post("/api/sandbox/{sid}/folders")
@@ -395,7 +405,8 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         from ..sandbox import checkpoints
         f = _rw_folder(sid, folder)
         return {"folder": folder, "shown": _shown(f["path"]),
-                "items": list(reversed(checkpoints.listing(rt().config, sid, folder)))}
+                "items": list(reversed(checkpoints.listing(rt().config, sid, folder))),
+                "interrupted": [x for x in checkpoints.interrupted_restores(rt().config, sid) if x["folder"] == folder]}
 
     @app.post("/api/sandbox/{sid}/checkpoints")
     async def cp_make(sid: str, body: dict):
@@ -419,12 +430,32 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
     async def cp_restore(sid: str, cid: str, body: dict):
         from ..sandbox import checkpoints, staging
         f = _rw_folder(sid, str(body.get("folder") or ""))
+        if running(sid):
+            raise HTTPException(409, "這個對話的任務正在執行，可能正在寫這個資料夾：等它結束或先停止再還原")
         paths = body.get("paths")
         try:
             res = await asyncio.to_thread(checkpoints.restore, rt().config, sid, f, cid,
                                           [str(p) for p in paths] if isinstance(paths, list) else None)
+        except staging.StagingError as e:          # found while preparing: nothing in your folder changed
+            raise HTTPException(409, f"沒有還原任何檔案：{e}") from None
+        if broadcast:
+            broadcast("folders", {"session_id": sid})
+        return res
+
+    @app.post("/api/sandbox/{sid}/checkpoints/restores/{rid}/{what}")
+    async def cp_restore_cut(sid: str, rid: str, what: str, body: dict):
+        """An interrupted restore: resume (finish it) or rollback (put back what it wrote)."""
+        from ..sandbox import checkpoints, staging
+        f = _rw_folder(sid, str(body.get("folder") or ""))
+        fn = {"resume": checkpoints.resume_restore, "rollback": checkpoints.rollback_restore}.get(what)
+        if fn is None:
+            raise HTTPException(404, "resume | rollback")
+        if running(sid):
+            raise HTTPException(409, "這個對話的任務正在執行：等它結束或先停止")
+        try:
+            res = await asyncio.to_thread(fn, rt().config, sid, f["name"], rid)
         except staging.StagingError as e:
-            raise HTTPException(404, str(e)) from None
+            raise HTTPException(409, str(e)) from None
         if broadcast:
             broadcast("folders", {"session_id": sid})
         return res

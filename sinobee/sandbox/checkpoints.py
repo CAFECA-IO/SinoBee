@@ -171,32 +171,119 @@ def _blob(root: Path, commit: str, rel: str) -> tuple[bytes, bool]:
     return data, mode == "100755"
 
 
-def restore(config, conversation: str, folder: dict, cid: str, paths: list[str] | None = None) -> dict:
-    """Put the folder back to checkpoint cid (all its differences, or `paths`). A checkpoint of the state before is
-    taken first. Returns {"restored": [...], "trashed": [...], "before": id}."""
-    from .staging import _trash
+def _restores(config, conversation: str, name: str) -> Path:
+    return _dir(config, conversation, name) / "restores"
+
+
+def restore(config, conversation: str, folder: dict, cid: str, paths: list[str] | None = None,
+            stop_after: int | None = None) -> dict:
+    """Put the folder back to checkpoint cid (all its differences, or `paths`) as a transaction, like a write-back
+    (writeback.py): a checkpoint of now is taken, everything to write is prepared first (old contents taken out of
+    the checkpoint, current files saved, space and permissions checked - nothing changes if anything is wrong), then
+    files are replaced one by one with a log, each checked right before (changed since it was prepared: skipped).
+    Interrupted, it can be finished or rolled back (resume_restore / rollback_restore).
+    Returns {"id", "restored", "trashed", "conflicts", "before"}."""
+    from . import writeback as wb
+    from .staging import StagingError
     item = _find(config, conversation, folder["name"], cid)
+    name, root = folder["name"], Path(folder["path"])
+    if any(x["folder"] == name for x in interrupted_restores(config, conversation)):
+        raise StagingError("上次還原這個資料夾時中斷了：請先「繼續完成」或「全部復原」")
     todo = [c for c in diff(config, conversation, folder, cid) if paths is None or c["path"] in paths]
     before = make(config, conversation, folder, f"還原到 {time.strftime('%m/%d %H:%M', time.localtime(item['t']))} 之前")
-    root = Path(folder["path"])
-    restored, trashed = [], []
-    for c in todo:
-        rel, target = c["path"], root / c["path"]
-        if c["kind"] == "added":
-            if os.path.lexists(target):
-                trashed.append(str(_trash(target)))
+    rid = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
+    store = _restores(config, conversation, name) / rid
+    items, need = [], 0
+    try:
+        store.mkdir(parents=True)
+        for c in todo:
+            rel = c["path"]
+            target = root / rel
+            pre = wb._stat(target)
+            if pre and pre[0] == "dir":
+                raise StagingError(f"{rel} 現在是資料夾，不能用檔案取代")
+            if not wb._writable(target):
+                raise StagingError(f"沒有權限寫入 {target.parent}")
+            if pre:
+                (store / "files" / rel).parent.mkdir(parents=True, exist_ok=True)
+                clone.clone_file(target, store / "files" / rel)
+            if c["kind"] == "added":                       # made after the checkpoint: goes to the Trash
+                items.append({"path": rel, "kind": "deleted", "saved": bool(pre), "pre": pre})
+                continue
+            dst = store / "new" / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if item["kind"] == "git":
+                data, exe = _blob(root, item["commit"], rel)
+                dst.write_bytes(data)
+                os.chmod(dst, 0o755 if exe else 0o644)
+            else:
+                clone.clone_file(_dir(config, conversation, name) / cid / rel, dst)
+            need += dst.stat().st_size
+            items.append({"path": rel, "kind": "modified" if pre else "added", "saved": bool(pre), "pre": pre})
+        free = shutil.disk_usage(root).free
+        if need + wb.MARGIN > free:
+            raise StagingError(f"磁碟空間不足：需要約 {need / 1e6:.0f} MB，只剩 {free / 1e6:.0f} MB")
+    except BaseException:
+        shutil.rmtree(store, ignore_errors=True)
+        raise
+    rec = {"id": rid, "type": "restore", "folder": name, "origin": str(root), "cid": cid, "t": time.time(),
+           "state": "prepared", "items": items, "before": (before or {}).get("id")}
+    wb._save(store, rec)
+    return _finish_restore(store, rec, stop_after)
+
+
+def _finish_restore(store: Path, rec: dict, stop_after: int | None = None) -> dict:
+    from . import writeback as wb
+    prog = wb.execute(store, rec, stop_after)
+    ok = [it for it in rec["items"] if prog.get(it["path"], {}).get("ok")]
+    rec.update(state="done", finished=time.time())
+    wb._save(store, rec)
+    return {"id": rec["id"], "before": rec.get("before"),
+            "restored": [it["path"] for it in ok if it["kind"] != "deleted"],
+            "trashed": [prog[it["path"]]["trashed"] for it in ok if prog[it["path"]].get("trashed")],
+            "conflicts": [it["path"] for it in rec["items"] if prog.get(it["path"], {}).get("conflict")]}
+
+
+def interrupted_restores(config, conversation: str) -> list[dict]:
+    """Restores cut off before they finished: [{"id", "folder", "cid", "t", "total", "done"}]."""
+    from . import writeback as wb
+    out = []
+    root = conv_dir(config, conversation) / "checkpoints"
+    for rec_path in sorted(root.glob("*/restores/*/record.json")) if root.is_dir() else []:
+        try:
+            rec = json.loads(rec_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(f".{target.name}.sinobee-tmp")
-        if item["kind"] == "git":
-            data, exe = _blob(root, item["commit"], rel)
-            tmp.write_bytes(data)
-            os.chmod(tmp, 0o755 if exe else 0o644)
-        else:
-            clone.clone_file(_dir(config, conversation, folder["name"]) / cid / rel, tmp)
-        os.replace(tmp, target)
-        restored.append(rel)
-    return {"restored": restored, "trashed": trashed, "before": (before or {}).get("id")}
+        if rec.get("state") in ("prepared", "writing"):
+            prog = wb._progress(rec_path.parent)
+            out.append({"id": rec["id"], "folder": rec["folder"], "cid": rec.get("cid"), "t": rec["t"],
+                        "total": len(rec["items"]), "done": sum(1 for e in prog.values() if e.get("ok"))})
+    return out
+
+
+def _unfinished_restore(config, conversation: str, name: str, rid: str) -> tuple[Path, dict]:
+    from .staging import StagingError
+    store = _restores(config, conversation, name) / rid
+    try:
+        rec = json.loads((store / "record.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise StagingError("找不到這次還原的紀錄") from None
+    if rec.get("state") not in ("prepared", "writing"):
+        raise StagingError("這次還原沒有中斷，不需要處理")
+    return store, rec
+
+
+def resume_restore(config, conversation: str, name: str, rid: str) -> dict:
+    """Finish an interrupted restore from the contents prepared for it."""
+    store, rec = _unfinished_restore(config, conversation, name, rid)
+    return _finish_restore(store, rec)
+
+
+def rollback_restore(config, conversation: str, name: str, rid: str) -> dict:
+    """Undo an interrupted restore: the files it already wrote get what they were before it started."""
+    from . import writeback as wb
+    store, rec = _unfinished_restore(config, conversation, name, rid)
+    return wb.rollback_store(store, rec)
 
 
 def before_task(config, conversation: str, label: str = "") -> dict:

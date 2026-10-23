@@ -101,6 +101,8 @@ class Memory:
     score: float = 0.0
     pinned: bool = False
     expires_at: float | None = None
+    scope: str = "global"          # global: about you, any conversation | conversation: only where it was learned
+    status: str = "ok"             # ok | pending: learned while reading outside content, waits for your approval
 
     @property
     def label(self) -> str:
@@ -112,6 +114,9 @@ class Memory:
                 "tags": self.tags, "importance": round(self.importance, 2),
                 **({"pinned": True} if self.pinned else {}),
                 **({"expires_at": round(self.expires_at)} if self.expires_at else {}),
+                **({"scope": self.scope} if self.scope != "global" else {}),
+                **({"status": self.status} if self.status != "ok" else {}),
+                **({"source": self.source} if self.source else {}),
                 **({"score": round(self.score, 3)} if self.score else {})}
 
 
@@ -162,7 +167,19 @@ class MemoryError_(Exception):
 
 TIERS = ("core", "short", "long", "archive")
 RANK = {"archive": 0, "short": 1, "long": 2, "core": 3}
-MIGRATIONS = {"pinned": "INTEGER DEFAULT 0", "expires_at": "REAL"}
+MIGRATIONS = {"pinned": "INTEGER DEFAULT 0", "expires_at": "REAL", "scope": "TEXT DEFAULT 'global'",
+              "status": "TEXT DEFAULT 'ok'"}
+SCOPES = ("global", "conversation")
+
+
+def visible(scope: str | None, status: str | None, source: str | None, conversation: str | None) -> bool:
+    """Whether a memory may be used in `conversation` (None: everywhere - your own memory page, maintenance).
+    A conversation sees memories about you that are approved, and what it learned itself."""
+    if conversation is None:
+        return True
+    if source == conversation:
+        return True
+    return (scope or "global") == "global" and (status or "ok") == "ok"
 
 
 class MemoryStore:
@@ -182,6 +199,9 @@ class MemoryStore:
         for col, decl in MIGRATIONS.items():
             if col not in cols:
                 self.db.execute(f"ALTER TABLE memories ADD COLUMN {col} {decl}")
+        if "scope" not in cols:            # memories from before scopes: kept for every conversation, marked for review
+            self.db.execute("INSERT OR REPLACE INTO memory_meta(key, value, updated_at) VALUES('scopes_since', ?, ?)",
+                            (json.dumps(time.time()), time.time()))
         self.db.commit()
 
     # ------------------------------------------------------------------ helpers
@@ -189,7 +209,7 @@ class MemoryStore:
         return Memory(r["id"], r["tier"], r["kind"], r["content"], json.loads(r["tags"] or "[]"), r["importance"],
                       r["confidence"], r["created_at"], r["updated_at"], r["last_access"] or r["created_at"],
                       r["access_count"], r["superseded_by"], r["source"], score,
-                      bool(r["pinned"]), r["expires_at"])
+                      bool(r["pinned"]), r["expires_at"], r["scope"] or "global", r["status"] or "ok")
 
     def _new_id(self) -> str:
         while True:
@@ -215,17 +235,18 @@ class MemoryStore:
             r = self.db.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
         return self._row(r) if r else None
 
-    def core(self) -> list[Memory]:
+    def core(self, conversation: str | None = None) -> list[Memory]:
         with self._lock:
             rows = self.db.execute("SELECT * FROM memories WHERE tier='core' AND superseded_by IS NULL "
                                    "ORDER BY importance DESC, created_at").fetchall()
-        return [self._row(r) for r in rows]
+        return [self._row(r) for r in rows if visible(r["scope"], r["status"], r["source"], conversation)]
 
     def core_chars(self) -> int:
         return sum(len(m.content) for m in self.core())
 
-    def render_core(self) -> str:
-        mems = self.core()
+    def render_core(self, conversation: str | None = None) -> str:
+        """The core memory shown in a conversation's system prompt: approved ones about you, and its own."""
+        mems = self.core(conversation)
         if not mems:
             return ""
         used = sum(len(m.content) for m in mems)
@@ -234,7 +255,10 @@ class MemoryStore:
                 + "\n".join(lines))
 
     # ------------------------------------------------------------------ write
-    def _near_duplicate(self, content: str, kind: str) -> Memory | None:
+    def _near_duplicate(self, content: str, kind: str, scope: str = "global", status: str = "ok",
+                        source: str | None = None) -> Memory | None:
+        """A memory saying the same - only one the new memory may merge into: the same scope (and, for a
+        conversation's memory, the same conversation); a pending memory never merges into an approved one."""
         toks = set(tokenize(content))
         if not toks:
             return None
@@ -245,6 +269,10 @@ class MemoryStore:
             "SELECT m.* FROM memories_fts f JOIN memories m ON m.id=f.id WHERE memories_fts MATCH ? "
             "AND m.superseded_by IS NULL AND m.tier!='archive' ORDER BY bm25(memories_fts) LIMIT 5", (q,)).fetchall()
         for r in rows:
+            if (r["scope"] or "global") != scope or (scope == "conversation" and r["source"] != source):
+                continue
+            if (r["status"] or "ok") != status:
+                continue
             other = set(tokenize(r["content"]))
             jac = len(toks & other) / max(1, len(toks | other))
             if jac >= 0.85:
@@ -259,8 +287,14 @@ class MemoryStore:
     def save(self, content: str, *, kind: str = "fact", tier: str = "long", tags: list[str] | None = None,
              importance: float = 0.5, confidence: float = 0.8, source: str | None = None,
              embedding: list[float] | None = None, check: bool = True, pinned: bool = False,
-             ttl_days: float | None = None, dedupe: bool = True) -> dict:
-        """tier: core | short | long | archive; "permanent" is accepted as long + pinned."""
+             ttl_days: float | None = None, dedupe: bool = True, scope: str = "global", status: str = "ok") -> dict:
+        """tier: core | short | long | archive; "permanent" is accepted as long + pinned.
+        scope: global (about you, used in every conversation once approved) | conversation (only in `source`);
+        status: ok | pending (used only where it was learned until you approve it)."""
+        scope = scope if scope in SCOPES else "global"
+        status = "pending" if status == "pending" else "ok"
+        if scope == "conversation" and not source:
+            scope = "global"
         content = (content or "").strip()
         if not content:
             raise MemoryError_("empty memory")
@@ -278,7 +312,7 @@ class MemoryStore:
         importance = max(0.0, min(1.0, float(importance)))
         now = time.time()
         with self._lock:
-            dup = self._near_duplicate(content, kind) if dedupe else None
+            dup = self._near_duplicate(content, kind, scope, status, source) if dedupe else None
             if dup:
                 new_imp = max(dup.importance, importance)
                 new_tier = tier if RANK[tier] > RANK[dup.tier] else dup.tier
@@ -297,13 +331,15 @@ class MemoryStore:
             mid = self._new_id()
             self.db.execute(
                 "INSERT INTO memories(id,tier,kind,content,tags,importance,confidence,created_at,updated_at,last_access,"
-                "access_count,source,embedding,pinned,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)",
+                "access_count,source,embedding,pinned,expires_at,scope,status) VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?)",
                 (mid, tier, kind, content, json.dumps(tags, ensure_ascii=False), importance, confidence, now, now, now,
-                 source, _pack(embedding), 1 if pinned else 0, self._expiry(tier, ttl_days, now)))
+                 source, _pack(embedding), 1 if pinned else 0, self._expiry(tier, ttl_days, now), scope, status))
             self._index(mid, content, tags)
             demoted = self._enforce_core_limit(protect=mid) if tier == "core" else []
             self.db.commit()
-        out = {"id": mid, "status": "saved", "tier": tier, **({"pinned": True} if pinned else {})}
+        out = {"id": mid, "status": "saved", "tier": tier, **({"pinned": True} if pinned else {}),
+               **({"scope": scope} if scope != "global" else {}),
+               **({"approval": "pending"} if status == "pending" else {})}
         if demoted:
             out["demoted_to_long_term"] = demoted
         return out
@@ -332,8 +368,9 @@ class MemoryStore:
     def update(self, mid: str, content: str | None = None, *, importance: float | None = None,
                tier: str | None = None, tags: list[str] | None = None, kind: str | None = None,
                embedding: list[float] | None = None, pinned: bool | None = None,
-               ttl_days: float | None = None) -> dict:
+               ttl_days: float | None = None, scope: str | None = None, status: str | None = None) -> dict:
         """Content changes create a new version (supersede chain); metadata changes are in place.
+        scope / status: your decisions on the memory page (approve for every conversation, keep to its own).
         tier="permanent" means pinned=True (keeping core if it is core, otherwise long)."""
         with self._lock:
             old = self.get(mid)
@@ -350,7 +387,7 @@ class MemoryStore:
                 res = self.save(content, kind=kind or old.kind, tier=tier or old.tier, tags=tags or old.tags,
                                 importance=old.importance if importance is None else importance,
                                 confidence=old.confidence, source=old.source, embedding=embedding, pinned=pin,
-                                ttl_days=ttl_days)
+                                ttl_days=ttl_days, scope=scope or old.scope, status=status or old.status)
                 if res["id"] != mid:
                     self.db.execute("UPDATE memories SET superseded_by=?, updated_at=? WHERE id=?",
                                     (res["id"], time.time(), mid))
@@ -369,6 +406,10 @@ class MemoryStore:
                 sets.append("pinned=?"); vals.append(1 if pinned else 0)
             if kind:
                 sets.append("kind=?"); vals.append(kind)
+            if scope in SCOPES and (scope != "conversation" or old.source):
+                sets.append("scope=?"); vals.append(scope)
+            if status in ("ok", "pending"):
+                sets.append("status=?"); vals.append(status)
             if tags is not None:
                 sets.append("tags=?"); vals.append(json.dumps(tags, ensure_ascii=False))
                 self._index(mid, old.content, tags)
@@ -405,7 +446,7 @@ class MemoryStore:
 
     def select(self, *, query: str | None = None, ids: list[str] | None = None, tier: str | None = None,
                kind: str | None = None, tag: str | None = None, pinned: bool | None = None,
-               limit: int = 50) -> list[Memory]:
+               limit: int = 50, conversation: str | None = None) -> list[Memory]:
         """Current memories matching ALL given filters (used for bulk forget previews and compression).
         tier may be "permanent" (= pinned). With a query, results are relevance-ordered."""
         if tier == "permanent":
@@ -414,7 +455,8 @@ class MemoryStore:
             mems = [m for m in (self.get(i) for i in ids) if m and not m.superseded_by]
         elif query:
             tiers = (tier,) if tier else ("core", "short", "long")
-            mems = self.search(query, k=max(limit, 1), tiers=tiers, touch=False, min_score=0.0)
+            mems = self.search(query, k=max(limit, 1), tiers=tiers, touch=False, min_score=0.0,
+                               conversation=conversation)
             if mems:      # keep clear matches only: a shared generic word should not pull in unrelated memories
                 top = mems[0].score
                 mems = [m for m in mems if m.score >= 0.6 * top]
@@ -424,6 +466,8 @@ class MemoryStore:
         for m in mems:
             if tier and m.tier != tier or kind and m.kind != kind or tag and tag.lower() not in m.tags:
                 continue
+            if not visible(m.scope, m.status, m.source, conversation):
+                continue
             if pinned is not None and m.pinned != pinned:
                 continue
             out.append(m)
@@ -432,10 +476,17 @@ class MemoryStore:
     def replace_many(self, source_ids: list[str], content: str, *, kind: str = "fact", tier: str = "long",
                      tags: list[str] | None = None, importance: float = 0.5, pinned: bool = False,
                      embedding: list[float] | None = None) -> dict:
-        """Compression step: store one merged memory and mark the sources superseded by it (history is kept)."""
+        """Compression step: store one merged memory and mark the sources superseded by it (history is kept). The
+        sources share one scope (compress.cluster): the merged memory keeps it."""
+        srcs = [m for m in (self.get(i) for i in source_ids) if m]
+        kinds = {(m.scope, m.status, m.source if m.scope == "conversation" else None) for m in srcs}
+        if len(kinds) > 1:
+            raise MemoryError_("memories of different scopes are not merged")
+        scope, status, owner = next(iter(kinds)) if kinds else ("global", "ok", None)
         with self._lock:
             res = self.save(content, kind=kind, tier=tier, tags=tags, importance=importance, pinned=pinned,
-                            embedding=embedding, source="compress", dedupe=False)
+                            embedding=embedding, source=owner or "compress", dedupe=False, scope=scope,
+                            status=status)
             now = time.time()
             for sid in source_ids:
                 if sid == res["id"]:
@@ -505,6 +556,9 @@ class MemoryStore:
                              "over_limit": used > self.core_char_limit}
         out["short_expiring_3d"] = expiring
         out["short_expired"] = expired
+        with self._lock:
+            out["pending"] = self.db.execute("SELECT COUNT(*) FROM memories WHERE status='pending' AND "
+                                             "superseded_by IS NULL AND tier!='archive'").fetchone()[0]
         return out
 
     # ------------------------------------------------------------------ read
@@ -514,8 +568,9 @@ class MemoryStore:
 
     def search(self, query: str, *, k: int = 8, tiers: tuple[str, ...] = ("core", "short", "long"),
                query_embedding: list[float] | None = None, kinds: list[str] | None = None,
-               touch: bool = True, min_score: float = 0.0, min_rel: float = 0.0) -> list[Memory]:
-        """Hybrid retrieval: BM25 + cosine + importance + recency + frequency. `min_rel` drops memories whose
+               touch: bool = True, min_score: float = 0.0, min_rel: float = 0.0,
+               conversation: str | None = None) -> list[Memory]:
+        """conversation: only memories that conversation may use (see visible()); None: all. Hybrid retrieval: BM25 + cosine + importance + recency + frequency. `min_rel` drops memories whose
         relevance alone is too low; importance and recency then cannot carry an unrelated memory into recall."""
         with self._lock:
             cands: dict[str, tuple[sqlite3.Row, float]] = {}
@@ -544,6 +599,8 @@ class MemoryStore:
             results = []
             for mid, (r, lex) in cands.items():
                 if r["tier"] not in tiers or (kinds and r["kind"] not in kinds):
+                    continue
+                if not visible(r["scope"], r["status"], r["source"], conversation):
                     continue
                 lex_n = max(0.0, lex) / max_lex
                 if q_terms and lex_n > 0:
@@ -705,7 +762,8 @@ class MemoryStore:
             rows = self.db.execute(q + " ORDER BY updated_at DESC LIMIT ?", (*params, limit)).fetchall()
         return [dict(r) for r in rows]
 
-    def session_search(self, query: str, k: int = 8) -> list[dict]:
+    def session_search(self, query: str, k: int = 8, only: str | None = None) -> list[dict]:
+        """Full-text search of conversations; only: just this conversation."""
         q = fts_query(query)
         if not q:
             return []
@@ -713,9 +771,11 @@ class MemoryStore:
             rows = self.db.execute(
                 "SELECT m.session_id, m.idx, m.role, m.text, m.created_at, s.title FROM messages_fts f "
                 "JOIN messages m ON m.id=f.msg_id LEFT JOIN sessions s ON s.id=m.session_id "
-                "WHERE messages_fts MATCH ? ORDER BY bm25(messages_fts) LIMIT ?", (q, k)).fetchall()
+                "WHERE messages_fts MATCH ?" + (" AND m.session_id=?" if only else "")
+                + " ORDER BY bm25(messages_fts) LIMIT ?", (q, *([only] if only else []), k)).fetchall()
             summaries = self.db.execute(
-                "SELECT id, title, summary FROM sessions WHERE summary IS NOT NULL").fetchall()
+                "SELECT id, title, summary FROM sessions WHERE summary IS NOT NULL"
+                + (" AND id=?" if only else ""), tuple([only] if only else [])).fetchall()
         hits = [{"session_id": r["session_id"], "title": r["title"], "idx": r["idx"], "role": r["role"],
                  "text": r["text"][:600], "at": time.strftime("%Y-%m-%d %H:%M", time.localtime(r["created_at"]))}
                 for r in rows]

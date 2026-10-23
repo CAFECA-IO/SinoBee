@@ -197,7 +197,8 @@ def test_copy_checkpoints_for_a_folder_without_git(config, home):
         (src / "README.md").write_text(f"v{i}\n")
         checkpoints.make(config, "d2", f, f"v{i}")
     assert len(checkpoints.listing(config, "d2", "etc-like")) == 2
-    assert len([p for p in (config.home / "sandbox" / "d2" / "checkpoints" / "etc-like").iterdir() if p.is_dir()]) == 2
+    assert len([p for p in (config.home / "sandbox" / "d2" / "checkpoints" / "etc-like").iterdir()
+                if p.is_dir() and p.name != "restores"]) == 2
 
 
 def test_before_a_task_copies_sync_and_direct_folders_get_a_checkpoint(config, home, repo):
@@ -334,3 +335,52 @@ def test_in_the_sandbox_git_works_on_the_review_copy_and_direct_folders_can_go_b
         assert (live / "README.md").read_text() == "# 專案\n"
     finally:
         asyncio.run(manager_for(config).remove(conv))
+
+
+# ------------------------------------------------------------------ D: a restore is a transaction too
+def test_an_interrupted_restore_can_be_finished_or_rolled_back(config, home, repo):
+    from sinobee.sandbox import writeback
+    for kind, folder in (("git", repo), ("copy", project(home / "Documents" / "plain"))):
+        conv = f"r-{kind}"
+        f = give(config, conv, folder, "rw")
+        c1 = checkpoints.make(config, conv, f, "好的狀態")
+        assert c1["kind"] == kind
+        good = {p: p.read_text() for p in (folder / "README.md", folder / "src" / "app.ts")}
+        for i in range(5):
+            (folder / f"new{i}.txt").write_text("made later\n")
+        (folder / "README.md").write_text("broken\n")
+        (folder / "src" / "app.ts").write_text("broken\n")
+        broken = {p: p.read_text() for p in (folder / "README.md", folder / "src" / "app.ts")}
+        with pytest.raises(writeback._Stop):
+            checkpoints.restore(config, conv, f, c1["id"], stop_after=3)
+        [cut] = checkpoints.interrupted_restores(config, conv)
+        assert cut["total"] == 7 and cut["done"] == 3
+        with pytest.raises(staging.StagingError, match="中斷"):
+            checkpoints.restore(config, conv, f, c1["id"])
+        # roll back: everything is as it was before the restore started
+        rb = checkpoints.rollback_restore(config, conv, f["name"], cut["id"])
+        assert rb["restored"] or rb["trashed"]
+        assert {p: p.read_text() for p in broken} == broken and all((folder / f"new{i}.txt").exists() for i in range(5))
+        assert checkpoints.interrupted_restores(config, conv) == []
+        # again, interrupted, then finished
+        with pytest.raises(writeback._Stop):
+            checkpoints.restore(config, conv, f, c1["id"], stop_after=2)
+        [cut] = checkpoints.interrupted_restores(config, conv)
+        (folder / "new4.txt").write_text("you changed it meanwhile\n")
+        res = checkpoints.resume_restore(config, conv, f["name"], cut["id"])
+        assert {p: p.read_text() for p in good} == good
+        if "new4.txt" in res["conflicts"]:
+            assert (folder / "new4.txt").read_text() == "you changed it meanwhile\n"     # never overwritten
+        assert not list(folder.rglob("*.sinobee-tmp")) and checkpoints.interrupted_restores(config, conv) == []
+
+
+def test_a_restore_that_cannot_be_prepared_changes_nothing(config, home, monkeypatch):
+    import types as _t
+    folder = project(home / "Documents" / "full")
+    f = give(config, "r-full", folder, "rw")
+    c1 = checkpoints.make(config, "r-full", f, "ok")
+    (folder / "README.md").write_text("changed\n")
+    monkeypatch.setattr(checkpoints.shutil, "disk_usage", lambda p: _t.SimpleNamespace(free=10))
+    with pytest.raises(staging.StagingError, match="磁碟空間不足"):
+        checkpoints.restore(config, "r-full", f, c1["id"])
+    assert (folder / "README.md").read_text() == "changed\n"

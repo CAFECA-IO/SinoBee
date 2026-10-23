@@ -386,10 +386,10 @@ class Agent:
         self.ctx.state["agent"] = self
         runtime.memory.ensure_session(self.session_id, platform, title=title)
         self.history: list[Message] = self._load_history()
-        self._core_at_start = {m.id: m.content for m in runtime.memory.core()}
+        self._core_at_start = {m.id: m.content for m in runtime.memory.core(self.sandbox_conversation)}
         self._system_extra = system_extra
         self._paths_seen = self._paths_text()
-        system = build_system_prompt(self.config, runtime.memory.render_core(), sorted(self.tool_names),
+        system = build_system_prompt(self.config, runtime.memory.render_core(self.sandbox_conversation), sorted(self.tool_names),
                                      self.sandbox_conversation)
         if system_extra:
             system += "\n\n" + system_extra
@@ -427,7 +427,7 @@ class Agent:
             self._emit("steer_applied", {"text": text})
 
     def _core_changes(self) -> list[str]:
-        now = {m.id: m.content for m in self.rt.memory.core()}
+        now = {m.id: m.content for m in self.rt.memory.core(self.sandbox_conversation)}
         changes = [f"+ [{k}] {v}" for k, v in now.items() if self._core_at_start.get(k) != v]
         changes += [f"- [{k}] (removed from core)" for k in self._core_at_start if k not in now]
         return changes
@@ -439,7 +439,8 @@ class Agent:
                 recalled = await self.rt.memory.asearch(
                     query, k=int(self.config.get("memory.recall_k", 6)), tiers=("short", "long"),
                     min_score=float(self.config.get("memory.recall_min_score", 0.15)),
-                    min_rel=float(self.config.get("memory.recall_min_rel", 0.3)))
+                    min_rel=float(self.config.get("memory.recall_min_rel", 0.3)),
+                    conversation=self.sandbox_conversation)      # approved memories about you + this conversation's
             except Exception:
                 log.exception("recall failed")
         skills_index = ""
@@ -524,7 +525,7 @@ class Agent:
         if now == self._paths_seen:
             return
         self._paths_seen = now
-        system = build_system_prompt(self.config, self.rt.memory.render_core(), sorted(self.tool_names),
+        system = build_system_prompt(self.config, self.rt.memory.render_core(self.sandbox_conversation), sorted(self.tool_names),
                                      self.sandbox_conversation)
         if self._system_extra:
             system += "\n\n" + self._system_extra

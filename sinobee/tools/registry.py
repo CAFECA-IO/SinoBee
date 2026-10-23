@@ -98,6 +98,9 @@ class Registry:
         if "_raw" in args:
             return ToolResult.error(f"could not parse tool arguments as JSON: {args['_raw'][:300]}")
 
+        from ..memory.scope import TAINTING, taint
+        if tool.toolset in TAINTING:          # outside content enters: global memories from now on wait for approval
+            taint(ctx)
         sandbox = getattr(ctx.config, "sandbox", None)      # an evaluation trial (sinobee/evals/sandbox.py)
         if sandbox is not None:
             refused = sandbox.before(tool.name, tool.toolset, args)
