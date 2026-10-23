@@ -78,7 +78,7 @@ def _st(ctx: ToolContext) -> dict:
 
 
 SANDBOX_CHROME = ("chromium --remote-debugging-port=9222 --user-data-dir=/home/bee/.config/sinobee-chromium "
-                  "--no-first-run --no-default-browser-check --no-sandbox --disable-dev-shm-usage "
+                  "--no-first-run --no-default-browser-check --no-sandbox --test-type --disable-infobars --disable-dev-shm-usage "
                   "--start-maximized --disable-blink-features=AutomationControlled --lang=zh-TW "
                   "--disable-background-networking --disable-component-update --disable-sync --no-pings "
                   "--disable-default-apps --disable-domain-reliability --metrics-recording-only "

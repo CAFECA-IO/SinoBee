@@ -887,6 +887,7 @@ class Agent:
 
     INTERACTIVE = re.compile(r"addEventListener\(\s*['\"](?:key|mouse|pointer|touch|click|wheel)|on(?:click|key\w+|"
                              r"mouse\w+|pointer\w+)\s*=|<canvas\b|requestAnimationFrame", re.I)
+    VIEWPORT = re.compile(r"<meta[^>]+name=[\"']?viewport[^>]+width\s*=\s*device-width", re.I)
 
     def _playtest_gate(self, paths: list, stats: dict) -> tuple[str, str] | None:
         """In the sandbox, an interactive page (a game, an app, anything with input handlers or a canvas) is tried
@@ -895,14 +896,16 @@ class Agent:
             return None
         if getattr(self.ctx.state.get("executor"), "kind", "") != "sandbox":
             return None
-        pages = []
+        pages, texts = [], {}
         for p in paths:
             if p.suffix.lower() in (".html", ".htm"):
                 try:
-                    if self.INTERACTIVE.search(p.read_text(encoding="utf-8", errors="ignore")[:400_000]):
-                        pages.append(p.name)
+                    text = p.read_text(encoding="utf-8", errors="ignore")[:400_000]
                 except OSError:
                     continue
+                if self.INTERACTIVE.search(text):
+                    pages.append(p.name)
+                    texts[p.name] = text
         if not pages:
             return None
         runs = self.ctx.state.get("playtests") or []
@@ -916,17 +919,31 @@ class Agent:
                 "操作：依需求與驗收清單寫出操作步驟（點擊、按鍵、按住、拖曳、等待），在關鍵時刻用 shot 或 frames 拍下"
                 "畫面並寫出 expect（看得到什麼才算對）；遊戲與動畫用 frames 看前後變化。沒通過的修正後再測，最後在驗收清單"
                 "引用通過的證據編號（E…）。")
-        bad = [e for e in runs[-1]["shots"] if e.get("ok") is False]
-        if not bad:
-            return None
-        if stats["gate_rounds"].get("playtest", 0) >= 3:
-            stats.setdefault("quality_skipped", []).append(
-                f"互動驗收：修正三輪後仍有 {len(bad)} 個畫面不符預期（{', '.join(e['id'] for e in bad[:5])}）")
-            return None
-        lines = "\n".join(f"- {e['id']} {e['label']}：{e.get('problem') or '與預期不符'}" for e in bad[:8])
-        self._event(f"互動驗收：最近一次操作有 {len(bad)} 個畫面不符預期")
-        return "playtest", (f"[自動互動驗收] 最近一次 playtest 有 {len(bad)} 個畫面不符預期：\n{lines}\n"
-                            "請修正後重新 playtest，交付時引用通過的證據編號。")
+        latest = {}                                   # the last run at each width decides
+        for r in runs:
+            latest[r.get("width") or "desktop"] = r
+        bad = [e for r in latest.values() for e in r["shots"] if e.get("ok") is False]
+        if bad:
+            lines = "\n".join(f"- {e['id']} {e['label']}：{e.get('problem') or '與預期不符'}" for e in bad[:8])
+            self._event(f"互動驗收：最近一次操作有 {len(bad)} 個畫面不符預期")
+            return "playtest", (f"[自動互動驗收] 最近一次 playtest 有 {len(bad)} 個畫面不符預期：\n{lines}\n"
+                                "請修正後重新 playtest，交付時引用通過的證據編號。")
+        skipped = [r["judge_skipped"] for r in latest.values() if r.get("judge_skipped")]
+        if skipped and not any(e.get("ok") is not None for r in latest.values() for e in r["shots"]):
+            note = f"互動驗收：畫面沒有經過視覺模型判定（{skipped[0][:120]}）"
+            if note not in stats.setdefault("quality_skipped", []):
+                stats["quality_skipped"].append(note)
+        mode = str(self.config.get("agent.playtest_mobile", "auto")).lower()
+        need_mobile = mode == "always" or (mode == "auto" and any(self.VIEWPORT.search(t) for t in texts.values()))
+        if need_mobile and "mobile" not in latest:
+            if stats["gate_rounds"].get("playtest_mobile", 0) >= 1:
+                stats.setdefault("quality_skipped", []).append("互動驗收：提醒後仍沒有在手機寬度操作")
+                return None
+            self._event("互動驗收：頁面支援手機，還要在手機寬度操作一次")
+            return "playtest_mobile", (
+                "[自動互動驗收] 頁面宣告了手機版面（viewport），目前只在桌面寬度操作過。請再用 playtest 的 "
+                "width=\"mobile\"（390 px）把主要操作走一次，確認版面沒有被裁切、按鈕點得到，並引用通過的證據編號。")
+        return None
 
     async def _visual_check(self, query: str, paths: list, stats: dict) -> list[dict]:
         """Screenshots judged by a vision model. A picture already judged acceptable this turn is not sent again;

@@ -269,7 +269,9 @@ async def run(ctx, steps: list[dict], url: str | None = None, width: str = "desk
     judged = [(e, s) for e, s in kept if s.get("expect") and s["kind"] != "clip"][:MAX_JUDGED]
     verdicts: list[dict] = []
     skipped = None
-    if judged and ctx.config.get("model.vision", True):
+    if judged and not ctx.config.get("model.vision", True):
+        skipped = "the model setting says it cannot see images (model.vision off)"
+    elif judged:
         rt = ctx.state.get("runtime")
         try:
             from . import language

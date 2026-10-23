@@ -45,6 +45,7 @@ DEFAULTS: dict[str, Any] = {
     "agent": {
         "name": "SinoBee",
         "playtest": "auto",         # sandbox: an interactive page or game is played (playtest) before the task ends; off
+        "playtest_mobile": "auto",  # auto = also at phone width when the page declares a mobile viewport; always | off
         # task budgets (agent/budget.py): baselines by task type, soft checkpoints, per-task cap, partial delivery
         "budget": {
             "enabled": True,

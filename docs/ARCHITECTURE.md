@@ -2015,6 +2015,11 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   取回；泡泡多一段「驗收證據」（縮圖、✓／✕、說明，連續畫面點一下播放，影片可播），有失敗時預設展開。執行中的
   `evidence` 事件即時顯示在過程區。API：`GET /api/evidence/{sid}`（`?turn=`）、`/api/evidence/{sid}/{檔名}`、
   `/api/evidence/{sid}.zip?turn=`（含 manifest）。SinoBee.ai 分享頁的證據顯示留待之後。
+- **補強（2026-10-23）**：關卡以每種寬度最後一次 playtest 為準；頁面宣告手機 viewport（`width=device-width`）時還要
+  在手機寬度跑一次（`agent.playtest_mobile`：auto／always／off，提醒一次後仍沒做就記入 `quality_skipped`）；畫面沒有
+  經視覺模型判定（判定失敗或 `model.vision` 關閉）時記為「未判定」，不當作通過。沙盒 Chromium 加 `--test-type
+  --disable-infobars`，拿掉頂端「Chrome for Testing」與「--no-sandbox」兩條提示列（約 115 px）。新沙盒第一次開
+  瀏覽器會等 Xvfb 就緒、必要時重啟一次；playtest 先開擷取器、以固定時鐘取影格、結束時放開仍按住的鍵。
 - **提示詞**：沙盒的顯示是 `:99`（不是 `:0`）；開頁面用 `browser` 工具，不自己啟動 chromium 或寫 Playwright 腳本；互動
   驗證用 playtest，清單引用通過的 E 編號。
 - **測試**：`tests/test_sandbox_v.py` 12 項（不需 Docker：編號／回合／路徑防護、期限與容量清理、接手時不擷取、步驟
