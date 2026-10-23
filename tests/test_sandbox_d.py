@@ -57,6 +57,8 @@ def sandbox_ctx(config, answer):
     asked = []
 
     async def ask(question, options, multi, allow_text):
+        assert all(isinstance(o, dict) and o["label"] for o in options)     # the card draws dicts only
+        options = [o["label"] for o in options]
         asked.append((question, options))
         return None if answer is None else {"choices": [answer]}
     ctx = ToolContext(config=config, session_id="c1", ask=ask)

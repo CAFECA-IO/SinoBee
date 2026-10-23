@@ -49,6 +49,13 @@ def _build() -> str:
     return _BUILD[0]
 
 
+
+def ask_options(options) -> list[dict]:
+    """A question's options as the card draws them, {"label", "description", "recommended"}; a bare string is a
+    label (request_network once sent strings: the card showed no buttons and an answer could not be matched)."""
+    return [{"label": o} if isinstance(o, str) else o for o in options or []
+            if (o if isinstance(o, str) else (o or {}).get("label"))]
+
 def create_app(runtime: Runtime | None = None) -> FastAPI:
     state: dict = {"rt": runtime, "agents": {}}
 
@@ -408,6 +415,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         async def ask(question: str, options: list, multi: bool, allow_text: bool) -> dict | None:
             rid = secrets.token_hex(4)
             fut = asyncio.get_running_loop().create_future()
+            options = ask_options(options)
             payload = {"request_id": rid, "question": question, "options": options, "multi": multi,
                        "allow_text": allow_text, "session_id": sid_}
             state["questions"][rid] = (fut, payload)

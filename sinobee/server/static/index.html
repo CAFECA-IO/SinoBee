@@ -1369,7 +1369,9 @@ const PROC_VERB = {shell: ['執行', '個指令'], read_file: ['讀取', '個檔
   list_dir: ['查看', '個資料夾'], search_files: ['搜尋檔案', '次'], web_search: ['搜尋網路', '次'], web_fetch: ['讀取', '個網頁'],
   browser: ['操作瀏覽器', '次'], screenshot: ['截圖', '次'], mouse: ['操作滑鼠', '次'], keyboard: ['輸入', '次'],
   skill_view: ['載入技能', '次'], skill_run: ['執行技能', '次'], db_query: ['查詢資料庫', '次'], delegate: ['派出子代理', '次'],
-  run_workflow: ['啟動流程', '次'], memory_save: ['記住', '件事'], memory_search: ['查詢記憶', '次']};
+  run_workflow: ['啟動流程', '次'], memory_save: ['記住', '件事'], memory_search: ['查詢記憶', '次'],
+  request_network: ['申請連網', '次'], playtest: ['實際操作驗收', '次'], wait_change: ['等待畫面', '次'], zoom: ['放大檢查', '次'],
+  launch: ['開啟程式', '次'], window: ['切換視窗', '次'], clipboard: ['使用剪貼簿', '次']};
 function procGroup(){
   if (PROC) return PROC;
   clearEmpty();
@@ -1801,7 +1803,8 @@ let RUNNING = {};   // session_id -> {started, step, activity, tool}
 function setBusy(){ busy = !!RUNNING[sessionId]; $('#stopBtn').hidden = true; renderRun(); }
 const TOOL_LABEL = {shell: '終端機', browser: '瀏覽器', web_fetch: '讀取網頁', web_search: '網頁搜尋', read_file: '讀檔', write_file: '寫檔',
   edit_file: '修改檔案', list_dir: '列出資料夾', search_files: '搜尋檔案', screenshot: '截圖', mouse: '滑鼠', keyboard: '鍵盤',
-  skill_view: '載入技能', skill_create: '建立技能', skill_run: '執行技能腳本', memory_save: '寫入記憶', memory_search: '查詢記憶', task_checklist: '更新驗收清單', ask_user: '詢問你'};
+  skill_view: '載入技能', skill_create: '建立技能', skill_run: '執行技能腳本', memory_save: '寫入記憶', memory_search: '查詢記憶', task_checklist: '更新驗收清單', ask_user: '詢問你',
+  request_network: '申請連網', playtest: '實際操作驗收', wait_change: '等待畫面', zoom: '放大', launch: '開啟程式', window: '視窗', clipboard: '剪貼簿'};
 function renderRun(){
   const r = RUNNING[sessionId], bar = $('#runbar');
   document.title = Object.keys(RUNNING).length ? '⏳ SinoBee' : 'SinoBee';
@@ -2013,6 +2016,8 @@ function cklShow(items){
     <ol>${items.map(i => `<li class="${i.status}" title="${esc(i.evidence || i.check || '')}"><span class="ckl-b">${ico[i.status] || ''}</span><span>${esc(i.text)}${i.status === 'done' && i.evidence ? `<small>${esc(i.evidence.slice(0, 120))}</small>` : i.status === 'dropped' && i.evidence ? `<small>略過：${esc(i.evidence.slice(0, 120))}</small>` : ''}</span></li>`).join('')}</ol>`;
 }
 // ---------------- ask_user: SinoBee asks for a decision, with suggested options as buttons ----------------
+/** a request as a title: attachments' markdown (![name](path), [text](url)) shown by name, like agent/loop._title */
+const plainTitle = t => String(t || '').replace(/!\[([^\]]*)\]\([^)]*\)/g, '[$1]').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim();
 function askCard(a, replay){
   const opts = (a.options || []).filter(o => o && o.label), multi = !!a.multi;
   const d = document.createElement('div'); d.className = 'askcard' + (replay ? ' old' : ' waiting'); d.dataset.q = a.question || '';
@@ -2251,7 +2256,7 @@ $('#form').onsubmit = async e => {
   // chosen skills travel as /name prefixes, which the agent loads before it starts
   if (SKSEL.length) { skRemember(SKSEL); text = SKSEL.map(n => '/' + n).join(' ') + (text ? ' ' + text : ''); skClear(); }
   procClose(); add(userHtml(text), 'msg user'); $('#input').value = '';
-  if (!sessionId) $('#title').textContent = (text.replace(/^(\/[\w.-]+\s*)+/, '').trim() || text).slice(0, 60);
+  if (!sessionId) $('#title').textContent = (plainTitle(text).replace(/^(\/[\w.-]+\s*)+/, '').trim() || plainTitle(text)).slice(0, 60);
   ws.send(JSON.stringify({type:'message', session_id: sessionId, text, client_ref: CLIENT_REF}));
 };
 $('#input').addEventListener('keydown', e => {

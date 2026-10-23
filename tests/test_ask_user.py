@@ -63,3 +63,9 @@ def test_web_ui_answers_with_a_button_or_by_typing(home, provider):
                     break
         tool_msgs = [m for m in provider.requests[-1][0] if m.role == "tool"]
         assert tool_msgs[-1].text() == expect
+
+
+def test_plain_string_options_still_become_buttons():
+    from sinobee.server.app import ask_options
+    assert ask_options(["只這次", {"label": "記住", "recommended": True}, "", None, {"description": "x"}]) == \
+        [{"label": "只這次"}, {"label": "記住", "recommended": True}]

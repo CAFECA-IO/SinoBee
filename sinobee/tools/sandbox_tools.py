@@ -59,7 +59,11 @@ async def request_network(ctx: ToolContext, domains: list, reason: str = ""):
     mounts = [str(x.inner) for x in ex.paths.mounts if str(x.inner).startswith("/host/")]
     question = (f"沙盒要連到 {', '.join(names)}。\n理由：{reason or '（未說明）'}"
                 + (f"\n注意：這個任務可以讀到 {', '.join(mounts)}，連網後資料有可能被傳出。" if mounts else ""))
-    ans = await ctx.ask(question, [ONCE, REMEMBER, ALL, NO], False, False)
+    options = [{"label": ONCE, "description": "這次任務結束就收回", "recommended": True},
+               {"label": REMEMBER, "description": "之後的任務也不再問（設定 → 沙盒的網路可移除）"},
+               {"label": ALL, "description": "這次任務不限制連線"},
+               {"label": NO, "description": "SinoBee 會不連網繼續，或說明做不到的部分"}]
+    ans = await ctx.ask(question, options, False, False)
     choice = ((ans or {}).get("choices") or [NO])[0]
     if choice == NO or ans is None:
         return f"The user did not allow {', '.join(names)}. Continue without them, or explain what cannot be done."
