@@ -43,12 +43,16 @@ def key(k):
 def pt(p):
     return int(round(float(p[0]) * S)), int(round(float(p[1]) * S))
 
-def grab(fmt):
-    import mss
-    from PIL import Image
-    with (mss.MSS() if hasattr(mss, "MSS") else mss.mss()) as m:
-        g = m.grab(m.monitors[1])
-        img = Image.frombytes("RGB", g.size, g.bgra, "raw", "BGRX")
+import mss
+from PIL import Image
+SCREEN = mss.MSS() if hasattr(mss, "MSS") else mss.mss()     # opened before the clock starts: a frame is ~20 ms
+SCREEN.grab(SCREEN.monitors[1])
+
+def raw():
+    g = SCREEN.grab(SCREEN.monitors[1])
+    return Image.frombytes("RGB", g.size, g.bgra, "raw", "BGRX")
+
+def encode(img, fmt):
     buf = io.BytesIO()
     if fmt == "jpg":
         img.save(buf, "JPEG", quality=80)
@@ -56,7 +60,11 @@ def grab(fmt):
         img.save(buf, "PNG", compress_level=3)
     return base64.b64encode(buf.getvalue()).decode()
 
+def grab(fmt):
+    return encode(raw(), fmt)
+
 rec = None
+held = set()
 try:
     for i, st in enumerate(spec["steps"]):
         out["log"].append([round(time.time() - t0, 2), i])
@@ -81,9 +89,9 @@ try:
         elif "hold" in st:
             k = key(st["hold"]); xdo("keydown", k, "sleep", "%.2f" % float(st.get("seconds", 1)), "keyup", k)
         elif "keydown" in st:
-            xdo("keydown", key(st["keydown"]))
+            xdo("keydown", key(st["keydown"])); held.add(key(st["keydown"]))
         elif "keyup" in st:
-            xdo("keyup", key(st["keyup"]))
+            xdo("keyup", key(st["keyup"])); held.discard(key(st["keyup"]))
         elif "type" in st:
             xdo("type", "--delay", 15, "--", st["type"])
         elif "wait" in st:
@@ -93,13 +101,14 @@ try:
                                  "t": round(time.time() - t0, 2), "ext": "png", "images": [grab("png")]})
         elif "frames" in st:
             n = max(2, min(int(st["frames"]), 12)); every = max(0.05, float(st.get("every", 0.25))); imgs = []
-            for k in range(n):
-                imgs.append(grab("jpg"))
+            start = time.time()
+            for k in range(n):                   # raw frames on a fixed clock; encoded afterwards
+                imgs.append(raw())
                 if k + 1 < n:
-                    time.sleep(every)
+                    time.sleep(max(0.0, start + (k + 1) * every - time.time()))
             out["shots"].append({"i": i, "kind": "frames", "label": st.get("label", "連續畫面"),
-                                 "expect": st.get("expect", ""), "every": every, "t": round(time.time() - t0, 2),
-                                 "ext": "jpg", "images": imgs})
+                                 "expect": st.get("expect", ""), "every": every, "t": round(start - t0, 2),
+                                 "ext": "jpg", "images": [encode(im, "jpg") for im in imgs]})
         elif "record" in st:
             secs = max(1, min(float(st["record"]), 30))
             path = "/tmp/pt-clip-%d.mp4" % i
@@ -118,6 +127,9 @@ except Exception as e:
     out["error"] = "%s: %s" % (type(e).__name__, e)
 finally:
     subprocess.run(["xdotool", "mouseup", "1"], capture_output=True)
+    for k in held:                               # never leave a key pressed for whoever uses the desktop next
+        subprocess.run(["xdotool", "keyup", k], capture_output=True)
+    SCREEN.close()
 json.dump(out, sys.stdout)
 '''
 

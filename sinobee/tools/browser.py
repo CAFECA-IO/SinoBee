@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import os
 import platform
 
@@ -94,27 +95,43 @@ async def _sandbox_context(ctx: ToolContext, st: dict):
     ex = executor_of(ctx)
     m, conv = ex.manager, ex.conversation
     name = m.name_of(conv)
-    proc = await asyncio.create_subprocess_exec("docker", "exec", name, "pgrep", "-f", "remote-debugging-port=9222",
-                                                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
-    if await proc.wait() != 0:
+    async def running() -> bool:
+        proc = await asyncio.create_subprocess_exec("docker", "exec", name, "pgrep", "-f", "remote-debugging-port=9222",
+                                                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        return await proc.wait() == 0
+
+    async def launch() -> None:
+        # a sandbox that has just started may not have its display yet: Chromium started before Xvfb exits at once
         await (await asyncio.create_subprocess_exec(
             "docker", "exec", "-d", "-e", "DISPLAY=:99", name, "bash", "-lc",
+            "for i in $(seq 150); do [ -e /tmp/.X11-unix/X99 ] && break; sleep 0.1; done; "
             f"exec {SANDBOX_CHROME} >/tmp/chromium.log 2>&1")).wait()
+
+    if not await running():
+        await launch()
     port = await m.bridge(conv, 9222)
 
     def version():
         op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with op.open(f"http://127.0.0.1:{port}/json/version", timeout=3) as r:
             return _json.loads(r.read())
-    info = None
-    for _ in range(60):
+    info, relaunched = None, False
+    deadline = time.monotonic() + 60            # the first start in a fresh sandbox is slow (cold caches)
+    started = time.monotonic()
+    while time.monotonic() < deadline:
         try:
             info = await asyncio.to_thread(version)
             break
         except Exception:  # noqa: BLE001
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.5)
+        if not relaunched and time.monotonic() - started > 10 and not await running():
+            relaunched = True                   # it exited (e.g. no display yet): once more
+            await launch()
     if not info:
-        raise RuntimeError("the sandbox browser did not start (see /tmp/chromium.log in the sandbox)")
+        tail = await (await asyncio.create_subprocess_exec(
+            "docker", "exec", name, "tail", "-c", "600", "/tmp/chromium.log",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)).communicate()
+        raise RuntimeError("the sandbox browser did not start: " + (tail[0] or b"").decode(errors="replace")[-400:])
     ws = info["webSocketDebuggerUrl"]
     ws = "ws://127.0.0.1:%d/%s" % (port, ws.split("/", 3)[3])
     from playwright.async_api import async_playwright

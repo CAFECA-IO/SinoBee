@@ -193,12 +193,12 @@ def test_evidence_can_be_listed_opened_and_downloaded(config):
 
 
 # ------------------------------------------------------------------ in Docker
-GAME = """<!doctype html><body style="margin:0;background:#fff">
+GAME = """<!doctype html><body style="margin:0;background:#fff;overflow:hidden">
 <div id=b style="position:absolute;left:600px;top:300px;width:80px;height:80px;background:#f00"></div>
 <script>let x = 600, v = 0; const DIR = %d;
-addEventListener('keydown', e => { if (e.key === 'ArrowRight') v = DIR; });
+addEventListener('keydown', e => { if (e.key === 'ArrowRight') { v = DIR; e.preventDefault(); } });
 addEventListener('keyup', e => { if (e.key === 'ArrowRight') v = 0; });
-(function f(){ x += v * 6; b.style.left = x + 'px'; requestAnimationFrame(f); })();</script></body>"""
+(function f(){ x = Math.max(80, Math.min(1100, x + v * 3)); b.style.left = x + 'px'; requestAnimationFrame(f); })();</script></body>"""
 
 
 def red_x(b64):
@@ -235,7 +235,7 @@ def box(config):
     asyncio.run(manager_for(config).remove(conv))
 
 
-STEPS = [{"click": [100, 100]}, {"keydown": "right"},
+STEPS = [{"click": [640, 600]}, {"keydown": "right"},
          {"frames": 5, "every": 0.2, "label": "按住右鍵", "expect": "紅色方塊往右移動"}, {"keyup": "right"}]
 
 
