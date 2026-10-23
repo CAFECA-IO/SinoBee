@@ -660,6 +660,7 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 #folderPop .fb-hid{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin:8px 0 4px}
 #folderPop .fb-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 #folderPop{max-height:calc(100vh - 80px);overflow:auto}
+#hcToast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:400;display:flex;align-items:center;gap:10px;padding:9px 10px 9px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 12px 30px rgba(0,0,0,.4);font-size:13px;max-width:calc(100vw - 32px)}#hcToast[hidden]{display:none}#hcToast .ad-fold{all:unset;cursor:pointer;color:var(--muted);padding:2px 6px}
 #folderPop .fp-sec{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;margin:14px 0 4px;padding-top:10px;border-top:1px solid var(--line)}#folderPop .fp-h+.fp-msg+.fp-sec,#folderPop .fp-h+.fp-sec{border-top:0;padding-top:0;margin-top:8px}
 #folderPop .fp-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
 #folderPop .fp-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:999px;padding:2px 4px 2px 10px;font-size:12.5px}#folderPop .fp-chip button{all:unset;cursor:pointer;color:var(--muted);padding:0 5px;border-radius:999px}#folderPop .fp-chip button:hover{color:var(--err)}
@@ -4215,7 +4216,8 @@ async function openHostReview(sid){
   $('#hcBody').querySelectorAll('.hc-force').forEach(x => x.onchange = () => { if (x.checked) x.closest('.hc-row').querySelector('.hc-pick').checked = true; });
   $('#hcBody').querySelectorAll('[data-undo]').forEach(b => b.onclick = async () => {
     if (!await uiConfirm('把這次套用寫回的檔案還原成套用前的樣子？（新增的檔案會移到垃圾桶）')) return;
-    const j = await post(`/api/sandbox/${encodeURIComponent(sid)}/changes/undo`, {id: b.dataset.undo}); hcDone(`已復原 ${j.restored.length} 個檔案`, j.pending); });
+    try { const j = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/changes/undo`, {id: b.dataset.undo}); hcDone(sid, `已復原 ${j.restored.length} 個檔案`, j.pending); }
+    catch (e) { $('#hcState').textContent = '復原失敗：' + e.message; } });
   $('#hcApply').disabled = $('#hcDiscard').disabled = !r.count;
 }
 function hcPicked(){
@@ -4223,32 +4225,58 @@ function hcPicked(){
     paths: [...f.querySelectorAll('.hc-row')].filter(r => r.querySelector('.hc-pick').checked).map(r => r.dataset.p),
     force: [...f.querySelectorAll('.hc-row')].filter(r => r.querySelector('.hc-force')?.checked).map(r => r.dataset.p)})).filter(x => x.paths.length);
 }
-async function hcDone(msg, pending){
-  const busy = HC.busy; hostBar(HC.sid, pending); loadSide(); if (!$('#folderPop').hidden) folderRefresh();
-  await openHostReview(HC.sid); HC.busy = busy; $('#hcState').textContent = msg;
+/** a review request that cannot hang the window: it gives up after 2 minutes, and errors come back as messages */
+async function hcFetch(path, body){
+  const ac = new AbortController(), t = setTimeout(() => ac.abort(), 120000);
+  try {
+    const r = await fetch(path + '?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal: ac.signal});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+    return j;
+  } catch (e) { throw new Error(e.name === 'AbortError' ? '伺服器兩分鐘沒有回應' : e.message); }
+  finally { clearTimeout(t); }
 }
-const hcClose = () => { if (!HC?.busy) $('#hostModal').classList.remove('open'); };
+/** after apply / discard / undo: the window is free at once; it closes when nothing is left to review, and a note
+ *  (with 復原 for an apply) says what happened - the list refresh runs on its own and can never keep it locked */
+function hcDone(sid, msg, pending, undoIds = []){
+  hostBar(sid, pending); loadSide(); if (!$('#folderPop').hidden) folderRefresh();
+  const open = $('#hostModal').classList.contains('open') && HC?.sid === sid;
+  if (!pending) { $('#hostModal').classList.remove('open'); hcToast(sid, msg, undoIds); return; }
+  if (open) openHostReview(sid).then(() => { $('#hcState').textContent = msg; }).catch(() => {});
+  else hcToast(sid, msg, undoIds);
+}
+let HC_TOAST = 0;
+function hcToast(sid, msg, undoIds = []){
+  let t = $('#hcToast'); if (!t) { t = document.createElement('div'); t.id = 'hcToast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+  t.innerHTML = `<span>${esc(msg)}</span>` + (undoIds.length ? '<button class="btn sm" type="button" data-u>復原</button>' : '') + '<button class="ad-fold" type="button" data-x aria-label="關閉">✕</button>';
+  t.hidden = false; const me = ++HC_TOAST; setTimeout(() => { if (me === HC_TOAST) t.hidden = true; }, 10000);
+  t.querySelector('[data-x]').onclick = () => { t.hidden = true; };
+  const u = t.querySelector('[data-u]');
+  if (u) u.onclick = async () => { u.disabled = true; let n = 0, pending = 0;
+    try { for (const id of undoIds) { const j = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/changes/undo`, {id}); n += j.restored.length; pending = j.pending; } }
+    catch (e) { hcToast(sid, '復原失敗：' + e.message); return; }
+    hcDone(sid, `已復原 ${n} 個檔案`, pending); };
+}
+const hcClose = () => $('#hostModal').classList.remove('open');      // also while writing: it finishes, and says so
 $('#hcClose').onclick = hcClose;
 $('#hostModal').addEventListener('click', e => { if (e.target.id === 'hostModal') hcClose(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#hostModal').classList.contains('open') && !document.querySelector('.modal.uidlg.open')) hcClose(); });
-/** apply / discard: the buttons wait while it runs (a big folder takes a while), and come back even when it fails */
+/** apply / discard: only those two buttons wait while it runs; 稍後再說 always works */
 async function hcRun(label, work){
-  const btns = ['#hcApply', '#hcDiscard', '#hcClose'].map(id => $(id)); HC.busy = true; btns.forEach(b => b.disabled = true);
-  $('#hcState').textContent = label;
-  try { await work(); }
-  catch (e) { $('#hcState').textContent = '失敗：' + (e.message || e); }
-  finally { HC.busy = false; $('#hcClose').disabled = false;
-    $('#hcApply').disabled = $('#hcDiscard').disabled = !(HC.data?.count); }
+  const sid = HC.sid; HC.busy = true; $('#hcApply').disabled = $('#hcDiscard').disabled = true; $('#hcState').textContent = label;
+  try { await work(sid); }
+  catch (e) { if (HC.sid === sid) $('#hcState').textContent = '失敗：' + e.message; else hcToast(sid, '失敗：' + e.message); }
+  finally { if (HC.sid === sid) { HC.busy = false; $('#hcApply').disabled = $('#hcDiscard').disabled = !(HC.data?.count); } }
 }
 $('#hcApply').onclick = () => { const sel = hcPicked(); if (!sel.length) return;
-  hcRun('寫回中…', async () => { let ok = 0, skipped = [], pending = 0;
-    for (const s of sel) { const j = await post(`/api/sandbox/${encodeURIComponent(HC.sid)}/changes/apply`, s); ok += j.applied.length; skipped.push(...j.conflicts); pending = j.pending; }
-    await hcDone(`已寫回 ${ok} 個檔案` + (skipped.length ? `，${skipped.length} 個衝突沒有套用` : ''), pending); }); };
+  hcRun('寫回中…', async sid => { let ok = 0, skipped = [], pending = 0; const ids = [];
+    for (const s of sel) { const j = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/changes/apply`, s); ok += j.applied.length; skipped.push(...j.conflicts); pending = j.pending; if (j.id) ids.push(j.id); }
+    hcDone(sid, `已寫回 ${ok} 個檔案` + (skipped.length ? `，${skipped.length} 個衝突沒有套用` : ''), pending, ids); }); };
 $('#hcDiscard').onclick = async () => { const sel = hcPicked(); if (!sel.length) return;
   if (!await uiConfirm(`捨棄選取的 ${sel.reduce((n, s) => n + s.paths.length, 0)} 個變更？副本會換回原檔的內容。`)) return;
-  hcRun('捨棄中…', async () => { let n = 0, pending = 0;
-    for (const s of sel) { const j = await post(`/api/sandbox/${encodeURIComponent(HC.sid)}/changes/discard`, {folder: s.folder, paths: s.paths}); n += j.discarded.length; pending = j.pending; }
-    await hcDone(`已捨棄 ${n} 個變更`, pending); }); };
+  hcRun('捨棄中…', async sid => { let n = 0, pending = 0;
+    for (const s of sel) { const j = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/changes/discard`, {folder: s.folder, paths: s.paths}); n += j.discarded.length; pending = j.pending; }
+    hcDone(sid, `已捨棄 ${n} 個變更`, pending); }); };
 
 // ---------- a fixed either-or choice is a segmented switch, not a drop-down (select[data-seg] stays the value) ----------
 const SELECT_VALUE = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
