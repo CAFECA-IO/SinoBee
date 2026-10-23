@@ -55,7 +55,7 @@ def test_a_new_conversation_can_be_given_a_folder_before_its_first_message(confi
             pg.wait_for_selector("#folderBtn:not([hidden])", timeout=10000)
             pg.click("#folderBtn")
             pg.fill("#fpPath", str(folder))
-            pg.click("#fpAdd")
+            pg.press("#fpPath", "Enter")                       # added at once: no 加入 button
             pg.wait_for_selector("#folderPop .fp-r", timeout=10000)
             draft = pg.evaluate("DRAFT_SID")
             assert draft and [f["name"] for f in fd.folders_for(config, draft)] == ["報告"]

@@ -646,7 +646,7 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 #folderPop .fp-r{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
 #folderPop .fp-n{flex:1;min-width:0;display:flex;flex-direction:column}#folderPop .fp-n .mono{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #folderPop .fp-m{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:1px 9px;white-space:nowrap}#folderPop .fp-m.w{border-color:var(--warn);color:var(--warn)}#folderPop .fp-m.r{border-color:var(--err);color:var(--err)}
-#folderPop .fp-add{display:flex;gap:8px;margin:10px 0 8px}#folderPop .fp-add2{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:6px}#folderPop .fp-add .inp{flex:1;min-width:0}#folderPop select{max-width:170px}
+#folderPop .fp-add{display:flex;gap:8px;margin:10px 0 8px}#folderPop .fp-add2{display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin:8px 0 4px}#folderPop .fp-add .inp{flex:1;min-width:0}#folderPop select{max-width:170px}
 #folderPop .fb-short{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}
 #folderPop .fb-path{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 #folderPop .fb-crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px 4px;min-width:0;font-size:12.5px}
@@ -4401,9 +4401,9 @@ function renderFolderPop(msg = ''){
       + (x.mode === 'rw' ? `<button class="btn sm" type="button" data-cp="${esc(x.name)}">檢查點${x.checkpoints ? ' ' + x.checkpoints : ''}</button>` : '')
       + `<button class="btn sm" type="button" data-rm="${esc(x.path)}">移除</button></div>`).join('')
       : '<div class="sd" style="padding:6px 0">還沒有資料夾。沙盒只看得到工作區；加入後在沙盒裡的 /host/名稱。</div>')
-    + `<div class="fp-add"><input class="inp" id="fpPath" placeholder="加入資料夾，例如 ~/Documents/報告" aria-label="資料夾路徑"><button class="btn" type="button" id="fpBrowse">瀏覽…</button></div>`
-    + `<div class="fp-add2"><select id="fpMode" data-seg aria-label="使用方式"><option value="review">審核後寫回</option><option value="direct">直接寫入</option><option value="ro">唯讀</option></select><button class="btn primary" type="button" id="fpAdd">加入</button></div>`
+    + `<div class="fp-add2"><span>加入方式</span><select id="fpMode" data-seg aria-label="加入方式"><option value="review">審核後寫回</option><option value="direct">直接寫入</option><option value="ro">唯讀</option></select></div>`
     + `<div class="sd" id="fpModeHelp"></div>`
+    + `<div class="fp-add"><input class="inp" id="fpPath" placeholder="輸入路徑按 Enter，或按「瀏覽…」選擇" aria-label="加入資料夾：輸入路徑後按 Enter"><button class="btn primary" type="button" id="fpBrowse">瀏覽…</button></div>`
     + `<div class="sd">家目錄、系統資料夾與存放金鑰的資料夾不能加入。</div>`
     // network
     + `<div class="fp-sec">網路</div>`
@@ -4423,14 +4423,10 @@ function renderFolderPop(msg = ''){
   pop.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => folderRemove(b.dataset.rm));
   pop.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => folderCheckpoints(b.dataset.cp));
   const help = () => { $('#fpModeHelp').textContent = FOLD_ADD_HELP[$('#fpMode').value] || ''; };
-  $('#fpMode').value = f.review_writes ? 'review' : 'direct'; $('#fpMode').addEventListener('change', help); help();
-  const add = async () => { const path = $('#fpPath').value.trim(); if (!path) return; $('#fpAdd').disabled = true; $('#fpMsg').textContent = '準備中…';
-    const r = await fetch(`/api/sandbox/${encodeURIComponent(folderSid())}/folders?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path, mode: $('#fpMode').value})});
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) { renderFolderPop(j.detail || '無法加入'); $('#fpPath').value = path; return; }
-    FOLD_SEQ++; FOLD = {...FOLD, ...j}; folderBadge(); renderFolderPop('已加入；SinoBee 下一步就看得到'); };
+  $('#fpMode').value = FOLD_ADD_MODE || (f.review_writes ? 'review' : 'direct');
+  $('#fpMode').addEventListener('change', () => { FOLD_ADD_MODE = $('#fpMode').value; help(); }); help();
   $('#fpBrowse').onclick = () => folderBrowse($('#fpPath').value.trim() || '');
-  $('#fpAdd').onclick = add; $('#fpPath').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } };
+  $('#fpPath').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); folderAdd($('#fpPath').value.trim()); } };
   const sel = (id, v, fn) => { const el = $(id); el.value = v; el.onchange = () => fn(el.value); };
   sel('#fpNetAll', net.all ? 'all' : 'list', v => convSet({network: {all: v === 'all'}}, v === 'all' ? '這個對話一律允許連網' : '只允許列出的網域'));
   sel('#fpReview', rv, v => convSet({overrides: {review_writes: v === '' ? null : v === 'on'}}));
@@ -4439,9 +4435,22 @@ function renderFolderPop(msg = ''){
   const addDom = () => { const v = $('#fpDom').value.trim(); if (v) convSet({network: {domains: [...net.domains, ...v.split(/[\s,]+/)]}}, '已加入'); };
   if ($('#fpDomAdd')) { $('#fpDomAdd').onclick = addDom; $('#fpDom').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addDom(); } }; }
 }
+/** the folder is added as soon as it is chosen (Enter on a typed path, or 加入 in the browser), the way 加入方式 says */
+let FOLD_ADD_MODE = null;
+const FOLD_ADD_NAME = {review: '審核後寫回', direct: '直接寫入', ro: '唯讀'};
+async function folderAdd(path){
+  if (!path) return;
+  const mode = FOLD_ADD_MODE || (FOLD?.review_writes === false ? 'direct' : 'review');
+  if ($('#fpPath')) { $('#fpPath').value = path; $('#fpPath').disabled = true; $('#fpBrowse').disabled = true; }
+  if ($('#fpMsg')) { $('#fpMsg').textContent = '加入中…'; $('#fpMsg').classList.add('on'); }
+  const r = await fetch(`/api/sandbox/${encodeURIComponent(folderSid())}/folders?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path, mode})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { renderFolderPop(j.detail || '無法加入'); $('#fpPath').value = path; $('#fpPath').focus(); return; }
+  FOLD_SEQ++; FOLD = {...FOLD, ...j}; folderBadge(); renderFolderPop(`已加入（${FOLD_ADD_NAME[mode]}）；SinoBee 下一步就看得到`);
+}
 /** pick a folder by browsing your home (folder names only; ones that can never be given are locked) */
 async function folderBrowse(path, hidden = false){
-  const pop = $('#folderPop'), keepMode = $('#fpMode')?.value || 'review';
+  const pop = $('#folderPop'), how = FOLD_ADD_NAME[FOLD_ADD_MODE || (FOLD?.review_writes === false ? 'direct' : 'review')];
   pop.innerHTML = '<div class="sd"><span class="spin"></span> 讀取中…</div>';
   let r = await fetch(`/api/sandbox-browse?path=${encodeURIComponent(path)}${hidden ? '&hidden=1' : ''}&token=${encodeURIComponent(token)}`);
   let j = await r.json().catch(() => ({}));
@@ -4456,13 +4465,14 @@ async function folderBrowse(path, hidden = false){
       + `${ic('folder')}<span>${esc(d.name)}</span>${d.can_pick ? '<i>›</i>' : '<i>🔒</i>'}</button>`).join('') : '<div class="sd" style="padding:8px">這裡沒有子資料夾</div>'}</div>`
     + `<label class="fb-hid"><input type="checkbox" id="fbHidden"${hidden ? ' checked' : ''}> 顯示隱藏資料夾</label>`
     + (j.can_pick ? '' : `<div class="fp-msg">${esc(j.why || '')}</div>`)
-    + `<div class="fb-foot"><button class="btn" type="button" data-cancel>取消</button><button class="btn primary" type="button" data-pick${j.can_pick ? '' : ' disabled'}>選擇「${esc(parts[parts.length - 1] || j.shown)}」</button></div>`;
+    + `<div class="fb-foot"><button class="btn" type="button" data-cancel>取消</button><button class="btn primary" type="button" data-pick${j.can_pick ? '' : ' disabled'} title="以「${how}」加入">加入「${esc(parts[parts.length - 1] || j.shown)}」</button></div>`
+    + `<div class="sd" style="text-align:right;margin-top:4px">以「${how}」加入，可在上一頁更改</div>`;
   pop.querySelectorAll('[data-go]').forEach(b => b.onclick = () => folderBrowse(b.dataset.go, hidden));
   pop.querySelector('[data-up]').onclick = () => j.parent && folderBrowse(j.parent, hidden);
   $('#fbHidden').onchange = e => folderBrowse(j.path, e.target.checked);
-  const back = () => { renderFolderPop(); $('#fpMode').value = keepMode; $('#fpMode').dispatchEvent(new Event('change')); };
+  const back = () => renderFolderPop();
   pop.querySelector('[data-x]').onclick = back; pop.querySelector('[data-cancel]').onclick = back;
-  pop.querySelector('[data-pick]').onclick = () => { back(); $('#fpPath').value = j.shown; $('#fpAdd').focus(); };
+  pop.querySelector('[data-pick]').onclick = () => { back(); folderAdd(j.shown); };
   pop.querySelector('.fb-list button')?.focus({preventScroll: true});
 }
 async function folderRemove(path, force = false){
