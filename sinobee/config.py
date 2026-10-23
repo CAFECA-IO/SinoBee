@@ -178,7 +178,8 @@ DEFAULTS: dict[str, Any] = {
         },
         "review_writes": True,      # 寫入前審核: a folder given to a conversation for writing is a copy you review
         "keep_days": 30,            # review copies and apply backups of a conversation unused this long are removed
-        "review_max_files": 50000,  # a folder with more files is too big to copy for review: read-only or read/write
+        "review_max_files": 200000,  # reviewed files (no node_modules/.git/caches) a copy may hold; git repos: no limit
+        "checkpoints_keep": 10,      # checkpoints kept per directly written folder (checkpoints.py)
     },
     "evidence": {                   # pictures SinoBee captures while the agent checks its work (agent/evidence.py)
         "keep_days": 30,            # a conversation's evidence is removed this many days after its last picture

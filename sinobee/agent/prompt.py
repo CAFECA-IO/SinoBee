@@ -157,11 +157,21 @@ def environment_block(config, conversation: str | None = None) -> str:
                       + f": {names}. What they ask you to make or change belongs there, not in /workspace: create the "
                       "project or the files directly in that folder (no extra subfolder unless they ask for one), and "
                       "tell them its path on their computer. You may install and build in ~ for speed, but the "
-                      "delivered files go into the folder. node_modules, .next, .git and caches there are not "
-                      "copied back to their folder"
-                      + (" - in a review folder (審核後寫回) your changes reach their folder only after they review "
+                      "delivered files go into the folder. node_modules, virtualenvs and build caches are never "
+                      "copied either way - install dependencies in the sandbox."
+                      + (" In a review folder (審核後寫回) your changes reach their folder only after they review "
                          "them: end by telling them to open 本機檔案變更 / 審核變更 to apply them."
-                         if any(f["mode"] == "review" for f in writable) else "."))
+                         if any(f["mode"] == "review" for f in writable) else "")
+                      + (" A git review folder is the repository as they have it: commit or branch freely there, "
+                         "what is reviewed is the working tree against how it was; files git ignores are never "
+                         "written back."
+                         if any(f.get("via") == "git" for f in writable) else "")
+                      + (" A folder written directly (直接寫入) changes their files at once: a checkpoint was taken "
+                         "before this task; call folder_checkpoint(action=make) before a risky step, and "
+                         "folder_checkpoint(action=restore) to go back if you broke something."
+                         if any(f["mode"] == "rw" for f in writable) else "")
+                      + " For a large project or a real environment, the skill host-folder-strategies says how to "
+                        "choose and work with each way.")
     return "# Environment\n" + "\n".join(f"- {l}" for l in lines) + (f"\n\n{paths}" if paths else "")
 
 

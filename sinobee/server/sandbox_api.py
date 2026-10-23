@@ -14,6 +14,10 @@
     POST /api/sandbox/{sid}/changes/apply      {folder, paths?, force?}  bring them to your folder
     POST /api/sandbox/{sid}/changes/discard    {folder, paths?}          drop them (the copy gets the original back)
     POST /api/sandbox/{sid}/changes/undo       {id}                      put back what an apply replaced
+    GET  /api/sandbox/{sid}/checkpoints?folder= checkpoints of a folder written directly (checkpoints.py)
+    POST /api/sandbox/{sid}/checkpoints        {folder, label}           take one now
+    GET  /api/sandbox/{sid}/checkpoints/{id}?folder=                     what going back would change
+    POST /api/sandbox/{sid}/checkpoints/{id}/restore {folder, paths?}    go back (a checkpoint of now is taken first)
     GET  /api/sandbox-pending                  {conversation: changes waiting}, for the sidebar
     GET  /api/evidence/{sid}                   the conversation's evidence list (agent/evidence.py), ?turn=
     GET  /api/evidence/{sid}/{file}            one captured picture, frame or clip
@@ -26,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+import time
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
@@ -121,20 +126,25 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         return {"path": str(p), "shown": _shown(str(p)), "parent": str(parent) if parent else None, "crumbs": crumbs,
                 "can_pick": why is None, "why": why, "dirs": dirs, "shortcuts": shortcuts}
 
+    _office = {"t": -1e9, "built": False}
+
     async def _conv_settings(sid: str) -> dict:
         from ..sandbox import convconf
         from .. import __version__
         from ..sandbox.manager import docker
         cfg = rt().config
         data = convconf.load(cfg, sid)
-        try:
-            rc, _, _ = await docker("image", "inspect", f"sinobee-sandbox-office:{__version__}", timeout=10)
-        except Exception:  # noqa: BLE001 - no Docker here: the office image is not there either
-            rc = 1
+        now = time.monotonic()
+        if now - _office["t"] > 60:                     # asked once a minute, not on every look at the popover
+            try:
+                rc, _, _ = await docker("image", "inspect", f"sinobee-sandbox-office:{__version__}", timeout=5)
+            except Exception:  # noqa: BLE001 - no Docker here: the office image is not there either
+                rc = 1
+            _office.update(t=now, built=rc == 0)
         return {"network": data["network"], "overrides": data["overrides"],
                 "effective": {"review_writes": convconf.review_writes(cfg, sid), "image": convconf.image(cfg, sid)},
                 "defaults": {"review_writes": convconf.review_writes(cfg), "image": convconf.image(cfg)},
-                "office_built": rc == 0, **(await conv_folders(sid))}
+                "office_built": _office["built"], **(await conv_folders(sid))}
 
     @app.get("/api/sandbox/{sid}/settings")
     async def conv_settings(sid: str):
@@ -189,10 +199,15 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         from ..sandbox.folders import folders_for, review_writes
         cfg = rt().config
         out = []
+        from ..sandbox import checkpoints
         for f in folders_for(cfg, sid):
-            n = len(await asyncio.to_thread(staging.changes, cfg, sid, f, False)) if f["mode"] == "review" else 0
+            try:
+                n = len(await asyncio.to_thread(staging.changes, cfg, sid, f, False)) if f["mode"] == "review" else 0
+            except Exception:  # noqa: BLE001 - shown without a count; the review panel says what is wrong
+                n = 0
             out.append({**f, "shown": _shown(f["path"]), "inner": f"/host/{f['name']}",
-                        "exists": Path(f["path"]).is_dir(), "pending": n})
+                        "exists": Path(f["path"]).is_dir(), "pending": n,
+                        "checkpoints": len(checkpoints.listing(cfg, sid, f["name"])) if f["mode"] == "rw" else 0})
         return {"folders": out, "review_writes": review_writes(cfg, sid), "sandbox": executor_kind(cfg) == "sandbox"}
 
     @app.post("/api/sandbox/{sid}/folders")
@@ -210,12 +225,13 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         why = fd.refuse(cfg, path)
         if why:
             raise HTTPException(400, why)
-        mode = fd.write_mode(cfg, "ro" if body.get("mode") == "ro" else "write", sid)
+        from ..tools.sandbox_tools import plan_folder
         target = Path(path).expanduser().resolve()
-        if mode == "review" and await asyncio.to_thread(fd.count_files, target, fd.review_max(cfg)) > fd.review_max(cfg):
-            raise HTTPException(400, f"這個資料夾超過 {fd.review_max(cfg):,} 個檔案，太大無法做審核用的副本：請選唯讀，"
-                                     "或在設定關閉「寫入前審核」後直接寫入")
-        msg = await grant(cfg, ex, target, mode)
+        strategy = {"ro": "ro", "direct": "direct", "review": "review"}.get(str(body.get("mode") or ""), "auto")
+        mode, via, too_big = await asyncio.to_thread(plan_folder, cfg, target, strategy, sid)
+        if too_big:
+            raise HTTPException(400, too_big + "：請選「直接寫入（有檢查點）」或「唯讀」，或選裡面較小的資料夾")
+        msg = await grant(cfg, ex, target, mode, via)
         if broadcast:
             broadcast("folders", {"session_id": sid})
         return {"ok": True, "message": msg, **(await conv_folders(sid))}
@@ -257,8 +273,12 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         cfg = rt().config
         folders = []
         for f in staging.review_folders(cfg, sid):
-            items = await asyncio.to_thread(staging.changes, cfg, sid, f, True)
-            folders.append({"name": f["name"], "origin": f["path"], "changes": items})
+            try:
+                items, err = await asyncio.to_thread(staging.changes, cfg, sid, f, True), None
+            except Exception as e:  # noqa: BLE001 - one folder that cannot be compared does not hide the others
+                items, err = [], str(e)
+            folders.append({"name": f["name"], "origin": f["path"], "via": f.get("via", "copy"), "changes": items,
+                            "error": err})
         n = sum(len(f["changes"]) for f in folders)
         staging.remember_pending(cfg, sid, [c for f in folders for c in f["changes"]])
         return {"folders": folders, "count": n,
@@ -292,6 +312,53 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         except staging.StagingError as e:
             raise HTTPException(404, str(e)) from None
         return {"restored": done, **await _after(sid)}
+
+    # ----------------------------------------------------------------- checkpoints of folders written directly
+    def _rw_folder(sid: str, name: str) -> dict:
+        from ..sandbox.folders import folders_for
+        f = next((x for x in folders_for(rt().config, sid) if x["name"] == name and x["mode"] == "rw"), None)
+        if f is None:
+            raise HTTPException(404, "這個對話沒有直接寫入的這個資料夾")
+        return f
+
+    @app.get("/api/sandbox/{sid}/checkpoints")
+    async def cp_list(sid: str, folder: str):
+        from ..sandbox import checkpoints
+        f = _rw_folder(sid, folder)
+        return {"folder": folder, "shown": _shown(f["path"]),
+                "items": list(reversed(checkpoints.listing(rt().config, sid, folder)))}
+
+    @app.post("/api/sandbox/{sid}/checkpoints")
+    async def cp_make(sid: str, body: dict):
+        from ..sandbox import checkpoints
+        f = _rw_folder(sid, str(body.get("folder") or ""))
+        c = await asyncio.to_thread(checkpoints.make, rt().config, sid, f, str(body.get("label") or "手動建立"))
+        if c is None:
+            raise HTTPException(400, "檔案太多，無法建立副本檢查點")
+        return c
+
+    @app.get("/api/sandbox/{sid}/checkpoints/{cid}")
+    async def cp_diff(sid: str, cid: str, folder: str):
+        from ..sandbox import checkpoints, staging
+        f = _rw_folder(sid, folder)
+        try:
+            return {"changes": await asyncio.to_thread(checkpoints.diff, rt().config, sid, f, cid)}
+        except staging.StagingError as e:
+            raise HTTPException(404, str(e)) from None
+
+    @app.post("/api/sandbox/{sid}/checkpoints/{cid}/restore")
+    async def cp_restore(sid: str, cid: str, body: dict):
+        from ..sandbox import checkpoints, staging
+        f = _rw_folder(sid, str(body.get("folder") or ""))
+        paths = body.get("paths")
+        try:
+            res = await asyncio.to_thread(checkpoints.restore, rt().config, sid, f, cid,
+                                          [str(p) for p in paths] if isinstance(paths, list) else None)
+        except staging.StagingError as e:
+            raise HTTPException(404, str(e)) from None
+        if broadcast:
+            broadcast("folders", {"session_id": sid})
+        return res
 
     @app.get("/api/evidence/{sid}.zip")
     async def evidence_zip(sid: str, turn: str | None = None):

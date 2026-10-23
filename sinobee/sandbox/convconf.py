@@ -132,7 +132,8 @@ def sweep_files(config, known=None, now: float | None = None) -> dict:
     """Keep ~/.sinobee/sandbox from growing for ever:
 
     - a folder of a conversation that never started (a draft of the 📁 button) and is a day old goes;
-    - a conversation unused for sandbox.keep_days (30) loses its review copies, baselines and apply backups, unless
+    - a conversation unused for sandbox.keep_days (30) loses its review copies, baselines, apply backups and
+      checkpoint copies, unless
       changes are waiting for review (then everything stays); its settings file stays, and the copies are made again
       from the folders the next time it is used;
     - backups of applies older than sandbox.keep_days go (undo for them is gone).
@@ -166,7 +167,7 @@ def sweep_files(config, known=None, now: float | None = None) -> dict:
             continue
         if now - used > keep:
             gone = False
-            for sub in ("host", "base", "applied"):
+            for sub in ("host", "base", "applied", "checkpoints"):
                 if (d / sub).exists():
                     shutil.rmtree(d / sub, ignore_errors=True)
                     gone = True

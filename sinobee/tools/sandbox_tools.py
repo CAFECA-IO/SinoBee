@@ -89,23 +89,54 @@ async def request_network(ctx: ToolContext, domains: list, reason: str = ""):
     return f"allowed {scope}: {', '.join(names) if choice != ALL else 'everything'}. Run the command again."
 
 
-# ----------------------------------------------------------------- folders of this computer (plan E1)
+# ----------------------------------------------------------------- folders of this computer (plan E1; A, B, D)
 ALLOW, READ = "允許", "只允許讀取"
 MODE_TEXT = {"review": "審核後寫回：沙盒改的是副本，你看過變更後才會寫回原資料夾",
-             "ro": "唯讀：沙盒只能讀", "rw": "直接寫入：沙盒的修改直接改到原資料夾"}
+             "review-git": "審核後寫回（git）：沙盒在這個 git 專案的副本上工作，變更以 git diff 給你審核後才寫回",
+             "ro": "唯讀：沙盒只能讀",
+             "rw": "直接寫入：沙盒的修改直接改到原資料夾；每個任務開始前自動建立檢查點，可在對話設定還原"}
+STRATEGIES = ("auto", "review", "direct", "ro")
+
+
+def mode_text(f: dict) -> str:
+    return MODE_TEXT["review-git" if f.get("mode") == "review" and f.get("via") == "git" else f.get("mode", "review")]
+
+
+def plan_folder(config, target, strategy: str, conversation: str | None) -> tuple[str, str | None, str | None]:
+    """(mode, via, why-not) for giving `target` with `strategy`: auto follows 寫入前審核 (this conversation's or
+    Settings'); review is by git for a git repository, else by a copy (too many files: why-not says so)."""
+    from ..sandbox import folders as fd
+    if strategy == "ro":
+        return "ro", None, None
+    if strategy == "direct":
+        return "rw", None, None
+    if strategy == "auto" and not fd.review_writes(config, conversation):
+        return "rw", None, None
+    via = fd.review_via(target)
+    if via == "copy" and fd.count_files(target, fd.review_max(config)) > fd.review_max(config):
+        return "review", via, (f"{target} 不是 git 專案，且有超過 {fd.review_max(config):,} 個要審核的檔案（不含 node_modules、"
+                               ".git 與快取），太大無法做審核用的副本")
+    return "review", via, None
 
 
 @tool("request_host_access", "shell",
       "Ask the user to let this conversation's sandbox use a folder of their computer (the sandbox sees only "
-      "/workspace and the folders listed in the environment). mode: write (default; whether your changes are "
-      "reviewed before they reach the folder is the user's setting) or ro (read-only). Give the folder as the user "
-      "knows it (e.g. ~/Documents/報告) and why. Files the user attaches are already in /workspace/uploads.",
+      "/workspace and the folders listed in the environment). Before choosing, load the skill host-folder-strategies "
+      "when the folder is a large project, a git repository or a real environment to fix. strategy: auto (default: "
+      "the user's 寫入前審核 setting decides), review (your changes are reviewed before they reach the folder: by git "
+      "for a git repository - any size - else by a copy, up to 200,000 files), direct (write in place; a checkpoint "
+      "is taken before each task and with folder_checkpoint, for a project too big to copy without git or a real "
+      "environment to fix), ro (read-only). Give the folder as the user knows it (e.g. ~/Documents/報告) and why. "
+      "Files the user attaches are already in /workspace/uploads.",
       {"properties": {
           "path": {"type": "string", "description": "a folder of the user's computer, e.g. ~/Documents/報告"},
-          "mode": {"type": "string", "enum": ["write", "ro"]},
+          "strategy": {"type": "string", "enum": list(STRATEGIES)},
+          "mode": {"type": "string", "enum": ["write", "ro"], "description": "older form: ro = strategy ro"},
           "reason": {"type": "string", "description": "what you need it for, in the user's language"},
       }, "required": ["path", "reason"]}, check=available)
-async def request_host_access(ctx: ToolContext, path: str, reason: str = "", mode: str = "write"):
+async def request_host_access(ctx: ToolContext, path: str, reason: str = "", mode: str = "write",
+                              strategy: str = "auto"):
+    import asyncio
     from pathlib import Path
 
     from ..sandbox import executor_of
@@ -113,52 +144,57 @@ async def request_host_access(ctx: ToolContext, path: str, reason: str = "", mod
     ex = executor_of(ctx)
     if ex.kind != "sandbox":
         return "The tools run on this computer: folders are not limited."
-    want = fd.write_mode(ctx.config, "ro" if mode == "ro" else "write", ex.conversation)
+    strategy = "ro" if mode == "ro" else (strategy if strategy in STRATEGIES else "auto")
     why = fd.refuse(ctx.config, path)
     if why:
         return ToolResult.error(f"{why}（{path}）")
     target = Path(path).expanduser().resolve()
+    want, via, too_big = await asyncio.to_thread(plan_folder, ctx.config, target, strategy, ex.conversation)
+    if too_big:
+        return ToolResult.error(too_big + "。Ask again with strategy=direct (written in place, with checkpoints - "
+                                "say so to the user) or strategy=ro, or work on a smaller subfolder.")
     for f in fd.folders_for(ctx.config, ex.conversation):
         if Path(f["path"]) == target and (f["mode"] == want or want == "ro"):
-            return f"already available: /host/{f['name']} ({MODE_TEXT[f['mode']]})"
-    if want == "review":
-        import asyncio
-        n = await asyncio.to_thread(fd.count_files, target, fd.review_max(ctx.config))
-        if n > fd.review_max(ctx.config):
-            return ToolResult.error(f"{target} has more than {fd.review_max(ctx.config):,} files: too many to copy for "
-                                    "review. Ask again with mode=ro, or ask the user to turn off 寫入前審核 in "
-                                    "Settings → 權限與安全 if your changes should land directly.")
+            return f"already available: /host/{f['name']} ({mode_text(f)})"
     if ctx.ask is None:
         return ToolResult.error("nobody is there to allow access now; continue without this folder")
     home = str(Path.home())
     shown = "~" + str(target)[len(home):] if str(target).startswith(home + "/") else str(target)
-    options = [{"label": ALLOW, "description": MODE_TEXT[want] + "（只在這個對話）", "recommended": True}]
+    how = mode_text({"mode": want, "via": via})
+    options = [{"label": ALLOW, "description": how + "（只在這個對話）", "recommended": True}]
     if want != "ro":
         options.append({"label": READ, "description": "沙盒只能讀，不能修改"})
     options.append({"label": NO, "description": "SinoBee 會不用這個資料夾繼續"})
-    ans = await ctx.ask(f"這個對話要使用你電腦上的資料夾 {shown}。\n方式：{MODE_TEXT[want]}\n理由：{reason or '（未說明）'}",
+    ans = await ctx.ask(f"這個對話要使用你電腦上的資料夾 {shown}。\n方式：{how}\n理由：{reason or '（未說明）'}",
                         options, False, False)
     choice = ((ans or {}).get("choices") or [NO])[0]
     if ans is None or choice == NO:
         return f"The user did not allow {shown}. Continue without it, or ask them to attach the files you need."
-    msg = await grant(ctx.config, ex, target, "ro" if choice == READ else want)
-    return msg
+    return await grant(ctx.config, ex, target, "ro" if choice == READ else want, via)
 
 
-async def grant(config, ex, target, mode: str) -> str:
+async def grant(config, ex, target, mode: str, via: str | None = None) -> str:
     """Give the folder to the executor's conversation now: a review copy appears at once, a mount restarts the
-    sandbox. Used by request_host_access and the conversation's 📁 資料夾 button."""
+    sandbox, a folder written directly gets its first checkpoint. Used by request_host_access and 對話設定."""
     import asyncio
     from pathlib import Path
 
+    from ..sandbox import checkpoints, staging
     from ..sandbox import folders as fd
-    from ..sandbox import staging
     target = Path(target)
-    fd.add_grant(config, ex.conversation, fd.entry(target, mode))
+    if mode == "review" and via is None:
+        via = await asyncio.to_thread(fd.review_via, target)
+    fd.add_grant(config, ex.conversation, fd.entry(target, mode, via=via))
     final = next(f for f in fd.folders_for(config, ex.conversation) if Path(f["path"]) == target)
     inner = f"/host/{final['name']}"
     if final["mode"] == "review":
         await asyncio.to_thread(staging.ensure_copy, config, ex.conversation, final)
+    first = None
+    if final["mode"] == "rw":
+        try:
+            first = await asyncio.to_thread(checkpoints.make, config, ex.conversation, final, "授權時")
+        except Exception:  # noqa: BLE001 - the checkpoint before the next task tries again
+            first = None
     replaced = False
     if final["mode"] in ("ro", "rw") and ex.conversation in ex.manager.boxes:
         replaced = await ex.manager.refresh(ex.conversation)
@@ -166,6 +202,97 @@ async def grant(config, ex, target, mode: str) -> str:
     shown = "~" + str(target)[len(home):] if str(target).startswith(home + "/") else str(target)
     note = (" The sandbox was restarted to mount it: programs you started there (servers, the browser) stopped - "
             "start them again if you still need them." if replaced else "")
-    how = {"review": "a copy you work on; the user reviews your changes before they reach " + shown,
-           "ro": "read-only", "rw": "read/write, changes land directly in " + shown}[final["mode"]]
+    how = {"review": "a copy you work on; the user reviews your changes before they reach " + shown
+                     + (" (reviewed by git: commit freely, only the working tree is reviewed; files git ignores are "
+                        "never written back)" if final.get("via") == "git" else
+                        " (node_modules and build caches are not copied: install them in the sandbox)"),
+           "ro": "read-only",
+           "rw": "read/write, changes land directly in " + shown
+                 + ("; a checkpoint was taken now and one is taken before each task - use folder_checkpoint before "
+                    "a risky step" if first else "; it is too big for a copy checkpoint: be careful, nothing to "
+                    "restore from")}[final["mode"]]
     return f"{shown} is now at {inner} ({how}).{note}"
+
+
+@tool("folder_checkpoint", "shell",
+      "Checkpoints of a folder this conversation writes directly (直接寫入, /host/<name>): make one before a risky "
+      "step (action=make, with a label), list them, see what going back would change (action=diff), or go back "
+      "(action=restore: files made since go to the Trash; a checkpoint of the state before is taken first, so it can "
+      "be undone). One is taken automatically before each task.",
+      {"properties": {
+          "folder": {"type": "string", "description": "its name or /host/<name>"},
+          "action": {"type": "string", "enum": ["make", "list", "diff", "restore"]},
+          "id": {"type": "string", "description": "the checkpoint (diff, restore)"},
+          "label": {"type": "string", "description": "what is about to happen (make)"},
+          "paths": {"type": "array", "items": {"type": "string"}, "description": "restore only these (relative)"},
+      }, "required": ["folder", "action"]}, check=available)
+async def folder_checkpoint(ctx: ToolContext, folder: str, action: str, id: str = "", label: str = "",
+                            paths: list | None = None):
+    import asyncio
+    import time
+
+    from ..sandbox import checkpoints, executor_of
+    from ..sandbox import folders as fd
+    ex = executor_of(ctx)
+    name = str(folder).strip().rstrip("/").removeprefix("/host/")
+    f = next((x for x in fd.folders_for(ctx.config, ex.conversation) if x["name"] == name), None)
+    if f is None or f["mode"] != "rw":
+        return ToolResult.error(f"/host/{name} is not a folder written directly in this conversation "
+                                "(checkpoints are for 直接寫入 folders; review folders are reviewed instead)")
+    try:
+        if action == "make":
+            c = await asyncio.to_thread(checkpoints.make, ctx.config, ex.conversation, f, label)
+            return f"checkpoint {c['id']} ({c['kind']})" if c else ToolResult.error("too many files for a copy checkpoint")
+        if action == "list":
+            items = checkpoints.listing(ctx.config, ex.conversation, name)
+            return "\n".join(f"{c['id']}  {time.strftime('%m/%d %H:%M', time.localtime(c['t']))}  {c.get('label', '')}"
+                             for c in reversed(items)) or "no checkpoints yet"
+        if action == "diff":
+            d = await asyncio.to_thread(checkpoints.diff, ctx.config, ex.conversation, f, id)
+            return "\n".join(f"{c['kind']:9} {c['path']}" for c in d[:300]) or "no difference"
+        if action == "restore":
+            r = await asyncio.to_thread(checkpoints.restore, ctx.config, ex.conversation, f, id, paths or None)
+            return (f"restored {len(r['restored'])} files, {len(r['trashed'])} made since went to the Trash; "
+                    f"the state before is checkpoint {r['before']}")
+    except Exception as e:  # noqa: BLE001
+        return ToolResult.error(str(e))
+    return ToolResult.error("action: make | list | diff | restore")
+
+
+@tool("host_folder_info", "shell",
+      "Before asking for a folder of the user's computer: whether it exists and can be given, whether it is a git "
+      "repository, how many files a review by copy would compare (node_modules, .git and caches not counted), which "
+      "dependency folders it has, and how this conversation already has it. No names or contents are shown. See the "
+      "skill host-folder-strategies for choosing review / direct / ro.",
+      {"properties": {"path": {"type": "string", "description": "e.g. ~/Projects/app"}}, "required": ["path"]},
+      check=available)
+async def host_folder_info(ctx: ToolContext, path: str):
+    import asyncio
+    import json
+    from pathlib import Path
+
+    from ..sandbox import executor_of
+    from ..sandbox import folders as fd
+    from ..sandbox.clone import DEPS
+    from ..sandbox.gitreview import is_repo
+    ex = executor_of(ctx)
+    why = fd.refuse(ctx.config, path)
+    if why:
+        return json.dumps({"path": path, "can_give": False, "why": why}, ensure_ascii=False)
+    target = Path(path).expanduser().resolve()
+    limit = fd.review_max(ctx.config)
+    n = await asyncio.to_thread(fd.count_files, target, limit)
+    try:
+        deps = sorted(e.name for e in target.iterdir() if e.is_dir() and e.name in DEPS)
+    except OSError:
+        deps = []
+    have = next((f for f in fd.folders_for(ctx.config, ex.conversation) if Path(f["path"]) == target), None)
+    git = is_repo(target)
+    return json.dumps({
+        "path": path, "can_give": True, "git_repository": git,
+        "reviewed_files": n if n <= limit else f"more than {limit}", "copy_review_limit": limit,
+        "dependency_folders": deps, "review_writes_setting": fd.review_writes(ctx.config, ex.conversation),
+        "already": ({"at": f"/host/{have['name']}", "mode": have["mode"], "via": have.get("via")} if have else None),
+        "suggested": "ro if you only read; " + ("review (by git)" if git else
+                                                 "review (by copy)" if n <= limit else "direct, or git init / a subfolder"),
+    }, ensure_ascii=False)

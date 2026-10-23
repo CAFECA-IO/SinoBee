@@ -14,8 +14,9 @@ Each folder has a mode:
 
 Some places are never offered, whatever is asked: the home folder itself (or anything containing it), the root of the
 disk and system folders, credential folders (.ssh, .aws, .gnupg, …), keychains and SinoBee's own data (its workspace is
-already /workspace). A folder holding more than `sandbox.review_max_files` (50,000) files is too big to copy: it can be
-read-only or read/write only.
+already /workspace). A folder reviewed by copy holding more than `sandbox.review_max_files` (200,000) files - not counting node_modules, .git
+and build caches - is too big to copy; a git repository is reviewed by git whatever its size (gitreview.py), and a
+folder written directly gets checkpoints before each task (checkpoints.py).
 """
 from __future__ import annotations
 
@@ -87,13 +88,23 @@ def count_files(path: Path, limit: int) -> int:
 
 
 def review_max(config) -> int:
-    return int(config.get("sandbox.review_max_files", 50_000) or 50_000)
+    return int(config.get("sandbox.review_max_files", 200_000) or 200_000)
 
 
-def entry(path: str | os.PathLike, mode: str = "review", name: str | None = None) -> dict:
+def entry(path: str | os.PathLike, mode: str = "review", name: str | None = None, via: str | None = None) -> dict:
+    """A folder given to a conversation. A review folder is reviewed via "git" (a git repository) or "copy"."""
     p = Path(os.fspath(path)).expanduser().resolve()
     nm = NAME_RX.sub("_", name or p.name).strip("._") or "folder"
-    return {"path": str(p), "name": nm[:60], "mode": mode if mode in MODES else "review"}
+    out = {"path": str(p), "name": nm[:60], "mode": mode if mode in MODES else "review"}
+    if out["mode"] == "review":
+        out["via"] = via if via in ("git", "copy") else "copy"
+    return out
+
+
+def review_via(path) -> str:
+    """How a folder given for review is reviewed: by git when it is the top of a git repository, else by a copy."""
+    from .gitreview import is_repo
+    return "git" if is_repo(path) else "copy"
 
 
 # ----------------------------------------------------------------- a conversation's own grants (convconf.py)
@@ -148,7 +159,7 @@ def folders_for(config, conversation: str | None) -> list[dict]:
     """What this conversation's sandbox sees: the folders given to it."""
     out: dict[str, dict] = {}
     for g in grants(config, conversation) if conversation else []:
-        out[g["path"]] = entry(g["path"], g.get("mode") or "review", g.get("name"))
+        out[g["path"]] = entry(g["path"], g.get("mode") or "review", g.get("name"), g.get("via"))
     # unique names, as sandbox_map makes them
     used: set[str] = set()
     for e in out.values():

@@ -1335,6 +1335,14 @@ class Agent:
                 convconf.touch(self.config, self.sandbox_conversation)
             except Exception:  # noqa: BLE001
                 pass
+            if getattr(self.ctx.state.get("executor"), "kind", "") == "sandbox":
+                # review copies take your edits made meanwhile; folders written directly get a checkpoint
+                try:
+                    from ..sandbox import checkpoints
+                    await asyncio.wait_for(asyncio.to_thread(checkpoints.before_task, self.config,
+                                                             self.sandbox_conversation, str(query)[:60]), 180)
+                except Exception:  # noqa: BLE001 - never blocks the task
+                    log.warning("folders before the task", exc_info=True)
         self.ctx.state["playtests"] = []
         self._quota_noted: set = set()   # "switched to points / your models" is said once per turn, not per call
 

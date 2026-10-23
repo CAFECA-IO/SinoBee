@@ -208,7 +208,7 @@ def test_refused_places_and_refusals(config, home):
     assert "did not allow" in dispatch(ctx, "request_host_access", path="~/Documents/報告", reason="x").content
     config.data["sandbox"]["review_max_files"] = 2
     out = dispatch(ctx, "request_host_access", path="~/Documents/報告", reason="x").content
-    assert "too many to copy" in out and "mode=ro" in out
+    assert "太大無法做審核用的副本" in out and "strategy=direct" in out and "strategy=ro" in out
 
 
 # ------------------------------------------------------------------ settings and the review API

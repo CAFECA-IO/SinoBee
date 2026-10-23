@@ -78,6 +78,9 @@ def safe(conversation: str) -> str:
     return (re.sub(r"[^a-zA-Z0-9_.-]", "-", conversation or "default").strip("-.") or "default")[:48]
 
 
+CONTAINER_REV = "git-1"      # bump when _create changes in a way running sandboxes must pick up
+
+
 def bundled_skills_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "bundled_skills"
 
@@ -315,9 +318,10 @@ class SandboxManager:
         return out
 
     def mount_key(self, conversation: str) -> str:
-        """Changes when the container's mounts must change (a folder granted read-only or read/write)."""
+        """Changes when the container must be made again: its mounts (a folder granted read-only or read/write) or
+        how containers are made (CONTAINER_REV: e.g. the git settings for review copies)."""
         import hashlib
-        spec = [(str(h), i, m) for h, i, m in self.folder_mounts(conversation)]
+        spec = [(str(h), i, m) for h, i, m in self.folder_mounts(conversation)] + [CONTAINER_REV]
         return hashlib.sha1(json.dumps(spec).encode()).hexdigest()[:12]
 
     async def ensure(self, conversation: str) -> Box:
@@ -476,8 +480,13 @@ class SandboxManager:
         proxy = "http://egress:3128"
         for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
             args += ["-e", f"{k}={proxy}"]
-        args += ["-e", "NO_PROXY=localhost,127.0.0.1", "-e", "no_proxy=localhost,127.0.0.1",
-                 image_name(self.config, conversation)]
+        args += ["-e", "NO_PROXY=localhost,127.0.0.1", "-e", "no_proxy=localhost,127.0.0.1"]
+        # git on a review copy (gitreview.py): files there belong to you, not to the sandbox user, and commits made
+        # there stay in the copy - they need a name, not yours
+        for i, (k, v) in enumerate((("safe.directory", "*"), ("user.name", "SinoBee sandbox"),
+                                    ("user.email", "sandbox@sinobee.local"))):
+            args += ["-e", f"GIT_CONFIG_KEY_{i}={k}", "-e", f"GIT_CONFIG_VALUE_{i}={v}"]
+        args += ["-e", "GIT_CONFIG_COUNT=3", image_name(self.config, conversation)]
         rc, _, err = await docker(*args, timeout=120)
         if rc != 0:
             raise DockerError(f"cannot create the sandbox {name}: {err.strip()[:400]}")

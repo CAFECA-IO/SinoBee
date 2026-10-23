@@ -1,22 +1,30 @@
 """Review-mode folders: the sandbox writes to a copy, you decide what reaches the original (sandbox plan E3).
 
     ~/.sinobee/sandbox/<conversation>/host/<name>/        the copy, mounted at /host/<name>
-    ~/.sinobee/sandbox/<conversation>/base/<name>.json    the baseline: {relative path: [size, mtime_ns, sha256]} of
-                                                          the original when the copy was made (or last applied)
+    ~/.sinobee/sandbox/<conversation>/base/<name>.json    the baseline: what the original was when the copy was made
+                                                          (or last applied) - see the two ways below
     ~/.sinobee/sandbox/<conversation>/applied/<id>/       what an apply replaced, for 復原 (undo)
 
-- **The copy** is an APFS clone on macOS (`cp -c`, copy-on-write: instant and no extra space until a file changes),
-  a reflink on Linux file systems that have them, a plain copy otherwise. Made the first time the folder is used.
-- **Changes** compare the copy with the baseline: added, modified, deleted (text files get a diff). A change whose
-  original was edited after the copy was made (its hash is no longer the baseline's) is a **conflict**: applying it
-  needs an explicit choice (`force`), never happens by itself.
-- **Apply** writes the copy's version over the original after saving what it replaces; a deleted file goes to the
-  Trash, never deleted outright. The baseline then follows. **Discard** puts the original back into the copy.
-  **Undo** restores what an apply replaced (and removes files it added).
+A review folder is reviewed one of two ways (folder["via"]):
+
+- **copy** (any folder): the copy is made by clone.py - an APFS clone per file, without node_modules, virtualenvs and
+  build caches (the sandbox installs its own). The baseline is {path: [size, mtime_ns, sha256 | None]} taken from the
+  same walk, with no hashing: a file whose size or time moved is compared with the original byte by byte, only then.
+  At the start of each task `sync` brings into the copy what you changed in your folder meanwhile (files the sandbox
+  has not touched), so the sandbox never works on stale files.
+- **git** (a git repository; gitreview.py): the copy carries the repository, and the baseline is a commit of your
+  working tree. Changes are `git diff` against it - only what changed is looked at, so the size of the project does not
+  matter; files git ignores are not reviewed and never written back.
+
+Either way a change whose original was edited after the copy was made is a **conflict**: applying it needs an explicit
+choice (`force`), never happens by itself. **Apply** writes the copy's version over the original after saving what it
+replaces; a deleted file goes to the Trash, never deleted outright; the baseline then follows. **Discard** puts the
+original back into the copy. **Undo** restores what an apply replaced (and removes files it added).
 """
 from __future__ import annotations
 
 import difflib
+import filecmp
 import hashlib
 import json
 import os
@@ -26,10 +34,10 @@ import subprocess
 import time
 from pathlib import Path
 
+from . import clone
 from .folders import conv_dir
 
-SKIP = {".DS_Store", ".git", "node_modules", "__pycache__", ".venv", "venv", ".next", ".turbo", ".cache",
-        ".pytest_cache", ".mypy_cache"}   # not compared, not copied back
+SKIP = clone.DEPS | {".git"} | clone.NOISE      # not compared, not copied back
 TEXT_MAX = 400_000
 DIFF_LINES = 400
 
@@ -54,59 +62,18 @@ def _sha(p: Path) -> str:
     return h.hexdigest()
 
 
-def _walk(root: Path) -> dict[str, Path]:
-    out = {}
-    if not root.is_dir():
-        return out
-    for dirpath, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in SKIP]
-        for f in files:
-            if f in SKIP:
-                continue
-            p = Path(dirpath) / f
-            if p.is_symlink() or not p.is_file():
-                continue
-            out[p.relative_to(root).as_posix()] = p
-    return out
-
-
-def _manifest(root: Path) -> dict[str, list]:
-    out = {}
-    for rel, p in _walk(root).items():
-        st = p.stat()
-        out[rel] = [st.st_size, st.st_mtime_ns, _sha(p)]
-    return out
+def _via(folder: dict) -> str:
+    return "git" if folder.get("via") == "git" else "copy"
 
 
 def clone_tree(src: Path, dst: Path) -> str:
-    """Copy a folder as cheaply as the file system allows; returns how ("clone", "reflink", "copy")."""
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists():
-        shutil.rmtree(dst)
-    if platform.system() == "Darwin":
-        r = subprocess.run(["cp", "-c", "-R", str(src), str(dst)], capture_output=True, timeout=1800)
-        if r.returncode == 0:
-            return "clone"
-    elif shutil.which("cp"):
-        r = subprocess.run(["cp", "-a", "--reflink=auto", str(src), str(dst)], capture_output=True, timeout=1800)
-        if r.returncode == 0:
-            return "reflink"
-    if dst.exists():
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst, symlinks=True)
-    return "copy"
-
-
-def _clone_file(src: Path, dst: Path) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if platform.system() == "Darwin":
-        if subprocess.run(["cp", "-c", str(src), str(dst)], capture_output=True, timeout=600).returncode == 0:
-            return
-    shutil.copy2(src, dst)
+    """Copy a folder as cheaply as the file system allows (clone.py); kept for callers that only want the copy."""
+    clone.clone_tree(src, dst)
+    return "clone"
 
 
 def ensure_copy(config, conversation: str, folder: dict) -> Path:
-    """The review copy of folder ({"path", "name"}), made (with its baseline) the first time."""
+    """The review copy of folder ({"path", "name", "via"}), made (with its baseline) the first time."""
     dst = copy_dir(config, conversation, folder["name"])
     base = _base_file(config, conversation, folder["name"])
     if dst.is_dir() and base.is_file():
@@ -114,9 +81,13 @@ def ensure_copy(config, conversation: str, folder: dict) -> Path:
     src = Path(folder["path"])
     if not src.is_dir():
         raise StagingError(f"找不到資料夾 {src}")
-    clone_tree(src, dst)
     base.parent.mkdir(parents=True, exist_ok=True)
-    base.write_text(json.dumps({"path": str(src), "made": time.time(), "files": _manifest(src)}), encoding="utf-8")
+    if _via(folder) == "git":
+        from . import gitreview
+        meta = gitreview.make(src, dst, base.with_suffix(""))
+    else:
+        meta = {"via": "copy", "files": clone.clone_tree(src, dst)}
+    base.write_text(json.dumps({"path": str(src), "made": time.time(), **meta}), encoding="utf-8")
     return dst
 
 
@@ -156,6 +127,31 @@ def _diff(a: Path | None, b: Path | None, rel: str) -> str:
     return "".join(out)
 
 
+def _stat_is(st: os.stat_result, b: list) -> bool:
+    return st.st_size == b[0] and st.st_mtime_ns == b[1]
+
+
+def _orig_moved(orig: Path, b: list) -> bool:
+    """Whether the original changed since the baseline b = [size, mtime_ns, sha | None]."""
+    try:
+        st = orig.stat()
+    except OSError:
+        return True
+    if not orig.is_file():
+        return True
+    if _stat_is(st, b):
+        return False
+    return _sha(orig) != b[2] if b[2] else True
+
+
+def _align(copy_file: Path, b: list) -> None:
+    """The copy has the baseline's content after all: give it the baseline's time so it is not compared again."""
+    try:
+        os.utime(copy_file, ns=(time.time_ns(), b[1]))
+    except OSError:
+        pass
+
+
 def changes(config, conversation: str, folder: dict, with_diff: bool = True) -> list[dict]:
     """What the sandbox changed in the copy of folder, against the baseline; each with whether its original moved on."""
     name = folder["name"]
@@ -163,37 +159,83 @@ def changes(config, conversation: str, folder: dict, with_diff: bool = True) -> 
     if not copy.is_dir():
         return []
     base = _baseline(config, conversation, name)
-    files = base.get("files") or {}
     orig_root = Path(base.get("path") or folder["path"])
-    now = _walk(copy)
+    if base.get("via") == "git":
+        from . import gitreview
+        return gitreview.changes(copy, orig_root, base, _base_file(config, conversation, name).with_suffix(""),
+                                 name, with_diff, DIFF_LINES)
+    files = base.get("files") or {}
+    now = clone.walk(copy, SKIP)
     out = []
     for rel in sorted(set(files) | set(now)):
-        b, p = files.get(rel), now.get(rel)
-        if p is not None and b is not None:
-            st = p.stat()
-            if st.st_size == b[0] and st.st_mtime_ns == b[1]:
+        b, s = files.get(rel), now.get(rel)
+        p, orig = copy / rel, orig_root / rel
+        if s is not None and b is not None:
+            if _stat_is(s, b):
                 continue
-            if _sha(p) == b[2]:
+            if b[2]:
+                if _sha(p) == b[2]:
+                    continue
+            elif not _orig_moved(orig, b) and filecmp.cmp(p, orig, shallow=False):
+                _align(p, b)
                 continue
             kind = "modified"
-        elif p is not None:
+        elif s is not None:
             kind = "added"
         else:
             kind = "deleted"
-        orig = orig_root / rel
-        if b is None:
-            conflict = orig.exists()                        # you made a file of that name meanwhile
-        else:
-            conflict = not orig.is_file() or _sha(orig) != b[2]
+        conflict = orig.exists() if b is None else _orig_moved(orig, b)
         item = {"folder": name, "path": rel, "kind": kind, "conflict": conflict,
-                "size": p.stat().st_size if p is not None else None, "original": str(orig)}
+                "size": s.st_size if s is not None else None, "original": str(orig)}
         if with_diff:
-            texty = (p is None or _is_text(p)) and (not orig.is_file() or _is_text(orig))
+            texty = (s is None or _is_text(p)) and (not orig.is_file() or _is_text(orig))
             item["binary"] = not texty
             if texty:
-                item["diff"] = _diff(orig if kind != "added" else None, p, rel)
+                item["diff"] = _diff(orig if kind != "added" else None, p if s is not None else None, rel)
         out.append(item)
     return out
+
+
+def sync(config, conversation: str, folder: dict) -> int:
+    """Bring into a copy what you changed in your folder since it was made - files the sandbox has not touched
+    (copy-reviewed folders; a git folder shows such edits as conflicts instead). Returns how many files moved."""
+    name = folder["name"]
+    copy = copy_dir(config, conversation, name)
+    base = _baseline(config, conversation, name)
+    if base.get("via") == "git" or not copy.is_dir() or not base.get("files") and not base.get("path"):
+        return 0
+    files = base.setdefault("files", {})
+    orig_root = Path(base.get("path") or folder["path"])
+    if not orig_root.is_dir():
+        return 0
+    orig_now, copy_now = clone.walk(orig_root, SKIP), clone.walk(copy, SKIP)
+    n = 0
+    for rel in set(orig_now) | set(files):
+        b, o, c = files.get(rel), orig_now.get(rel), copy_now.get(rel)
+        untouched = (c is None) if b is None else (c is not None and _stat_is(c, b))
+        if not untouched:
+            continue                                       # the sandbox made or changed it: leave it to the review
+        try:
+            if o is None:
+                if b is not None:                          # you deleted it
+                    if c is not None:
+                        (copy / rel).unlink()
+                    files.pop(rel, None)
+                    n += 1
+            elif b is None or not _stat_is(o, b):          # you added or changed it
+                if b is not None and b[2] and _sha(orig_root / rel) == b[2]:
+                    files[rel] = [o.st_size, o.st_mtime_ns, b[2]]
+                    continue
+                (copy / rel).parent.mkdir(parents=True, exist_ok=True)
+                clone.clone_file(orig_root / rel, copy / rel)
+                os.utime(copy / rel, ns=(o.st_atime_ns, o.st_mtime_ns))
+                files[rel] = [o.st_size, o.st_mtime_ns, None]
+                n += 1
+        except OSError:
+            continue
+    if n:
+        _save_baseline(config, conversation, name, base)
+    return n
 
 
 def _trash(p: Path) -> Path:
@@ -210,6 +252,24 @@ def _trash(p: Path) -> Path:
     return dst
 
 
+def _follow(config, conversation: str, name: str, base: dict, copy: Path, now: dict[str, Path | None]) -> None:
+    """The baseline takes these files' new content (None: the file is gone) - after an apply, discard or undo."""
+    if base.get("via") == "git":
+        from . import gitreview
+        gitreview.rebase(copy, base, _base_file(config, conversation, name).with_suffix(""), now)
+    else:
+        files = base.setdefault("files", {})
+        for rel, f in now.items():
+            if f is None or not f.is_file():
+                files.pop(rel, None)
+                continue
+            st = f.stat()
+            files[rel] = [st.st_size, st.st_mtime_ns, None]
+            if (copy / rel).is_file() and filecmp.cmp(copy / rel, f, shallow=False):
+                _align(copy / rel, files[rel])        # same content: the copy is not reported again
+    _save_baseline(config, conversation, name, base)
+
+
 def apply(config, conversation: str, folder: dict, paths: list[str] | None = None,
           force: list[str] | None = None) -> dict:
     """Bring the copy's changes (all, or `paths`) to the original. Conflicts are skipped unless listed in `force`.
@@ -218,13 +278,13 @@ def apply(config, conversation: str, folder: dict, paths: list[str] | None = Non
     todo = [c for c in changes(config, conversation, folder, with_diff=False) if paths is None or c["path"] in paths]
     force = set(force or [])
     base = _baseline(config, conversation, name)
-    files = base.setdefault("files", {})
     orig_root = Path(base.get("path") or folder["path"])
     copy = copy_dir(config, conversation, name)
     bid = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
     store = conv_dir(config, conversation) / "applied" / bid
     record = {"id": bid, "folder": name, "origin": str(orig_root), "t": time.time(), "items": []}
     applied, conflicts, trashed = [], [], []
+    now: dict[str, Path | None] = {}
     for c in todo:
         rel = c["path"]
         if c["conflict"] and rel not in force:
@@ -239,23 +299,19 @@ def apply(config, conversation: str, folder: dict, paths: list[str] | None = Non
         if c["kind"] == "deleted":
             if orig.exists():
                 trashed.append(str(_trash(orig)))
-            files.pop(rel, None)
+            now[rel] = None
         else:
             orig.parent.mkdir(parents=True, exist_ok=True)
             tmp = orig.with_name(f".{orig.name}.sinobee-tmp")
-            shutil.copy2(src, tmp)
+            clone.clone_file(src, tmp)
             os.replace(tmp, orig)
-            st = orig.stat()
-            files[rel] = [st.st_size, st.st_mtime_ns, _sha(orig)]
-            # the copy's timestamp follows, so the file is not reported again
-            os.utime(src, ns=(st.st_atime_ns, st.st_mtime_ns))
-            files[rel][1] = src.stat().st_mtime_ns
+            now[rel] = orig
         record["items"].append({"path": rel, "kind": c["kind"], "saved": bool(saved)})
         applied.append(rel)
     if applied:
         store.mkdir(parents=True, exist_ok=True)
         (store / "record.json").write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
-        _save_baseline(config, conversation, name, base)
+        _follow(config, conversation, name, base, copy, now)
     return {"id": bid if applied else None, "applied": applied, "conflicts": conflicts, "trashed": trashed}
 
 
@@ -263,25 +319,27 @@ def discard(config, conversation: str, folder: dict, paths: list[str] | None = N
     """Put the original back into the copy for these changes (all by default)."""
     name = folder["name"]
     base = _baseline(config, conversation, name)
-    files = base.setdefault("files", {})
     orig_root = Path(base.get("path") or folder["path"])
     copy = copy_dir(config, conversation, name)
-    done = []
+    done, now = [], {}
     for c in changes(config, conversation, folder, with_diff=False):
         rel = c["path"]
         if paths is not None and rel not in paths:
             continue
         orig, dst = orig_root / rel, copy / rel
-        if dst.exists():
+        if dst.exists() or dst.is_symlink():
             dst.unlink()
         if orig.is_file():
-            _clone_file(orig, dst)
-            st = dst.stat()
-            files[rel] = [st.st_size, st.st_mtime_ns, _sha(orig)]
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            clone.clone_file(orig, dst)
+            st = orig.stat()
+            os.utime(dst, ns=(st.st_atime_ns, st.st_mtime_ns))
+            now[rel] = orig
         else:
-            files.pop(rel, None)
+            now[rel] = None
         done.append(rel)
-    _save_baseline(config, conversation, name, base)
+    if done:
+        _follow(config, conversation, name, base, copy, now)
     return done
 
 
@@ -308,21 +366,19 @@ def undo(config, conversation: str, batch: str) -> list[str]:
         return []
     orig_root = Path(rec["origin"])
     base = _baseline(config, conversation, rec["folder"])
-    files = base.setdefault("files", {})
-    done = []
+    done, now = [], {}
     for it in rec["items"]:
         rel = it["path"]
         orig, saved = orig_root / rel, d / "files" / rel
         if it["saved"] and saved.is_file():
             orig.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(saved, orig)
-            st = orig.stat()
-            files[rel] = [st.st_size, st.st_mtime_ns, _sha(orig)]
+            now[rel] = orig
         elif it["kind"] == "added" and orig.exists():
             _trash(orig)
-            files.pop(rel, None)
+            now[rel] = None
         done.append(rel)
-    _save_baseline(config, conversation, rec["folder"], base)
+    _follow(config, conversation, rec["folder"], base, copy_dir(config, conversation, rec["folder"]), now)
     rec["undone"] = time.time()
     (d / "record.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
     return done
@@ -350,7 +406,7 @@ def pending(config, conversation: str, with_diff: bool = False) -> list[dict]:
     for f in review_folders(config, conversation):
         try:
             out += [{**c, "origin": f["path"]} for c in changes(config, conversation, f, with_diff)]
-        except OSError:
+        except (OSError, StagingError, subprocess.SubprocessError):
             continue
     return out
 

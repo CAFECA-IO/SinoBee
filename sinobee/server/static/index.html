@@ -660,6 +660,7 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 #folderPop .fb-hid{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin:8px 0 4px}
 #folderPop .fb-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 #folderPop{max-height:calc(100vh - 80px);overflow:auto}
+.hc-fh .fp-m{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:0 8px;color:var(--muted)}
 #hcToast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:400;display:flex;align-items:center;gap:10px;padding:9px 10px 9px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 12px 30px rgba(0,0,0,.4);font-size:13px;max-width:calc(100vw - 32px)}#hcToast[hidden]{display:none}#hcToast .ad-fold{all:unset;cursor:pointer;color:var(--muted);padding:2px 6px}
 #folderPop .fp-sec{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;margin:14px 0 4px;padding-top:10px;border-top:1px solid var(--line)}#folderPop .fp-h+.fp-msg+.fp-sec,#folderPop .fp-h+.fp-sec{border-top:0;padding-top:0;margin-top:8px}
 #folderPop .fp-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
@@ -4201,7 +4202,7 @@ async function openHostReview(sid){
   const r = await api(`/api/sandbox/${encodeURIComponent(sid)}/changes`); HC.data = r;
   const home = (r.folders[0]?.origin || '').match(/^\/(Users|home)\/[^/]+/)?.[0];
   const short = p => home && p.startsWith(home) ? '~' + p.slice(home.length) : p;
-  let html = r.folders.filter(f => f.changes.length).map(f => `<div class="hc-f" data-f="${esc(f.name)}"><div class="hc-fh"><b>${esc(f.name)}</b><span class="sd mono">${esc(short(f.origin))}</span><span class="sd">${f.changes.length} 個變更</span>`
+  let html = r.folders.filter(f => f.changes.length).map(f => `<div class="hc-f" data-f="${esc(f.name)}"><div class="hc-fh"><b>${esc(f.name)}</b>${f.via === 'git' ? '<span class="fp-m">git</span>' : ''}<span class="sd mono">${esc(short(f.origin))}</span><span class="sd">${f.changes.length} 個變更</span>`
     + `<span class="acts"><button class="btn sm" type="button" data-all="1">全選</button></span></div>`
     + f.changes.map(c => `<div class="hc-row${c.conflict ? ' conflict' : ''}" data-p="${esc(c.path)}"><div class="hc-rh"><input type="checkbox" class="hc-pick"${c.conflict ? '' : ' checked'} aria-label="選取 ${esc(c.path)}">`
       + `<span class="hc-k ${c.kind}">${HC_KIND[c.kind]}</span><span class="p">${esc(c.path)}</span>${c.size != null ? `<span class="sd">${fmtSize(c.size)}</span>` : ''}</div>`
@@ -4209,6 +4210,7 @@ async function openHostReview(sid){
       + (c.diff ? `<details${r.count <= 3 ? ' open' : ''}><summary>差異</summary><pre class="hc-diff">${diffHtml(c.diff)}</pre></details>` : c.binary ? '<details><summary>二進位檔，沒有文字差異</summary></details>' : '')
       + `</div>`).join('') + `</div>`).join('');
   if (!html) html = '<div class="sd">沒有等你審核的變更。</div>';
+  html = r.folders.filter(f => f.error).map(f => `<div class="hc-cf" style="padding:6px 0">⚠︎ ${esc(f.name)} 無法比較：${esc(f.error)}</div>`).join('') + html;
   const hist = (r.applied || []).filter(b => b.id);
   if (hist.length) html += `<div class="hc-hist"><b>最近套用</b>${hist.map(b => `<div><span>${new Date(b.t * 1000).toLocaleString()} · ${esc(b.folder)} · ${b.files} 個檔案</span>${b.undone ? '<span>（已復原）</span>' : `<button class="btn sm" type="button" data-undo="${esc(b.id)}">復原</button>`}</div>`).join('')}</div>`;
   $('#hcBody').innerHTML = html;
@@ -4299,20 +4301,63 @@ new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) i
   .observe(document.body, {childList: true, subtree: true});
 
 // ---------- 📁 資料夾: the folders of this computer this conversation may use (sandbox/folders.py) ----------
-let FOLD = null, DRAFT_SID = null;
+let FOLD = null, DRAFT_SID = null, FOLD_SEQ = 0;
 /** the conversation the 📁 button acts on: the open one, or - before the first message of a new one - the id that
  *  conversation will get (sent with that message), so folders can be given first */
 const folderSid = () => sessionId || DRAFT_SID || (DRAFT_SID = [...crypto.getRandomValues(new Uint8Array(6))].map(b => b.toString(16).padStart(2, '0')).join(''));
 const FOLD_MODE = {review: ['審核後寫回', 'w'], ro: ['唯讀', ''], rw: ['直接寫入', 'r']};
+const FOLD_HELP = {review: '沙盒改的是副本，你審核後才寫回', git: 'git 專案：沙盒在副本上工作，以 git diff 審核後寫回，專案大小不限',
+  rw: '直接改你的資料夾；每個任務開始前自動建立檢查點，可還原', ro: '沙盒只能讀'};
+const FOLD_ADD_HELP = {review: '沙盒在副本上工作，你看過變更才寫回。git 專案以 git 比對，大小不限；其他資料夾最多 20 萬個檔案（不含 node_modules、.git 與快取）。',
+  direct: '沙盒直接修改你的資料夾，適合修復實際環境或超大的非 git 專案。每個任務開始前自動建立檢查點，可在這裡還原。',
+  ro: '沙盒只能讀取。'};
+/** checkpoints of a folder written directly: newest first, each can be compared and gone back to */
+async function folderCheckpoints(name, msg = ''){
+  const pop = $('#folderPop'), sid = folderSid();
+  pop.innerHTML = '<div class="sd"><span class="spin"></span> 讀取中…</div>';
+  let j; try { j = await api(`/api/sandbox/${encodeURIComponent(sid)}/checkpoints?folder=${encodeURIComponent(name)}`); } catch { j = null; }
+  if (!j?.items) { renderFolderPop(j?.detail || '無法讀取檢查點'); return; }
+  const when = t => new Date(t * 1000).toLocaleString();
+  pop.innerHTML = `<div class="fp-h"><b>檢查點：/host/${esc(name)}</b><button class="ad-fold" type="button" data-x aria-label="返回">✕</button></div>`
+    + `<div class="sd mono" style="margin-bottom:6px">${esc(j.shown)}</div>`
+    + `<div class="fp-msg${msg ? ' on' : ''}" id="fpMsg">${esc(msg)}</div>`
+    + (j.items.length ? j.items.map(c => `<div class="fp-r"><div class="fp-n"><b>${esc(when(c.t))}</b><span class="sd">${esc(c.label || '（未命名）')} · ${c.kind === 'git' ? 'git' : '副本'}</span></div>`
+      + `<button class="btn sm" type="button" data-back="${esc(c.id)}">還原到這裡</button></div>`).join('')
+      : '<div class="sd" style="padding:6px 0">還沒有檢查點。下一個任務開始前會自動建立。</div>')
+    + `<div class="fb-foot"><button class="btn" type="button" data-cancel>返回</button><button class="btn primary" type="button" data-now>立即建立</button></div>`
+    + '<div class="sd">還原會把不同的檔案換回當時的內容，之後新增的檔案移到垃圾桶；還原前會先為現況建立一個檢查點，所以也能復原。</div>';
+  const back = () => renderFolderPop();
+  pop.querySelector('[data-x]').onclick = back; pop.querySelector('[data-cancel]').onclick = back;
+  pop.querySelector('[data-now]').onclick = async e => { e.target.disabled = true;
+    try { await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/checkpoints`, {folder: name, label: '手動建立'}); folderCheckpoints(name, '已建立檢查點'); }
+    catch (err) { folderCheckpoints(name, err.message); } };
+  pop.querySelectorAll('[data-back]').forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = '比較中…';
+    let d; try { d = await api(`/api/sandbox/${encodeURIComponent(sid)}/checkpoints/${encodeURIComponent(b.dataset.back)}?folder=${encodeURIComponent(name)}`); } catch { d = null; }
+    const ch = d?.changes; if (!ch) { folderCheckpoints(name, d?.detail || '無法比較'); return; }
+    if (!ch.length) { folderCheckpoints(name, '和這個檢查點相同，不需要還原'); return; }
+    const n = k => ch.filter(c => c.kind === k).length;
+    const list = ch.slice(0, 8).map(c => `・${c.path}`).join('\n') + (ch.length > 8 ? `\n…還有 ${ch.length - 8} 個` : '');
+    const what = [n('modified') && `改回 ${n('modified')} 個檔案`, n('deleted') && `找回 ${n('deleted')} 個被刪除的檔案`, n('added') && `之後新增的 ${n('added')} 個檔案移到垃圾桶`].filter(Boolean).join('、');
+    if (!await uiConfirm(`還原到 ${when(j.items.find(c => c.id === b.dataset.back).t)} 的狀態？\n${what}。\n\n${list}`, {danger: true})) { folderCheckpoints(name); return; }
+    try { const r = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/checkpoints/${encodeURIComponent(b.dataset.back)}/restore`, {folder: name});
+      folderCheckpoints(name, `已還原 ${r.restored.length} 個檔案` + (r.trashed.length ? `，${r.trashed.length} 個移到垃圾桶` : '') + '；還原前的狀態已存成最新的檢查點'); }
+    catch (err) { folderCheckpoints(name, '還原失敗：' + err.message); } });
+}
 async function folderRefresh(){
   const b = $('#folderBtn');
   if (!SANDBOX_ON) { b.hidden = true; $('#folderPop').hidden = true; return; }
   b.hidden = false;
-  const sid = folderSid();
-  try { FOLD = await api(`/api/sandbox/${encodeURIComponent(sid)}/settings`); } catch { return; }
-  if (sid !== folderSid()) return;
-  folderBadge();
-  if (!$('#folderPop').hidden && !$('#folderPop .fb-list')) renderFolderPop($('#fpMsg')?.textContent || '');
+  const sid = folderSid(), seq = ++FOLD_SEQ;
+  let got; try { got = await api(`/api/sandbox/${encodeURIComponent(sid)}/settings`); } catch { return; }
+  if (sid !== folderSid() || seq !== FOLD_SEQ || !got?.folders) return;      // a newer answer (or a change you made) came first
+  FOLD = got; folderBadge();
+  if (!$('#folderPop').hidden && $('#fpPath')) {                             // not while browsing or in checkpoints
+    const keep = {p: $('#fpPath').value, d: $('#fpDom')?.value, focus: document.activeElement?.id};
+    renderFolderPop($('#fpMsg')?.textContent || '');
+    $('#fpPath').value = keep.p; if ($('#fpDom') && keep.d) $('#fpDom').value = keep.d;
+    if (keep.focus && $('#' + keep.focus)) $('#' + keep.focus).focus();
+  }
 }
 const folderBadge = () => { const n = FOLD?.folders?.length || 0; $('#folderN').textContent = n || ''; $('#folderBtn').classList.toggle('has', !!n); };
 /** change this conversation's settings (network, overrides); saved at once in its conversation.json */
@@ -4320,7 +4365,7 @@ async function convSet(body, msg = '已儲存'){
   const r = await fetch(`/api/sandbox/${encodeURIComponent(folderSid())}/settings?token=${encodeURIComponent(token)}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { renderFolderPop(j.detail || '無法儲存'); return; }
-  FOLD = j; folderBadge(); renderFolderPop(msg);
+  FOLD_SEQ++; FOLD = j; folderBadge(); renderFolderPop(msg);
 }
 function renderFolderPop(msg = ''){
   const pop = $('#folderPop'), f = FOLD || {folders: [], network: {domains: [], all: false}, overrides: {}, defaults: {review_writes: true, image: 'standard'}, effective: {}},
@@ -4333,12 +4378,14 @@ function renderFolderPop(msg = ''){
     // folders
     + `<div class="fp-sec">資料夾</div>`
     + (f.folders.length ? f.folders.map(x => `<div class="fp-r"><div class="fp-n"><b>${esc(x.inner)}</b><span class="mono">${esc(x.shown)}${x.exists ? '' : '（找不到）'}</span></div>`
-      + `<span class="fp-m ${FOLD_MODE[x.mode]?.[1] || ''}">${FOLD_MODE[x.mode]?.[0] || x.mode}</span>`
+      + `<span class="fp-m ${FOLD_MODE[x.mode]?.[1] || ''}" title="${esc(FOLD_HELP[x.mode === 'review' && x.via === 'git' ? 'git' : x.mode] || '')}">${x.mode === 'review' && x.via === 'git' ? '審核（git）' : FOLD_MODE[x.mode]?.[0] || x.mode}</span>`
       + (x.pending ? `<button class="btn sm" type="button" data-rev>${x.pending} 待審</button>` : '')
+      + (x.mode === 'rw' ? `<button class="btn sm" type="button" data-cp="${esc(x.name)}">檢查點${x.checkpoints ? ' ' + x.checkpoints : ''}</button>` : '')
       + `<button class="btn sm" type="button" data-rm="${esc(x.path)}">移除</button></div>`).join('')
       : '<div class="sd" style="padding:6px 0">還沒有資料夾。沙盒只看得到工作區；加入後在沙盒裡的 /host/名稱。</div>')
     + `<div class="fp-add"><input class="inp" id="fpPath" placeholder="加入資料夾，例如 ~/Documents/報告" aria-label="資料夾路徑"><button class="btn" type="button" id="fpBrowse">瀏覽…</button></div>`
-    + `<div class="fp-add2"><select id="fpMode" data-seg aria-label="使用方式"><option value="write">${write}</option><option value="ro">唯讀</option></select><button class="btn primary" type="button" id="fpAdd">加入</button></div>`
+    + `<div class="fp-add2"><select id="fpMode" data-seg aria-label="使用方式"><option value="review">審核後寫回</option><option value="direct">直接寫入</option><option value="ro">唯讀</option></select><button class="btn primary" type="button" id="fpAdd">加入</button></div>`
+    + `<div class="sd" id="fpModeHelp"></div>`
     + `<div class="sd">家目錄、系統資料夾與存放金鑰的資料夾不能加入。</div>`
     // network
     + `<div class="fp-sec">網路</div>`
@@ -4356,11 +4403,14 @@ function renderFolderPop(msg = ''){
   pop.querySelector('[data-x]').onclick = () => folderPop(false);
   pop.querySelectorAll('[data-rev]').forEach(b => b.onclick = () => openHostReview(folderSid()));
   pop.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => folderRemove(b.dataset.rm));
+  pop.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => folderCheckpoints(b.dataset.cp));
+  const help = () => { $('#fpModeHelp').textContent = FOLD_ADD_HELP[$('#fpMode').value] || ''; };
+  $('#fpMode').value = f.review_writes ? 'review' : 'direct'; $('#fpMode').addEventListener('change', help); help();
   const add = async () => { const path = $('#fpPath').value.trim(); if (!path) return; $('#fpAdd').disabled = true; $('#fpMsg').textContent = '準備中…';
     const r = await fetch(`/api/sandbox/${encodeURIComponent(folderSid())}/folders?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path, mode: $('#fpMode').value})});
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { renderFolderPop(j.detail || '無法加入'); $('#fpPath').value = path; return; }
-    FOLD = {...FOLD, ...j}; folderBadge(); renderFolderPop('已加入；SinoBee 下一步就看得到'); };
+    FOLD_SEQ++; FOLD = {...FOLD, ...j}; folderBadge(); renderFolderPop('已加入；SinoBee 下一步就看得到'); };
   $('#fpBrowse').onclick = () => folderBrowse($('#fpPath').value.trim() || '');
   $('#fpAdd').onclick = add; $('#fpPath').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } };
   const sel = (id, v, fn) => { const el = $(id); el.value = v; el.onchange = () => fn(el.value); };
@@ -4373,7 +4423,7 @@ function renderFolderPop(msg = ''){
 }
 /** pick a folder by browsing your home (folder names only; ones that can never be given are locked) */
 async function folderBrowse(path, hidden = false){
-  const pop = $('#folderPop'), keepMode = $('#fpMode')?.value || 'write';
+  const pop = $('#folderPop'), keepMode = $('#fpMode')?.value || 'review';
   pop.innerHTML = '<div class="sd"><span class="spin"></span> 讀取中…</div>';
   let r = await fetch(`/api/sandbox-browse?path=${encodeURIComponent(path)}${hidden ? '&hidden=1' : ''}&token=${encodeURIComponent(token)}`);
   let j = await r.json().catch(() => ({}));
@@ -4392,7 +4442,7 @@ async function folderBrowse(path, hidden = false){
   pop.querySelectorAll('[data-go]').forEach(b => b.onclick = () => folderBrowse(b.dataset.go, hidden));
   pop.querySelector('[data-up]').onclick = () => j.parent && folderBrowse(j.parent, hidden);
   $('#fbHidden').onchange = e => folderBrowse(j.path, e.target.checked);
-  const back = () => { renderFolderPop(); $('#fpMode').value = keepMode; };
+  const back = () => { renderFolderPop(); $('#fpMode').value = keepMode; $('#fpMode').dispatchEvent(new Event('change')); };
   pop.querySelector('[data-x]').onclick = back; pop.querySelector('[data-cancel]').onclick = back;
   pop.querySelector('[data-pick]').onclick = () => { back(); $('#fpPath').value = j.shown; $('#fpAdd').focus(); };
   pop.querySelector('.fb-list button')?.focus({preventScroll: true});
@@ -4402,7 +4452,7 @@ async function folderRemove(path, force = false){
   const j = await r.json().catch(() => ({}));
   if (r.status === 409) { if (await uiConfirm(`${j.detail}。仍要移除這個資料夾嗎？`, {danger: true})) return folderRemove(path, true); return; }
   if (!r.ok) { renderFolderPop(j.detail || '無法移除'); return; }
-  FOLD = {...FOLD, ...j}; folderBadge(); renderFolderPop('已移除');
+  FOLD_SEQ++; FOLD = {...FOLD, ...j}; folderBadge(); renderFolderPop('已移除');
 }
 function folderPop(open){
   const pop = $('#folderPop'); pop.hidden = !open; $('#folderBtn').setAttribute('aria-expanded', open);

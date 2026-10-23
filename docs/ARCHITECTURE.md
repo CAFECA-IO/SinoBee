@@ -2131,3 +2131,31 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   審核副本、基準與寫回備份（設定檔保留，下次用到時重新從資料夾建立副本）；超過保存期的寫回備份刪除；有待審變更的對話一律不動。
   對話開始時 `convconf.touch` 更新 used。
 - 測試：tests/test_sandbox_conv.py。
+
+## 56. 大型專案與實際環境：輕量副本（A）、git 審核（B）、直接寫入＋檢查點（D）（2026-10-23）
+
+為什麼原本不能用檔案很多的資料夾：數量上限把 node_modules、.git 也算進去；建立基準時對每個檔案做 SHA-256；每次檢查都走遍整個副本。
+
+- **A 輕量副本**（`sandbox/clone.py`、`staging.py` via="copy"）：macOS 以 clonefile(2) 逐檔複製（.git 一次整個 clone），Linux 用
+  FICLONE reflink；node_modules、.venv、.next 等 `clone.DEPS` 不複製（Mac 上建的程式在 Linux 沙盒不能跑，沙盒自己安裝）。
+  基準是複製時順手取得的 `[size, mtime_ns, None]`，不雜湊；大小或時間不同時才逐位元組比對原檔。副本保留原檔時間。
+  上限改為 20 萬個「要審核的」檔案（`sandbox.review_max_files`）。每個任務開始前 `staging.sync` 把你在原資料夾的修改帶進副本
+  （沙盒沒動過的檔案；兩邊都改了就是衝突）。
+- **B git 審核**（`sandbox/gitreview.py`，via="git"）：資料夾本身是 git 專案（有 .git 資料夾）時自動採用。副本含 .git，沙盒裡
+  git 照常可用（容器已設 safe.directory 與沙盒身分；可 commit，但審核的是工作目錄）。基準是在副本裡建立的 commit（從你的 index 起算，
+  `core.checkStat=minimal` 只重讀大小或時間變了的檔案），變更是 `git diff --cached <基準>`，成本只跟變更數量有關。被 git 忽略的檔案
+  （.env、建置輸出）不審核、不寫回。衝突＝原檔的 blob 已不是基準的 blob。套用、捨棄、復原後以 `gitreview.rebase` 產生新的基準 commit。
+  你的 repository、branch、index 都不會被動到。
+- **D 直接寫入＋檢查點**（`sandbox/checkpoints.py`，mode rw）：每個任務開始前（`checkpoints.before_task`）、授權時、Agent 呼叫
+  `folder_checkpoint(action=make)` 或你在「對話設定 → 檢查點 → 立即建立」時建立；沒有變化就沿用上一個。git 專案：用暫時 index 把整個
+  工作目錄寫成 commit，以 `refs/sinobee/checkpoints/<對話>/<id>` 保存；其他資料夾：clone 一份（APFS 幾乎不佔空間）＋清單。還原前會先
+  為現況建立檢查點（還原也能復原），之後新增的檔案移到垃圾桶。每個資料夾保留 `sandbox.checkpoints_keep`（10）個。
+- **技能 host-folder-strategies**（bundled）：Agent 先用 `host_folder_info(path)`（是否 git、要審核的檔案數、依賴資料夾，不顯示
+  檔名與內容）看狀態，再以 `request_host_access(strategy=auto|review|direct|ro)` 申請：只讀→ro；git 專案→review（git）；
+  非 git 且在上限內→review（副本）；非 git 且太大或要修復實際環境→direct（要向你說明）。系統提示詞依資料夾的方式提醒工作方法。
+- 介面：對話設定加入資料夾時三選一「審核後寫回／直接寫入／唯讀」（預設依寫入前審核），git 資料夾標示「審核（git）」，直接寫入的
+  資料夾有「檢查點」清單可比較與還原；審核視窗標示 git 與無法比較的資料夾。
+- 審核視窗不再鎖住：只有套用／捨棄按鈕在執行中等待，「稍後再說」隨時可關；請求兩分鐘無回應即放棄；沒有剩下的變更就自動關閉並顯示
+  可「復原」的提示。對話設定的重新整理不會再用較舊的回應覆蓋較新的狀態。
+- `CONTAINER_REV` 改變時既有沙盒會重建一次（這次是 git 設定）。
+- 測試：tests/test_sandbox_big.py（含 Docker：沙盒內在 git 副本 commit、直接寫入後還原）。
