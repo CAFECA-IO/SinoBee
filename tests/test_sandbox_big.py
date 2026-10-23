@@ -308,6 +308,8 @@ def test_in_the_sandbox_git_works_on_the_review_copy_and_direct_folders_can_go_b
     for p in [home, *home.rglob("*")]:
         p.chmod(0o777 if p.is_dir() else 0o666)
     conv = "test-" + uuid.uuid4().hex[:8]
+    from sinobee.sandbox.workspaces import own_dir
+    own_dir(config, conv).chmod(0o777)            # its own /workspace, writable by uid 1000 on Linux
     ctx = ToolContext(config=config, session_id=conv)
 
     async def ask(q, options, multi, allow_text):

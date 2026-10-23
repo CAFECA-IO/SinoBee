@@ -414,8 +414,11 @@ def _account_cmd(args) -> None:
     cfg = Config.load()
     try:
         if args.cmd == "logout":
+            from . import profiles
             account.logout(cfg)
-            print("已登出 sinobee.ai。（裝置權杖可在 sinobee.ai → 帳戶設定 → 已登入的 SinoBee 撤銷）")
+            res = profiles.switch_after_logout(cfg)
+            print("已登出 sinobee.ai。（裝置權杖可在 sinobee.ai → 帳戶設定 → 已登入的 SinoBee 撤銷）"
+                  + ("\n之後使用本機資料；正在執行的 sinobee serve 請重新啟動。" if res["switched"] else ""))
             return
         if args.cmd == "whoami":
             me = account.whoami(cfg)
@@ -450,8 +453,12 @@ def _account_cmd(args) -> None:
         print("\n已取消。")
         sys.exit(130)
     if res["status"] == "ok":
+        from . import profiles
         a = res["account"] or {}
         print(f"已登入 sinobee.ai：{('@' + a['handle']) if a.get('handle') else a.get('account')}")
+        sw = profiles.switch_after_login(cfg, a)
+        if sw["switched"]:
+            print("已切換到這個帳號自己的資料；正在執行的 sinobee serve 請重新啟動。")
     else:
         print({"denied": "登入要求被拒絕。", "expired": "代碼已過期，請重新執行 sinobee login。"}.get(res["status"],
               f"登入失敗：{res.get('error')}"))

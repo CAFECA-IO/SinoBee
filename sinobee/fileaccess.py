@@ -35,10 +35,12 @@ def allowed_roots(config) -> list[Path]:
     return out
 
 
-def resolve_file(config, path: str) -> Path:
+def resolve_file(config, path: str, conversation: str | None = None) -> Path:
+    """conversation: whose sandbox a path like /workspace/x or /host/<name>/x means (each has its own /workspace);
+    a relative path is relative to the SinoBee workspace (how the GUI names files)."""
     from .sandbox import for_config
     try:                           # a sandbox path (/workspace/..., /host/<name>/...) means a file on this computer
-        p = for_config(config).to_host(path, config.workspace)
+        p = for_config(config, conversation).to_host(path, config.workspace)
     except RuntimeError:           # "~name" of a user that does not exist (e.g. "~250kg" in a sentence)
         raise FileAccessError(404, "file not found") from None
     p = p.resolve()

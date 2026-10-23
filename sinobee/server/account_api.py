@@ -6,18 +6,35 @@ import time
 
 from fastapi import FastAPI, HTTPException
 
-from .. import account, billing
+from .. import account, billing, profiles
 
 
-def register(app: FastAPI, rt) -> None:
+def register(app: FastAPI, rt, busy=None, restart=None) -> None:
+    """busy() -> bool: a task is running (switching accounts restarts SinoBee); restart(): start again in place."""
     state: dict = {"login": None}   # {user_code, verification_uri, ..., status, task}; device_code never leaves here
+    busy = busy or (lambda: False)
+    restart = restart or profiles.restart_process
+
+    async def switch_when_idle(lg: dict) -> None:
+        """The sign-in belongs to another account's data: move there and restart - after running tasks end."""
+        lg["status"] = "switching"
+        for _ in range(360):
+            if not busy():
+                break
+            await asyncio.sleep(5)
+        res = await asyncio.to_thread(profiles.switch_after_login, rt().config, account.account(rt().config))
+        lg["profile"] = res
+        if res["switched"]:
+            restart()
+        else:
+            lg["status"] = "ok"
 
     def public_login() -> dict | None:
         lg = state["login"]
         if not lg:
             return None
         out = {k: lg.get(k) for k in ("user_code", "verification_uri", "verification_uri_complete", "expires_at",
-                                      "status", "error")}
+                                      "status", "error", "profile")}
         if lg.get("status") == "pending":
             out["qr_svg"] = lg.get("qr_svg")
         return out
@@ -37,6 +54,8 @@ def register(app: FastAPI, rt) -> None:
             elif res["status"] != "pending":
                 lg["status"] = res["status"]
                 lg["error"] = res.get("error")
+                if res["status"] == "ok":
+                    await switch_when_idle(lg)
         if lg["status"] == "pending":
             lg["status"] = "expired"
 
@@ -44,7 +63,10 @@ def register(app: FastAPI, rt) -> None:
     async def status(remote: bool = False):
         cfg = rt().config
         me = await asyncio.to_thread(account.whoami, cfg, remote) if remote else account.account(cfg)
-        return {"hub_url": account.base_url(cfg), "signed_in": bool(me), "account": me, "login": public_login()}
+        if me:
+            profiles.claim_if_unowned(cfg, me)       # the data that was here is the signed-in person's
+        return {"hub_url": account.base_url(cfg), "signed_in": bool(me), "account": me, "login": public_login(),
+                "profile": profiles.current(cfg)}
 
     @app.post("/api/account/login")
     async def login():
@@ -72,10 +94,17 @@ def register(app: FastAPI, rt) -> None:
 
     @app.post("/api/account/logout")
     async def logout():
-        account.logout(rt().config)
+        cfg = rt().config
+        separated = profiles.load().get("base_owner") is not None or account.account(cfg) is not None
+        if separated and busy():
+            raise HTTPException(409, "有任務正在執行：登出會切換到本機資料並重新啟動 SinoBee，請等任務結束或先停止它")
+        account.logout(cfg)
         state["login"] = None
         state.pop("quota", None)
-        return {"ok": True}
+        res = await asyncio.to_thread(profiles.switch_after_logout, cfg)
+        if res["switched"]:
+            restart()
+        return {"ok": True, "restarting": res["switched"]}
 
     @app.get("/api/llm/quota")
     async def llm_quota(refresh: bool = False):

@@ -23,7 +23,7 @@ async def shell(ctx: ToolContext, command: str, timeout: int = 120, cwd: str | N
     from ..sandbox import executor_of
     ex = executor_of(ctx)
     timeout = max(1, min(int(timeout or 120), 1800))
-    workdir = ex.paths.to_host(cwd) if cwd else ctx.config.workspace       # cwd may be a sandbox path
+    workdir = ex.paths.to_host(cwd) if cwd else (ex.paths.workspace or ctx.config.workspace)   # cwd may be a sandbox path
     if not ex.exists(workdir):
         return f"ERROR: cwd {ex.paths.to_exec(workdir)} does not exist"
     env = {"PAGER": "cat", "GIT_PAGER": "cat", "TERM": "dumb", "DEBIAN_FRONTEND": "noninteractive"}

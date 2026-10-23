@@ -61,12 +61,21 @@ def with_math(page: str, base: str) -> str:
     return page[:i] + tags + page[i:] if i >= 0 else tags + page
 
 
-def resolve_file(config, path: str) -> Path:
-    """Only files inside the workspace / project / allowed paths, never SinoBee's own private files."""
+def resolve_file(config, path: str, sid: str | None = None) -> Path:
+    """Only files inside the workspace / project / allowed paths, never SinoBee's own private files. sid: the
+    conversation whose sandbox paths (/workspace/…) are meant."""
+    if sid and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sid):
+        sid = None
     try:
-        return _resolve(config, path)
+        return _resolve(config, path, sid)
     except FileAccessError as e:
         raise HTTPException(e.status, str(e)) from None
+
+
+def in_container() -> bool:
+    """SinoBee itself runs in Docker: there is no Finder to open."""
+    import os
+    return os.environ.get("SINOBEE_IN_DOCKER") == "1" or Path("/.dockerenv").exists()
 
 
 def safe_name(name: str) -> str:
@@ -81,7 +90,7 @@ def register(app: FastAPI, rt_getter) -> None:
     @app.post("/api/view")
     async def open_view(body: dict):
         """A short-lived, read-only link to an HTML page (and the files beside it) for the in-app viewer."""
-        f = resolve_file(rt_getter().config, str(body.get("path") or ""))
+        f = resolve_file(rt_getter().config, str(body.get("path") or ""), body.get("sid"))
         if f.suffix.lower() not in VIEWABLE:
             raise HTTPException(400, "only HTML and SVG pages open in the page viewer")
         now = time.time()
@@ -164,8 +173,8 @@ def register(app: FastAPI, rt_getter) -> None:
         return icon("apple-touch-icon.png")
 
     @app.get("/api/files")
-    async def get_file(path: str, download: bool = False):
-        f = resolve_file(rt_getter().config, path)
+    async def get_file(path: str, download: bool = False, sid: str | None = None):
+        f = resolve_file(rt_getter().config, path, sid)
         mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
         if mime in ("text/html", "image/svg+xml", "application/xhtml+xml"):
             download = True   # never render active content from the workspace inside the app's origin
@@ -174,8 +183,8 @@ def register(app: FastAPI, rt_getter) -> None:
                             headers={"X-Content-Type-Options": "nosniff"})
 
     @app.get("/api/files/info")
-    async def file_info(path: str):
-        f = resolve_file(rt_getter().config, path)
+    async def file_info(path: str, sid: str | None = None):
+        f = resolve_file(rt_getter().config, path, sid)
         st = f.stat()
         out = {"name": f.name, "path": str(f), "size": st.st_size, "modified": st.st_mtime,
                "mime": mimetypes.guess_type(f.name)[0] or "application/octet-stream"}
@@ -189,10 +198,10 @@ def register(app: FastAPI, rt_getter) -> None:
         return out
 
     @app.get("/api/files/thumb")
-    async def file_thumb(path: str):
+    async def file_thumb(path: str, sid: str | None = None):
         """A video's poster frame (media.thumbnail): video cards show it instead of loading a player."""
         from .. import media
-        f = resolve_file(rt_getter().config, path)
+        f = resolve_file(rt_getter().config, path, sid)
         if not media.is_video(f):
             raise HTTPException(415, "not a video")
         try:
@@ -201,11 +210,50 @@ def register(app: FastAPI, rt_getter) -> None:
             raise HTTPException(404, str(e)) from None
         return FileResponse(jpg, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
 
+    @app.post("/api/files/reveal")
+    async def reveal(body: dict):
+        """Show a file or folder in Finder (macOS) / the file manager: where a task's results are."""
+        import platform
+        import sys
+        cfg = rt_getter().config
+        sid = body.get("sid")
+        raw = str(body.get("path") or "")
+        try:                                   # a sandbox path (/workspace/…) is the conversation's file on this computer
+            from ..sandbox import for_config
+            p = for_config(cfg, sid if isinstance(sid, str) else None).to_host(raw, cfg.workspace).resolve()
+        except (OSError, RuntimeError, ValueError):
+            raise HTTPException(404, "找不到這個位置") from None
+        if not p.exists():
+            raise HTTPException(404, "找不到這個位置（可能已被移動或刪除）")
+        roots = [Path(r).resolve() for r in allowed_roots(cfg)]
+        if not any(p == r or r in p.parents for r in roots) or p.name in PRIVATE_NAMES:
+            raise HTTPException(403, "只能顯示工作區與你授權的資料夾")
+        if in_container():
+            raise HTTPException(501, f"SinoBee 在容器裡執行，無法打開你的檔案管理員；位置：{p}")
+        system = platform.system()
+        if system == "Darwin":
+            cmd = ["open", "-R", str(p)]
+        elif system == "Windows" or sys.platform.startswith("win"):
+            cmd = ["explorer", f"/select,{p}"]
+        else:
+            cmd = ["xdg-open", str(p if p.is_dir() else p.parent)]
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError as e:
+            raise HTTPException(501, f"無法打開檔案管理員：{e}") from None
+        return {"ok": True, "path": str(p)}
+
     @app.post("/api/upload")
-    async def upload(files: list[UploadFile] = File(...)):
+    async def upload(files: list[UploadFile] = File(...), sid: str | None = None):
         cfg = rt_getter().config
         day = time.strftime("%Y%m%d")
-        dest_dir = cfg.workspace / "uploads" / day
+        root = cfg.workspace
+        if sid and re.fullmatch(r"[A-Za-z0-9_-]{6,64}", sid):
+            from ..sandbox import executor_kind
+            if executor_kind(cfg) == "sandbox":        # the conversation's sandbox sees only its own /workspace
+                from ..sandbox.workspaces import dir_of
+                root = dir_of(cfg, sid)
+        dest_dir = root / "uploads" / day
         dest_dir.mkdir(parents=True, exist_ok=True)
         out = []
         for uf in files:

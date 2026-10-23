@@ -663,6 +663,12 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .hc-fh .fp-m{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:0 8px;color:var(--muted)}
 .hc-hist a.btn{text-decoration:none}
 .hc-cut{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;margin-bottom:10px;border:1px solid var(--warn);border-radius:10px;font-size:13px}.hc-cut .acts{margin-left:auto;display:flex;gap:6px}
+.places{margin:10px 0 2px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:13px}.places>b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.place{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:3px 0}.place .mono{overflow-wrap:anywhere}.place .btn{margin-left:auto}
+#folderChips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:860px;margin:0 auto 6px;padding:6px 10px;border:1px solid var(--warn);border-radius:12px;font-size:12.5px}#folderChips[hidden]{display:none}
+#folderChips .fchip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:2px 4px 2px 8px;background:var(--panel)}#folderChips .fchip svg{width:14px;height:14px}
+#folderChips small{color:var(--muted)}#folderChips button{all:unset;cursor:pointer;color:var(--muted);padding:0 5px}#folderChips button:hover{color:var(--err)}
+.restarting{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)}.restarting>div{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:8px;align-items:center;max-width:420px;text-align:center}
 #hcToast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:400;display:flex;align-items:center;gap:10px;padding:9px 10px 9px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 12px 30px rgba(0,0,0,.4);font-size:13px;max-width:calc(100vw - 32px)}#hcToast[hidden]{display:none}#hcToast .ad-fold{all:unset;cursor:pointer;color:var(--muted);padding:2px 6px}
 #folderPop .fp-sec{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;margin:14px 0 4px;padding-top:10px;border-top:1px solid var(--line)}#folderPop .fp-h+.fp-msg+.fp-sec,#folderPop .fp-h+.fp-sec{border-top:0;padding-top:0;margin-top:8px}
 #folderPop .fp-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
@@ -958,6 +964,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
   <div id="runbar" role="status" aria-live="polite"><div class="spin"></div><div class="rb-txt" id="rbText"></div><span class="rb-time" id="rbTime"></span><button class="btn icon sm tip-up tip-left" data-icon="stop" aria-label="停止任務" id="rbStop" type="button"></button></div>
   <div id="folderPop" role="dialog" aria-label="這個對話的設定" hidden></div>
   <div id="askDock" role="region" aria-label="SinoBee 需要你決定" hidden></div>
+  <div id="folderChips" role="status" hidden></div>
   <div id="attachRow"></div>
   <div id="skillRow" aria-live="polite"></div>
   <div id="skillPick" class="skpick" role="dialog" aria-label="選擇技能" hidden>
@@ -1437,7 +1444,9 @@ const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|avif|svg)([?#].*)?$/i;
 const ATTACH_RE = /\.(pdf|zip|tar|gz|tgz|7z|rar|csv|tsv|xlsx?|docx?|pptx?|json|txt|md|log|xml|ya?ml|py|js|ts|sh|sql|html?|epub|odt|ods|key|numbers|pages|ipynb|apk|dmg|exe)([?#].*)?$/i;
 const isLocal = u => !!u && !/^(https?:|data:|blob:|mailto:|tel:|#)/i.test(u) && !u.startsWith('/api/');
 const safeDecode = u => { try { return decodeURI(u); } catch { return u; } };
-const fileUrl = (u, dl) => isLocal(u) ? `/api/files?path=${encodeURIComponent(safeDecode(u))}&token=${encodeURIComponent(token)}${dl ? '&download=1' : ''}` : u;
+/** sandbox paths (/workspace/…) mean the open conversation's own files: the server is told which conversation */
+const sidQ = () => sessionId ? `&sid=${encodeURIComponent(sessionId)}` : '';
+const fileUrl = (u, dl) => isLocal(u) ? `/api/files?path=${encodeURIComponent(safeDecode(u))}&token=${encodeURIComponent(token)}${dl ? '&download=1' : ''}${sidQ()}` : u;
 const baseName = u => decodeURIComponent(String(u).split(/[?#]/)[0].split('/').pop() || u);
 const VIEW_RE = /\.(md|markdown|html?|svg|pdf|txt|csv|json|log|mp4|webm|mov|m4v|ogv)([?#].*)?$/i;
 const canView = href => isLocal(href) && VIEW_RE.test(href);
@@ -1454,7 +1463,7 @@ const vclock = s => { s = Math.round(+s || 0); const h = Math.floor(s / 3600), m
 function videoCard(href, label){
   const name = label && label !== href ? label : baseName(href);
   if (!isLocal(href)) return `<video controls preload="metadata" src="${esc(href)}"></video>`;
-  const thumb = `/api/files/thumb?path=${encodeURIComponent(safeDecode(href))}&token=${encodeURIComponent(token)}`;
+  const thumb = `/api/files/thumb?path=${encodeURIComponent(safeDecode(href))}&token=${encodeURIComponent(token)}${sidQ()}`;
   return `<span class="vcard"><button class="vthumb" type="button" data-view="${esc(href)}" aria-label="播放 ${esc(name)}">`
     + `<img src="${esc(thumb)}" alt="" loading="lazy" onerror="this.remove()"><span class="vplay">${ic('play')}</span><span class="vdur" data-vdur="${esc(href)}"></span></button>`
     + `<span class="vmeta"><span class="vname" title="${esc(href)}">${esc(name)}</span><span class="att-m" data-info="${esc(href)}"></span>`
@@ -1736,7 +1745,7 @@ async function openDoc(path){
   dv.classList.add('open'); setTimeout(() => $('#dvClose').focus(), 30);
   try {
     if (/^(html?|svg|xhtml)$/.test(ext)) {
-      const r = await fetch('/api/view?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path})});
+      const r = await fetch('/api/view?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path, sid: sessionId})});
       const j = await r.json(); if (!r.ok) throw new Error(j.detail || '無法開啟');
       $('#dvOpen').href = j.url; $('#dvOpen').hidden = false;
       body.className = 'dv-b page';
@@ -1744,14 +1753,14 @@ async function openDoc(path){
       return;
     }
     if (/^(mp4|webm|mov|m4v|ogv)$/.test(ext)) { $('#dvOpen').href = fileUrl(path); $('#dvOpen').hidden = false; body.className = 'dv-b media';
-      const poster = `/api/files/thumb?path=${encodeURIComponent(safeDecode(path))}&token=${encodeURIComponent(token)}`;
+      const poster = `/api/files/thumb?path=${encodeURIComponent(safeDecode(path))}&token=${encodeURIComponent(token)}${sidQ()}`;
       body.innerHTML = `<video controls autoplay playsinline poster="${esc(poster)}" src="${esc(fileUrl(path))}"></video>`; return; }
     if (ext === 'pdf') { $('#dvOpen').href = fileUrl(path); body.className = 'dv-b page'; body.innerHTML = `<iframe title="${esc(name)}" src="${esc(fileUrl(path))}"></iframe>`; return; }
     const r = await fetch(fileUrl(path)); if (!r.ok) throw new Error(r.status === 404 ? '找不到檔案' : '無法讀取檔案');
     const text = await r.text(); DV.raw = text; $('#dvOpen').href = fileUrl(path);
     if (/^(md|markdown)$/.test(ext)) {
       let dir = dirOf(path);
-      try { const info = await (await fetch(`/api/files/info?path=${encodeURIComponent(path)}&token=${encodeURIComponent(token)}`)).json(); if (info.path) dir = dirOf(info.path); } catch {}
+      try { const info = await (await fetch(`/api/files/info?path=${encodeURIComponent(path)}&token=${encodeURIComponent(token)}${sidQ()}`)).json(); if (info.path) dir = dirOf(info.path); } catch {}
       body.innerHTML = `<article class="dv-doc">${md(rebaseMd(text, dir))}</article>`; enhance(body); $('#dvRaw').hidden = false;
     } else body.innerHTML = `<pre class="dv-raw">${esc(text.length > 400000 ? text.slice(0, 400000) + '\n…（檔案太長，只顯示開頭）' : text)}</pre>`;
     body.scrollTop = 0;
@@ -1866,7 +1875,7 @@ function loadMermaid(){
     sc.onerror = fail; document.head.appendChild(sc); });
   return MERMAID;
 }
-async function fillInfo(m){ try { const r = await fetch(`/api/files/info?path=${encodeURIComponent(m.dataset.info)}&token=${encodeURIComponent(token)}`);
+async function fillInfo(m){ try { const r = await fetch(`/api/files/info?path=${encodeURIComponent(m.dataset.info)}&token=${encodeURIComponent(token)}${sidQ()}`);
     if (!r.ok) { m.textContent = r.status === 404 ? '找不到檔案' : '無法存取'; return; } const j = await r.json(); m.textContent = fmtSize(j.size) + (j.duration ? ' · ' + vclock(j.duration) : '');
     if (j.duration) m.closest('.vcard')?.querySelectorAll('.vdur').forEach(d => d.textContent = vclock(j.duration)); } catch {} }
 async function enhance(el){
@@ -2312,7 +2321,7 @@ function handle(ev, replay = false){
     for (const [k, q] of Object.entries(ASKS)) if (q.session_id === ev.session_id) delete ASKS[k]; }
   if (ev.session_id && ev.type !== 'session' && ev.session_id !== sessionId) return;
   switch (ev.type) {
-    case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; DRAFT_SID = null; markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
+    case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; DRAFT_SID = null; folderChips(); markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
     case 'notice': add('ⓘ ' + esc(ev.error || ev.message), 'note'); break;
     case 'quota': onQuotaEvent(ev, replay); break;
     case 'steer': if (ev.client_ref !== CLIENT_REF) { procClose(); } if (ev.client_ref !== CLIENT_REF) add(`<span class="steer-tag">執行中補充</span>` + md(ev.text), 'msg user steer');
@@ -2388,6 +2397,7 @@ function handle(ev, replay = false){
       // mark any tool card still spinning (e.g. force-stopped) as interrupted
       document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
       { const c = resultCard(ev); if (ev.artifacts?.length && c) c.insertAdjacentHTML('beforeend', artStrip(ev.artifacts, '本次產出'));
+        if (ev.places?.length && c) c.appendChild(placesRow(ev.places));
         if (ev.snapshot && c) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm undo';
           b.innerHTML = ic('refresh') + ' 復原本輪的檔案變更'; b.title = `把這一輪修改的 ${ev.snapshot.files} 個檔案還原`;
           b.onclick = () => restoreTurn(b, ev.snapshot); c.appendChild(b); } }
@@ -2446,7 +2456,7 @@ async function uploadPending(){
   if (!PENDING.length) return '';
   const fd = new FormData(); PENDING.forEach(f => fd.append('files', f, f.name));
   sendState('upload');
-  const r = await fetch('/api/upload?token=' + encodeURIComponent(token), {method: 'POST', body: fd});
+  const r = await fetch('/api/upload?token=' + encodeURIComponent(token) + (SANDBOX_ON ? '&sid=' + encodeURIComponent(folderSid()) : ''), {method: 'POST', body: fd});
   const j = await r.json(); if (!r.ok) throw new Error(j.detail || '上傳失敗');
   PENDING = []; renderAttach();
   return '\n\n' + j.map(f => {
@@ -2611,7 +2621,7 @@ function markSideSession(){
     d.classList.toggle('on', on); on ? d.setAttribute('aria-current', 'true') : d.removeAttribute('aria-current'); });
 }
 async function openSession(s){
-  sessionId = s.id; markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {}; PROC = null; TB = null; REPLAY = true;
+  sessionId = s.id; folderChips(); markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {}; PROC = null; TB = null; REPLAY = true;
   const [msgs, turns, arts, tls] = await Promise.all([api('/api/sessions/' + s.id), api('/api/sessions/' + s.id + '/turns'),
     api('/api/sessions/' + s.id + '/artifacts').catch(() => []), api('/api/sessions/' + s.id + '/timelines').catch(() => [])]);
   const TLS = new Map((Array.isArray(tls) ? tls : []).map(t => [t.turn_id, t]));
@@ -4112,6 +4122,21 @@ function addPriceRow(model = '', v = {}){
   tr.querySelector('button').onclick = () => tr.remove(); $('#priceTable tbody').appendChild(tr);
 }
 // ---------------- sinobee.ai account (device-code sign-in) ----------------
+/** signing in as another account / signing out switches SinoBee's data and restarts it: wait, then load again */
+let RESTARTING = false;
+function waitRestart(msg){
+  if (RESTARTING) return; RESTARTING = true;
+  const d = document.createElement('div'); d.className = 'restarting'; d.setAttribute('role', 'alertdialog');
+  d.innerHTML = `<div><span class="spin"></span><b>${esc(msg)}</b><div class="sd">完成後會自動重新載入。</div></div>`;
+  document.body.appendChild(d);
+  let seenDown = false; const t0 = Date.now();
+  const poll = async () => {
+    try { const r = await fetch('/api/running?token=' + encodeURIComponent(token), {cache: 'no-store'});
+      if (r.ok && (seenDown || Date.now() - t0 > 8000)) { location.reload(); return; } }
+    catch { seenDown = true; }
+    setTimeout(poll, 1000); };
+  setTimeout(poll, 1500);
+}
 let ACCT = null, acctTimer = null;
 async function loadAccount(remote = false){
   try { ACCT = await api('/api/account' + (remote ? '?remote=true' : '')); } catch { ACCT = null; }
@@ -4126,7 +4151,8 @@ function renderAccount(){
     el.innerHTML = `<div class="lcard" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">${ic('user')}
       <div style="flex:1;min-width:200px"><b>${who}</b> <span class="badge">已登入</span>${a.offline ? ' <span class="badge">離線</span>' : ''}
       <div style="font-size:12px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;word-break:break-all">${esc(a.account || '')}${a.publisher ? ' · publisher ' + esc(a.publisher) : ''}</div>
-      <div style="font-size:12px;color:var(--muted)">權限：${(a.scopes || []).map(esc).join('、') || '—'}</div></div>
+      <div style="font-size:12px;color:var(--muted)">權限：${(a.scopes || []).map(esc).join('、') || '—'}</div>
+      ${ACCT.profile ? `<div style="font-size:12px;color:var(--muted)">這個帳號的資料（對話、記憶、工作區、API 金鑰）：<span class="mono">${esc((ACCT.profile.home || '').replace(/^\/(Users|home)\/[^/]+/, '~'))}</span>；其他帳號登入時看不到</div>` : ''}</div>
       <a class="btn icon" data-icon="external" aria-label="在 sinobee.ai 管理裝置" href="${esc(ACCT.hub_url)}/account#devices" target="_blank" rel="noopener"></a>
       <button class="btn icon tip-left" data-icon="logout" aria-label="登出 sinobee.ai" type="button" id="acctLogout"></button></div>`;
     el.insertAdjacentHTML('beforeend', '<div id="vaultBox" style="margin-top:8px"></div><div id="mySharesBox" style="margin-top:8px"></div>');
@@ -4136,13 +4162,17 @@ function renderAccount(){
       if (CAT && !readyProviders().some(p => p.name === 'sinobee')) loadCatalog(true, ['sinobee']);
       if (SB_PENDING) { SB_PENDING = false; useSubscription(); } });
     else paintSubPane();
-    $('#acctLogout').onclick = async () => { if (!await uiConfirm('登出 sinobee.ai？這台電腦的權杖會被刪除。')) return;
-      await api('/api/account/logout', {method: 'POST'}); loadAccount(); loadQuota(true); if (CAT) loadCatalog(true, ['sinobee']); };
+    $('#acctLogout').onclick = async () => { if (!await uiConfirm('登出 sinobee.ai？\n這台電腦的權杖會被刪除，SinoBee 會切換到「本機」資料並重新啟動：這個帳號的對話、記憶、工作區與 API 金鑰在下次用同一個帳號登入前都看不到。')) return;
+      const r = await fetch('/api/account/logout?token=' + encodeURIComponent(token), {method: 'POST'}); const j = await r.json().catch(() => ({}));
+      if (!r.ok) { uiAlert(j.detail || '無法登出'); return; }
+      if (j.restarting) { waitRestart('已登出，正在切換到本機資料…'); return; }
+      loadAccount(); loadQuota(true); if (CAT) loadCatalog(true, ['sinobee']); };
     return;
   }
   // signed out (here, in another window, or the sign-in was revoked): the plan shown so far is no longer this
   // computer's - drop it at once and ask the server again, so no stale "Ultra" stays on screen
   if (QUOTA && QUOTA.status !== 'signed_out') { QUOTA = {status: 'signed_out', in_use: QUOTA.in_use}; paintQuota(); loadQuota(true); }
+  if (lg && lg.status === 'switching'){ waitRestart('已登入，正在切換到這個帳號的資料（有任務在執行時會等它結束）…'); return; }
   if (lg && lg.status === 'pending'){
     el.innerHTML = `<div class="lcard"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
       <div style="font-family:ui-monospace,Menlo,monospace;font-size:26px;letter-spacing:4px;font-weight:700">${esc(lg.user_code)}</div>
@@ -4157,7 +4187,8 @@ function renderAccount(){
   }
   const msg = lg && {denied: '登入要求被拒絕。', expired: '代碼已過期，請重新登入。', error: '登入失敗：' + (lg.error || '')}[lg.status];
   el.innerHTML = `<div class="lcard" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">${ic('user')}
-    <div style="flex:1;min-width:200px;font-size:13px">尚未登入 <span style="color:var(--muted)">${esc(ACCT.hub_url)}</span>${msg ? `<div style="color:var(--err);font-size:12px">${esc(msg)}</div>` : ''}</div>
+    <div style="flex:1;min-width:200px;font-size:13px">尚未登入 <span style="color:var(--muted)">${esc(ACCT.hub_url)}</span>${msg ? `<div style="color:var(--err);font-size:12px">${esc(msg)}</div>` : ''}
+      ${ACCT.profile?.separated ? '<div style="font-size:12px;color:var(--muted)">目前使用本機資料；登入後會切換到該帳號自己的資料。</div>' : ''}</div>
     <button class="btn primary" type="button" id="acctLogin">登入 SinoBee.ai</button></div>`;
   $('#acctLogin').onclick = async () => { $('#acctLogin').disabled = true;
     const r = await fetch('/api/account/login?token=' + encodeURIComponent(token), {method: 'POST'});
@@ -4197,6 +4228,22 @@ function hostBar(sid, count, cut = 0){
   const d = add(cut ? `${ic('file')}<b>上次寫回你的資料夾時中斷了</b><span class="sd">可以繼續完成或全部還原</span><button class="btn sm primary" type="button">處理</button>`
     : `${ic('file')}<b>本機檔案變更 ${count} 個</b><span class="sd">審核後才會寫回你的資料夾</span><button class="btn sm primary" type="button">審核變更</button>`, 'hostbar');
   d.querySelector('button').onclick = () => openHostReview(sid);
+}
+/** where a turn's files are on your computer, each with a button that shows it in Finder */
+const FM_NAME = /Mac/i.test(navigator.platform || navigator.userAgent) ? 'Finder' : /Win/i.test(navigator.platform || '') ? '檔案總管' : '檔案管理員';
+const FM_LABEL = /^[A-Za-z]/.test(FM_NAME) ? `在 ${FM_NAME} 中顯示` : `在${FM_NAME}中顯示`;
+const PLACE_KIND = {workspace: '這個對話的工作區', folder: '你的資料夾', review: '你的資料夾（審核後寫回）'};
+function placesRow(places){
+  const d = document.createElement('div'); d.className = 'places';
+  d.innerHTML = `<b>檔案位置</b>` + places.map(p => `<div class="place"><span class="mono" title="${esc(p.path)}">${esc(p.shown)}</span>`
+    + `<span class="sd">${PLACE_KIND[p.kind] || ''}${p.files ? ` · ${p.files} 個檔案` : ''}${p.kind === 'review' ? ' · 套用前在副本裡' : ''}</span>`
+    + `<button class="btn sm" type="button" data-reveal="${esc(p.path)}">${FM_LABEL}</button></div>`).join('');
+  d.querySelectorAll('[data-reveal]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await hcFetch('/api/files/reveal', {path: b.dataset.reveal, sid: sessionId}); b.textContent = '已開啟'; }
+    catch (e) { b.textContent = '無法開啟'; b.title = e.message; }
+    setTimeout(() => { b.disabled = false; b.textContent = FM_LABEL; }, 2500); });
+  return d;
 }
 async function hostCheck(sid){ try { const r = await api(`/api/sandbox/${encodeURIComponent(sid)}/changes`); if (sid === sessionId) hostBar(sid, r.count || 0, r.interrupted?.length || 0); } catch {} }
 const diffHtml = t => esc(t).split('\n').map(l => `<span class="${/^(\+\+\+|---|@@)/.test(l) ? 'h' : l[0] === '+' ? 'a' : l[0] === '-' ? 'd' : ''}">${l}</span>`).join('\n');
@@ -4377,7 +4424,18 @@ async function folderRefresh(){
     if (keep.focus && $('#' + keep.focus)) $('#' + keep.focus).focus();
   }
 }
-const folderBadge = () => { const n = FOLD?.folders?.length || 0; $('#folderN').textContent = n || ''; $('#folderBtn').classList.toggle('has', !!n); };
+const folderBadge = () => { const n = FOLD?.folders?.length || 0; $('#folderN').textContent = n || ''; $('#folderBtn').classList.toggle('has', !!n); folderChips(); };
+/** before the first message of a new conversation, the folders it will use are said right above the input box -
+ *  a folder added while trying things out must not ride along unnoticed */
+function folderChips(){
+  const box = $('#folderChips'), list = (!sessionId && SANDBOX_ON && FOLD?.folders) || [];
+  box.hidden = !list.length;
+  if (!list.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<span>送出後，這個新對話可以使用：</span>` + list.map(x => `<span class="fchip" title="${esc(x.shown)}">${ic('folder')}${esc(x.inner)}`
+    + `<small>${x.mode === 'review' ? (x.via === 'git' ? '審核（git）' : '審核後寫回') : x.mode === 'rw' ? '直接寫入' : '唯讀'}</small>`
+    + `<button type="button" data-unfold="${esc(x.path)}" aria-label="不要讓這個對話使用 ${esc(x.inner)}">✕</button></span>`).join('');
+  box.querySelectorAll('[data-unfold]').forEach(b => b.onclick = () => folderRemove(b.dataset.unfold));
+}
 /** change this conversation's settings (network, overrides); saved at once in its conversation.json */
 async function convSet(body, msg = '已儲存'){
   const r = await fetch(`/api/sandbox/${encodeURIComponent(folderSid())}/settings?token=${encodeURIComponent(token)}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
@@ -4404,7 +4462,12 @@ function renderFolderPop(msg = ''){
     + `<div class="fp-add2"><span>加入方式</span><select id="fpMode" data-seg aria-label="加入方式"><option value="review">審核後寫回</option><option value="direct">直接寫入</option><option value="ro">唯讀</option></select></div>`
     + `<div class="sd" id="fpModeHelp"></div>`
     + `<div class="fp-add"><input class="inp" id="fpPath" placeholder="輸入路徑按 Enter，或按「瀏覽…」選擇" aria-label="加入資料夾：輸入路徑後按 Enter"><button class="btn primary" type="button" id="fpBrowse">瀏覽…</button></div>`
-    + `<div class="sd">家目錄、系統資料夾與存放金鑰的資料夾不能加入。</div>`
+    + `<div class="sd">家目錄、系統資料夾與存放金鑰的資料夾不能加入；其他對話的成果在「瀏覽… → SinoBee 工作區」。</div>`
+    // workspace
+    + (f.workspace ? `<div class="fp-sec">工作區（沙盒裡的 /workspace）</div>`
+      + `<div class="fp-row"><span class="mono" style="overflow-wrap:anywhere">${esc(f.workspace.shown)}</span><button class="btn sm" type="button" id="fpWsShow">${FM_LABEL}</button></div>`
+      + `<div class="fp-row"><span>範圍</span><select id="fpWs" data-seg aria-label="工作區範圍"><option value="own">這個對話專用</option><option value="shared">所有對話共用</option></select></div>`
+      + `<div class="sd">${f.workspace.mode === 'own' ? '這個對話的沙盒只看得到自己的工作區，看不到其他對話的檔案。' : '共用：這個對話的沙盒看得到所有對話放在工作區的檔案（舊對話的做法）。'}</div>` : '')
     // network
     + `<div class="fp-sec">網路</div>`
     + `<div class="fp-row"><span>這個對話</span><select id="fpNetAll" data-seg aria-label="這個對話的網路"><option value="list">只允許下列網域</option><option value="all">一律允許</option></select></div>`
@@ -4428,6 +4491,10 @@ function renderFolderPop(msg = ''){
   $('#fpBrowse').onclick = () => folderBrowse($('#fpPath').value.trim() || '');
   $('#fpPath').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); folderAdd($('#fpPath').value.trim()); } };
   const sel = (id, v, fn) => { const el = $(id); el.value = v; el.onchange = () => fn(el.value); };
+  if ($('#fpWs')) {
+    sel('#fpWs', f.workspace.mode, v => convSet({workspace: v}, v === 'own' ? '改為這個對話專用的工作區；下一個指令起生效' : '改為共用工作區；下一個指令起生效'));
+    $('#fpWsShow').onclick = async e => { try { await hcFetch('/api/files/reveal', {path: f.workspace.path}); } catch (err) { e.target.textContent = '無法開啟'; e.target.title = err.message; } };
+  }
   sel('#fpNetAll', net.all ? 'all' : 'list', v => convSet({network: {all: v === 'all'}}, v === 'all' ? '這個對話一律允許連網' : '只允許列出的網域'));
   sel('#fpReview', rv, v => convSet({overrides: {review_writes: v === '' ? null : v === 'on'}}));
   sel('#fpImage', im, v => convSet({overrides: {image: v || null}}, '已儲存；下一個指令會用新的映像'));

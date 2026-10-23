@@ -300,6 +300,8 @@ def box(config, home):
     for p in [home, *home.rglob("*")]:
         p.chmod(0o777 if p.is_dir() else 0o666)
     conv = "test-" + uuid.uuid4().hex[:8]
+    from sinobee.sandbox.workspaces import own_dir
+    own_dir(config, conv).chmod(0o777)            # its own /workspace, writable by uid 1000 on Linux
     ctx = ToolContext(config=config, session_id=conv)
     yield config, conv, ctx
     asyncio.run(manager_for(config).remove(conv))
@@ -343,7 +345,7 @@ def test_folders_can_be_picked_by_browsing_the_home_folder(config, home):
         names = {d["name"]: d for d in r["dirs"]}
         assert set(names) == {"Documents", "Library"} and names["Documents"]["can_pick"] and not names["Library"]["can_pick"]
         assert ".ssh" in {d["name"] for d in c.get("/api/sandbox-browse", params={"hidden": True}).json()["dirs"]}
-        assert [s["label"] for s in r["shortcuts"]] == ["文件"]
+        assert [s["label"] for s in r["shortcuts"]] == ["文件", "SinoBee 工作區"]       # other conversations' results
         r = c.get("/api/sandbox-browse", params={"path": "~/Documents/報告"}).json()
         assert r["can_pick"] and r["shown"] == "~/Documents/報告" and [x["label"] for x in r["crumbs"]] == ["~", "Documents", "報告"]
         assert {d["name"] for d in r["dirs"]} == {"sub"}                     # folders only, no files

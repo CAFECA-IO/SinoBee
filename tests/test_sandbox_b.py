@@ -192,6 +192,8 @@ def box_config(config):
     config.workspace.mkdir(parents=True, exist_ok=True)
     config.workspace.chmod(0o777)                 # Linux: let uid 1000 write (Docker Desktop maps owners itself)
     conv = "test-" + uuid.uuid4().hex[:8]
+    from sinobee.sandbox.workspaces import own_dir
+    own_dir(config, conv).chmod(0o777)            # its own /workspace, writable by uid 1000 on Linux
     yield config, conv
     asyncio.run(manager_for(config).remove(conv))
 
@@ -213,7 +215,8 @@ def test_a_task_runs_in_its_sandbox_without_asking(box_config):
                                          "touch /etc/nope 2>&1; python3 -c 'print(6*7)'").content
     assert out.startswith("[exit 0] cwd=/workspace") and "\n1000\n/workspace\n" in out and "42" in out
     assert "Read-only file system" in out
-    assert (config.workspace / "hello.txt").read_text() == "hi\n"
+    from sinobee.sandbox.workspaces import dir_of
+    assert (dir_of(config, conv) / "hello.txt").read_text() == "hi\n"      # its own /workspace
     assert asked == []
     assert "not in the sandbox" in dispatch(ctx, "read_file", path="/etc/hostname").content
     assert "read-only" in dispatch(ctx, "write_file", path="/sinobee/skills/x.md", content="x").content

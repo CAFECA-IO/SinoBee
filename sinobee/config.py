@@ -215,7 +215,11 @@ DEFAULTS: dict[str, Any] = {
 
 
 def sinobee_home() -> Path:
-    home = Path(os.environ.get("SINOBEE_HOME", Path.home() / ".sinobee")).expanduser()
+    """The data folder in use: ~/.sinobee, or the signed-in account's own folder under it (profiles.py)."""
+    from .profiles import active_home, base_dir
+    base = base_dir()
+    base.mkdir(parents=True, exist_ok=True)
+    home = active_home(base)
     home.mkdir(parents=True, exist_ok=True)
     return home
 
@@ -371,7 +375,10 @@ class Config:
 
     @property
     def workspace(self) -> Path:
-        p = Path(os.environ.get("SINOBEE_WORKSPACE", self.home / "workspace"))
+        from .profiles import base_dir
+        # SINOBEE_WORKSPACE is the first profile's; another account's profile keeps its workspace inside it
+        env = os.environ.get("SINOBEE_WORKSPACE") if Path(self.home) == base_dir() else None
+        p = Path(env or self.home / "workspace")
         p.mkdir(parents=True, exist_ok=True)
         return p
 

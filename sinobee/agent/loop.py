@@ -530,6 +530,14 @@ class Agent:
             system += "\n\n" + self._system_extra
         self.system = Message("system", system)
 
+    def _places(self, stats: dict) -> list[dict]:
+        """Where this turn's files are on the user's computer (shown with 在 Finder 中顯示)."""
+        try:
+            return artifacts.places(self.config, self.sandbox_conversation if self.depth == 0 else None,
+                                    stats.get("artifacts") or [])
+        except Exception:  # noqa: BLE001 - the card is shown without it
+            return []
+
     def _host_changes(self) -> dict | None:
         """Changes waiting for review in this conversation's copies of your folders (sandbox/staging.py)."""
         if self.depth != 0 or getattr(self.ctx.state.get("executor"), "kind", "") != "sandbox":
@@ -1329,6 +1337,12 @@ class Agent:
         self.ctx.state["artifact_seen"] = set()
         self.ctx.state["turn_id"] = f"t{int(time.time() * 1000)}"   # groups this turn's evidence (agent/evidence.py)
         if self.depth == 0:
+            if getattr(self.ctx.state.get("executor"), "kind", "") == "sandbox":
+                try:                         # a new conversation gets its own /workspace; an older one keeps the shared
+                    from ..sandbox import workspaces
+                    workspaces.settle(self.config, self.sandbox_conversation, legacy=self._persisted > 0)
+                except Exception:  # noqa: BLE001
+                    log.warning("workspace of the conversation", exc_info=True)
             self._refresh_folders()
             try:
                 from ..sandbox import convconf
@@ -1840,6 +1854,7 @@ class Agent:
                                 "session_cost_usd": session_usage["cost_usd"],
                                 "session_tokens": session_usage["total_tokens"],
                                 "artifacts": stats.get("artifacts", [])[-30:],
+                                "places": self._places(stats),
                                 "quality_skipped": stats.get("quality_skipped") or [],
                                 "evidence": evidence,
                                 "host_changes": host_changes,

@@ -5,7 +5,7 @@
     sandbox    sinobee-<conversation> on sinobee-int only:
                --read-only, --tmpfs /tmp, --user 1000:1000, --cap-drop ALL, no-new-privileges,
                CPU / memory / process limits,
-               /workspace = the SinoBee workspace (shared by all conversations),
+               /workspace = the conversation's own workspace (workspaces.py; older conversations: all of it),
                /home/bee  = the volume sinobee-home-<conversation> (pip --user, npm -g, caches: a bind mount
                             is ~10x slower for many small files on macOS),
                /sinobee/skills, /sinobee/bundled_skills read-only (skill_run runs the scripts in place),
@@ -298,7 +298,7 @@ class SandboxManager:
 
     def mounts(self) -> list[tuple[Path, str, str]]:
         """(this computer, in the sandbox, rw|ro) for every sandbox."""
-        out = [(Path(self.config.workspace).expanduser().resolve(), "/workspace", "rw")]
+        out = []                   # /workspace is per conversation: folder_mounts (workspaces.py)
         skills = Path(self.config.home) / "skills"
         skills.mkdir(parents=True, exist_ok=True)
         out.append((skills.resolve(), "/sinobee/skills", "ro"))
@@ -309,9 +309,11 @@ class SandboxManager:
         """This conversation's folders of this computer (folders.py): /host is its staging folder (review copies are
         made there and show up at once); read-only and read/write folders are bind mounts over /host/<name>."""
         from .folders import conv_dir, folders_for
+        from .workspaces import dir_of
         stage = conv_dir(self.config, conversation) / "host"
         stage.mkdir(parents=True, exist_ok=True)
-        out = [(stage.resolve(), "/host", "rw")]
+        out = [(Path(dir_of(self.config, conversation)).expanduser().resolve(), "/workspace", "rw"),
+               (stage.resolve(), "/host", "rw")]
         for f in folders_for(self.config, conversation):
             if f["mode"] in ("ro", "rw") and Path(f["path"]).is_dir():
                 out.append((Path(f["path"]), f"/host/{f['name']}", f["mode"]))

@@ -22,7 +22,7 @@ def resolve(ctx: ToolContext, path: str, write: bool = False) -> Path:
     """The file on this computer a path given to a file tool means (a sandbox path is translated). In a sandbox
     only what is mounted there can be reached, and a read-only mount cannot be written."""
     ex = _ex(ctx)
-    p = ex.paths.to_host(path, ctx.config.workspace).resolve()
+    p = ex.paths.to_host(path, ex.paths.workspace or ctx.config.workspace).resolve()   # relative: from /workspace
     ex.check(p, write)
     allowed = [Path(a).expanduser().resolve() for a in (ctx.config.get("permissions.allowed_paths") or [])]
     if allowed and not any(p == a or a in p.parents for a in allowed + [ctx.config.workspace.resolve()]):

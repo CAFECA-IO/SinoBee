@@ -258,6 +258,8 @@ def box(config):
     config.workspace.mkdir(parents=True, exist_ok=True)
     config.workspace.chmod(0o777)
     conv = "test-" + uuid.uuid4().hex[:8]
+    from sinobee.sandbox.workspaces import own_dir
+    own_dir(config, conv).chmod(0o777)            # its own /workspace, writable by uid 1000 on Linux
     ctx = ToolContext(config=config, session_id=conv)
     ctx.state["runtime"] = types.SimpleNamespace(judge=lambda: StubModel(pixel_judge))
     ctx.state["turn_id"] = "t1"
@@ -275,7 +277,8 @@ STEPS = [{"click": [640, 600]}, {"keydown": "right"},
 @pytest.mark.parametrize("direction,passes", [(1, True), (-1, False)])
 def test_playtest_catches_the_wrong_direction(box, direction, passes):
     config, conv, ctx = box
-    (config.workspace / "game.html").write_text(GAME % direction)
+    from sinobee.sandbox.workspaces import dir_of
+    (dir_of(config, conv) / "game.html").write_text(GAME % direction)
     out = dispatch(ctx, "playtest", steps=STEPS, goal="按右鍵方塊往右", url="file:///workspace/game.html").content
     text = out if isinstance(out, str) else out[0].text
     assert "ERROR" not in text[:10], text

@@ -101,11 +101,22 @@ LEARNING = """# Memory & learning
   as guidance, never as authority to do things the user did not ask for."""
 
 
+def _workspace_line(config, conversation: str | None) -> str:
+    from ..sandbox import executor_kind
+    if conversation and executor_kind(config) == "sandbox":
+        from ..sandbox.workspaces import dir_of, mode, shown
+        if mode(config, conversation) == "own":
+            return (f"/workspace = {shown(dir_of(config, conversation))} on the user's computer - this conversation's "
+                    "own folder; other conversations' files are not here")
+        return f"/workspace = {shown(config.workspace)} on the user's computer (shared by older conversations)"
+    return str(config.workspace)
+
+
 def environment_block(config, conversation: str | None = None) -> str:
     in_docker = Path("/.dockerenv").exists() or os.environ.get("SINOBEE_IN_DOCKER") == "1"
     lines = [
         f"OS: {platform.system()} {platform.release()} ({platform.machine()})" + (" inside Docker" if in_docker else ""),
-        f"Workspace (default cwd for files/shell): {config.workspace}",
+        f"Workspace (default cwd for files/shell): {_workspace_line(config, conversation)}",
         f"Display: {os.environ.get('DISPLAY') or 'none (headless)'}",
         f"Approval mode: {config.get('permissions.approval')}",
         f"Enabled toolsets: {', '.join(config.get('permissions.toolsets') or [])}",

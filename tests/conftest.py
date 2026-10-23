@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+os.environ["SINOBEE_NO_RESTART"] = "1"     # switching accounts restarts SinoBee in place: never the test run
 
 from sinobee.config import Config  # noqa: E402
 from sinobee.types import ChatResponse, Message, ToolCall, Usage  # noqa: E402

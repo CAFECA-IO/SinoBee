@@ -2180,3 +2180,22 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   `GET /api/sandbox/{sid}/applied/{id}/export`、`POST …/changes/resume`、`POST …/changes/rollback`。
 - 測試：tests/test_sandbox_writeback.py（在第 k 個檔案模擬斷電、寫入未記錄、殘留暫存檔、準備後你又改了原檔、磁碟不足、匯出可被
   patch / git apply 套用）。
+
+## 58. 隔離：每個對話自己的工作區、每個帳號自己的資料；成果位置與「在 Finder 中顯示」；新對話的資料夾提醒（2026-10-24）
+
+- **對話工作區**（`sandbox/workspaces.py`）：沙盒裡的 `/workspace` 改為 `~/.sinobee/workspace/conversations/<對話>/`，
+  一個任務讀不到、改不到其他對話留在工作區的檔案（提示注入也一樣）。conversation.json `"workspace": own | shared`：新對話 own；
+  升級前已有紀錄的對話在下一個任務時定為 shared（它的檔案在共用工作區）。對話設定 → 工作區可切換（容器依 mount_key 重建）。
+  上傳檔案帶 `sid` 存進該對話的工作區；`/api/files*`、`/api/view` 帶 `sid` 解析 `/workspace/…`；工具的相對路徑以對話工作區為準。
+  其他對話的成果可在「瀏覽… → SinoBee 工作區」當作資料夾加入（`refuse` 允許工作區內的資料夾）。沒用過的草稿工作區（只有附件）一天後清除。
+- **帳號資料**（`profiles.py`）：登出原本只刪權杖，對話、記憶、工作區、授權資料夾、寫回紀錄與 API 金鑰都留著，下一個登入的人全看得到。
+  現在每個 SinoBee.ai 帳號一個資料夾：原本的 `~/.sinobee` 歸第一個登入（或啟動時已登入）的帳號；其他帳號在
+  `~/.sinobee/profiles/acct-<雜湊>/`；登出後用 `~/.sinobee/profiles/local/`。`profiles.json` 記錄目前使用哪一份。切換時把這次登入的
+  權杖與裝置金鑰移到該帳號的資料夾、帶上 server 設定與伺服器權杖（開著的視窗繼續可用），然後以相同指令重新啟動（`os.execv`）；
+  有任務執行中時登出回 409，登入則等任務結束才切換。介面顯示「正在切換…」並在重新啟動後自動重新載入；帳號卡片顯示這個帳號的資料位置。
+  CLI `sinobee login/logout` 同樣切換（提示重新啟動 serve）。這是 SinoBee 內的分隔，不是加密：不同的人應使用不同的 macOS 帳號。
+- **成果位置**：`turn_end` 帶 `places`（`artifacts.places`：依工作區／你的資料夾／審核副本歸到專案資料夾），結果卡片列出你電腦上的路徑與
+  「在 Finder 中顯示」（`POST /api/files/reveal`：只限工作區與授權資料夾；macOS `open -R`、Linux `xdg-open`、Windows `explorer /select`）。
+  系統提示詞要求告訴使用者電腦上的路徑，不只沙盒路徑。
+- **新對話的資料夾提醒**：第一則訊息送出前，輸入框上方列出「送出後，這個新對話可以使用：…」，可直接 ✕ 移除；按「＋」換新的草稿 id，不沿用。
+- 測試：tests/test_sandbox_isolation.py（含 Docker：兩個對話互相看不到）、tests/test_profiles.py。

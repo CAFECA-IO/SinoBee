@@ -54,8 +54,10 @@ def refuse(config, path: str | os.PathLike) -> str | None:
         if p in q.parents:
             return f"這個資料夾包含 {d}（帳號與金鑰），請選更裡面的資料夾"
     sb = Path(config.home).expanduser().resolve()
-    if p == sb or sb in p.parents or p in sb.parents:
-        return "SinoBee 自己的資料不能授權（工作區已經是 /workspace）"
+    ws = Path(config.workspace).expanduser().resolve()
+    in_workspace = p == ws or ws in p.parents          # other conversations' results may be given like any folder
+    if not in_workspace and (p == sb or sb in p.parents or p in sb.parents):
+        return "SinoBee 自己的資料不能授權（工作區的資料夾可以）"
     if not p.exists():
         return "找不到這個資料夾"
     if not p.is_dir():

@@ -67,7 +67,7 @@ def collect(config, tool: str, args: dict, text: str, seen: set[str], since: flo
             if not tok or len(tok) > 1024:
                 continue
             try:
-                d = pmap.to_host(tok, config.workspace)      # a sandbox path means a file on this computer
+                d = pmap.to_host(tok, pmap.workspace or config.workspace)   # a sandbox path means a file here
                 is_file, is_dir = d.is_file(), d.is_dir()
             except (OSError, ValueError, RuntimeError):   # a sentence is not a path; "~250" is no user's home
                 continue
@@ -75,8 +75,11 @@ def collect(config, tool: str, args: dict, text: str, seen: set[str], since: flo
                 d = d.parent
             if d.is_file() and d.suffix in (".mjs", ".js", ".py", ".sh", ".ts"):
                 d = d.parent          # `node figures/rig/build.mjs` prints "wrote rig.html" next to the script
-            if d.is_dir() and d.resolve() != config.workspace.resolve():
+            if d.is_dir() and d.resolve() not in (config.workspace.resolve(), Path(pmap.workspace or config.workspace).resolve()):
                 bases.append(str(d))
+    ws = Path(pmap.workspace or config.workspace)
+    if ws.resolve() != config.workspace.resolve():
+        bases.append(str(ws))                 # a name without a folder is in the conversation's own /workspace
     raws = []
     for raw in candidates(tool, args, text):
         raws.append(raw)
@@ -86,7 +89,7 @@ def collect(config, tool: str, args: dict, text: str, seen: set[str], since: flo
         if any(part in SKIP_PARTS for part in Path(raw).parts):
             continue
         try:
-            p = resolve_file(config, raw)
+            p = resolve_file(config, raw, conversation)
         except (FileAccessError, OSError, ValueError, RuntimeError):
             continue
         key = str(p)
@@ -150,3 +153,47 @@ def key_files(artifacts: list[dict], final_text: str = "", milestones: list | No
     key = key[:MAX_KEY]
     ids = {a["path"] for a in key}
     return key, [a for a in files if a["path"] not in ids]
+
+
+# ------------------------------------------------------------------ where a turn's files are on this computer
+def places(config, conversation: str | None, items: list[dict], limit: int = 4) -> list[dict]:
+    """The folders on this computer that hold a turn's files: [{"path", "shown", "kind", "files"}], most files first.
+    kind: workspace (the conversation's /workspace), folder (a folder you gave, written directly or read-only),
+    review (a folder you gave for review: the files are in its copy until you apply them - path is your folder)."""
+    from ..sandbox import executor_kind
+    from ..sandbox.workspaces import shown
+    roots: list[tuple[Path, Path, str]] = []          # (where the files are, what to show, kind)
+    ws = Path(config.workspace)
+    if conversation and executor_kind(config) == "sandbox":
+        from ..sandbox.folders import folders_for
+        from ..sandbox.staging import copy_dir
+        from ..sandbox.workspaces import dir_of
+        ws = dir_of(config, conversation)
+        for f in folders_for(config, conversation):
+            if f["mode"] == "review":
+                roots.append((copy_dir(config, conversation, f["name"]), Path(f["path"]), "review"))
+            else:
+                roots.append((Path(f["path"]), Path(f["path"]), "folder"))
+    roots.append((ws, ws, "workspace"))
+    if Path(config.workspace) != ws:
+        roots.append((Path(config.workspace), Path(config.workspace), "workspace"))
+    roots = [(a.resolve(), b, k) for a, b, k in roots]
+    found: dict[str, dict] = {}
+    for it in items or []:
+        raw = str(it.get("path") or "")
+        p = Path(raw).expanduser()
+        p = (p if p.is_absolute() else Path(config.workspace) / p).resolve()
+        hit = max(((a, b, k) for a, b, k in roots if p == a or a in p.parents),
+                  key=lambda r: len(r[0].parts), default=None)
+        if hit is None:
+            a, b, k = p.parent, p.parent, "folder"
+            rel_parts: tuple = ()
+        else:
+            a, b, k = hit
+            rel_parts = p.relative_to(a).parts
+        top = b / rel_parts[0] if len(rel_parts) > 1 else b       # the project folder, not every subfolder
+        key = str(top)
+        if key not in found:
+            found[key] = {"path": key, "shown": shown(top), "kind": k, "files": 0}
+        found[key]["files"] += 1
+    return sorted(found.values(), key=lambda x: -x["files"])[:limit]

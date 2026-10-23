@@ -163,6 +163,8 @@ def sweep_files(config, known=None, now: float | None = None) -> dict:
             continue
         if known is not None and now - used > 86400 and not known(conv):
             shutil.rmtree(d, ignore_errors=True)
+            # a draft's own workspace holds only what was attached before a first message that never came
+            shutil.rmtree(Path(config.workspace) / "conversations" / d.name, ignore_errors=True)
             out["drafts"].append(conv)
             continue
         if now - used > keep:
@@ -184,4 +186,14 @@ def sweep_files(config, known=None, now: float | None = None) -> dict:
             if now - float(t) > keep:
                 shutil.rmtree(b, ignore_errors=True)
                 out["backups"] += 1
+    # own workspaces of drafts that only ever got attachments (no folder, no message)
+    wroot = Path(config.workspace) / "conversations"
+    for w in sorted(wroot.iterdir()) if known is not None and wroot.is_dir() else []:
+        try:
+            if (w.is_dir() and now - w.stat().st_mtime > 86400 and not (root / w.name).exists()
+                    and {e.name for e in w.iterdir()} <= {"uploads"} and not known(w.name)):
+                shutil.rmtree(w, ignore_errors=True)
+                out["drafts"].append(w.name)
+        except OSError:
+            continue
     return out

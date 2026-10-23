@@ -105,7 +105,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     skills_api.register(app, rt)
     files_api.register(app, rt)
     db_api.register(app, rt)
-    account_api.register(app, rt)
+    account_api.register(app, rt, busy=lambda: bool(state.get("running")))
     share_api.register(app, rt)
 
     @app.get("/")

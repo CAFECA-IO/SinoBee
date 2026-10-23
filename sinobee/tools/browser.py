@@ -387,7 +387,7 @@ async def browser(ctx: ToolContext, action: str, url: str | None = None, ref: st
     if action == "upload":
         if not path:
             return "ERROR: path required"
-        host = ex.paths.to_host(path, ctx.config.workspace).resolve()
+        host = ex.paths.to_host(path, ex.paths.workspace or ctx.config.workspace).resolve()
         ex.check(host)
         import mimetypes                   # sent as content: the browser may be in the sandbox
         await _loc(page, ref, selector).set_input_files(

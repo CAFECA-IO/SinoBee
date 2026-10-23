@@ -188,6 +188,8 @@ def box(config):
     config.workspace.mkdir(parents=True, exist_ok=True)
     config.workspace.chmod(0o777)
     conv = "test-" + uuid.uuid4().hex[:8]
+    from sinobee.sandbox.workspaces import own_dir
+    own_dir(config, conv).chmod(0o777)            # its own /workspace, writable by uid 1000 on Linux
     ctx = ToolContext(config=config, session_id=conv)
     yield config, conv, ctx
     from sinobee.tools import browser

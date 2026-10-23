@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 import time
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
@@ -125,6 +126,9 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
             if q.is_dir() and label not in seen:
                 seen.add(label)
                 shortcuts.append({"label": label, "path": str(q)})
+        wsroot = Path(cfg.workspace).expanduser().resolve()           # other conversations' results
+        if wsroot.is_dir() and any(wsroot == r or r in wsroot.parents for r in roots):
+            shortcuts.append({"label": "SinoBee 工作區", "path": str(wsroot)})
         root = next(r for r in roots if p == r or r in p.parents)
         crumbs = [{"label": "~" if root == home else root.name or str(root), "path": str(root)}]
         for part in p.relative_to(root).parts:
@@ -147,7 +151,15 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
             except Exception:  # noqa: BLE001 - no Docker here: the office image is not there either
                 rc = 1
             _office.update(t=now, built=rc == 0)
+        from ..sandbox import workspaces
+        wmode = data.get("workspace")
+        if wmode not in workspaces.MODES:             # not decided yet: an older conversation keeps the shared one
+            mem = getattr(rt(), "memory", None)
+            legacy = bool(mem and hasattr(mem, "session_exists") and mem.session_exists(sid))
+            wmode = "shared" if legacy else "own"
+        wdir = workspaces.own_dir(cfg, sid) if wmode == "own" else Path(cfg.workspace)
         return {"network": data["network"], "overrides": data["overrides"],
+                "workspace": {"mode": wmode, "path": str(wdir), "shown": workspaces.shown(wdir)},
                 "effective": {"review_writes": convconf.review_writes(cfg, sid), "image": convconf.image(cfg, sid)},
                 "defaults": {"review_writes": convconf.review_writes(cfg), "image": convconf.image(cfg)},
                 "office_built": _office["built"], **(await conv_folders(sid))}
@@ -164,8 +176,13 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         cfg = rt().config
         before = convconf.load(cfg, sid)
         net, ov = body.get("network"), body.get("overrides")
+        wmode = body.get("workspace")
+        if wmode is not None and wmode not in ("own", "shared"):
+            raise HTTPException(400, "workspace must be own | shared")
 
         def change(d):
+            if wmode:
+                d["workspace"] = wmode       # the sandbox is made again with the other /workspace (mount_key)
             if isinstance(net, dict):
                 if "domains" in net:
                     d["network"]["domains"] = clean(net.get("domains") or [])

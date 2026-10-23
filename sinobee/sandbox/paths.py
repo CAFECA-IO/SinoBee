@@ -127,7 +127,9 @@ class PathMap:
             rows.append(f"- {m.inner} = {host} ({how})")
         return ("Your tools run in a sandbox. Paths there differ from the user's computer:\n" + "\n".join(rows) +
                 "\nUse the sandbox paths in commands; paths of the user's computer given to file tools are "
-                "translated. Anything else on the user's computer is not visible.")
+                "translated. Anything else on the user's computer is not visible. When you tell the user where a "
+                "file is, give its path on their computer (the right side above, e.g. ~/.sinobee/workspace/...), "
+                "never only the sandbox path.")
 
 
 def _replace_prefix(text: str, old: str, new: str) -> str:
@@ -170,7 +172,10 @@ def for_config(config, conversation: str | None = None) -> PathMap:
         from .folders import folders_for
         from .manager import manager_for
         from .staging import copy_dir
+        from .workspaces import dir_of
         folders = [{**f, "stage": str(copy_dir(config, conversation or "default", f["name"]))}
                    if f["mode"] == "review" else f for f in folders_for(config, conversation)]
+        if conversation:
+            ws = dir_of(config, conversation)              # the conversation's own /workspace (workspaces.py)
         return sandbox_map(ws, folders, manager_for(config).mounts())
     return PathMap(workspace=ws)
