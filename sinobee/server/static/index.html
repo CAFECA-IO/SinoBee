@@ -331,7 +331,7 @@ table.t th:first-child,table.t td:first-child{text-align:left}table.t th{color:v
 .tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.15);display:none;white-space:nowrap}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .seg2{flex:none;max-width:100%}.seg2 button{white-space:nowrap;font-size:13px}.seg2 button+button{border-left:1px solid var(--line)}
-.seg2 button.on{background:var(--accent-solid)!important;color:var(--accent-ink)!important;font-weight:600}.seg2 button:disabled{opacity:.5;cursor:not-allowed}.seg button{border:0;background:none;padding:5px 10px;cursor:pointer;color:var(--muted);font:inherit}.seg button.on{background:var(--tool);color:var(--ink)}
+.seg2 button.on{background:var(--accent-solid)!important;color:var(--on-accent)!important;font-weight:600}.seg2 button:disabled{opacity:.5;cursor:not-allowed}.seg button{border:0;background:none;padding:5px 10px;cursor:pointer;color:var(--muted);font:inherit}.seg button.on{background:var(--tool);color:var(--ink)}
 #runbar{display:none;align-items:center;gap:10px;margin:0 max(16px,calc((100% - 820px)/2));padding:9px 12px;border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;background:var(--panel);font-size:13px}
 #runbar.on{display:flex}#runbar.wait{background:var(--user)}
 /* the question waiting for you, docked where you type (plan: 詢問選項固定在輸入欄附近, sketch B) */
@@ -352,7 +352,7 @@ main.asking #form,main.asking #runbar{display:none!important}
 #askDock .ad-o button.on{border-color:var(--accent);background:var(--glow)}
 #askDock .ad-k{width:20px;height:20px;border-radius:6px;background:var(--line);display:grid;place-items:center;font-size:11px;color:var(--muted)}
 #askDock .ad-t b{font-weight:600}#askDock .ad-t>span{display:block;color:var(--muted);font-size:12px;margin-top:1px}
-#askDock .tag{font-size:10.5px;color:var(--accent-ink);background:var(--accent);border-radius:4px;padding:0 5px;margin-left:6px;font-weight:600}
+#askDock .tag{font-size:10.5px;color:var(--on-accent);background:var(--accent-solid);border-radius:4px;padding:0 5px;margin-left:6px;font-weight:600}
 #askDock .ad-x{display:flex;gap:8px;align-items:center}
 #askDock .ad-x textarea{flex:1;min-width:0;resize:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:13.5px;max-height:120px}
 #askDock .ad-mini{display:flex;justify-content:space-between;gap:10px;margin-top:7px;font-size:11.5px;color:var(--muted)}
@@ -639,7 +639,7 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .tb-more{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
 .tb-det{margin-top:6px}.tb-notes{margin:2px 0 6px;padding-left:18px;color:var(--muted);font-size:12.5px}.tbub .askcard{margin:6px 0 10px}
 .tb-other summary{cursor:pointer;color:var(--muted);font-size:12.5px;margin:4px 0}
-.folderbtn{display:inline-flex;align-items:center;gap:6px;font-size:13px}.folderbtn svg{width:16px;height:16px}.folderbtn b{font-size:11px;color:var(--accent-ink);background:var(--accent);border-radius:999px;padding:0 6px}.folderbtn b:empty{display:none}
+.folderbtn{display:inline-flex;align-items:center;gap:6px;font-size:13px}.folderbtn svg{width:16px;height:16px}.folderbtn b{font-size:11px;color:var(--on-accent);background:var(--accent-solid);border-radius:999px;padding:0 6px}.folderbtn b:empty{display:none}
 #folderPop{position:fixed;top:58px;right:16px;width:min(480px,calc(100vw - 32px));z-index:40;border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:12px 14px;box-shadow:0 16px 40px rgba(0,0,0,.45);font-size:13px}
 #folderPop .fp-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}#folderPop .ad-fold{all:unset;cursor:pointer;color:var(--muted);padding:2px 6px}
 #folderPop .fp-r{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
@@ -668,7 +668,7 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .cardseg.seg4{grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:12px 0 10px}
 .cardseg.seg4 button{border:0;border-left:1px solid var(--line);border-radius:0;padding:8px 6px;align-items:center;text-align:center;background:var(--panel2)}
 .cardseg.seg4 button:first-child{border-left:0}.cardseg.seg4 button b{font-size:13px;margin:0}
-.cardseg.seg4 button.on{background:var(--accent-solid);box-shadow:none}.cardseg.seg4 button.on b{color:var(--accent-ink)}.cardseg.seg4 button.on::after{content:none}
+.cardseg.seg4 button.on{background:var(--accent-solid);box-shadow:none}.cardseg.seg4 button.on b{color:var(--on-accent)}.cardseg.seg4 button.on::after{content:none}
 .sh-facts{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;font-size:12.5px}
 .sh-facts li::before{display:inline-block;width:16px;font-weight:700}.sh-facts li.ok::before{content:"✓";color:var(--ok)}.sh-facts li.ask::before{content:"?";color:var(--warn)}.sh-facts li.no::before{content:"!";color:var(--err)}
 .sh-status{margin-top:10px;display:flex;align-items:center;gap:8px;font-size:12px;border:1px solid var(--line);border-radius:9px;padding:7px 10px;background:var(--bg);color:var(--muted)}
@@ -1072,9 +1072,10 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
         </div>
         <details class="pacc" id="accNet"><summary><span class="pa-i" data-icon="globe"></span><b>沙盒的網路</b><span class="pa-s" id="accNetSum"></span></summary>
           <div class="pa-b">
-            <div class="srow"><div class="sl"><b>連網方式</b><span class="sd">只在「沙盒」使用</span></div><select id="pNetMode" data-seg aria-label="連網方式"><option value="ask">只允許下列網域，其他先問我</option><option value="open">一律允許</option></select></div>
-            <div class="netchips" id="pNetChips"></div>
-            <div class="srow fadd"><input id="pNetAdd" class="inp" placeholder="加入網域，例如 api.openai.com" aria-label="加入網域"><button class="btn" id="pNetAddBtn" type="button">加入</button></div>
+            <div class="srow"><div class="sl"><b>連網方式</b><span class="sd">只在「沙盒」使用</span></div><select id="pNetMode" data-seg aria-label="連網方式"><option value="ask">只允許下列網域</option><option value="open">一律允許</option></select></div>
+            <div id="pNetList"><div class="netchips" id="pNetChips"></div>
+            <div class="srow fadd"><input id="pNetAdd" class="inp" placeholder="加入網域，例如 api.openai.com" aria-label="加入網域"><button class="btn" id="pNetAddBtn" type="button">加入</button></div></div>
+            <div class="sd" id="pNetOpenNote" hidden style="padding-top:8px">沙盒可以連到任何網站，不會先問你。改回「只允許下列網域」時，之前記住的網域仍會保留。</div>
             <textarea id="pNetDomains" hidden></textarea>
           </div></details>
         <details class="pacc" id="accWrite"><summary><span class="pa-i" data-icon="file"></span><b>寫入你的檔案</b><span class="pa-s" id="accWriteSum"></span></summary>
@@ -4351,6 +4352,7 @@ function renderPermHero(){
 }
 function permSummaries(){
   const open = $('#pNetMode').value === 'open';
+  $('#pNetList').hidden = open; $('#pNetOpenNote').hidden = !open;
   $('#accNetSum').textContent = open ? '一律允許所有網站' : `只允許 ${NETDOMS.length} 個網域，其他先問我`;
   $('#accWriteSum').textContent = `寫入前審核：${$('#pReview').checked ? '開' : '關'}`;
   const all = document.querySelectorAll('#pToolsets input'), on = document.querySelectorAll('#pToolsets input:checked');
