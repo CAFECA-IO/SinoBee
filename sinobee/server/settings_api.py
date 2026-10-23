@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
@@ -31,11 +32,18 @@ def _sandbox_info(cfg) -> dict:
     remembered = cfg.get("sandbox.network.remembered")
     info = {"wanted": wanted_kind(cfg), "image": image_name(cfg),
             "network": {"mode": cfg.get("sandbox.network.mode", "ask") or "ask",
-                        "remembered": list(REMEMBERED if remembered is None else remembered)}}
+                        "remembered": list(REMEMBERED if remembered is None else remembered)},
+            "folders": [{**f, "exists": Path(f["path"]).is_dir()} for f in _folders(cfg)]}
     if info["wanted"] == "sandbox" or cfg.get("permissions.approval") == "sandbox":
         info["unavailable"] = manager_for(cfg).unavailable()
         info["running"] = executor_kind(cfg)
     return info
+
+def _folders(cfg) -> list[dict]:
+    from ..sandbox.folders import entry
+    return [entry(f["path"], f.get("mode") or "review", f.get("name")) for f in cfg.get("sandbox.folders") or []
+            if f.get("path")]
+
 
 def _valid_spec(spec) -> bool:
     try:
@@ -295,6 +303,22 @@ def register(app: FastAPI, rt_getter) -> None:
                 out["remembered"] = clean(net["remembered"])
             if out:
                 updates["sandbox"] = {"network": out}
+            if "folders" in sb:
+                from ..sandbox import folders as fd
+                cleaned, seen = [], set()
+                for f in sb["folders"] or []:
+                    path = str((f or {}).get("path") or "").strip()
+                    if not path:
+                        continue
+                    why = fd.refuse(cfg, path)
+                    if why:
+                        errors.append(f"{path}：{why}")
+                        continue
+                    e = fd.entry(path, (f or {}).get("mode") or "review", (f or {}).get("name") or None)
+                    if e["path"] not in seen:
+                        seen.add(e["path"])
+                        cleaned.append(e)
+                updates.setdefault("sandbox", {})["folders"] = cleaned
         if "billing" in body:
             b = body["billing"] or {}
             bl = {}

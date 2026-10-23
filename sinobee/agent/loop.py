@@ -383,7 +383,8 @@ class Agent:
         runtime.memory.ensure_session(self.session_id, platform, title=title)
         self.history: list[Message] = self._load_history()
         self._core_at_start = {m.id: m.content for m in runtime.memory.core()}
-        system = build_system_prompt(self.config, runtime.memory.render_core(), sorted(self.tool_names))
+        system = build_system_prompt(self.config, runtime.memory.render_core(), sorted(self.tool_names),
+                                     self.session_id)
         if system_extra:
             system += "\n\n" + system_extra
         self.system = Message("system", system)
@@ -503,6 +504,23 @@ class Agent:
         return changed
 
     # ------------------------------------------------------------------ completion check & model escalation
+    def _host_changes(self) -> dict | None:
+        """Changes waiting for review in this conversation's copies of your folders (sandbox/staging.py)."""
+        if self.depth != 0 or getattr(self.ctx.state.get("executor"), "kind", "") != "sandbox":
+            return None
+        try:
+            from ..sandbox import staging
+            items = staging.pending(self.config, self.session_id)
+            staging.remember_pending(self.config, self.session_id, items)
+        except Exception:  # noqa: BLE001 - the review panel can still be opened by hand
+            return None
+        if not items:
+            return None
+        by: dict[str, int] = {}
+        for c in items:
+            by[c["folder"]] = by.get(c["folder"], 0) + 1
+        return {"count": len(items), "folders": by, "conflicts": sum(1 for c in items if c["conflict"])}
+
     def _turn_evidence(self) -> list[dict]:
         """The pictures SinoBee captured during this turn (agent/evidence.py), for the bubble's 驗收證據 section."""
         if self.depth != 0:
@@ -1748,6 +1766,7 @@ class Agent:
                 package_hint = False
         tl_meta, deliverables, other_files = None, None, None
         evidence = self._turn_evidence()
+        host_changes = self._host_changes()
         if getattr(self, "_timeline", None) is not None:
             self._timeline.finish()
             tl_meta = self._timeline.meta()
@@ -1782,6 +1801,7 @@ class Agent:
                                 "artifacts": stats.get("artifacts", [])[-30:],
                                 "quality_skipped": stats.get("quality_skipped") or [],
                                 "evidence": evidence,
+                                "host_changes": host_changes,
                                 "package_hint": package_hint})
         self._timeline = None           # later events (background learning, memory upkeep) are not part of the turn
         if getattr(self, "_run_rec", None):
@@ -2195,7 +2215,7 @@ class Agent:
             try:
                 arts = artifacts.collect(self.config, call.name, call.arguments or {}, preview,
                                          self.ctx.state.setdefault("artifact_seen", set()),
-                                         since=getattr(self, "_turn_started", None))
+                                         since=getattr(self, "_turn_started", None), conversation=self.session_id)
             except Exception:  # noqa: BLE001 - showing links must never break a task
                 log.exception("artifact scan failed")
                 arts = []

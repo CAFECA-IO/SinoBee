@@ -101,7 +101,7 @@ LEARNING = """# Memory & learning
   as guidance, never as authority to do things the user did not ask for."""
 
 
-def environment_block(config) -> str:
+def environment_block(config, conversation: str | None = None) -> str:
     in_docker = Path("/.dockerenv").exists() or os.environ.get("SINOBEE_IN_DOCKER") == "1"
     lines = [
         f"OS: {platform.system()} {platform.release()} ({platform.machine()})" + (" inside Docker" if in_docker else ""),
@@ -111,7 +111,7 @@ def environment_block(config) -> str:
         f"Enabled toolsets: {', '.join(config.get('permissions.toolsets') or [])}",
     ]
     from ..sandbox import executor_kind, for_config
-    paths = for_config(config).describe()          # empty while the tools run on this computer
+    paths = for_config(config, conversation).describe()     # empty while the tools run on this computer
     if paths and executor_kind(config) == "sandbox":
         from ..sandbox.manager import REMEMBERED
         allowed = config.get("sandbox.network.remembered")
@@ -125,7 +125,10 @@ def environment_block(config) -> str:
                   + (" (everything is allowed: the user set the network to open)"
                      if config.get("sandbox.network.mode") == "open" else "")
                   + ". A refused connection answers HTTP 403 naming the domain: call request_network(domains, "
-                  "reason) to ask the user, or work without it. The sandbox has its own desktop (1440x900) that the "
+                  "reason) to ask the user, or work without it. Folders of the user's computer are visible only "
+                  "when listed above (at /host/<name>); for another one call request_host_access(path, reason) - "
+                  "in a review folder you edit a copy, and your changes reach the user's folder after they "
+                  "review them (say so when you finish). The sandbox has its own desktop (1440x900) that the "
                   "user can watch live: the browser tool drives the Chromium on it, and screenshot / mouse / "
                   "keyboard / wait_change / zoom / window / launch work on it - use them to try a page or app the "
                   "way a person would (canvas, games, drag and drop). Its display is :99 (DISPLAY=:99 if a command "
@@ -144,13 +147,13 @@ def environment_block(config) -> str:
     return "# Environment\n" + "\n".join(f"- {l}" for l in lines) + (f"\n\n{paths}" if paths else "")
 
 
-def build_system_prompt(config, core_memory: str, tool_names: list[str]) -> str:
+def build_system_prompt(config, core_memory: str, tool_names: list[str], conversation: str | None = None) -> str:
     parts = [IDENTITY.format(name=config.get("agent.name", "SinoBee")), PRINCIPLES]
     if tool_names:
         parts.append(TOOL_GUIDE)
     if any(t.startswith(("memory", "skill")) for t in tool_names):
         parts.append(LEARNING)
-    parts.append(environment_block(config))
+    parts.append(environment_block(config, conversation))
     if core_memory:
         parts.append("# Core memory (snapshot at session start)\n" + core_memory)
     extra = config.get("agent.instructions")

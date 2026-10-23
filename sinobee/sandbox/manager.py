@@ -296,6 +296,24 @@ class SandboxManager:
         out.append((bundled_skills_dir(), "/sinobee/bundled_skills", "ro"))
         return out
 
+    def folder_mounts(self, conversation: str) -> list[tuple[Path, str, str]]:
+        """This conversation's folders of this computer (folders.py): /host is its staging folder (review copies are
+        made there and show up at once); read-only and read/write folders are bind mounts over /host/<name>."""
+        from .folders import conv_dir, folders_for
+        stage = conv_dir(self.config, conversation) / "host"
+        stage.mkdir(parents=True, exist_ok=True)
+        out = [(stage.resolve(), "/host", "rw")]
+        for f in folders_for(self.config, conversation):
+            if f["mode"] in ("ro", "rw") and Path(f["path"]).is_dir():
+                out.append((Path(f["path"]), f"/host/{f['name']}", f["mode"]))
+        return out
+
+    def mount_key(self, conversation: str) -> str:
+        """Changes when the container's mounts must change (a folder granted read-only or read/write)."""
+        import hashlib
+        spec = [(str(h), i, m) for h, i, m in self.folder_mounts(conversation)]
+        return hashlib.sha1(json.dumps(spec).encode()).hexdigest()[:12]
+
     async def ensure(self, conversation: str) -> Box:
         """The conversation's sandbox, running and allowed out as its policy says."""
         box = self.boxes.get(conversation)
@@ -313,11 +331,20 @@ class SandboxManager:
             await self._networks()
             await self._egress_ready()
             name = self.name_of(conversation)
-            rc, out, _ = await docker("inspect", "-f", "{{.State.Running}} {{.Image}}", name, timeout=20)
-            if rc == 0 and out.split()[1:] and out.split()[1] != await self._image_id():
-                # the image was rebuilt (a new SinoBee): a new container on it; the home volume stays
+            rc, out, _ = await docker("inspect", "-f",
+                                      "{{.State.Running}} {{.Image}} {{index .Config.Labels \"org.sinobee.mounts\"}}",
+                                      name, timeout=20)
+            parts = out.split()
+            if rc == 0 and len(parts) > 1 and (parts[1] != await self._image_id()
+                                               or (parts[2] if len(parts) > 2 else "") != self.mount_key(conversation)):
+                # the image was rebuilt (a new SinoBee) or a folder was granted: a new container; the home volume
+                # stays, what ran in the old one stops
                 await docker("rm", "-f", name, timeout=60)
+                self._close_bridges(conversation)
                 rc = 1
+            from .staging import ensure_copies          # review folders added since: their copies appear at once
+            for err in await asyncio.to_thread(ensure_copies, self.config, conversation):
+                log.warning("review copy: %s", err)
             if rc != 0:
                 await self._create(conversation, name)
             elif out.split()[0] != "true":
@@ -388,6 +415,20 @@ class SandboxManager:
         self._bridges[key] = srv
         return srv.sockets[0].getsockname()[1]
 
+    async def refresh(self, conversation: str) -> bool:
+        """After a folder grant: check the container again now; True when it had to be replaced (its programs and
+        browser stopped). Review copies need nothing: they appear under /host at once."""
+        self._checked.pop(conversation, None)
+        name = self.name_of(conversation)
+        rc, out, _ = await docker("inspect", "-f", "{{index .Config.Labels \"org.sinobee.mounts\"}}", name, timeout=20)
+        if rc != 0 or out.strip() == self.mount_key(conversation):
+            return False
+        from ..tools import browser
+        await browser.forget_sandbox(conversation)
+        self.boxes.pop(conversation, None)
+        await self.ensure(conversation)
+        return True
+
     def _close_bridges(self, conversation: str) -> None:
         for key in [k for k in self._bridges if k[0] == conversation]:
             try:
@@ -409,8 +450,9 @@ class SandboxManager:
                 "--user", "1000:1000", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                 "--cpus", cpus, "--memory", mem, "--pids-limit", str(self.config.get("sandbox.pids", 1024) or 1024),
                 "--shm-size", "512m",
+                "--label", f"org.sinobee.mounts={self.mount_key(conversation)}",
                 "-v", f"sinobee-home-{safe(conversation)}:/home/bee"]
-        for host, inner, mode in self.mounts():
+        for host, inner, mode in self.mounts() + self.folder_mounts(conversation):
             args += ["-v", f"{host}:{inner}" + (":ro" if mode == "ro" else "")]
         proxy = "http://egress:3128"
         for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):

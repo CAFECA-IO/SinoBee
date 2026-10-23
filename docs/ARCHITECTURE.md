@@ -2043,3 +2043,28 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   `media.thumbnail` 從約十分之一處取一格，快取在 `~/.sinobee/cache/video-thumbs/`）、播放圖示與長度、檔名、大小 · 長度
   （`/api/files/info` 對影片多回 `duration`、`width`、`height`）、「檢視」與「下載」。點縮圖或「檢視」在檢視器裡播放
   （以縮圖當 poster）。沒有 ffmpeg 也沒有沙盒映像時卡片只顯示深色底，仍可檢視與下載。
+
+## 51. 沙盒計畫 E：本機資料夾（2026-10-23）
+
+- **哪些資料夾**（`sandbox/folders.py`）：設定 →「本機資料夾」的 `sandbox.folders` 給所有對話；對話中 SinoBee 用
+  `request_host_access(path, mode, reason)` 申請，你選「只這個對話」（存在 `~/.sinobee/sandbox/<對話>/grants.json`）或
+  「加入常用資料夾」。同一個資料夾對話自己的授權優先。家目錄本身、磁碟根目錄與系統資料夾、存放帳號金鑰的位置
+  （.ssh、.aws、.gnupg、.kube、.docker、gcloud、Keychains…）以及包含它們的資料夾、SinoBee 自己的資料，一律不能授權。
+- **三種方式**：審核後寫回（預設）、唯讀、直接寫入。沙盒裡都在 `/host/<名稱>`；系統提示詞列出對照表（顯示你的原路徑）。
+- **掛載**：每個對話的容器把 `~/.sinobee/sandbox/<對話>/host` 掛在 `/host`。審核模式的資料夾在那裡做副本
+  （macOS 用 APFS clone `cp -c`，幾乎不佔空間；Linux 用 reflink 或一般複製），所以授權後立刻看得到，不必重建容器。
+  唯讀與直接寫入是 bind mount（`/host/<名稱>`）：容器的 label `org.sinobee.mounts` 記錄掛載組合，改變時
+  `manager.refresh` 重建容器（家目錄 volume 保留，裡面跑的程式與瀏覽器會停，工具結果會告訴代理）。超過
+  `sandbox.review_max_files`（5 萬）個檔案的資料夾不做副本，只能唯讀或直接寫入。
+- **路徑**：`PathMap` 的審核掛載 `host` 是副本、`origin` 是你的資料夾；代理寫你的原路徑（`~/Documents/報告/a.md`）也會
+  轉到副本，原資料夾在套用前完全不動。GUI 可開啟副本與已授權資料夾裡的檔案（`fileaccess.allowed_roots`）。
+- **變更審核**（`sandbox/staging.py`）：副本建立時記下基準（每個檔案的大小、修改時間、SHA-256）。回合結束時比對副本，
+  列出新增、修改、刪除（文字檔附差異）；原檔在這段期間被你改過的標為「衝突」，只有勾「仍以副本覆蓋」才會套用。
+  套用前保存被取代的原檔（`applied/<id>/`），刪除一律移到垃圾桶；「復原」還原整批。捨棄則把原檔內容放回副本。
+- **介面**：回合結束有變更時，對話下方出現「本機檔案變更 N 個 · 審核變更」；側欄對話旁標「● N 待審」。審核視窗
+  逐檔勾選、看差異、套用／捨棄，下方列出最近套用與「復原」。API：`GET /api/sandbox/{sid}/changes`、
+  `POST …/changes/apply|discard|undo`、`GET /api/sandbox-pending`；事件 `host_changes`。
+- **升級時**：容器多了 `/host` 掛載與 label，既有的沙盒會在下次使用時重建一次（家目錄 volume 保留）。
+- **測試**：`tests/test_sandbox_e.py` 14 項（不能授權的位置、全域與對話授權、路徑對照、變更清單與差異、套用＋垃圾桶＋
+  復原、衝突不自動覆蓋、捨棄、申請流程三種回答與重建、設定 API、審核 API、GUI 檔案存取；Docker：沙盒改副本不動
+  原檔、唯讀資料夾授權後重建容器且副本的修改保留）。

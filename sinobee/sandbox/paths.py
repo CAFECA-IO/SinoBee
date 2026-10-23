@@ -31,6 +31,7 @@ class Mount:
     inner: PurePosixPath     # where the tools see it
     mode: str = "rw"
     label: str = ""
+    origin: Path | None = None   # review mode: the user's folder; `host` is then the copy the tools work on
 
     def contains_host(self, p: Path) -> bool:
         return p == self.host or self.host in p.parents
@@ -63,6 +64,11 @@ class PathMap:
         p = Path(s).expanduser()
         if not p.is_absolute():
             return Path(base or self.workspace or Path.cwd()) / p
+        for m in self.mounts:                 # the user's own path of a review folder means its copy
+            if m.origin is not None:
+                h = _norm_host(p)
+                if h == m.origin or m.origin in h.parents:
+                    return m.host.joinpath(*h.relative_to(m.origin).parts)
         if self.mounts:
             inner = PurePosixPath(posixpath.normpath(s))     # /workspace/../etc is /etc, not in the workspace
             for m in self.mounts:
@@ -78,9 +84,10 @@ class PathMap:
             return str(p)
         h = _norm_host(p)
         for m in sorted(self.mounts, key=lambda m: len(m.host.parts), reverse=True):
-            if m.contains_host(h):
-                rel = h.relative_to(m.host)
-                return str(m.inner.joinpath(*rel.parts)) if rel.parts else str(m.inner)
+            for root in (m.host, m.origin):
+                if root is not None and (h == root or root in h.parents):
+                    rel = h.relative_to(root)
+                    return str(m.inner.joinpath(*rel.parts)) if rel.parts else str(m.inner)
         return str(p)
 
     def visible(self, path: str | os.PathLike) -> bool:
@@ -113,9 +120,10 @@ class PathMap:
         home = str(Path.home())
         rows = []
         for m in sorted(self.mounts, key=lambda m: str(m.inner)):
-            host = str(m.host)
+            host = str(m.origin or m.host)
             host = "~" + host[len(home):] if host.startswith(home + "/") or host == home else host
-            how = {"rw": "read/write", "ro": "read-only", "review": "writes go to a copy the user reviews"}[m.mode]
+            how = {"rw": "read/write", "ro": "read-only",
+                   "review": "a copy: your changes reach the user's folder after they review them"}[m.mode]
             rows.append(f"- {m.inner} = {host} ({how})")
         return ("Your tools run in a sandbox. Paths there differ from the user's computer:\n" + "\n".join(rows) +
                 "\nUse the sandbox paths in commands; paths of the user's computer given to file tools are "
@@ -146,15 +154,23 @@ def sandbox_map(workspace: Path, folders: list[dict] | None = None,
             name, k = f"{base}-{k}", k + 1
         used.add(name)
         mode = f.get("mode") if f.get("mode") in MODES else "review"
-        mounts.append(Mount(host, PurePosixPath("/host") / name, mode, name))
+        if mode == "review" and f.get("stage"):          # the tools work on the copy (staging.py)
+            mounts.append(Mount(_norm_host(Path(f["stage"])), PurePosixPath("/host") / name, mode, name, origin=host))
+        else:
+            mounts.append(Mount(host, PurePosixPath("/host") / name, mode, name))
     return PathMap(mounts, ws)
 
 
-def for_config(config) -> PathMap:
-    """The map the tools of this configuration use: no mounts while they run on this computer."""
+def for_config(config, conversation: str | None = None) -> PathMap:
+    """The map the tools of this configuration use: no mounts while they run on this computer. In the sandbox:
+    the workspace, the skills, and the folders this conversation may see (folders.py), review ones by their copy."""
     from .executor import executor_kind
     ws = getattr(config, "workspace", None)
     if executor_kind(config) == "sandbox":
+        from .folders import folders_for
         from .manager import manager_for
-        return sandbox_map(ws, config.get("sandbox.folders") or [], manager_for(config).mounts())
+        from .staging import copy_dir
+        folders = [{**f, "stage": str(copy_dir(config, conversation or "default", f["name"]))}
+                   if f["mode"] == "review" else f for f in folders_for(config, conversation)]
+        return sandbox_map(ws, folders, manager_for(config).mounts())
     return PathMap(workspace=ws)

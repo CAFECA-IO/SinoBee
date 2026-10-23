@@ -15,6 +15,15 @@ class FileAccessError(Exception):
 
 def allowed_roots(config) -> list[Path]:
     roots = [config.workspace, config.project_dir] + [Path(p) for p in (config.get("permissions.allowed_paths") or [])]
+    # the sandbox's folders of this computer (Settings → 本機資料夾) and the review copies of them
+    roots += [Path(str(f.get("path"))) for f in (config.get("sandbox.folders") or []) if f.get("path")]
+    roots.append(Path(config.home) / "sandbox")
+    import json as _json
+    for g in (Path(config.home) / "sandbox").glob("*/grants.json"):      # folders one conversation was given
+        try:
+            roots += [Path(str(x["path"])) for x in _json.loads(g.read_text(encoding="utf-8")) if x.get("path")]
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
     out = []
     for r in roots:
         try:
@@ -32,7 +41,9 @@ def resolve_file(config, path: str) -> Path:
         raise FileAccessError(404, "file not found") from None
     p = p.resolve()
     home = config.home.resolve()
-    if p.name in PRIVATE_NAMES or (home in p.parents and config.workspace.resolve() not in [p, *p.parents]):
+    copies = home / "sandbox"
+    shown = config.workspace.resolve() in [p, *p.parents] or (copies in p.parents and "host" in p.relative_to(copies).parts[1:2])
+    if p.name in PRIVATE_NAMES or (home in p.parents and not shown):
         raise FileAccessError(403, "this file is private to SinoBee")
     if not any(p == r or r in p.parents for r in allowed_roots(config)):
         raise FileAccessError(403, "file is outside the workspace / allowed paths")

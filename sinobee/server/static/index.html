@@ -609,6 +609,20 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .tb-more{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
 .tb-det{margin-top:6px}.tb-notes{margin:2px 0 6px;padding-left:18px;color:var(--muted);font-size:12.5px}.tbub .askcard{margin:6px 0 10px}
 .tb-other summary{cursor:pointer;color:var(--muted);font-size:12.5px;margin:4px 0}
+.frow select{max-width:140px}.fadd{gap:8px}.fadd .inp{flex:1;min-width:0}.mono{font-family:var(--mono,monospace);font-size:11.5px;overflow-wrap:anywhere}
+.hostbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 12px;padding:10px 14px;border:1px solid var(--warn);border-radius:10px;background:var(--panel);font-size:13.5px}
+.hostbar svg.i{width:18px;height:18px;flex:none;color:var(--warn)}.hostbar b{color:var(--ink)}.hostbar .sd{color:var(--muted);font-size:12px}.hostbar .btn{margin-left:auto}
+.hc-dot{display:inline-block;margin-left:6px;font-size:11px;color:var(--warn)}
+#hostModal .card{max-width:860px;width:100%;max-height:88vh;display:flex;flex-direction:column}#hcBody{overflow:auto;flex:1;min-height:0}
+.hc-f{margin:10px 0 16px}.hc-fh{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}.hc-fh .sd{font-size:12px;color:var(--muted)}.hc-fh .acts{margin-left:auto;display:flex;gap:6px}
+.hc-row{border:1px solid var(--line);border-radius:8px;margin:5px 0;background:var(--panel)}.hc-row.conflict{border-color:var(--warn)}
+.hc-rh{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:13px}.hc-rh .p{flex:1;min-width:0;overflow-wrap:anywhere;font-family:var(--mono,monospace);font-size:12.5px}
+.hc-k{font-size:11px;padding:1px 6px;border-radius:5px;border:1px solid var(--line);white-space:nowrap}.hc-k.added{color:var(--ok);border-color:var(--ok)}.hc-k.deleted{color:var(--err);border-color:var(--err)}.hc-k.modified{color:var(--accent);border-color:var(--accent)}
+.hc-cf{font-size:12px;color:var(--warn)}.hc-cf label{white-space:nowrap}
+.hc-row details{padding:0 10px 8px}.hc-row summary{cursor:pointer;font-size:12px;color:var(--muted)}
+.hc-diff{margin:6px 0 0;max-height:320px;overflow:auto;font-size:12px;line-height:1.45;background:var(--bg);border-radius:6px;padding:8px}
+.hc-diff .a{color:var(--ok)}.hc-diff .d{color:var(--err)}.hc-diff .h{color:var(--muted)}
+.hc-hist{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:6px}.hc-hist div{display:flex;gap:8px;align-items:center;margin:4px 0}
 .tb-ev summary{cursor:pointer;color:var(--muted);font-size:12.5px;margin:6px 0 4px}.tb-ev summary a{margin-left:8px;color:var(--accent)}
 .tb-ev summary .bad{color:var(--err)}.tb-ev summary .ok{color:var(--ok)}
 .ev-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:4px 0 8px}
@@ -977,6 +991,10 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
         <div class="grp"><div class="grp-h">沙盒的網路<span class="grp-d">只在「沙盒」模式使用：沙盒預設不能連網，只能連到下列網域；需要其他網域時 SinoBee 會先問你</span></div>
           <div class="srow"><div class="sl"><b>連網方式</b></div><select id="pNetMode"><option value="ask">只允許下列網域，其他先問我（建議）</option><option value="open">一律允許</option></select></div>
           <div class="srow"><div class="sl"><b>已記住的網域</b><span class="sd">每行一個；網域也包含它的子網域</span></div><textarea id="pNetDomains" rows="4" style="width:100%;font-family:var(--mono,monospace);font-size:12px"></textarea></div></div>
+        <div class="grp"><div class="grp-h">本機資料夾<span class="grp-d">只在「沙盒」模式使用：沙盒只看得到工作區與這裡的資料夾（在 /host/名稱）；對話中 SinoBee 也可以向你申請</span></div>
+          <div id="pFolders"></div>
+          <div class="srow fadd"><input id="pFolderPath" class="inp" placeholder="例如 ~/Documents/報告" aria-label="資料夾路徑"><select id="pFolderMode" aria-label="使用方式"><option value="review">審核後寫回</option><option value="ro">唯讀</option><option value="rw">直接寫入</option></select><button class="btn" id="pFolderAdd" type="button">加入</button></div>
+          <div class="sd">審核後寫回（建議）：沙盒改的是副本，你看過變更再寫回原資料夾。唯讀：只能讀。直接寫入：修改直接進原資料夾，適合有 git 的專案。家目錄、系統資料夾與存放金鑰的資料夾不能加入；按「儲存」後生效。</div></div>
         <div class="grp"><div class="grp-h">SinoBee 可以使用的能力<span class="grp-d">關掉後模型就看不到這類工具</span><span class="lock" data-lock="permissions.toolsets"></span></div>
           <div id="pToolsets"></div></div>
       </section>
@@ -1146,6 +1164,12 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
   <div class="dhead"><h3 id="jfTitle">新增工作</h3><span class="badge" id="jfMsg"></span></div>
   <div id="jfBody" class="migbody"></div>
   <div class="row"><span style="flex:1"></span><button class="btn" id="jfCancel" type="button">取消</button><button class="btn primary" id="jfSave" type="button">儲存</button></div>
+</div></div>
+<div class="modal" id="hostModal"><div class="card wide">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 style="margin:0">本機檔案變更</h3><span class="badge" id="hcState"></span></div>
+  <p style="font-size:13px;color:var(--muted);margin:4px 0 8px">沙盒在你資料夾的副本上做了這些修改。勾選要寫回的檔案；套用前會先保存原檔，刪除的檔案移到垃圾桶，都可以復原。</p>
+  <div id="hcBody"></div>
+  <div class="row"><button class="btn" id="hcClose" type="button">稍後再說</button><button class="btn" id="hcDiscard" type="button">捨棄選取</button><button class="btn primary" id="hcApply" type="button">套用選取</button></div>
 </div></div>
 <div class="modal" id="shareModal"><div class="card wide" style="max-width:720px">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 style="margin:0" id="shHead">分享對話</h3><span class="badge" id="shState"></span></div>
@@ -2132,6 +2156,7 @@ function handle(ev, replay = false){
       add('ⓘ 已收到，會在目前這一步結束後納入。', 'note'); break;
     case 'steer_applied': add('✓ 已把你的補充納入任務', 'note'); break;
     case 'artifact': showArtifacts(ev.id, ev.files); break;
+    case 'host_changes': hostBar(ev.session_id, ev.count); break;
     case 'evidence': if (ev.items?.length) { const g = procGroup(); const d = document.createElement('div'); d.innerHTML = evStrip(ev.items, null, true); g.body.appendChild(d); } break;
     case 'turn_start': if (!replay) { if (TB && TB.open) tbEnd(); tbStart(); } break;
     case 'timeline': tbOnTimeline(ev); break;
@@ -2203,6 +2228,7 @@ function handle(ev, replay = false){
           b.innerHTML = ic('refresh') + ' 復原本輪的檔案變更'; b.title = `把這一輪修改的 ${ev.snapshot.files} 個檔案還原`;
           b.onclick = () => restoreTurn(b, ev.snapshot); c.appendChild(b); } }
       if (TB && TB.open) tbEnd(ev);
+      if (!replay && ev.host_changes) hostBar(sessionId, ev.host_changes.count);
       if (!replay && ev.usage?.quota) quotaFromTurn(ev.usage.quota);
       if (ev.error?.quota && !replay) showQuotaModal(ev.error.quota, ev.error.model);
       loadSide(); refreshStatus(false); break; }
@@ -2462,6 +2488,7 @@ async function openSession(s){
   REPLAY = false; if (replayLast && RUNNING[s.id]) { replayLast.live = true; }
   evSessionCard(s.id);
   for (const a of Array.isArray(arts) ? arts : []) showArtifacts(a.id, a.files);
+  if (!RUNNING[s.id]) hostCheck(s.id);
   if (!RUNNING[s.id]) api('/api/sessions/' + s.id + '/interrupted').then(r => {
     if (sessionId !== s.id) return;
     if (r?.interrupted) interruptedCard(r);
@@ -2541,10 +2568,11 @@ async function fillMemory(side){
 }
 async function fillSide(side){
   if (tab === 'sessions') {
+    const waiting = await api('/api/sandbox-pending').catch(() => ({}));
     for (const s of await api('/api/sessions')) {
       const d = document.createElement('div'); d.className = 'item' + (s.id === sessionId ? ' on' : ''); d.dataset.sid = s.id;
       if (s.id === sessionId) d.setAttribute('aria-current', 'true');
-      d.innerHTML = `${esc(s.title || s.id)}${RUNNING[s.id] ? '<span class="run-dot">● 執行中</span>' : ''}<small>${new Date(s.updated_at * 1000).toLocaleString()} · ${s.message_count} 則</small>`;
+      d.innerHTML = `${esc(s.title || s.id)}${RUNNING[s.id] ? '<span class="run-dot">● 執行中</span>' : ''}${waiting?.[s.id] ? `<span class="hc-dot" title="本機檔案變更等你審核">● ${waiting[s.id]} 待審</span>` : ''}<small>${new Date(s.updated_at * 1000).toLocaleString()} · ${s.message_count} 則</small>`;
       d.onclick = () => openSession(s); side.appendChild(d);
     }
     markEvalSide();
@@ -3755,6 +3783,7 @@ function renderSettings(){
   const sb = SET.sandbox || {};
   $('#pNetMode').value = (sb.network || {}).mode || 'ask';
   $('#pNetDomains').value = ((sb.network || {}).remembered || []).join('\n');
+  FOLDERS = (sb.folders || []).map(f => ({...f})); renderFolders();
   $('#pSandboxNote').textContent = SET.permissions.approval === 'sandbox' && sb.unavailable
     ? `⚠︎ 沙盒目前無法使用：${sb.unavailable}。在那之前改在本機執行，危險操作仍會先問你。需要 Docker Desktop，並在終端機執行 sinobee sandbox build。`
     : (SET.permissions.approval === 'sandbox' ? `沙盒執行中（映像 ${sb.image || ''}）` : '');
@@ -3994,12 +4023,79 @@ async function openSettings(firstRun = false, pane = null){
   if (pane || firstRun || SET.needs_setup) showPane(pane || 'model'); $('#setSaved').textContent = ''; $('#testResult').textContent = '';
   $('#settings').classList.add('open');
 }
+// ---------- 本機檔案變更: what the sandbox changed in the copies of your folders (sandbox/staging.py) ----------
+const HC_KIND = {added: '新增', modified: '修改', deleted: '刪除'};
+let HC = {sid: null, data: null};
+function hostBar(sid, count){
+  document.querySelectorAll('#chat .hostbar').forEach(b => b.remove());
+  if (!count || sid !== sessionId) return;
+  const d = add(`${ic('file')}<b>本機檔案變更 ${count} 個</b><span class="sd">審核後才會寫回你的資料夾</span><button class="btn sm primary" type="button">審核變更</button>`, 'hostbar');
+  d.querySelector('button').onclick = () => openHostReview(sid);
+}
+async function hostCheck(sid){ try { const r = await api(`/api/sandbox/${encodeURIComponent(sid)}/changes`); if (sid === sessionId) hostBar(sid, r.count || 0); } catch {} }
+const diffHtml = t => esc(t).split('\n').map(l => `<span class="${/^(\+\+\+|---|@@)/.test(l) ? 'h' : l[0] === '+' ? 'a' : l[0] === '-' ? 'd' : ''}">${l}</span>`).join('\n');
+async function openHostReview(sid){
+  HC = {sid, data: null}; $('#hcBody').innerHTML = '<div class="sd"><span class="spin"></span> 比對中…</div>'; $('#hcState').textContent = ''; $('#hostModal').classList.add('open');
+  const r = await api(`/api/sandbox/${encodeURIComponent(sid)}/changes`); HC.data = r;
+  const home = (r.folders[0]?.origin || '').match(/^\/(Users|home)\/[^/]+/)?.[0];
+  const short = p => home && p.startsWith(home) ? '~' + p.slice(home.length) : p;
+  let html = r.folders.filter(f => f.changes.length).map(f => `<div class="hc-f" data-f="${esc(f.name)}"><div class="hc-fh"><b>${esc(f.name)}</b><span class="sd mono">${esc(short(f.origin))}</span><span class="sd">${f.changes.length} 個變更</span>`
+    + `<span class="acts"><button class="btn sm" type="button" data-all="1">全選</button></span></div>`
+    + f.changes.map(c => `<div class="hc-row${c.conflict ? ' conflict' : ''}" data-p="${esc(c.path)}"><div class="hc-rh"><input type="checkbox" class="hc-pick"${c.conflict ? '' : ' checked'} aria-label="選取 ${esc(c.path)}">`
+      + `<span class="hc-k ${c.kind}">${HC_KIND[c.kind]}</span><span class="p">${esc(c.path)}</span>${c.size != null ? `<span class="sd">${fmtSize(c.size)}</span>` : ''}</div>`
+      + (c.conflict ? `<div class="hc-cf" style="padding:0 10px 6px">⚠︎ 副本做出後你也改過原檔。<label><input type="checkbox" class="hc-force"> 仍以副本覆蓋（原檔會先保存，可復原）</label></div>` : '')
+      + (c.diff ? `<details${r.count <= 3 ? ' open' : ''}><summary>差異</summary><pre class="hc-diff">${diffHtml(c.diff)}</pre></details>` : c.binary ? '<details><summary>二進位檔，沒有文字差異</summary></details>' : '')
+      + `</div>`).join('') + `</div>`).join('');
+  if (!html) html = '<div class="sd">沒有等你審核的變更。</div>';
+  const hist = (r.applied || []).filter(b => b.id);
+  if (hist.length) html += `<div class="hc-hist"><b>最近套用</b>${hist.map(b => `<div><span>${new Date(b.t * 1000).toLocaleString()} · ${esc(b.folder)} · ${b.files} 個檔案</span>${b.undone ? '<span>（已復原）</span>' : `<button class="btn sm" type="button" data-undo="${esc(b.id)}">復原</button>`}</div>`).join('')}</div>`;
+  $('#hcBody').innerHTML = html;
+  $('#hcBody').querySelectorAll('[data-all]').forEach(b => b.onclick = () => b.closest('.hc-f').querySelectorAll('.hc-row:not(.conflict) .hc-pick').forEach(x => x.checked = true));
+  $('#hcBody').querySelectorAll('.hc-force').forEach(x => x.onchange = () => { if (x.checked) x.closest('.hc-row').querySelector('.hc-pick').checked = true; });
+  $('#hcBody').querySelectorAll('[data-undo]').forEach(b => b.onclick = async () => {
+    if (!await uiConfirm('把這次套用寫回的檔案還原成套用前的樣子？（新增的檔案會移到垃圾桶）')) return;
+    const j = await post(`/api/sandbox/${encodeURIComponent(sid)}/changes/undo`, {id: b.dataset.undo}); hcDone(`已復原 ${j.restored.length} 個檔案`, j.pending); });
+  $('#hcApply').disabled = $('#hcDiscard').disabled = !r.count;
+}
+function hcPicked(){
+  return [...document.querySelectorAll('#hcBody .hc-f')].map(f => ({folder: f.dataset.f,
+    paths: [...f.querySelectorAll('.hc-row')].filter(r => r.querySelector('.hc-pick').checked).map(r => r.dataset.p),
+    force: [...f.querySelectorAll('.hc-row')].filter(r => r.querySelector('.hc-force')?.checked).map(r => r.dataset.p)})).filter(x => x.paths.length);
+}
+function hcDone(msg, pending){
+  $('#hcState').textContent = msg; hostBar(HC.sid, pending); loadSide(); openHostReview(HC.sid).then(() => $('#hcState').textContent = msg);
+}
+$('#hcClose').onclick = () => $('#hostModal').classList.remove('open');
+$('#hcApply').onclick = async () => { const sel = hcPicked(); if (!sel.length) return;
+  let ok = 0, skipped = [], pending = 0;
+  for (const s of sel) { const j = await post(`/api/sandbox/${encodeURIComponent(HC.sid)}/changes/apply`, s); ok += j.applied.length; skipped.push(...j.conflicts); pending = j.pending; }
+  hcDone(`已寫回 ${ok} 個檔案` + (skipped.length ? `，${skipped.length} 個衝突沒有套用` : ''), pending); };
+$('#hcDiscard').onclick = async () => { const sel = hcPicked(); if (!sel.length) return;
+  if (!await uiConfirm(`捨棄選取的 ${sel.reduce((n, s) => n + s.paths.length, 0)} 個變更？副本會換回原檔的內容。`)) return;
+  let n = 0, pending = 0;
+  for (const s of sel) { const j = await post(`/api/sandbox/${encodeURIComponent(HC.sid)}/changes/discard`, {folder: s.folder, paths: s.paths}); n += j.discarded.length; pending = j.pending; }
+  hcDone(`已捨棄 ${n} 個變更`, pending); };
+
+// ---------- Settings → 本機資料夾 (sandbox/folders.py) ----------
+let FOLDERS = [];
+const FMODE = {review: '審核後寫回', ro: '唯讀', rw: '直接寫入'};
+function renderFolders(){
+  const box = $('#pFolders'); if (!box) return;
+  box.innerHTML = FOLDERS.length ? FOLDERS.map((f, i) => `<div class="srow frow"><div class="sl"><b>/host/${esc(f.name || '')}</b><span class="sd mono">${esc(f.path)}${f.exists === false ? '（找不到）' : ''}</span></div>`
+    + `<select data-i="${i}" aria-label="使用方式">${Object.entries(FMODE).map(([k, v]) => `<option value="${k}"${f.mode === k ? ' selected' : ''}>${v}</option>`).join('')}</select>`
+    + `<button class="btn sm" type="button" data-rm="${i}">移除</button></div>`).join('') : '<div class="sd">還沒有加入資料夾</div>';
+  box.querySelectorAll('select[data-i]').forEach(s => s.onchange = () => { FOLDERS[+s.dataset.i].mode = s.value; });
+  box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { FOLDERS.splice(+b.dataset.rm, 1); renderFolders(); });
+}
+$('#pFolderAdd').onclick = () => { const path = $('#pFolderPath').value.trim(); if (!path) return;
+  FOLDERS.push({path, mode: $('#pFolderMode').value, name: path.replace(/\/+$/, '').split('/').pop()}); $('#pFolderPath').value = ''; renderFolders(); };
 function collectSettings(){
   const body = {agent: {verify: true, quality: $('#aQuality').value, plan: $('#aPlan').value}, model: {default: $('#mDefault').value, fallbacks: $('#mFallbacks').value,
                         preference: $('#rPref .on')?.dataset.p || 'balanced', pin: $('#rPin').value, auxiliary: $('#mAux').value, thinking: $('#mEsc').value, reviewer: $('#mRev').value,
                         embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto', max_output_tokens: $('#mOut').value.trim() || 'auto'},
                 permissions: {approval: $('#pApproval').value, toolsets: [...document.querySelectorAll('#pToolsets input:checked')].map(i => i.value)},
-                sandbox: {network: {mode: $('#pNetMode').value, remembered: $('#pNetDomains').value.split(/\s+/).filter(Boolean)}},
+                sandbox: {network: {mode: $('#pNetMode').value, remembered: $('#pNetDomains').value.split(/\s+/).filter(Boolean)},
+                          folders: FOLDERS.map(f => ({path: f.path, mode: f.mode, name: f.name}))},
                 usage: {daily_budget_usd: $('#uDaily').value, monthly_budget_usd: $('#uMonthly').value,
                         task_max_usd: $('#uTaskUsd').value, task_max_tokens: $('#uTaskTok').value, task_max_quota_pct: $('#uTaskQuota').value, currency: $('#uCurrency').value,
                         currency_rate: $('#uRate').value, enforce_budget: $('#uEnforce').checked},

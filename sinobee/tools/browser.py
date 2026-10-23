@@ -397,6 +397,17 @@ async def browser(ctx: ToolContext, action: str, url: str | None = None, ref: st
     return f"ERROR: unknown action '{action}'"
 
 
+async def forget_sandbox(conversation: str) -> None:
+    """The conversation's sandbox was replaced (a folder was granted): its browser connection is gone with it."""
+    st = _states.pop(f"sandbox:{conversation}", None)
+    if st and st.get("loop") is asyncio.get_running_loop():
+        try:
+            if st.get("pw") is not None:
+                await st["pw"].stop()
+        except Exception:
+            pass
+
+
 async def shutdown():
     loop = asyncio.get_running_loop()
     for st in list(_states.values()):

@@ -204,6 +204,9 @@ class SandboxExecutor(Executor):
 
     def check(self, p: Path, write: bool = False) -> None:
         m = self.paths.mount_of(p)
+        if m is not None and m.origin is not None and not m.host.exists():     # a review copy not made yet
+            from .staging import ensure_copies
+            ensure_copies(self.config, self.conversation)
         if m is None:
             raise PermissionError(f"{p} is not in the sandbox: only /workspace and folders the user authorised are "
                                   "there. Ask the user to attach the file or to authorise its folder.")
@@ -368,7 +371,7 @@ def make_executor(config, conversation: str = "") -> Executor:
     from .paths import for_config
     if executor_kind(config) == "sandbox":
         from .manager import manager_for
-        return SandboxExecutor(config, for_config(config), conversation, manager_for(config))
+        return SandboxExecutor(config, for_config(config, conversation), conversation, manager_for(config))
     return HostExecutor(config, for_config(config))
 
 

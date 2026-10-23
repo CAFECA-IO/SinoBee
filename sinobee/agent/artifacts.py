@@ -53,10 +53,11 @@ def candidates(tool: str, args: dict, text: str) -> list[str]:
     return out
 
 
-def collect(config, tool: str, args: dict, text: str, seen: set[str], since: float | None = None) -> list[dict]:
+def collect(config, tool: str, args: dict, text: str, seen: set[str], since: float | None = None,
+            conversation: str | None = None) -> list[dict]:
     """Existing, viewable files mentioned by a tool call that were not reported before (newest first)."""
     from ..sandbox import for_config
-    pmap = for_config(config)
+    pmap = for_config(config, conversation)
     found = []
     # folders named in the arguments (e.g. `render videos/duel`) are bases for paths the script prints relative
     bases = []

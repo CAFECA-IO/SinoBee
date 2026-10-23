@@ -4,6 +4,11 @@
     POST /api/sandbox/{sid}/takeover {on}      you take over the desktop (the agent's desktop/browser tools wait)
     WS   /api/sandbox/{sid}/vnc?token=          the desktop: VNC over a WebSocket (noVNC in the page)
     ANY  /api/sandbox/{sid}/preview/{port}/... a web server running in the sandbox, in your own browser
+    GET  /api/sandbox/{sid}/changes            changes waiting for review in the copies of your folders (staging.py)
+    POST /api/sandbox/{sid}/changes/apply      {folder, paths?, force?}  bring them to your folder
+    POST /api/sandbox/{sid}/changes/discard    {folder, paths?}          drop them (the copy gets the original back)
+    POST /api/sandbox/{sid}/changes/undo       {id}                      put back what an apply replaced
+    GET  /api/sandbox-pending                  {conversation: changes waiting}, for the sidebar
     GET  /api/evidence/{sid}                   the conversation's evidence list (agent/evidence.py), ?turn=
     GET  /api/evidence/{sid}/{file}            one captured picture, frame or clip
     GET  /api/evidence/{sid}.zip?turn=         all of it (or one turn's) with the manifest, to keep or hand on
@@ -31,6 +36,68 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         if executor_kind(cfg) != "sandbox":
             raise HTTPException(409, "the tools do not run in the sandbox (Settings → 權限與安全 → 沙盒)")
         return manager_for(cfg)
+
+    def _folder(sid: str, name: str) -> dict:
+        from ..sandbox.folders import folders_for
+        f = next((x for x in folders_for(rt().config, sid) if x["name"] == name and x["mode"] == "review"), None)
+        if f is None:
+            raise HTTPException(404, f"no review folder {name}")
+        return f
+
+    async def _after(sid: str) -> dict:
+        from ..sandbox import staging
+        items = await asyncio.to_thread(staging.pending, rt().config, sid, False)
+        staging.remember_pending(rt().config, sid, items)
+        if broadcast:
+            broadcast("host_changes", {"session_id": sid, "count": len(items)})
+        return {"pending": len(items)}
+
+    @app.get("/api/sandbox-pending")
+    async def sandbox_pending():
+        from ..sandbox import staging
+        return await asyncio.to_thread(staging.pending_counts, rt().config)
+
+    @app.get("/api/sandbox/{sid}/changes")
+    async def host_changes(sid: str):
+        from ..sandbox import staging
+        cfg = rt().config
+        folders = []
+        for f in staging.review_folders(cfg, sid):
+            items = await asyncio.to_thread(staging.changes, cfg, sid, f, True)
+            folders.append({"name": f["name"], "origin": f["path"], "changes": items})
+        n = sum(len(f["changes"]) for f in folders)
+        staging.remember_pending(cfg, sid, [c for f in folders for c in f["changes"]])
+        return {"folders": folders, "count": n,
+                "applied": [{k: b.get(k) for k in ("id", "folder", "t", "undone")} | {"files": len(b.get("items") or [])}
+                            for b in staging.applied_batches(cfg, sid)[:10]]}
+
+    @app.post("/api/sandbox/{sid}/changes/apply")
+    async def host_apply(sid: str, body: dict):
+        from ..sandbox import staging
+        f = _folder(sid, str(body.get("folder") or ""))
+        paths = body.get("paths")
+        res = await asyncio.to_thread(staging.apply, rt().config, sid, f,
+                                      [str(p) for p in paths] if isinstance(paths, list) else None,
+                                      [str(p) for p in body.get("force") or []])
+        return {**res, **await _after(sid)}
+
+    @app.post("/api/sandbox/{sid}/changes/discard")
+    async def host_discard(sid: str, body: dict):
+        from ..sandbox import staging
+        f = _folder(sid, str(body.get("folder") or ""))
+        paths = body.get("paths")
+        done = await asyncio.to_thread(staging.discard, rt().config, sid, f,
+                                       [str(p) for p in paths] if isinstance(paths, list) else None)
+        return {"discarded": done, **await _after(sid)}
+
+    @app.post("/api/sandbox/{sid}/changes/undo")
+    async def host_undo(sid: str, body: dict):
+        from ..sandbox import staging
+        try:
+            done = await asyncio.to_thread(staging.undo, rt().config, sid, str(body.get("id") or ""))
+        except staging.StagingError as e:
+            raise HTTPException(404, str(e)) from None
+        return {"restored": done, **await _after(sid)}
 
     @app.get("/api/evidence/{sid}.zip")
     async def evidence_zip(sid: str, turn: str | None = None):

@@ -177,6 +177,7 @@ DEFAULTS: dict[str, Any] = {
             "remembered": ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org"],
         },
         "folders": [],              # authorised folders of this computer: [{"path", "name", "mode": rw|ro|review}]
+        "review_max_files": 50000,  # a folder with more files is too big to copy for review: read-only or read/write
     },
     "evidence": {                   # pictures SinoBee captures while the agent checks its work (agent/evidence.py)
         "keep_days": 30,            # a conversation's evidence is removed this many days after its last picture

@@ -260,7 +260,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 if text.lstrip().startswith("ERROR"):
                     continue
                 name, args = calls[m.tool_call_id]
-                files = artifacts.collect(cfg, name, args, text, seen)
+                files = artifacts.collect(cfg, name, args, text, seen, conversation=sid)
                 if files:
                     out.append({"id": m.tool_call_id, "tool": name, "files": files})
         return out
