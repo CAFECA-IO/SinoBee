@@ -2302,7 +2302,7 @@ function handle(ev, replay = false){
     for (const [k, q] of Object.entries(ASKS)) if (q.session_id === ev.session_id) delete ASKS[k]; }
   if (ev.session_id && ev.type !== 'session' && ev.session_id !== sessionId) return;
   switch (ev.type) {
-    case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
+    case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; DRAFT_SID = null; markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
     case 'notice': add('ⓘ ' + esc(ev.error || ev.message), 'note'); break;
     case 'quota': onQuotaEvent(ev, replay); break;
     case 'steer': if (ev.client_ref !== CLIENT_REF) { procClose(); } if (ev.client_ref !== CLIENT_REF) add(`<span class="steer-tag">執行中補充</span>` + md(ev.text), 'msg user steer');
@@ -2448,7 +2448,7 @@ async function submitText(mode){
   try { text = (text || '請查看附件') + await uploadPending(); }
   catch (err) { add('ⓘ ' + esc(err.message), 'note'); sendState('idle'); return; }
   procClose(); add(`<span class="steer-tag">${mode === 'interrupt' ? '停止並改做' : '執行中補充'}</span>` + md(text), 'msg user steer'); $('#input').value = '';
-  ws.send(JSON.stringify({type: 'message', session_id: sessionId, text, client_ref: CLIENT_REF, mode}));
+  ws.send(JSON.stringify({type: 'message', session_id: sessionId || DRAFT_SID, text, client_ref: CLIENT_REF, mode}));
   if (mode === 'interrupt') $('#rbText').textContent = '正在停止，接著改做新的要求…';
 }
 $('#modelChip').onclick = e => { e.stopPropagation(); openModelMenu(); };
@@ -2464,7 +2464,7 @@ $('#form').onsubmit = async e => {
   if (SKSEL.length) { skRemember(SKSEL); text = SKSEL.map(n => '/' + n).join(' ') + (text ? ' ' + text : ''); skClear(); }
   procClose(); add(userHtml(text), 'msg user'); $('#input').value = '';
   if (!sessionId) $('#title').textContent = (plainTitle(text).replace(/^(\/[\w.-]+\s*)+/, '').trim() || plainTitle(text)).slice(0, 60);
-  ws.send(JSON.stringify({type:'message', session_id: sessionId, text, client_ref: CLIENT_REF}));
+  ws.send(JSON.stringify({type:'message', session_id: sessionId || DRAFT_SID, text, client_ref: CLIENT_REF}));
 };
 $('#input').addEventListener('keydown', e => {
   if (skKey(e)) return;
@@ -2560,7 +2560,7 @@ function userHtml(text){
   for (let m; (m = rest.match(/^\/([\w.-]+)(?:\s+|$)/)) && names.length < 5 && !/^learn$/i.test(m[1]);) { names.push(m[1]); rest = rest.slice(m[0].length); }
   return names.map(n => `<span class="skchip">${SKILL_SVG}${esc(n)}</span>`).join('') + (rest ? md(rest) : '');
 }
-$('#newBtn').onclick = () => { PROC = null; TB = null; sessionId = null; setTimeout(dockShow); setTimeout(deskSession); setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
+$('#newBtn').onclick = () => { PROC = null; TB = null; sessionId = null; DRAFT_SID = null; setTimeout(dockShow); setTimeout(folderRefresh); setTimeout(deskSession); setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
 $('#stopBtn').onclick = () => ws.send(JSON.stringify({type:'cancel', session_id: sessionId}));
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); tab = b.dataset.tab; loadSide(); });
@@ -4252,13 +4252,18 @@ new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) i
   .observe(document.body, {childList: true, subtree: true});
 
 // ---------- 📁 資料夾: the folders of this computer this conversation may use (sandbox/folders.py) ----------
-let FOLD = null;
+let FOLD = null, DRAFT_SID = null;
+/** the conversation the 📁 button acts on: the open one, or - before the first message of a new one - the id that
+ *  conversation will get (sent with that message), so folders can be given first */
+const folderSid = () => sessionId || DRAFT_SID || (DRAFT_SID = [...crypto.getRandomValues(new Uint8Array(6))].map(b => b.toString(16).padStart(2, '0')).join(''));
 const FOLD_MODE = {review: ['審核後寫回', 'w'], ro: ['唯讀', ''], rw: ['直接寫入', 'r']};
 async function folderRefresh(){
   const b = $('#folderBtn');
-  if (!SANDBOX_ON || !sessionId) { b.hidden = true; $('#folderPop').hidden = true; return; }
+  if (!SANDBOX_ON) { b.hidden = true; $('#folderPop').hidden = true; return; }
   b.hidden = false;
-  try { FOLD = await api(`/api/sandbox/${encodeURIComponent(sessionId)}/folders`); } catch { return; }
+  const sid = folderSid();
+  try { FOLD = await api(`/api/sandbox/${encodeURIComponent(sid)}/folders`); } catch { return; }
+  if (sid !== folderSid()) return;
   $('#folderN').textContent = FOLD.folders?.length || ''; b.classList.toggle('has', !!FOLD.folders?.length);
   if (!$('#folderPop').hidden) renderFolderPop();
 }
@@ -4275,10 +4280,10 @@ function renderFolderPop(msg = ''){
     + `<div class="fp-msg${msg ? ' on' : ''}" id="fpMsg">${esc(msg)}</div>`
     + `<div class="sd">只對這個對話有效。可寫入時是否先審核，依設定 → 權限與安全 →「寫入前審核」（目前：${f.review_writes ? '開' : '關'}）。家目錄、系統資料夾與存放金鑰的資料夾不能加入。</div>`;
   pop.querySelector('[data-x]').onclick = () => folderPop(false);
-  pop.querySelectorAll('[data-rev]').forEach(b => b.onclick = () => openHostReview(sessionId));
+  pop.querySelectorAll('[data-rev]').forEach(b => b.onclick = () => openHostReview(folderSid()));
   pop.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => folderRemove(b.dataset.rm));
   const add = async () => { const path = $('#fpPath').value.trim(); if (!path) return; $('#fpAdd').disabled = true; $('#fpMsg').textContent = '準備中…';
-    const r = await fetch(`/api/sandbox/${encodeURIComponent(sessionId)}/folders?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path, mode: $('#fpMode').value})});
+    const r = await fetch(`/api/sandbox/${encodeURIComponent(folderSid())}/folders?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path, mode: $('#fpMode').value})});
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { renderFolderPop(j.detail || '無法加入'); $('#fpPath').value = path; return; }
     FOLD = j; $('#folderN').textContent = j.folders.length || ''; $('#folderBtn').classList.add('has'); renderFolderPop('已加入；SinoBee 下一步就看得到'); };
@@ -4312,7 +4317,7 @@ async function folderBrowse(path, hidden = false){
   pop.querySelector('.fb-list button')?.focus({preventScroll: true});
 }
 async function folderRemove(path, force = false){
-  const r = await fetch(`/api/sandbox/${encodeURIComponent(sessionId)}/folders?path=${encodeURIComponent(path)}${force ? '&force=1' : ''}&token=${encodeURIComponent(token)}`, {method: 'DELETE'});
+  const r = await fetch(`/api/sandbox/${encodeURIComponent(folderSid())}/folders?path=${encodeURIComponent(path)}${force ? '&force=1' : ''}&token=${encodeURIComponent(token)}`, {method: 'DELETE'});
   const j = await r.json().catch(() => ({}));
   if (r.status === 409) { if (await uiConfirm(`${j.detail}。仍要移除這個資料夾嗎？`, {danger: true})) return folderRemove(path, true); return; }
   if (!r.ok) { renderFolderPop(j.detail || '無法移除'); return; }

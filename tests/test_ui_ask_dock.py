@@ -38,3 +38,32 @@ def test_the_question_is_docked_and_answered_with_a_number_key(config):
             b.close()
     finally:
         srv.should_exit = True
+
+
+def test_a_new_conversation_can_be_given_a_folder_before_its_first_message(config, tmp_path, monkeypatch):
+    from sinobee.sandbox import folders as fd
+    from sinobee.sandbox.manager import SandboxManager
+    monkeypatch.setattr(SandboxManager, "unavailable", lambda self, max_age=60: None)
+    config.data["permissions"]["approval"] = "sandbox"
+    folder = tmp_path / "報告"
+    folder.mkdir()
+    (folder / "a.md").write_text("x")
+    srv, url = _serve(config, [_msg("好的。")])
+    try:
+        with pw.sync_playwright() as p:
+            b, pg, errors = _page(p, url)
+            pg.wait_for_selector("#folderBtn:not([hidden])", timeout=10000)
+            pg.click("#folderBtn")
+            pg.fill("#fpPath", str(folder))
+            pg.click("#fpAdd")
+            pg.wait_for_selector("#folderPop .fp-r", timeout=10000)
+            draft = pg.evaluate("DRAFT_SID")
+            assert draft and [f["name"] for f in fd.folders_for(config, draft)] == ["報告"]
+            pg.keyboard.press("Escape")
+            _send(pg, "看一下報告資料夾")
+            pg.wait_for_function("sessionId !== null", timeout=20000)
+            assert pg.evaluate("sessionId") == draft and pg.evaluate("DRAFT_SID") is None
+            assert not errors, errors
+            b.close()
+    finally:
+        srv.should_exit = True

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -385,6 +386,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     def get_agent(sid: str | None) -> Agent:
         agents = state["agents"]
+        if sid and not re.fullmatch(r"[A-Za-z0-9_-]{6,64}", sid):   # a new conversation may bring its id (📁 資料夾 first)
+            sid = None
         agent = agents.get(sid) if sid else None
         if agent is None:
             agent = Agent(rt(), sid, platform="web")
