@@ -240,3 +240,34 @@ def test_with_one_allowed_the_idle_sandbox_makes_room(config, tmp_path):
     finally:
         for conv in (a, b):
             asyncio.run(m.remove(conv))
+
+
+def test_docker_stopping_mid_task_says_what_to_do_and_checks_again(config, monkeypatch, tmp_path):
+    from sinobee.sandbox import executor as ex
+    from sinobee.sandbox.manager import Box as SBox
+    m = SandboxManager(config)
+    m._avail = (1e18, None)
+    m._checked["c"] = 1e18
+
+    async def ensure(conv):
+        return SBox("sinobee-sbx-c", conv, "10.0.0.2")
+    m.ensure = ensure
+
+    class P:
+        returncode = 1
+
+        async def communicate(self):
+            return (b"failed to connect to the docker API at unix:///var/run/docker.sock; check if the daemon is "
+                    b"running", None)
+
+    async def spawn(*a, **kw):
+        return P()
+    monkeypatch.setattr(ex.asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(ex, "_quiet", lambda *a, **kw: asyncio.sleep(0))
+    e = ex.SandboxExecutor(config, None, "c", m)
+    monkeypatch.setattr(ex.SandboxExecutor, "paths", property(lambda self: types.SimpleNamespace(
+        visible=lambda p: True, to_exec=lambda p: "/workspace")))
+    monkeypatch.setattr(e, "_blocked_note", lambda: asyncio.sleep(0, ""))
+    r = asyncio.run(e.run("make", tmp_path, 30))
+    assert r.code == 1 and "start Docker Desktop" in r.output
+    assert "c" not in m._checked and m._avail[0] == 0.0           # next command checks Docker again

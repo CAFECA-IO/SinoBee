@@ -2235,3 +2235,8 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   `PUT /api/sandbox/resources`、`POST /api/sandbox/{sid}/admin/{stop|recreate|clear}`。
 - 測試：tests/test_sandbox_resources.py（容量公式、讓出名額、排隊順序與逾時、健康、背景建立、用量、API、Docker 實測上限 1）。
 - 待使用者驗收 G6：5 個對話同時建置不 OOM；Docker 重啟後能恢復。
+- **G6 雲端實測（2026-10-24，2 CPU／8.4 GB Docker）**：5 個對話同時各跑 1.2 GB、20 秒的建置——上限自動為 3、每個 2140 MB；
+  3 個立即執行、2 個排第 1、2 位，約 29／32 秒後輪到；全部完成，無 OOMKilled，dockerd 正常。停止 dockerd 時 health 回報 docker_down；
+  重新啟動後 health 立即恢復 ok，兩個對話的任務照常執行，egress 自動重建。
+- 修正：任務執行到一半 Docker 停了，`docker exec` 的「連不上 Docker」錯誤改為附上「請使用者開啟 Docker Desktop」的說明，並清除
+  快取（下一個指令重新檢查 Docker，而不是沿用 20 秒內的沙盒）。

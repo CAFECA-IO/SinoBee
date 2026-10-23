@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import secrets
 import shlex
 import sys
@@ -43,6 +44,10 @@ GRAB = ("import mss, sys\n"
         "with (mss.MSS() if hasattr(mss, 'MSS') else mss.mss()) as s:\n"
         "    g = s.grab(s.monitors[1])\n"
         "    sys.stdout.buffer.write(g.width.to_bytes(4, 'big') + g.height.to_bytes(4, 'big') + bytes(g.bgra))\n")
+
+
+DAEMON_DOWN = re.compile(r"Cannot connect to the Docker daemon|failed to connect to the docker API|"
+                         r"docker daemon is not running", re.I)
 
 
 @dataclass
@@ -262,6 +267,11 @@ class SandboxExecutor(Executor):
         text = out.decode("utf-8", errors="replace")
         if proc.returncode in (125, 126, 127) and ("No such container" in text or "is not running" in text):
             self.manager.forget(self.conversation)          # the box went away: start it again next time
+        if proc.returncode != 0 and DAEMON_DOWN.search(text[-600:]):
+            self.manager.forget(self.conversation)          # Docker stopped mid-task: check again next time
+            self.manager._avail = (0.0, "docker down")
+            return RunResult(proc.returncode, text + "\n[SinoBee sandbox] Docker stopped running. Ask the user to "
+                             "start Docker Desktop (SinoBee shows a button above the input box), then try again.")
         asyncio.ensure_future(_quiet("exec", box.name, "rm", "-f", pidf))
         return RunResult(proc.returncode, text + await self._blocked_note())
 
