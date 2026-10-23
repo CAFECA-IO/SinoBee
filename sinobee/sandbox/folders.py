@@ -1,10 +1,9 @@
 """Folders of this computer the sandbox may see (sandbox plan E1).
 
-Two lists make up what a conversation's sandbox sees at /host/<name>:
-
-- `sandbox.folders` (Settings → 本機資料夾): folders every conversation sees;
-- the conversation's own grants (request_host_access → 「只這個對話」), kept in
-  ~/.sinobee/sandbox/<conversation>/grants.json.
+Folders are given to one conversation at a time - by you (the 「📁 資料夾」 button of the conversation) or when
+SinoBee asks (request_host_access) - and kept in ~/.sinobee/sandbox/<conversation>/grants.json. They appear at
+/host/<name>. Settings has one switch, `sandbox.review_writes` (寫入前審核, on by default): a folder given for writing
+is then a review copy; off, it is written directly. The switch decides when a folder is given; a folder keeps its mode.
 
 Each folder has a mode:
 
@@ -115,19 +114,38 @@ def add_grant(config, conversation: str, item: dict) -> None:
     (d / "grants.json").write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def add_global(config, item: dict) -> None:
-    cur = [f for f in (config.get("sandbox.folders") or []) if str(Path(str(f.get("path", ""))).expanduser()) != item["path"]]
-    config.save_gui_settings({"sandbox": {"folders": cur + [item]}})
+def review_writes(config) -> bool:
+    return config.get("sandbox.review_writes", True) is not False
+
+
+def write_mode(config, asked: str = "write") -> str:
+    """The mode a folder given now gets: read-only when asked, else review or direct writing as Settings say."""
+    if asked == "ro":
+        return "ro"
+    return "review" if review_writes(config) else "rw"
+
+
+def remove_grant(config, conversation: str, path: str) -> dict | None:
+    """Take a folder away from the conversation; its review copy and baseline go too. Returns the removed grant."""
+    import shutil
+    target = str(Path(path).expanduser().resolve())
+    cur = grants(config, conversation)
+    gone = next((g for g in cur if g["path"] == target), None)
+    if gone is None:
+        return None
+    d = conv_dir(config, conversation)
+    name = next((f["name"] for f in folders_for(config, conversation) if f["path"] == target), None)
+    (d / "grants.json").write_text(json.dumps([g for g in cur if g["path"] != target], ensure_ascii=False, indent=1),
+                                   encoding="utf-8")
+    if name:
+        shutil.rmtree(d / "host" / name, ignore_errors=True)
+        (d / "base" / f"{name}.json").unlink(missing_ok=True)
+    return gone
 
 
 def folders_for(config, conversation: str | None) -> list[dict]:
-    """What this conversation's sandbox sees: the global folders, then its own grants (a grant of the same folder
-    wins, so a conversation can be given read/write on a folder that is review elsewhere)."""
+    """What this conversation's sandbox sees: the folders given to it."""
     out: dict[str, dict] = {}
-    for f in config.get("sandbox.folders") or []:
-        if f.get("path"):
-            e = entry(f["path"], f.get("mode") or "review", f.get("name"))
-            out[e["path"]] = e
     for g in grants(config, conversation) if conversation else []:
         out[g["path"]] = entry(g["path"], g.get("mode") or "review", g.get("name"))
     # unique names, as sandbox_map makes them

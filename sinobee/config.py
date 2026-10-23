@@ -176,7 +176,7 @@ DEFAULTS: dict[str, Any] = {
             "mode": "ask",          # ask = only the domains below (and ones you allow); open = everything
             "remembered": ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org"],
         },
-        "folders": [],              # authorised folders of this computer: [{"path", "name", "mode": rw|ro|review}]
+        "review_writes": True,      # 寫入前審核: a folder given to a conversation for writing is a copy you review
         "review_max_files": 50000,  # a folder with more files is too big to copy for review: read-only or read/write
     },
     "evidence": {                   # pictures SinoBee captures while the agent checks its work (agent/evidence.py)

@@ -637,6 +637,39 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .tb-more{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
 .tb-det{margin-top:6px}.tb-notes{margin:2px 0 6px;padding-left:18px;color:var(--muted);font-size:12.5px}.tbub .askcard{margin:6px 0 10px}
 .tb-other summary{cursor:pointer;color:var(--muted);font-size:12.5px;margin:4px 0}
+.folderbtn{display:inline-flex;align-items:center;gap:6px;font-size:13px}.folderbtn svg{width:16px;height:16px}.folderbtn b{font-size:11px;color:var(--accent-ink);background:var(--accent);border-radius:999px;padding:0 6px}.folderbtn b:empty{display:none}
+#folderPop{position:fixed;top:58px;right:16px;width:min(480px,calc(100vw - 32px));z-index:40;border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:12px 14px;box-shadow:0 16px 40px rgba(0,0,0,.45);font-size:13px}
+#folderPop .fp-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}#folderPop .ad-fold{all:unset;cursor:pointer;color:var(--muted);padding:2px 6px}
+#folderPop .fp-r{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+#folderPop .fp-n{flex:1;min-width:0;display:flex;flex-direction:column}#folderPop .fp-n .mono{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#folderPop .fp-m{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:1px 9px;white-space:nowrap}#folderPop .fp-m.w{border-color:var(--warn);color:var(--warn)}#folderPop .fp-m.r{border-color:var(--err);color:var(--err)}
+#folderPop .fp-add{display:flex;gap:8px;margin:10px 0 6px}#folderPop .fp-add .inp{flex:1;min-width:0}#folderPop select{max-width:170px}
+#folderPop .fp-msg{font-size:12px;color:var(--warn);min-height:0}#folderPop .fp-msg:empty{display:none}
+.safehero{border:1px solid var(--accent-solid);border-radius:14px;padding:14px 16px;margin:4px 0 14px;background:linear-gradient(135deg,var(--glow),transparent 65%)}
+.safehero[data-mode=auto]{border-color:var(--err);background:linear-gradient(135deg,rgba(255,125,136,.10),transparent 65%)}
+.safehero[data-mode=confirm]{border-color:var(--line)}
+.sh-t{display:flex;align-items:flex-start;gap:10px}.sh-tt{flex:1;display:flex;flex-direction:column;gap:2px}.sh-tt b{font-size:17px}
+.sh-ic{width:32px;height:32px;border-radius:9px;background:var(--glow);display:grid;place-items:center;color:var(--accent);flex:none}.sh-ic svg{width:18px;height:18px}
+.safehero[data-mode=auto] .sh-ic{color:var(--err);background:rgba(255,125,136,.12)}
+.cardseg.seg4{grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:12px 0 10px}
+.cardseg.seg4 button{border:0;border-left:1px solid var(--line);border-radius:0;padding:8px 6px;align-items:center;text-align:center;background:var(--panel2)}
+.cardseg.seg4 button:first-child{border-left:0}.cardseg.seg4 button b{font-size:13px;margin:0}
+.cardseg.seg4 button.on{background:var(--accent-solid);box-shadow:none}.cardseg.seg4 button.on b{color:var(--accent-ink)}.cardseg.seg4 button.on::after{content:none}
+.sh-facts{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;font-size:12.5px}
+.sh-facts li::before{display:inline-block;width:16px;font-weight:700}.sh-facts li.ok::before{content:"✓";color:var(--ok)}.sh-facts li.ask::before{content:"?";color:var(--warn)}.sh-facts li.no::before{content:"!";color:var(--err)}
+.sh-status{margin-top:10px;display:flex;align-items:center;gap:8px;font-size:12px;border:1px solid var(--line);border-radius:9px;padding:7px 10px;background:var(--bg);color:var(--muted)}
+.sh-status .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}.sh-status.bad{color:var(--warn);border-color:var(--warn);display:block}
+.pacc{border:1px solid var(--line);border-radius:12px;margin:10px 0;background:var(--panel2)}
+.pacc>summary{display:flex;align-items:center;gap:9px;padding:11px 14px;cursor:pointer;list-style:none}.pacc>summary::-webkit-details-marker{display:none}
+.pacc>summary b{font-size:14px}.pacc .pa-i{color:var(--accent);display:grid;place-items:center}.pacc .pa-i svg{width:17px;height:17px}
+.pacc .pa-s{margin-left:auto;color:var(--muted);font-size:12.5px}.pacc>summary::after{content:"▾";color:var(--muted);font-size:12px;transition:transform .15s}.pacc[open]>summary::after{transform:rotate(180deg)}
+.pacc .pa-b{border-top:1px solid var(--line);padding:4px 14px 12px}
+.netchips{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0 2px}
+.nchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:3px 6px 3px 11px;font-size:12.5px;font-family:var(--mono,monospace)}
+.nchip button{all:unset;cursor:pointer;color:var(--muted);font-size:11px;padding:0 4px;border-radius:50%}.nchip button:hover{color:var(--err)}
+.tsgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tsgrid .tsrow{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--panel)}
+.tsgrid .tsrow .sd{font-size:11.5px}
+@media (max-width:700px){.tsgrid,.sh-facts{grid-template-columns:1fr}.cardseg.seg4 button b{font-size:12px}}
 .frow select{max-width:140px}.fadd{gap:8px}.fadd .inp{flex:1;min-width:0}.mono{font-family:var(--mono,monospace);font-size:11.5px;overflow-wrap:anywhere}
 .hostbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 12px;padding:10px 14px;border:1px solid var(--warn);border-radius:10px;background:var(--panel);font-size:13.5px}
 .hostbar svg.i{width:18px;height:18px;flex:none;color:var(--warn)}.hostbar b{color:var(--ink)}.hostbar .sd{color:var(--muted);font-size:12px}.hostbar .btn{margin-left:auto}
@@ -891,6 +924,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
   <header><button class="btn icon" data-icon="menu" aria-label="對話、記憶、技能與資料庫" id="menuBtn" type="button"></button><div class="title" id="title">新對話</div>
     <button class="btn icon" data-icon="plus" aria-label="新對話" id="newBtn"></button>
     <button class="btn icon" data-icon="stop" aria-label="停止任務" id="stopBtn" hidden></button>
+    <button class="btn folderbtn" type="button" aria-label="這個對話可用的資料夾" id="folderBtn" aria-expanded="false" hidden><span data-icon="folder"></span><span>資料夾</span><b id="folderN"></b></button>
     <button class="btn icon" data-icon="monitor" aria-label="即時桌面" id="deskBtn" hidden></button>
     <button class="btn icon" data-icon="sparkles" aria-label="把這個任務打包成技能" title="把這個任務打包成技能" id="learnBtn" hidden></button>
     <button class="btn icon" data-icon="share" aria-label="分享對話" id="shareBtn" hidden></button>
@@ -898,6 +932,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
     <button class="btn icon" data-icon="gear" aria-label="設定" id="settingsBtn"></button><button class="btn icon tip-left" data-icon="sun" aria-label="切換深色／淺色" id="themeBtn"></button></header>
   <div id="chat"><div class="empty"><div class="hero"><canvas data-ht="hero"></canvas></div><h2>今天要我做什麼？</h2><div>我可以操作瀏覽器、滑鼠鍵盤、終端機與檔案，並記住你的偏好與做事方法。</div></div></div>
   <div id="runbar" role="status" aria-live="polite"><div class="spin"></div><div class="rb-txt" id="rbText"></div><span class="rb-time" id="rbTime"></span><button class="btn icon sm tip-up tip-left" data-icon="stop" aria-label="停止任務" id="rbStop" type="button"></button></div>
+  <div id="folderPop" role="dialog" aria-label="這個對話可用的資料夾" hidden></div>
   <div id="askDock" role="region" aria-label="SinoBee 需要你決定" hidden></div>
   <div id="attachRow"></div>
   <div id="skillRow" aria-live="polite"></div>
@@ -930,7 +965,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
   <div class="setbody">
     <nav class="setnav" id="setNav" aria-label="設定分類">
       <button type="button" data-pane="model" class="on"><span data-icon="sparkles"></span><b>模型</b><small>模型來源、金鑰</small></button>
-      <button type="button" data-pane="perm"><span data-icon="shield"></span><b>權限與安全</b><small>核准方式、可用能力</small></button>
+      <button type="button" data-pane="perm"><span data-icon="shield"></span><b>權限與安全</b><small>執行方式、網路、能力</small></button>
       <button type="button" data-pane="skills"><span data-icon="skill"></span><b>技能</b><small>自動學習、專案技能</small></button>
       <button type="button" data-pane="quality"><span data-icon="checkCircle"></span><b>品質</b><small>品質規則、評測</small></button>
       <button type="button" data-pane="usage"><span data-icon="chart"></span><b>用量與預算</b><small>預算上限、幣別、費率</small></button>
@@ -1009,23 +1044,32 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
 
       <!-- ───── 權限與安全 ───── -->
       <section class="pane" data-pane="perm">
-        <div class="grp"><div class="grp-h">危險操作要不要先問我<span class="lock" data-lock="permissions.approval"></span></div>
+        <div class="safehero">
+          <div class="sh-t"><span class="sh-ic" data-icon="shield"></span><div class="sh-tt"><b id="pHeroTitle"></b><span class="sd" id="pHeroDesc"></span></div><span class="lock" data-lock="permissions.approval"></span></div>
           <select id="pApproval" hidden><option value="sandbox">sandbox</option><option value="confirm">confirm</option><option value="auto">auto</option><option value="readonly">readonly</option></select>
-          <div class="cardseg" data-for="pApproval">
-            <button type="button" data-v="sandbox"><b>沙盒（實驗）</b><span>指令與檔案在 Docker 沙盒裡執行，不再逐次詢問；沙盒預設不能連網，只放行 pypi 與 npm</span></button>
-            <button type="button" data-v="confirm"><b>先問我</b><span>刪檔、執行指令、寫入資料庫等操作會先等你核准（建議）</span></button>
-            <button type="button" data-v="auto"><b>全部自動</b><span>不再詢問，只建議在隔離的沙箱或 Docker 裡使用</span></button>
-            <button type="button" data-v="readonly"><b>唯讀</b><span>只能查看，不能修改檔案或任何資料</span></button>
-          </div><div class="sd" id="pSandboxNote" style="margin-top:8px"></div></div>
-        <div class="grp"><div class="grp-h">沙盒的網路<span class="grp-d">只在「沙盒」模式使用：沙盒預設不能連網，只能連到下列網域；需要其他網域時 SinoBee 會先問你</span></div>
-          <div class="srow"><div class="sl"><b>連網方式</b></div><select id="pNetMode"><option value="ask">只允許下列網域，其他先問我（建議）</option><option value="open">一律允許</option></select></div>
-          <div class="srow"><div class="sl"><b>已記住的網域</b><span class="sd">每行一個；網域也包含它的子網域</span></div><textarea id="pNetDomains" rows="4" style="width:100%;font-family:var(--mono,monospace);font-size:12px"></textarea></div></div>
-        <div class="grp"><div class="grp-h">本機資料夾<span class="grp-d">只在「沙盒」模式使用：沙盒只看得到工作區與這裡的資料夾（在 /host/名稱）；對話中 SinoBee 也可以向你申請</span></div>
-          <div id="pFolders"></div>
-          <div class="srow fadd"><input id="pFolderPath" class="inp" placeholder="例如 ~/Documents/報告" aria-label="資料夾路徑"><select id="pFolderMode" aria-label="使用方式"><option value="review">審核後寫回</option><option value="ro">唯讀</option><option value="rw">直接寫入</option></select><button class="btn" id="pFolderAdd" type="button">加入</button></div>
-          <div class="sd">審核後寫回（建議）：沙盒改的是副本，你看過變更再寫回原資料夾。唯讀：只能讀。直接寫入：修改直接進原資料夾，適合有 git 的專案。家目錄、系統資料夾與存放金鑰的資料夾不能加入；按「儲存」後生效。</div></div>
-        <div class="grp"><div class="grp-h">SinoBee 可以使用的能力<span class="grp-d">關掉後模型就看不到這類工具</span><span class="lock" data-lock="permissions.toolsets"></span></div>
-          <div id="pToolsets"></div></div>
+          <div class="cardseg seg4" data-for="pApproval" role="radiogroup" aria-label="執行方式">
+            <button type="button" data-v="readonly" role="radio"><b>唯讀</b></button>
+            <button type="button" data-v="confirm" role="radio"><b>先問我</b></button>
+            <button type="button" data-v="sandbox" role="radio"><b>沙盒（建議）</b></button>
+            <button type="button" data-v="auto" role="radio"><b>全部自動</b></button>
+          </div>
+          <ul class="sh-facts" id="pHeroFacts"></ul>
+          <div class="sh-status" id="pSandboxNote" hidden></div>
+        </div>
+        <details class="pacc" id="accNet"><summary><span class="pa-i" data-icon="globe"></span><b>沙盒的網路</b><span class="pa-s" id="accNetSum"></span></summary>
+          <div class="pa-b">
+            <div class="srow"><div class="sl"><b>連網方式</b><span class="sd">只在「沙盒」使用</span></div><select id="pNetMode"><option value="ask">只允許下列網域，其他先問我（建議）</option><option value="open">一律允許</option></select></div>
+            <div class="netchips" id="pNetChips"></div>
+            <div class="srow fadd"><input id="pNetAdd" class="inp" placeholder="加入網域，例如 api.openai.com" aria-label="加入網域"><button class="btn" id="pNetAddBtn" type="button">加入</button></div>
+            <textarea id="pNetDomains" hidden></textarea>
+          </div></details>
+        <details class="pacc" id="accWrite"><summary><span class="pa-i" data-icon="file"></span><b>寫入你的檔案</b><span class="pa-s" id="accWriteSum"></span></summary>
+          <div class="pa-b">
+            <div class="srow"><div class="sl"><b>寫入前審核</b><span class="sd">開：對話中授權的資料夾，SinoBee 改的是副本，你看過變更才寫回（可復原）。關：直接寫入原資料夾。</span></div><div class="sc sw-c"><input type="checkbox" class="sw" role="switch" id="pReview" aria-label="寫入前審核"></div></div>
+            <div class="sd" style="padding-top:8px">資料夾在每個對話裡授權：對話上方的「📁 資料夾」，或 SinoBee 向你申請時。授權只對那個對話有效；改這個開關只影響之後授權的資料夾。</div>
+          </div></details>
+        <details class="pacc" id="accTools"><summary><span class="pa-i" data-icon="zap"></span><b>可以使用的能力</b><span class="pa-s" id="accToolsSum"></span><span class="lock" data-lock="permissions.toolsets"></span></summary>
+          <div class="pa-b"><div class="sd" style="margin-bottom:8px">關掉後模型就看不到這類工具</div><div id="pToolsets" class="tsgrid"></div></div></details>
       </section>
 
       <!-- ───── 技能 ───── -->
@@ -1281,6 +1325,7 @@ function esc(s){return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<'
 
 // ---------------- icons (inline SVG; several paths adapted from Feather Icons, MIT) ----------------
 const ICONS = {
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/>',
@@ -2249,7 +2294,8 @@ function handle(ev, replay = false){
       add('ⓘ 已收到，會在目前這一步結束後納入。', 'note'); break;
     case 'steer_applied': add('✓ 已把你的補充納入任務', 'note'); break;
     case 'artifact': showArtifacts(ev.id, ev.files); break;
-    case 'host_changes': hostBar(ev.session_id, ev.count); break;
+    case 'host_changes': hostBar(ev.session_id, ev.count); if (!$('#folderPop').hidden) folderRefresh(); break;
+    case 'folders': folderRefresh(); break;
     case 'evidence': if (ev.items?.length) { const g = procGroup(); const d = document.createElement('div'); d.innerHTML = evStrip(ev.items, null, true); g.body.appendChild(d); } break;
     case 'turn_start': if (!replay) { if (TB && TB.open) tbEnd(); tbStart(); } break;
     case 'timeline': tbOnTimeline(ev); break;
@@ -2535,7 +2581,7 @@ $('#deskTake').onclick = async () => {
   DESK_TAKE = on; deskConnect();      // view-only and control are two VNC servers: reconnect to the other one
 };
 function markSideSession(){
-  deskSession();
+  deskSession(); folderRefresh();
   document.querySelectorAll('#side .item[data-sid]').forEach(d => { const on = d.dataset.sid === sessionId;
     d.classList.toggle('on', on); on ? d.setAttribute('aria-current', 'true') : d.removeAttribute('aria-current'); });
 }
@@ -2816,7 +2862,7 @@ async function refreshStatus(full = true){
   NEEDS_SETUP = !!s.needs_setup;
   if (!full) return;
   if (s.needs_setup) openSettings(true);
-  SANDBOX_ON = !!s.sandbox;
+  SANDBOX_ON = !!s.sandbox; folderRefresh();
   if (SANDBOX_ON) {                    // the live view of this conversation's sandbox (noVNC over /api/sandbox/…/vnc)
     $('#deskBtn').hidden = false; $('#deskPop').hidden = true; $('#vnc').hidden = true; $('#vncScreen').hidden = false;
     $('#deskLabel').textContent = '沙盒桌面'; $('#deskTake').hidden = false;
@@ -3837,7 +3883,8 @@ document.querySelectorAll('#setNav button').forEach(b => b.onclick = () => showP
 /** big option cards that drive a hidden <select> (approval mode, skill creation) */
 function syncSegs(){
   document.querySelectorAll('.cardseg[data-for]').forEach(seg => { const sel = $('#' + seg.dataset.for);
-    seg.querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.v === sel.value); b.disabled = sel.disabled; }); });
+    seg.querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.v === sel.value); b.disabled = sel.disabled; b.setAttribute('aria-checked', b.dataset.v === sel.value); }); });
+  if ($('#pHeroTitle') && SET) renderPermHero();
 }
 document.querySelectorAll('.cardseg[data-for]').forEach(seg => seg.querySelectorAll('button').forEach(b => b.onclick = () => {
   const sel = $('#' + seg.dataset.for); if (sel.disabled) return; sel.value = b.dataset.v; syncSegs(); setDirty(true); }));
@@ -3878,13 +3925,11 @@ function renderSettings(){
   const sb = SET.sandbox || {};
   $('#pNetMode').value = (sb.network || {}).mode || 'ask';
   $('#pNetDomains').value = ((sb.network || {}).remembered || []).join('\n');
-  FOLDERS = (sb.folders || []).map(f => ({...f})); renderFolders();
-  $('#pSandboxNote').textContent = SET.permissions.approval === 'sandbox' && sb.unavailable
-    ? `⚠︎ 沙盒目前無法使用：${sb.unavailable}。在那之前改在本機執行，危險操作仍會先問你。需要 Docker Desktop，並在終端機執行 sinobee sandbox build。`
-    : (SET.permissions.approval === 'sandbox' ? `沙盒執行中（映像 ${sb.image || ''}）` : '');
+  NETDOMS = [...((sb.network || {}).remembered || [])]; $('#pReview').checked = sb.review_writes !== false;
   $('#pToolsets').innerHTML = SET.all_toolsets.map(t => { const m = TOOLSET_INFO[t] || {name: t, desc: '', icon: 'zap'};
     return `<div class="tsrow"><span class="ti">${ic(m.icon)}</span><div class="sl"><b>${esc(m.name)}${m.risk ? `<span class="risk">${esc(m.risk)}</span>` : ''}</b><span class="sd">${esc(m.desc)}</span></div>
       <input type="checkbox" class="sw" role="switch" value="${t}" aria-label="${esc(m.name)}" ${SET.permissions.toolsets.includes(t) ? 'checked' : ''}></div>`; }).join('');
+  renderNet(); renderPermHero();
   const u = SET.usage || {};
   $('#uDaily').value = u.daily_budget_usd ?? ''; $('#uMonthly').value = u.monthly_budget_usd ?? ''; $('#uTaskUsd').value = u.task_max_usd ?? ''; $('#uTaskTok').value = u.task_max_tokens ?? ''; $('#uTaskQuota').value = u.task_max_quota_pct ?? '';
   $('#uCurrency').value = u.currency || 'USD'; $('#uRate').value = u.currency_rate ?? ''; $('#uEnforce').checked = !!u.enforce_budget;
@@ -4171,26 +4216,104 @@ $('#hcDiscard').onclick = async () => { const sel = hcPicked(); if (!sel.length)
   for (const s of sel) { const j = await post(`/api/sandbox/${encodeURIComponent(HC.sid)}/changes/discard`, {folder: s.folder, paths: s.paths}); n += j.discarded.length; pending = j.pending; }
   hcDone(`已捨棄 ${n} 個變更`, pending); };
 
-// ---------- Settings → 本機資料夾 (sandbox/folders.py) ----------
-let FOLDERS = [];
-const FMODE = {review: '審核後寫回', ro: '唯讀', rw: '直接寫入'};
-function renderFolders(){
-  const box = $('#pFolders'); if (!box) return;
-  box.innerHTML = FOLDERS.length ? FOLDERS.map((f, i) => `<div class="srow frow"><div class="sl"><b>/host/${esc(f.name || '')}</b><span class="sd mono">${esc(f.path)}${f.exists === false ? '（找不到）' : ''}</span></div>`
-    + `<select data-i="${i}" aria-label="使用方式">${Object.entries(FMODE).map(([k, v]) => `<option value="${k}"${f.mode === k ? ' selected' : ''}>${v}</option>`).join('')}</select>`
-    + `<button class="btn sm" type="button" data-rm="${i}">移除</button></div>`).join('') : '<div class="sd">還沒有加入資料夾</div>';
-  box.querySelectorAll('select[data-i]').forEach(s => s.onchange = () => { FOLDERS[+s.dataset.i].mode = s.value; });
-  box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { FOLDERS.splice(+b.dataset.rm, 1); renderFolders(); });
+// ---------- 📁 資料夾: the folders of this computer this conversation may use (sandbox/folders.py) ----------
+let FOLD = null;
+const FOLD_MODE = {review: ['審核後寫回', 'w'], ro: ['唯讀', ''], rw: ['直接寫入', 'r']};
+async function folderRefresh(){
+  const b = $('#folderBtn');
+  if (!SANDBOX_ON || !sessionId) { b.hidden = true; $('#folderPop').hidden = true; return; }
+  b.hidden = false;
+  try { FOLD = await api(`/api/sandbox/${encodeURIComponent(sessionId)}/folders`); } catch { return; }
+  $('#folderN').textContent = FOLD.folders?.length || ''; b.classList.toggle('has', !!FOLD.folders?.length);
+  if (!$('#folderPop').hidden) renderFolderPop();
 }
-$('#pFolderAdd').onclick = () => { const path = $('#pFolderPath').value.trim(); if (!path) return;
-  FOLDERS.push({path, mode: $('#pFolderMode').value, name: path.replace(/\/+$/, '').split('/').pop()}); $('#pFolderPath').value = ''; renderFolders(); };
+function renderFolderPop(msg = ''){
+  const pop = $('#folderPop'), f = FOLD || {folders: []}, write = f.review_writes ? '可寫入（審核後寫回）' : '可寫入（直接寫入）';
+  pop.innerHTML = `<div class="fp-h"><b>這個對話可用的資料夾</b><button class="ad-fold" type="button" data-x aria-label="關閉">✕</button></div>`
+    + (f.folders.length ? f.folders.map(x => `<div class="fp-r"><div class="fp-n"><b>${esc(x.inner)}</b><span class="mono">${esc(x.shown)}${x.exists ? '' : '（找不到）'}</span></div>`
+      + `<span class="fp-m ${FOLD_MODE[x.mode]?.[1] || ''}">${FOLD_MODE[x.mode]?.[0] || x.mode}</span>`
+      + (x.pending ? `<button class="btn sm" type="button" data-rev>${x.pending} 待審</button>` : '')
+      + `<button class="btn sm" type="button" data-rm="${esc(x.path)}">移除</button></div>`).join('')
+      : '<div class="sd" style="padding:6px 0">還沒有資料夾。沙盒只看得到工作區；加入後在沙盒裡的 /host/名稱。</div>')
+    + `<div class="fp-add"><input class="inp" id="fpPath" placeholder="加入資料夾，例如 ~/Documents/報告" aria-label="資料夾路徑">`
+    + `<select id="fpMode" aria-label="使用方式"><option value="write">${write}</option><option value="ro">唯讀</option></select><button class="btn primary" type="button" id="fpAdd">加入</button></div>`
+    + `<div class="fp-msg${msg ? ' on' : ''}" id="fpMsg">${esc(msg)}</div>`
+    + `<div class="sd">只對這個對話有效。可寫入時是否先審核，依設定 → 權限與安全 →「寫入前審核」（目前：${f.review_writes ? '開' : '關'}）。家目錄、系統資料夾與存放金鑰的資料夾不能加入。</div>`;
+  pop.querySelector('[data-x]').onclick = () => folderPop(false);
+  pop.querySelectorAll('[data-rev]').forEach(b => b.onclick = () => openHostReview(sessionId));
+  pop.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => folderRemove(b.dataset.rm));
+  const add = async () => { const path = $('#fpPath').value.trim(); if (!path) return; $('#fpAdd').disabled = true; $('#fpMsg').textContent = '準備中…';
+    const r = await fetch(`/api/sandbox/${encodeURIComponent(sessionId)}/folders?token=${encodeURIComponent(token)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path, mode: $('#fpMode').value})});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { renderFolderPop(j.detail || '無法加入'); $('#fpPath').value = path; return; }
+    FOLD = j; $('#folderN').textContent = j.folders.length || ''; $('#folderBtn').classList.add('has'); renderFolderPop('已加入；SinoBee 下一步就看得到'); };
+  $('#fpAdd').onclick = add; $('#fpPath').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } };
+}
+async function folderRemove(path, force = false){
+  const r = await fetch(`/api/sandbox/${encodeURIComponent(sessionId)}/folders?path=${encodeURIComponent(path)}${force ? '&force=1' : ''}&token=${encodeURIComponent(token)}`, {method: 'DELETE'});
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 409) { if (await uiConfirm(`${j.detail}。仍要移除這個資料夾嗎？`, {danger: true})) return folderRemove(path, true); return; }
+  if (!r.ok) { renderFolderPop(j.detail || '無法移除'); return; }
+  FOLD = j; $('#folderN').textContent = j.folders.length || ''; $('#folderBtn').classList.toggle('has', !!j.folders.length); renderFolderPop('已移除');
+}
+function folderPop(open){
+  const pop = $('#folderPop'); pop.hidden = !open; $('#folderBtn').setAttribute('aria-expanded', open);
+  if (open) { renderFolderPop(); folderRefresh(); setTimeout(() => $('#fpPath')?.focus(), 30); }
+}
+$('#folderBtn').onclick = () => folderPop($('#folderPop').hidden);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#folderPop').hidden) folderPop(false); });
+
+// ---------- Settings → 權限與安全 (design A: a safety summary on top, details folded below) ----------
+let NETDOMS = [];
+const PERM_HERO = {
+  sandbox: {t: '在沙盒裡執行', d: '指令與檔案都在隔離的容器裡，弄壞也不影響你的電腦。',
+    f: r => [['ok', '執行指令、安裝套件、刪檔不用問你'], ['ok', '只連得到你允許的網站'], ['ask', '連其他網站會先問你'],
+             r ? ['ask', '改你授權的資料夾要你審核'] : ['ask', '授權的資料夾會直接寫入（寫入前審核已關）']]},
+  confirm: {t: '在這台電腦執行，危險操作先問你', d: 'SinoBee 直接在你的電腦上工作，有風險的動作會先等你核准。',
+    f: () => [['ok', '讀檔、搜尋、整理資料不用問'], ['ask', '執行指令、刪檔、寫入資料庫會先問你'], ['ask', '可以讀寫你電腦上的檔案']]},
+  auto: {t: '在這台電腦執行，完全自動', d: '不再詢問任何操作。只建議在隔離的電腦或虛擬機裡使用。',
+    f: () => [['no', '所有操作都不會先問你，包括刪檔與執行指令'], ['no', '可以讀寫你電腦上的任何檔案']]},
+  readonly: {t: '唯讀', d: '只能查看，不能修改檔案或任何資料。',
+    f: () => [['ok', '可以讀檔、搜尋、回答問題'], ['no', '不能寫檔、執行指令或修改資料']]},
+};
+function renderPermHero(){
+  const mode = $('#pApproval').value || 'confirm', h = PERM_HERO[mode] || PERM_HERO.confirm, sb = SET?.sandbox || {};
+  $('#pHeroTitle').textContent = h.t; $('#pHeroDesc').textContent = h.d;
+  document.querySelector('.safehero').dataset.mode = mode;
+  $('#pHeroFacts').innerHTML = h.f($('#pReview').checked).map(([k, t]) => `<li class="${k}">${esc(t)}</li>`).join('');
+  const note = $('#pSandboxNote');
+  note.hidden = mode !== 'sandbox';
+  note.className = 'sh-status' + (sb.unavailable ? ' bad' : '');
+  note.innerHTML = sb.unavailable ? `⚠︎ 沙盒目前無法使用：${esc(sb.unavailable)}。在那之前改在本機執行，危險操作仍會先問你。需要 Docker Desktop，並在終端機執行 <code>sinobee sandbox build</code>。`
+    : `<span class="dot"></span>Docker 正常 · 映像 ${esc(sb.image || '')}`;
+  permSummaries();
+}
+function permSummaries(){
+  const open = $('#pNetMode').value === 'open';
+  $('#accNetSum').textContent = open ? '一律允許所有網站' : `只允許 ${NETDOMS.length} 個網域，其他先問我`;
+  $('#accWriteSum').textContent = `寫入前審核：${$('#pReview').checked ? '開' : '關'}`;
+  const all = document.querySelectorAll('#pToolsets input'), on = document.querySelectorAll('#pToolsets input:checked');
+  $('#accToolsSum').textContent = `${all.length} 項中開啟 ${on.length} 項`;
+}
+function renderNet(){
+  $('#pNetDomains').value = NETDOMS.join('\n');
+  $('#pNetChips').innerHTML = NETDOMS.map((d, i) => `<span class="nchip">${esc(d)}<button type="button" data-i="${i}" aria-label="移除 ${esc(d)}">✕</button></span>`).join('')
+    || '<span class="sd">沒有網域：沙盒完全不能連網，需要時會先問你</span>';
+  $('#pNetChips').querySelectorAll('button').forEach(b => b.onclick = () => { NETDOMS.splice(+b.dataset.i, 1); renderNet(); setDirty(true); });
+  permSummaries();
+}
+$('#pNetAddBtn').onclick = () => { const v = $('#pNetAdd').value.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').split('/')[0];
+  if (v && !NETDOMS.includes(v)) { NETDOMS.push(v); renderNet(); setDirty(true); } $('#pNetAdd').value = ''; };
+$('#pNetAdd').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('#pNetAddBtn').click(); } };
+['pNetMode', 'pReview'].forEach(id => $('#' + id).addEventListener('change', renderPermHero));
+$('#pToolsets').addEventListener('change', permSummaries);
 function collectSettings(){
   const body = {agent: {verify: true, quality: $('#aQuality').value, plan: $('#aPlan').value}, model: {default: $('#mDefault').value, fallbacks: $('#mFallbacks').value,
                         preference: $('#rPref .on')?.dataset.p || 'balanced', pin: $('#rPin').value, auxiliary: $('#mAux').value, thinking: $('#mEsc').value, reviewer: $('#mRev').value,
                         embedding: $('#mEmb').value, vision: $('#mVision').checked, context_window: $('#mCtx').value.trim() || 'auto', max_output_tokens: $('#mOut').value.trim() || 'auto'},
                 permissions: {approval: $('#pApproval').value, toolsets: [...document.querySelectorAll('#pToolsets input:checked')].map(i => i.value)},
                 sandbox: {network: {mode: $('#pNetMode').value, remembered: $('#pNetDomains').value.split(/\s+/).filter(Boolean)},
-                          folders: FOLDERS.map(f => ({path: f.path, mode: f.mode, name: f.name}))},
+                          review_writes: $('#pReview').checked},
                 usage: {daily_budget_usd: $('#uDaily').value, monthly_budget_usd: $('#uMonthly').value,
                         task_max_usd: $('#uTaskUsd').value, task_max_tokens: $('#uTaskTok').value, task_max_quota_pct: $('#uTaskQuota').value, currency: $('#uCurrency').value,
                         currency_rate: $('#uRate').value, enforce_budget: $('#uEnforce').checked},

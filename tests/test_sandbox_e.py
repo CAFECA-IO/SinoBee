@@ -53,12 +53,20 @@ def test_private_and_system_places_are_never_offered(config, home):
     assert fd.count_files(home / "Documents" / "報告", 2) == 3 and fd.count_files(home / "Documents" / "報告", 99) == 4
 
 
-def test_global_folders_and_a_conversations_own_grants(config, home):
-    config.data["sandbox"]["folders"] = [{"path": "~/Documents/報告", "mode": "ro"}, {"path": str(home / "Documents")}]
-    fd.add_grant(config, "c1", fd.entry(home / "Documents" / "報告", "rw"))
-    f = {x["name"]: x for x in fd.folders_for(config, "c1")}
-    assert f["報告"]["mode"] == "rw" and f["Documents"]["mode"] == "review"      # the grant wins
-    assert {x["name"]: x["mode"] for x in fd.folders_for(config, "c2")} == {"報告": "ro", "Documents": "review"}
+def test_folders_belong_to_one_conversation_and_follow_the_review_switch(config, home):
+    config.data["sandbox"]["folders"] = [{"path": str(home / "Documents")}]       # an old global list is not used
+    assert fd.folders_for(config, "c1") == []
+    assert fd.write_mode(config) == "review" and fd.write_mode(config, "ro") == "ro"
+    fd.add_grant(config, "c1", fd.entry(home / "Documents" / "報告", fd.write_mode(config)))
+    config.data["sandbox"]["review_writes"] = False
+    assert fd.write_mode(config) == "rw"
+    fd.add_grant(config, "c1", fd.entry(home / "Documents", fd.write_mode(config)))
+    assert {x["name"]: x["mode"] for x in fd.folders_for(config, "c1")} == {"報告": "review", "Documents": "rw"}
+    assert fd.folders_for(config, "c2") == []
+    f = fd.folders_for(config, "c1")[0]
+    copy = staging.ensure_copy(config, "c1", f)
+    assert fd.remove_grant(config, "c1", str(home / "Documents" / "報告"))["mode"] == "review"
+    assert not copy.exists() and [x["name"] for x in fd.folders_for(config, "c1")] == ["Documents"]
 
 
 def test_a_review_folder_maps_to_its_copy(config, home):
@@ -166,8 +174,8 @@ def sandbox_ctx(config, answer):
 
 
 def test_asking_for_a_folder_in_review_mode_makes_the_copy(config, home):
-    from sinobee.tools.sandbox_tools import HERE
-    ctx, m, ex, asked = sandbox_ctx(config, HERE)
+    from sinobee.tools.sandbox_tools import ALLOW
+    ctx, m, ex, asked = sandbox_ctx(config, ALLOW)
     out = dispatch(ctx, "request_host_access", path="~/Documents/報告", reason="整理報告").content
     assert "/host/報告" in out and "審核後寫回" in asked[0] and "~/Documents/報告" in asked[0]
     assert (config.home / "sandbox" / "c1" / "host" / "報告" / "a.md").is_file() and not m.refreshed
@@ -176,15 +184,20 @@ def test_asking_for_a_folder_in_review_mode_makes_the_copy(config, home):
     assert fd.grants(config, "c2") == []                                      # only this conversation
 
 
-def test_read_only_or_direct_folders_restart_the_sandbox_and_can_be_kept(config, home):
-    from sinobee.tools.sandbox_tools import KEEP
-    ctx, m, ex, asked = sandbox_ctx(config, KEEP)
+def test_read_only_folders_restart_the_sandbox_and_review_off_writes_directly(config, home):
+    from sinobee.tools.sandbox_tools import ALLOW, READ
+    ctx, m, ex, asked = sandbox_ctx(config, READ)               # asked for writing, the user allows reading only
     m.boxes["c1"] = object()
-    out = dispatch(ctx, "request_host_access", path=str(home / "Documents"), reason="讀資料", mode="ro").content
+    out = dispatch(ctx, "request_host_access", path=str(home / "Documents"), reason="讀資料").content
     assert "read-only" in out and "restarted" in out and m.refreshed == ["c1"]
-    assert [f["mode"] for f in config.get("sandbox.folders")] == ["ro"]
+    assert [f["mode"] for f in fd.folders_for(config, "c1")] == ["ro"] and not config.get("sandbox.folders")
     with pytest.raises(PermissionError):
         ex.check(home / "Documents" / "報告" / "a.md", write=True)
+    config.data["sandbox"]["review_writes"] = False
+    ctx2, m2, ex2, asked2 = sandbox_ctx(config, ALLOW)
+    (home / "proj").mkdir()
+    out = dispatch(ctx2, "request_host_access", path=str(home / "proj"), reason="改程式").content
+    assert "changes land directly" in out and "直接寫入" in asked2[0] or "直接寫入" in str(asked2)
 
 
 def test_refused_places_and_refusals(config, home):
@@ -199,19 +212,45 @@ def test_refused_places_and_refusals(config, home):
 
 
 # ------------------------------------------------------------------ settings and the review API
-def test_settings_keep_folders_and_refuse_private_ones(config, home):
-    from fastapi import FastAPI
+def test_settings_have_only_the_review_switch(config, home):
     from fastapi.testclient import TestClient
 
     from sinobee.agent import Runtime
     from sinobee.server import create_app
     c = TestClient(create_app(Runtime(config)))
-    r = c.put("/api/settings", json={"sandbox": {"folders": [{"path": "~/Documents/報告", "mode": "ro"}, {"path": "~/.ssh"}]}})
-    assert r.status_code == 400 and ".ssh" in str(r.json())                  # nothing saved with a refused folder
-    assert c.put("/api/settings", json={"sandbox": {"folders": [{"path": "~/Documents/報告", "mode": "ro"}]}}).status_code == 200
-    folders = c.get("/api/settings").json()["sandbox"]["folders"]
-    assert [(f["name"], f["mode"]) for f in folders] == [("報告", "ro")] and folders[0]["exists"]
+    assert c.get("/api/settings").json()["sandbox"]["review_writes"] is True and "folders" not in c.get("/api/settings").json()["sandbox"]
+    assert c.put("/api/settings", json={"sandbox": {"review_writes": False}}).status_code == 200
+    assert c.get("/api/settings").json()["sandbox"]["review_writes"] is False
     assert config.get("sandbox.network.mode") == "ask"                       # the rest of sandbox.* is kept
+
+
+def test_the_conversation_folder_button_gives_and_takes_folders(config, home, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from sinobee.server import sandbox_api
+    config.data["permissions"]["approval"] = "sandbox"
+    events = []
+    app = FastAPI()
+    sandbox_api.register(app, lambda: types.SimpleNamespace(config=config), lambda k, d: events.append((k, d)))
+    with TestClient(app) as c:
+        assert c.get("/api/sandbox/s1/folders").json() == {"folders": [], "review_writes": True, "sandbox": True}
+        assert c.post("/api/sandbox/s1/folders", json={"path": "~/.ssh"}).status_code == 400
+        r = c.post("/api/sandbox/s1/folders", json={"path": "~/Documents/報告"}).json()
+        f = r["folders"][0]
+        assert f["mode"] == "review" and f["inner"] == "/host/報告" and f["shown"] == "~/Documents/報告" and f["pending"] == 0
+        assert events[-1] == ("folders", {"session_id": "s1"})
+        (staging.copy_dir(config, "s1", "報告") / "a.md").write_text("改了\n")
+        assert c.get("/api/sandbox/s1/folders").json()["folders"][0]["pending"] == 1
+        r = c.delete("/api/sandbox/s1/folders", params={"path": "~/Documents/報告"})
+        assert r.status_code == 409 and "1 個變更" in r.json()["detail"]
+        assert c.delete("/api/sandbox/s1/folders", params={"path": "~/Documents/報告", "force": True}).json()["folders"] == []
+        assert (home / "Documents" / "報告" / "a.md").read_text() == "第一版\n內容\n"
+        r = c.post("/api/sandbox/s1/folders", json={"path": str(home / "Documents"), "mode": "ro"}).json()
+        assert r["folders"][0]["mode"] == "ro"
+    config.data["permissions"]["approval"] = "confirm"
+    with TestClient(app) as c:
+        assert c.post("/api/sandbox/s1/folders", json={"path": "~/Documents/報告"}).status_code == 409
 
 
 def test_review_api_lists_applies_discards_and_undoes(config, home):
@@ -243,7 +282,7 @@ def test_review_api_lists_applies_discards_and_undoes(config, home):
 
 def test_the_gui_can_open_files_in_copies_and_authorised_folders(config, home):
     from sinobee.fileaccess import FileAccessError, resolve_file
-    config.data["sandbox"]["folders"] = [{"path": str(home / "Documents"), "mode": "ro"}]
+    fd.add_grant(config, "c8", fd.entry(home / "Documents", "ro"))
     assert resolve_file(config, str(home / "Documents" / "報告" / "a.md")).name == "a.md"
     f, copy = make_copy(config, home, "c9")
     assert resolve_file(config, str(copy / "a.md")) == (copy / "a.md").resolve()
@@ -268,9 +307,9 @@ def box(config, home):
 
 @pytest.mark.docker
 def test_the_sandbox_works_on_the_copy_and_sees_read_only_folders(box, home):
-    from sinobee.tools.sandbox_tools import HERE
+    from sinobee.tools.sandbox_tools import ALLOW
     config, conv, ctx = box
-    answers = iter([HERE, HERE])
+    answers = iter([ALLOW, ALLOW])
 
     async def ask(q, options, multi, allow_text):
         return {"choices": [next(answers)]}

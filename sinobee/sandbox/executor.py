@@ -153,9 +153,30 @@ class SandboxExecutor(Executor):
     kind = "sandbox"
 
     def __init__(self, config, paths: PathMap, conversation: str, manager):
-        super().__init__(config, paths)
         self.conversation = conversation or "default"
         self.manager = manager
+        self._paths, self._paths_key = None, None
+        super().__init__(config, paths)
+
+    def _grants_key(self):
+        from .folders import conv_dir
+        try:
+            return (conv_dir(self.config, self.conversation) / "grants.json").stat().st_mtime_ns
+        except OSError:
+            return None
+
+    @property
+    def paths(self) -> PathMap:
+        """The table follows the folders given to the conversation (by SinoBee's request or the 📁 button)."""
+        key = self._grants_key()
+        if self._paths is None or key != self._paths_key:
+            from .paths import for_config
+            self._paths, self._paths_key = for_config(self.config, self.conversation), key
+        return self._paths
+
+    @paths.setter
+    def paths(self, value: PathMap) -> None:
+        self._paths, self._paths_key = value, self._grants_key()
 
     def python(self) -> str:
         return "python3"

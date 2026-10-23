@@ -15,8 +15,7 @@ class FileAccessError(Exception):
 
 def allowed_roots(config) -> list[Path]:
     roots = [config.workspace, config.project_dir] + [Path(p) for p in (config.get("permissions.allowed_paths") or [])]
-    # the sandbox's folders of this computer (Settings → 本機資料夾) and the review copies of them
-    roots += [Path(str(f.get("path"))) for f in (config.get("sandbox.folders") or []) if f.get("path")]
+    # folders given to conversations' sandboxes, and the review copies of them
     roots.append(Path(config.home) / "sandbox")
     import json as _json
     for g in (Path(config.home) / "sandbox").glob("*/grants.json"):      # folders one conversation was given

@@ -4,6 +4,9 @@
     POST /api/sandbox/{sid}/takeover {on}      you take over the desktop (the agent's desktop/browser tools wait)
     WS   /api/sandbox/{sid}/vnc?token=          the desktop: VNC over a WebSocket (noVNC in the page)
     ANY  /api/sandbox/{sid}/preview/{port}/... a web server running in the sandbox, in your own browser
+    GET  /api/sandbox/{sid}/folders            the folders of this computer given to the conversation (📁 資料夾)
+    POST /api/sandbox/{sid}/folders            {path, mode: write|ro}   give one (write = review or direct, as Settings say)
+    DELETE /api/sandbox/{sid}/folders?path=&force=   take one away (its review copy too; force when changes wait)
     GET  /api/sandbox/{sid}/changes            changes waiting for review in the copies of your folders (staging.py)
     POST /api/sandbox/{sid}/changes/apply      {folder, paths?, force?}  bring them to your folder
     POST /api/sandbox/{sid}/changes/discard    {folder, paths?}          drop them (the copy gets the original back)
@@ -51,6 +54,76 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         if broadcast:
             broadcast("host_changes", {"session_id": sid, "count": len(items)})
         return {"pending": len(items)}
+
+    def _shown(p: str) -> str:
+        from pathlib import Path
+        home = str(Path.home())
+        return "~" + p[len(home):] if p.startswith(home + "/") else p
+
+    @app.get("/api/sandbox/{sid}/folders")
+    async def conv_folders(sid: str):
+        from pathlib import Path
+
+        from ..sandbox import executor_kind, staging
+        from ..sandbox.folders import folders_for, review_writes
+        cfg = rt().config
+        out = []
+        for f in folders_for(cfg, sid):
+            n = len(await asyncio.to_thread(staging.changes, cfg, sid, f, False)) if f["mode"] == "review" else 0
+            out.append({**f, "shown": _shown(f["path"]), "inner": f"/host/{f['name']}",
+                        "exists": Path(f["path"]).is_dir(), "pending": n})
+        return {"folders": out, "review_writes": review_writes(cfg), "sandbox": executor_kind(cfg) == "sandbox"}
+
+    @app.post("/api/sandbox/{sid}/folders")
+    async def conv_folder_add(sid: str, body: dict):
+        from pathlib import Path
+
+        from ..sandbox import folders as fd
+        from ..sandbox import make_executor
+        from ..tools.sandbox_tools import grant
+        cfg = rt().config
+        ex = make_executor(cfg, sid)
+        if ex.kind != "sandbox":
+            raise HTTPException(409, "工具不在沙盒執行時不需要授權資料夾（設定 → 權限與安全 → 沙盒）")
+        path = str(body.get("path") or "").strip()
+        why = fd.refuse(cfg, path)
+        if why:
+            raise HTTPException(400, why)
+        mode = fd.write_mode(cfg, "ro" if body.get("mode") == "ro" else "write")
+        target = Path(path).expanduser().resolve()
+        if mode == "review" and await asyncio.to_thread(fd.count_files, target, fd.review_max(cfg)) > fd.review_max(cfg):
+            raise HTTPException(400, f"這個資料夾超過 {fd.review_max(cfg):,} 個檔案，太大無法做審核用的副本：請選唯讀，"
+                                     "或在設定關閉「寫入前審核」後直接寫入")
+        msg = await grant(cfg, ex, target, mode)
+        if broadcast:
+            broadcast("folders", {"session_id": sid})
+        return {"ok": True, "message": msg, **(await conv_folders(sid))}
+
+    @app.delete("/api/sandbox/{sid}/folders")
+    async def conv_folder_remove(sid: str, path: str, force: bool = False):
+        from pathlib import Path
+
+        from ..sandbox import staging
+        from ..sandbox.folders import folders_for, remove_grant
+        cfg = rt().config
+        target = str(Path(path).expanduser().resolve())
+        f = next((x for x in folders_for(cfg, sid) if x["path"] == target), None)
+        if f is None:
+            raise HTTPException(404, "這個對話沒有這個資料夾")
+        if f["mode"] == "review" and not force:
+            n = len(await asyncio.to_thread(staging.changes, cfg, sid, f, False))
+            if n:
+                raise HTTPException(409, f"{n} 個變更還沒審核，移除會一併捨棄")
+        await asyncio.to_thread(remove_grant, cfg, sid, target)
+        staging.remember_pending(cfg, sid, await asyncio.to_thread(staging.pending, cfg, sid, False))
+        if f["mode"] in ("ro", "rw"):
+            from ..sandbox.manager import manager_for
+            m = manager_for(cfg)
+            if sid in m.boxes:
+                await m.refresh(sid)
+        if broadcast:
+            broadcast("folders", {"session_id": sid})
+        return {"ok": True, **(await conv_folders(sid))}
 
     @app.get("/api/sandbox-pending")
     async def sandbox_pending():

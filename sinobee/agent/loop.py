@@ -383,6 +383,8 @@ class Agent:
         runtime.memory.ensure_session(self.session_id, platform, title=title)
         self.history: list[Message] = self._load_history()
         self._core_at_start = {m.id: m.content for m in runtime.memory.core()}
+        self._system_extra = system_extra
+        self._paths_seen = self._paths_text()
         system = build_system_prompt(self.config, runtime.memory.render_core(), sorted(self.tool_names),
                                      self.session_id)
         if system_extra:
@@ -504,6 +506,25 @@ class Agent:
         return changed
 
     # ------------------------------------------------------------------ completion check & model escalation
+    def _paths_text(self) -> str:
+        try:
+            from ..sandbox import for_config
+            return for_config(self.config, self.session_id).describe()
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _refresh_folders(self) -> None:
+        """A folder was given to (or taken from) this conversation since the last turn: the environment part of the
+        system prompt says so (the table of /host paths)."""
+        now = self._paths_text()
+        if now == self._paths_seen:
+            return
+        self._paths_seen = now
+        system = build_system_prompt(self.config, self.rt.memory.render_core(), sorted(self.tool_names), self.session_id)
+        if self._system_extra:
+            system += "\n\n" + self._system_extra
+        self.system = Message("system", system)
+
     def _host_changes(self) -> dict | None:
         """Changes waiting for review in this conversation's copies of your folders (sandbox/staging.py)."""
         if self.depth != 0 or getattr(self.ctx.state.get("executor"), "kind", "") != "sandbox":
@@ -1302,6 +1323,8 @@ class Agent:
         # fixes index.html again must still end with the file, not with no output)
         self.ctx.state["artifact_seen"] = set()
         self.ctx.state["turn_id"] = f"t{int(time.time() * 1000)}"   # groups this turn's evidence (agent/evidence.py)
+        if self.depth == 0:
+            self._refresh_folders()
         self.ctx.state["playtests"] = []
         self._quota_noted: set = set()   # "switched to points / your models" is said once per turn, not per call
 
