@@ -144,6 +144,24 @@ def environment_block(config, conversation: str | None = None) -> str:
                   "larger video is compressed to fit on upload - instead "
                   "of asking for network access to sinobee.ai. If the user takes over the desktop, those tools wait until it is "
                   "handed back, and nothing is recorded meanwhile.")
+    if paths and executor_kind(config) == "sandbox" and conversation:
+        from ..sandbox.folders import folders_for
+        given = folders_for(config, conversation)
+        home = str(Path.home())
+        def shown(p):
+            return "~" + p[len(home):] if p.startswith(home + "/") else p
+        writable = [f for f in given if f["mode"] != "ro"]
+        if writable:
+            names = ", ".join(f"/host/{f['name']} (= {shown(f['path'])})" for f in writable)
+            paths += ("\n\nTHE USER GAVE THIS CONVERSATION " + ("THESE FOLDERS" if len(writable) > 1 else "THIS FOLDER")
+                      + f": {names}. What they ask you to make or change belongs there, not in /workspace: create the "
+                      "project or the files directly in that folder (no extra subfolder unless they ask for one), and "
+                      "tell them its path on their computer. You may install and build in ~ for speed, but the "
+                      "delivered files go into the folder. node_modules, .next, .git and caches there are not "
+                      "copied back to their folder"
+                      + (" - in a review folder (審核後寫回) your changes reach their folder only after they review "
+                         "them: end by telling them to open 本機檔案變更 / 審核變更 to apply them."
+                         if any(f["mode"] == "review" for f in writable) else "."))
     return "# Environment\n" + "\n".join(f"- {l}" for l in lines) + (f"\n\n{paths}" if paths else "")
 
 

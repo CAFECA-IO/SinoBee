@@ -348,3 +348,35 @@ def test_folders_can_be_picked_by_browsing_the_home_folder(config, home):
         assert r["can_pick"] and r["shown"] == "~/Documents/報告" and [x["label"] for x in r["crumbs"]] == ["~", "Documents", "報告"]
         assert {d["name"] for d in r["dirs"]} == {"sub"}                     # folders only, no files
         assert c.get("/api/sandbox-browse", params={"path": "/etc"}).status_code == 403
+
+
+def test_the_prompt_says_the_given_folder_is_where_the_work_goes(config, home):
+    from sinobee.agent.prompt import environment_block
+    config.data["permissions"]["approval"] = "sandbox"
+    assert "THE USER GAVE" not in environment_block(config, "c1")
+    fd.add_grant(config, "c1", fd.entry(home / "Documents" / "報告", "review"))
+    text = environment_block(config, "c1")
+    assert "THIS FOLDER: /host/報告 (= " in text and "not in /workspace" in text and "審核變更" in text
+    fd.add_grant(config, "c2", fd.entry(home / "Documents" / "報告", "ro"))
+    assert "THE USER GAVE" not in environment_block(config, "c2")          # read-only: nothing to deliver there
+
+
+def test_sub_agents_work_in_their_conversations_sandbox(config, home, monkeypatch):
+    from sinobee.agent import Agent, Runtime
+    from sinobee.sandbox import executor_of
+    from sinobee.work import agents as wa
+    config.data["permissions"]["approval"] = "sandbox"
+    fd.add_grant(config, "conv1", fd.entry(home / "Documents" / "報告", "review"))
+    seen = []
+
+    async def fake_run(self, prompt):
+        ex = executor_of(self.ctx)
+        seen.append((self.session_id, ex.conversation, "/host/報告" in self.system.text()))
+        if len(seen) == 1:                                   # the sub-agent starts one of its own
+            await wa.run_subagent(self.rt, role="general", task="inner", board_scope="b", parent_session=self.session_id)
+        return "ok"
+    monkeypatch.setattr(Agent, "run", fake_run)
+    rt = Runtime(config)
+    asyncio.run(wa.run_subagent(rt, role="general", task="outer", board_scope="b", parent_session="conv1"))
+    assert [s[1] for s in seen] == ["conv1", "conv1"] and all(s[0].startswith("sub-") for s in seen)
+    assert all(s[2] for s in seen) and wa.SANDBOX_ROOT == {}

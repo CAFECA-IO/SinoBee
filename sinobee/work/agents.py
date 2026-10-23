@@ -121,6 +121,10 @@ def extract_json(text: str):
     return None
 
 
+# sub-agent session -> the conversation whose sandbox it shares (a sub-agent of a sub-agent shares the same one)
+SANDBOX_ROOT: dict[str, str] = {}
+
+
 async def run_subagent(rt, *, role: str, task: str, board_scope: str, parent_session: str | None = None,
                        approve=None, emit=None, context: str = "", hub=None, title: str | None = None,
                        max_iterations: int | None = None, owner: str | None = None, provider=None) -> dict:
@@ -141,10 +145,13 @@ async def run_subagent(rt, *, role: str, task: str, board_scope: str, parent_ses
                 brief["status"] = data.get("status")
             emit("subagent", brief)
 
+    root = SANDBOX_ROOT.get(parent_session, parent_session) if parent_session else None
+    if root:
+        SANDBOX_ROOT[sid] = root
     agent = Agent(rt, sid, platform="subagent", emit=child_emit, approve=approve, tool_filter=tool_filter_for(role),
                   system_extra=spec["prompt"] + "\n\n" + CHILD_RULES, board_scope=board_scope,
                   max_iterations=max_iterations or spec["iterations"], title=title or f"[{label}] {task[:60]}",
-                  learn=False, depth=1, provider=provider)
+                  learn=False, depth=1, provider=provider, sandbox_conversation=root)
     if hub is not None:
         hub.children[sid] = (agent, owner or parent_session)
     prompt = f"Subtask ({label}):\n{task}"
@@ -161,6 +168,7 @@ async def run_subagent(rt, *, role: str, task: str, board_scope: str, parent_ses
         log.exception("sub-agent %s failed", sid)
         text, status, cost = f"（子代理失敗：{e}）", "error", 0
     finally:
+        SANDBOX_ROOT.pop(sid, None)
         if hub is not None:
             hub.children.pop(sid, None)
     return {"role": role, "role_label": label, "task": task, "status": status, "result": text, "session_id": sid,

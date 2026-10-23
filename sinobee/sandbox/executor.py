@@ -403,7 +403,9 @@ def executor_of(ctx) -> Executor:
     ex = state.get("executor") if state is not None else None
     if ex is None or ex.config is not ctx.config or (ex.kind in ("host", "sandbox")
                                                      and ex.kind != executor_kind(ctx.config)):
-        ex = make_executor(ctx.config, getattr(ctx, "session_id", "") or "")
+        # a sub-agent's state names the conversation whose sandbox it shares
+        conv = (state or {}).get("sandbox_conversation") or getattr(ctx, "session_id", "") or ""
+        ex = make_executor(ctx.config, conv)
         if state is not None:
             state["executor"] = ex
     return ex

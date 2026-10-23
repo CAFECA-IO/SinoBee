@@ -2100,3 +2100,17 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   時切換同步更新）。用在：沙盒連網方式、資料夾的可寫入／唯讀、品質規則類型、資料庫 SSH 驗證、技能打包範圍。
 - **新對話先授權資料夾**：還沒送出第一則訊息的新對話，「📁 資料夾」用前端產生的草稿 id（`DRAFT_SID`）授權；第一則訊息
   帶著這個 id 送出，伺服器以它建立對話（`get_agent` 只接受 `[A-Za-z0-9_-]{6,64}`），資料夾就在第一步可用。
+
+## 54. G4 修正：交付到你給的資料夾、子代理共用對話的沙盒（2026-10-23）
+
+- **G4 發現**：對話授權了 `~/Documents/playground/calc`（/host/calc），請它「用 Next.js 建立工程計算機專案」，結果做在
+  `/workspace/eng-calc`。原因有二：
+  1. 提示詞只說「交付結果放 /workspace」，沒說「你給的資料夾就是交付位置」。
+  2. 子代理（審查員、並行子任務、流程節點）各用自己的 session id，等於各開一個新沙盒：看不到 /host 資料夾、
+     看不到主代理在 ~ 裡做的東西，還多佔一個容器。
+- **修正**：
+  - 對話有可寫入的資料夾時，環境段明寫「THE USER GAVE THIS CONVERSATION THIS FOLDER: /host/<名稱> (= ~/…)」：
+    要做或要改的東西放在那裡（不另建子資料夾，除非你要求）、在 ~ 安裝建置可以，交付檔案放進去、審核模式最後提醒你審核。
+  - `Agent(sandbox_conversation=…)`：子代理的 executor、系統提示詞的路徑表、證據庫都用所屬對話；`work/agents.py` 以
+    `SANDBOX_ROOT` 讓子代理的子代理也回到同一個對話。
+  - 審核比對與寫回另外略過 `.next`、`.turbo`、`.cache`、`.pytest_cache`、`.mypy_cache`（原本已略過 node_modules、.git 等）。

@@ -352,12 +352,15 @@ class Agent:
     def __init__(self, runtime: Runtime, session_id: str | None = None, *, platform: str = "cli",
                  emit: EmitFn | None = None, approve: ApproveFn | None = None, tool_filter=None,
                  system_extra: str = "", max_iterations: int | None = None, board_scope: str | None = None,
-                 title: str | None = None, learn: bool = True, depth: int = 0, ask=None, provider=None):
+                 title: str | None = None, learn: bool = True, depth: int = 0, ask=None, provider=None,
+                 sandbox_conversation: str | None = None):
         """tool_filter(tool) -> bool narrows the tools (sub-agents / workflow roles); board_scope is the shared
         blackboard this agent reads and writes (default: its own session); depth > 0 marks a sub-agent."""
         self.rt = runtime
         self.config = runtime.config
         self.session_id = session_id or uuid.uuid4().hex[:12]
+        # a sub-agent works in its conversation's sandbox: the same container, home folder and /host folders
+        self.sandbox_conversation = sandbox_conversation or self.session_id
         self.platform = platform
         self.emit_fn = emit
         self.usage = Usage()
@@ -377,6 +380,7 @@ class Agent:
                                skills=runtime.skills, emit=self._emit, approve=approve, ask=ask)
         self.ctx.state["_runtime"] = runtime
         self.ctx.state["runtime"] = runtime
+        self.ctx.state["sandbox_conversation"] = self.sandbox_conversation
         self.ctx.state["board_scope"] = board_scope or f"session:{self.session_id}"
         self.ctx.state["depth"] = depth
         self.ctx.state["agent"] = self
@@ -386,7 +390,7 @@ class Agent:
         self._system_extra = system_extra
         self._paths_seen = self._paths_text()
         system = build_system_prompt(self.config, runtime.memory.render_core(), sorted(self.tool_names),
-                                     self.session_id)
+                                     self.sandbox_conversation)
         if system_extra:
             system += "\n\n" + system_extra
         self.system = Message("system", system)
@@ -509,7 +513,7 @@ class Agent:
     def _paths_text(self) -> str:
         try:
             from ..sandbox import for_config
-            return for_config(self.config, self.session_id).describe()
+            return for_config(self.config, self.sandbox_conversation).describe()
         except Exception:  # noqa: BLE001
             return ""
 
@@ -520,7 +524,8 @@ class Agent:
         if now == self._paths_seen:
             return
         self._paths_seen = now
-        system = build_system_prompt(self.config, self.rt.memory.render_core(), sorted(self.tool_names), self.session_id)
+        system = build_system_prompt(self.config, self.rt.memory.render_core(), sorted(self.tool_names),
+                                     self.sandbox_conversation)
         if self._system_extra:
             system += "\n\n" + self._system_extra
         self.system = Message("system", system)

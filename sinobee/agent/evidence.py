@@ -122,7 +122,9 @@ class Store:
 def store_of(ctx) -> Store:
     st = ctx.state.get("evidence_store") if isinstance(getattr(ctx, "state", None), dict) else None
     if st is None or st.config is not ctx.config:
-        st = Store(ctx.config, getattr(ctx, "session_id", "") or "default")
+        state = ctx.state if isinstance(getattr(ctx, "state", None), dict) else {}
+        # a sub-agent's pictures belong to its conversation (they can be cited and reviewed there)
+        st = Store(ctx.config, state.get("sandbox_conversation") or getattr(ctx, "session_id", "") or "default")
         if isinstance(getattr(ctx, "state", None), dict):
             ctx.state["evidence_store"] = st
     return st

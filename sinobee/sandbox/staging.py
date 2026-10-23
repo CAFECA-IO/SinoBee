@@ -28,7 +28,8 @@ from pathlib import Path
 
 from .folders import conv_dir
 
-SKIP = {".DS_Store", ".git", "node_modules", "__pycache__", ".venv", "venv"}   # not compared, not copied back
+SKIP = {".DS_Store", ".git", "node_modules", "__pycache__", ".venv", "venv", ".next", ".turbo", ".cache",
+        ".pytest_cache", ".mypy_cache"}   # not compared, not copied back
 TEXT_MAX = 400_000
 DIFF_LINES = 400
 
