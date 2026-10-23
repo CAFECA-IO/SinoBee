@@ -63,7 +63,9 @@ def refuse(config, path: str | os.PathLike) -> str | None:
 
 
 def count_files(path: Path, limit: int) -> int:
-    """Files under path, counting stops past limit."""
+    """Files under path that a review compares (node_modules, .git, build caches… are not: staging.SKIP), counting
+    stops past limit."""
+    from .staging import SKIP
     n = 0
     stack = [Path(path)]
     while stack:
@@ -71,6 +73,8 @@ def count_files(path: Path, limit: int) -> int:
         try:
             with os.scandir(d) as it:
                 for e in it:
+                    if e.name in SKIP:
+                        continue
                     if e.is_dir(follow_symlinks=False):
                         stack.append(Path(e.path))
                     else:

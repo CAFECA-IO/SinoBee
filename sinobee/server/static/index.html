@@ -289,7 +289,8 @@ textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:12px;padd
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px}
 .modal.open{display:flex}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;max-width:560px;width:100%;box-shadow:var(--shadow)}
-.modal{backdrop-filter:blur(3px);z-index:50}
+/* no backdrop blur: under a live sandbox screen or animations it is redrawn every frame and the window stalls */
+.modal{z-index:50;background:rgba(0,0,0,.55)}
 .card pre{background:var(--code);padding:10px;border-radius:8px;max-height:260px;overflow:auto;white-space:pre-wrap;font-size:12px}
 .card .row{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 .empty{color:var(--muted);text-align:center;margin-top:10vh;position:relative}
@@ -4195,7 +4196,7 @@ function hostBar(sid, count){
 async function hostCheck(sid){ try { const r = await api(`/api/sandbox/${encodeURIComponent(sid)}/changes`); if (sid === sessionId) hostBar(sid, r.count || 0); } catch {} }
 const diffHtml = t => esc(t).split('\n').map(l => `<span class="${/^(\+\+\+|---|@@)/.test(l) ? 'h' : l[0] === '+' ? 'a' : l[0] === '-' ? 'd' : ''}">${l}</span>`).join('\n');
 async function openHostReview(sid){
-  HC = {sid, data: null}; $('#hcBody').innerHTML = '<div class="sd"><span class="spin"></span> 比對中…</div>'; $('#hcState').textContent = ''; $('#hostModal').classList.add('open');
+  HC = {sid, data: null, busy: false}; $('#hcBody').innerHTML = '<div class="sd"><span class="spin"></span> 比對中…</div>'; $('#hcState').textContent = ''; $('#hostModal').classList.add('open');
   const r = await api(`/api/sandbox/${encodeURIComponent(sid)}/changes`); HC.data = r;
   const home = (r.folders[0]?.origin || '').match(/^\/(Users|home)\/[^/]+/)?.[0];
   const short = p => home && p.startsWith(home) ? '~' + p.slice(home.length) : p;
@@ -4222,19 +4223,32 @@ function hcPicked(){
     paths: [...f.querySelectorAll('.hc-row')].filter(r => r.querySelector('.hc-pick').checked).map(r => r.dataset.p),
     force: [...f.querySelectorAll('.hc-row')].filter(r => r.querySelector('.hc-force')?.checked).map(r => r.dataset.p)})).filter(x => x.paths.length);
 }
-function hcDone(msg, pending){
-  $('#hcState').textContent = msg; hostBar(HC.sid, pending); loadSide(); openHostReview(HC.sid).then(() => $('#hcState').textContent = msg);
+async function hcDone(msg, pending){
+  const busy = HC.busy; hostBar(HC.sid, pending); loadSide(); if (!$('#folderPop').hidden) folderRefresh();
+  await openHostReview(HC.sid); HC.busy = busy; $('#hcState').textContent = msg;
 }
-$('#hcClose').onclick = () => $('#hostModal').classList.remove('open');
-$('#hcApply').onclick = async () => { const sel = hcPicked(); if (!sel.length) return;
-  let ok = 0, skipped = [], pending = 0;
-  for (const s of sel) { const j = await post(`/api/sandbox/${encodeURIComponent(HC.sid)}/changes/apply`, s); ok += j.applied.length; skipped.push(...j.conflicts); pending = j.pending; }
-  hcDone(`已寫回 ${ok} 個檔案` + (skipped.length ? `，${skipped.length} 個衝突沒有套用` : ''), pending); };
+const hcClose = () => { if (!HC?.busy) $('#hostModal').classList.remove('open'); };
+$('#hcClose').onclick = hcClose;
+$('#hostModal').addEventListener('click', e => { if (e.target.id === 'hostModal') hcClose(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#hostModal').classList.contains('open') && !document.querySelector('.modal.uidlg.open')) hcClose(); });
+/** apply / discard: the buttons wait while it runs (a big folder takes a while), and come back even when it fails */
+async function hcRun(label, work){
+  const btns = ['#hcApply', '#hcDiscard', '#hcClose'].map(id => $(id)); HC.busy = true; btns.forEach(b => b.disabled = true);
+  $('#hcState').textContent = label;
+  try { await work(); }
+  catch (e) { $('#hcState').textContent = '失敗：' + (e.message || e); }
+  finally { HC.busy = false; $('#hcClose').disabled = false;
+    $('#hcApply').disabled = $('#hcDiscard').disabled = !(HC.data?.count); }
+}
+$('#hcApply').onclick = () => { const sel = hcPicked(); if (!sel.length) return;
+  hcRun('寫回中…', async () => { let ok = 0, skipped = [], pending = 0;
+    for (const s of sel) { const j = await post(`/api/sandbox/${encodeURIComponent(HC.sid)}/changes/apply`, s); ok += j.applied.length; skipped.push(...j.conflicts); pending = j.pending; }
+    await hcDone(`已寫回 ${ok} 個檔案` + (skipped.length ? `，${skipped.length} 個衝突沒有套用` : ''), pending); }); };
 $('#hcDiscard').onclick = async () => { const sel = hcPicked(); if (!sel.length) return;
   if (!await uiConfirm(`捨棄選取的 ${sel.reduce((n, s) => n + s.paths.length, 0)} 個變更？副本會換回原檔的內容。`)) return;
-  let n = 0, pending = 0;
-  for (const s of sel) { const j = await post(`/api/sandbox/${encodeURIComponent(HC.sid)}/changes/discard`, {folder: s.folder, paths: s.paths}); n += j.discarded.length; pending = j.pending; }
-  hcDone(`已捨棄 ${n} 個變更`, pending); };
+  hcRun('捨棄中…', async () => { let n = 0, pending = 0;
+    for (const s of sel) { const j = await post(`/api/sandbox/${encodeURIComponent(HC.sid)}/changes/discard`, {folder: s.folder, paths: s.paths}); n += j.discarded.length; pending = j.pending; }
+    await hcDone(`已捨棄 ${n} 個變更`, pending); }); };
 
 // ---------- a fixed either-or choice is a segmented switch, not a drop-down (select[data-seg] stays the value) ----------
 const SELECT_VALUE = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');

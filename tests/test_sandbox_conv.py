@@ -134,3 +134,14 @@ def test_gui_may_open_files_listed_in_conversation_json(config, home):
     roots = [str(r) for r in fileaccess.allowed_roots(config)]
     assert any(r.endswith("報告") for r in roots), roots
     assert os.path.isdir(next(r for r in roots if r.endswith("報告")))
+
+
+def test_a_big_project_counts_only_the_files_a_review_compares(tmp_path):
+    root = tmp_path / "app"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "page.tsx").write_text("x")
+    for d in ("node_modules/react", ".git/objects", ".next/cache"):
+        (root / d).mkdir(parents=True)
+        for i in range(30):
+            (root / d / f"f{i}").write_text("x")
+    assert fd.count_files(root, 10) == 1
