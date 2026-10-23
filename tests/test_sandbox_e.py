@@ -328,3 +328,23 @@ def test_the_sandbox_works_on_the_copy_and_sees_read_only_folders(box, home):
     assert "/host/notes" in out
     out = dispatch(ctx, "shell", command="cat /host/notes/n.txt; touch /host/notes/x 2>&1; cat /host/報告/a.md").content
     assert "筆記" in out and "Read-only" in out and "沙盒改的" in out        # the copy survived the restart
+
+
+def test_folders_can_be_picked_by_browsing_the_home_folder(config, home):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from sinobee.server import sandbox_api
+    app = FastAPI()
+    sandbox_api.register(app, lambda: types.SimpleNamespace(config=config))
+    with TestClient(app) as c:
+        r = c.get("/api/sandbox-browse").json()
+        assert r["path"] == str(home.resolve()) and not r["can_pick"] and r["parent"] is None
+        names = {d["name"]: d for d in r["dirs"]}
+        assert set(names) == {"Documents", "Library"} and names["Documents"]["can_pick"] and not names["Library"]["can_pick"]
+        assert ".ssh" in {d["name"] for d in c.get("/api/sandbox-browse", params={"hidden": True}).json()["dirs"]}
+        assert [s["label"] for s in r["shortcuts"]] == ["文件"]
+        r = c.get("/api/sandbox-browse", params={"path": "~/Documents/報告"}).json()
+        assert r["can_pick"] and r["shown"] == "~/Documents/報告" and [x["label"] for x in r["crumbs"]] == ["~", "Documents", "報告"]
+        assert {d["name"] for d in r["dirs"]} == {"sub"}                     # folders only, no files
+        assert c.get("/api/sandbox-browse", params={"path": "/etc"}).status_code == 403

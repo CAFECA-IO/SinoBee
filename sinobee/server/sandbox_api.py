@@ -7,6 +7,7 @@
     GET  /api/sandbox/{sid}/folders            the folders of this computer given to the conversation (📁 資料夾)
     POST /api/sandbox/{sid}/folders            {path, mode: write|ro}   give one (write = review or direct, as Settings say)
     DELETE /api/sandbox/{sid}/folders?path=&force=   take one away (its review copy too; force when changes wait)
+    GET  /api/sandbox-browse?path=&hidden=     the folders inside a folder of your home (or /Volumes), to pick one
     GET  /api/sandbox/{sid}/changes            changes waiting for review in the copies of your folders (staging.py)
     POST /api/sandbox/{sid}/changes/apply      {folder, paths?, force?}  bring them to your folder
     POST /api/sandbox/{sid}/changes/discard    {folder, paths?}          drop them (the copy gets the original back)
@@ -59,6 +60,64 @@ def register(app: FastAPI, rt, broadcast=None) -> None:
         from pathlib import Path
         home = str(Path.home())
         return "~" + p[len(home):] if p.startswith(home + "/") else p
+
+    @app.get("/api/sandbox-browse")
+    async def browse(path: str = "", hidden: bool = False):
+        """Folder picker for 📁 資料夾: names of the subfolders only (no files), within your home or /Volumes; each
+        says whether it may be given to a sandbox (folders.refuse)."""
+        import os
+        from pathlib import Path
+
+        from ..sandbox import folders as fd
+        cfg = rt().config
+        home = Path.home().resolve()
+        roots = [home] + ([Path("/Volumes")] if Path("/Volumes").is_dir() else [])
+        try:
+            p = Path(path).expanduser().resolve() if path else home
+        except (OSError, RuntimeError):
+            raise HTTPException(400, "路徑無效") from None
+        if not any(p == r or r in p.parents for r in roots):
+            raise HTTPException(403, "只能瀏覽家目錄（與外接磁碟）裡的資料夾")
+        if not p.is_dir():
+            raise HTTPException(404, "找不到這個資料夾")
+
+        def listing():
+            out = []
+            try:
+                with os.scandir(p) as it:
+                    for e in it:
+                        if len(out) >= 500:
+                            break
+                        if e.name.startswith(".") and not hidden:
+                            continue
+                        try:
+                            if not e.is_dir(follow_symlinks=True):
+                                continue
+                        except OSError:
+                            continue
+                        q = str(Path(e.path))
+                        why = fd.refuse(cfg, q)
+                        out.append({"name": e.name, "path": q, "shown": _shown(q), "can_pick": why is None, "why": why})
+            except PermissionError:
+                raise HTTPException(403, "沒有權限讀取這個資料夾（macOS 可能要在「系統設定 → 隱私權」允許）") from None
+            return sorted(out, key=lambda x: x["name"].lower())
+        dirs = await asyncio.to_thread(listing)
+        why = fd.refuse(cfg, str(p))
+        parent = p.parent if p != p.parent and any(p.parent == r or r in p.parent.parents for r in roots) else None
+        picks = [("桌面", "Desktop"), ("文件", "Documents"), ("下載", "Downloads"), ("專案", "Projects"),
+                 ("GitHub", "Documents/GitHub"), ("GitHub", "GitHub"), ("iCloud 雲碟", "Library/Mobile Documents/com~apple~CloudDocs")]
+        shortcuts, seen = [], set()
+        for label, rel in picks:
+            q = home / rel
+            if q.is_dir() and label not in seen:
+                seen.add(label)
+                shortcuts.append({"label": label, "path": str(q)})
+        root = next(r for r in roots if p == r or r in p.parents)
+        crumbs = [{"label": "~" if root == home else root.name or str(root), "path": str(root)}]
+        for part in p.relative_to(root).parts:
+            crumbs.append({"label": part, "path": str(Path(crumbs[-1]["path"]) / part)})
+        return {"path": str(p), "shown": _shown(str(p)), "parent": str(parent) if parent else None, "crumbs": crumbs,
+                "can_pick": why is None, "why": why, "dirs": dirs, "shortcuts": shortcuts}
 
     @app.get("/api/sandbox/{sid}/folders")
     async def conv_folders(sid: str):

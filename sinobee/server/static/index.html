@@ -329,7 +329,9 @@ table.t{width:100%;border-collapse:collapse;font-size:13px}table.t th,table.t td
 table.t th:first-child,table.t td:first-child{text-align:left}table.t th{color:var(--muted);font-weight:500}
 .chartbox{position:relative}.chartbox svg{width:100%;height:220px;display:block}
 .tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.15);display:none;white-space:nowrap}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.seg button{border:0;background:none;padding:5px 10px;cursor:pointer;color:var(--muted);font:inherit}.seg button.on{background:var(--tool);color:var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg2{flex:none;max-width:100%}.seg2 button{white-space:nowrap;font-size:13px}.seg2 button+button{border-left:1px solid var(--line)}
+.seg2 button.on{background:var(--accent-solid)!important;color:var(--accent-ink)!important;font-weight:600}.seg2 button:disabled{opacity:.5;cursor:not-allowed}.seg button{border:0;background:none;padding:5px 10px;cursor:pointer;color:var(--muted);font:inherit}.seg button.on{background:var(--tool);color:var(--ink)}
 #runbar{display:none;align-items:center;gap:10px;margin:0 max(16px,calc((100% - 820px)/2));padding:9px 12px;border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;background:var(--panel);font-size:13px}
 #runbar.on{display:flex}#runbar.wait{background:var(--user)}
 /* the question waiting for you, docked where you type (plan: 詢問選項固定在輸入欄附近, sketch B) */
@@ -643,7 +645,19 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 #folderPop .fp-r{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
 #folderPop .fp-n{flex:1;min-width:0;display:flex;flex-direction:column}#folderPop .fp-n .mono{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #folderPop .fp-m{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:1px 9px;white-space:nowrap}#folderPop .fp-m.w{border-color:var(--warn);color:var(--warn)}#folderPop .fp-m.r{border-color:var(--err);color:var(--err)}
-#folderPop .fp-add{display:flex;gap:8px;margin:10px 0 6px}#folderPop .fp-add .inp{flex:1;min-width:0}#folderPop select{max-width:170px}
+#folderPop .fp-add{display:flex;gap:8px;margin:10px 0 8px}#folderPop .fp-add2{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:6px}#folderPop .fp-add .inp{flex:1;min-width:0}#folderPop select{max-width:170px}
+#folderPop .fb-short{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}
+#folderPop .fb-path{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+#folderPop .fb-crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px 4px;min-width:0;font-size:12.5px}
+#folderPop .fb-crumbs button{all:unset;cursor:pointer;color:var(--accent);padding:1px 3px;border-radius:5px}#folderPop .fb-crumbs button:hover{background:var(--panel2)}
+#folderPop .fb-crumbs i{font-style:normal;color:var(--muted)}#folderPop .fb-crumbs b{padding:1px 3px}
+#folderPop .fb-list{max-height:min(46vh,360px);overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+#folderPop .fb-d{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--line);font-size:13px}
+#folderPop .fb-d:last-child{border-bottom:0}#folderPop .fb-d:hover,#folderPop .fb-d:focus-visible{background:var(--panel2)}
+#folderPop .fb-d svg{width:16px;height:16px;color:var(--accent);flex:none}#folderPop .fb-d span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#folderPop .fb-d i{font-style:normal;color:var(--muted)}#folderPop .fb-d.lock span{color:var(--muted)}
+#folderPop .fb-hid{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin:8px 0 4px}
+#folderPop .fb-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 #folderPop .fp-msg{font-size:12px;color:var(--warn);min-height:0}#folderPop .fp-msg:empty{display:none}
 .safehero{border:1px solid var(--accent-solid);border-radius:14px;padding:14px 16px;margin:4px 0 14px;background:linear-gradient(135deg,var(--glow),transparent 65%)}
 .safehero[data-mode=auto]{border-color:var(--err);background:linear-gradient(135deg,rgba(255,125,136,.10),transparent 65%)}
@@ -1058,7 +1072,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
         </div>
         <details class="pacc" id="accNet"><summary><span class="pa-i" data-icon="globe"></span><b>沙盒的網路</b><span class="pa-s" id="accNetSum"></span></summary>
           <div class="pa-b">
-            <div class="srow"><div class="sl"><b>連網方式</b><span class="sd">只在「沙盒」使用</span></div><select id="pNetMode"><option value="ask">只允許下列網域，其他先問我（建議）</option><option value="open">一律允許</option></select></div>
+            <div class="srow"><div class="sl"><b>連網方式</b><span class="sd">只在「沙盒」使用</span></div><select id="pNetMode" data-seg aria-label="連網方式"><option value="ask">只允許下列網域，其他先問我</option><option value="open">一律允許</option></select></div>
             <div class="netchips" id="pNetChips"></div>
             <div class="srow fadd"><input id="pNetAdd" class="inp" placeholder="加入網域，例如 api.openai.com" aria-label="加入網域"><button class="btn" id="pNetAddBtn" type="button">加入</button></div>
             <textarea id="pNetDomains" hidden></textarea>
@@ -1097,7 +1111,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
             <div class="grid2" style="margin-top:8px">
               <label class="f">名稱<input id="qrTitle" placeholder="例如 報告要附參考來源"></label>
               <label class="f">套用的檔案<input id="qrFiles" placeholder="*.md, *.html"></label>
-              <label class="f">類型<select class="inp" id="qrKind"><option value="require">必須包含</option><option value="forbid">不可出現</option></select></label>
+              <label class="f">類型<select class="inp" id="qrKind" data-seg aria-label="規則類型"><option value="require">必須包含</option><option value="forbid">不可出現</option></select></label>
               <label class="f">規則（正規表示式）<input id="qrPattern" placeholder="例如 參考來源|References" spellcheck="false"></label>
             </div>
             <div class="row" style="margin-top:8px"><span class="badge" id="qrMsg"></span><span style="flex:1"></span><button class="btn sm primary" type="button" id="qrAdd">新增</button></div>
@@ -1185,7 +1199,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
           <label class="f span-host">跳板機主機<input id="dfSshHost" placeholder="ec2-xx-xx.compute.amazonaws.com" spellcheck="false" autocapitalize="off"></label>
           <label class="f span-port">SSH 連接埠<input id="dfSshPort" type="number" min="1" max="65535" value="22" inputmode="numeric"></label>
           <label class="f">SSH 帳號<input id="dfSshUser" placeholder="ec2-user / ubuntu" spellcheck="false" autocomplete="off" autocapitalize="off"></label>
-          <label class="f">驗證方式<select id="dfSshAuth"><option value="key">私鑰（.pem）</option><option value="password">密碼</option></select></label>
+          <label class="f">驗證方式<select id="dfSshAuth" data-seg aria-label="SSH 驗證方式"><option value="key">私鑰（.pem）</option><option value="password">密碼</option></select></label>
         </div>
         <div id="dfSshKeyBox" style="margin-top:10px">
           <label class="f">私鑰<textarea id="dfSshKey" rows="3" spellcheck="false" autocomplete="off" placeholder="貼上私鑰內容（-----BEGIN … PRIVATE KEY-----），或按「選擇檔案」"></textarea></label>
@@ -2985,7 +2999,7 @@ function renderPackage(){
     <h4>收進技能的檔案</h4>
     ${files || '<div style="color:var(--muted)">這個任務沒有寫出可重用的腳本或範本。</div>'}
     ${privacy}
-    <label class="fld" style="margin-top:12px"><span>存放位置</span><select class="inp" id="pkScope"><option value="global">我的技能（所有專案可用）</option><option value="project">只在這個專案</option></select></label>
+    <label class="fld" style="margin-top:12px"><span>存放位置</span><select class="inp" id="pkScope" data-seg aria-label="技能範圍"><option value="global">我的技能（所有專案可用）</option><option value="project">只在這個專案</option></select></label>
     <div style="color:var(--muted);font-size:12px">儲存後技能標為「實驗中」。用它完成任務後，就可以在結果下方發起評鑑。</div>`;
   const readParams = () => [...$('#pkParams').querySelectorAll('.pkprm')].map(r => {
     const old = d.params[+r.dataset.i] || {};
@@ -4216,6 +4230,26 @@ $('#hcDiscard').onclick = async () => { const sel = hcPicked(); if (!sel.length)
   for (const s of sel) { const j = await post(`/api/sandbox/${encodeURIComponent(HC.sid)}/changes/discard`, {folder: s.folder, paths: s.paths}); n += j.discarded.length; pending = j.pending; }
   hcDone(`已捨棄 ${n} 個變更`, pending); };
 
+// ---------- a fixed either-or choice is a segmented switch, not a drop-down (select[data-seg] stays the value) ----------
+const SELECT_VALUE = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+function segify(sel){
+  if (sel._seg) return;
+  const seg = document.createElement('div'); seg.className = 'seg seg2'; seg.setAttribute('role', 'radiogroup');
+  if (sel.getAttribute('aria-label')) seg.setAttribute('aria-label', sel.getAttribute('aria-label'));
+  const paint = () => seg.querySelectorAll('button').forEach(b => { const on = b.dataset.v === SELECT_VALUE.get.call(sel);
+    b.classList.toggle('on', on); b.setAttribute('aria-checked', on); b.disabled = sel.disabled; });
+  seg.innerHTML = [...sel.options].map(o => `<button type="button" role="radio" data-v="${esc(o.value)}">${esc(o.textContent)}</button>`).join('');
+  seg.querySelectorAll('button').forEach(b => b.onclick = () => { if (sel.disabled || SELECT_VALUE.get.call(sel) === b.dataset.v) return;
+    SELECT_VALUE.set.call(sel, b.dataset.v); paint(); sel.dispatchEvent(new Event('change', {bubbles: true})); });
+  Object.defineProperty(sel, 'value', {configurable: true, get(){ return SELECT_VALUE.get.call(this); }, set(v){ SELECT_VALUE.set.call(this, v); paint(); }});
+  sel.addEventListener('change', paint);
+  sel.hidden = true; sel.after(seg); sel._seg = seg; paint();
+}
+document.querySelectorAll('select[data-seg]').forEach(segify);
+new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1)
+  (n.matches?.('select[data-seg]') ? [n] : n.querySelectorAll?.('select[data-seg]') || []).forEach(segify); })
+  .observe(document.body, {childList: true, subtree: true});
+
 // ---------- 📁 資料夾: the folders of this computer this conversation may use (sandbox/folders.py) ----------
 let FOLD = null;
 const FOLD_MODE = {review: ['審核後寫回', 'w'], ro: ['唯讀', ''], rw: ['直接寫入', 'r']};
@@ -4235,8 +4269,8 @@ function renderFolderPop(msg = ''){
       + (x.pending ? `<button class="btn sm" type="button" data-rev>${x.pending} 待審</button>` : '')
       + `<button class="btn sm" type="button" data-rm="${esc(x.path)}">移除</button></div>`).join('')
       : '<div class="sd" style="padding:6px 0">還沒有資料夾。沙盒只看得到工作區；加入後在沙盒裡的 /host/名稱。</div>')
-    + `<div class="fp-add"><input class="inp" id="fpPath" placeholder="加入資料夾，例如 ~/Documents/報告" aria-label="資料夾路徑">`
-    + `<select id="fpMode" aria-label="使用方式"><option value="write">${write}</option><option value="ro">唯讀</option></select><button class="btn primary" type="button" id="fpAdd">加入</button></div>`
+    + `<div class="fp-add"><input class="inp" id="fpPath" placeholder="加入資料夾，例如 ~/Documents/報告" aria-label="資料夾路徑"><button class="btn" type="button" id="fpBrowse">瀏覽…</button></div>`
+    + `<div class="fp-add2"><select id="fpMode" data-seg aria-label="使用方式"><option value="write">${write}</option><option value="ro">唯讀</option></select><button class="btn primary" type="button" id="fpAdd">加入</button></div>`
     + `<div class="fp-msg${msg ? ' on' : ''}" id="fpMsg">${esc(msg)}</div>`
     + `<div class="sd">只對這個對話有效。可寫入時是否先審核，依設定 → 權限與安全 →「寫入前審核」（目前：${f.review_writes ? '開' : '關'}）。家目錄、系統資料夾與存放金鑰的資料夾不能加入。</div>`;
   pop.querySelector('[data-x]').onclick = () => folderPop(false);
@@ -4247,7 +4281,34 @@ function renderFolderPop(msg = ''){
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { renderFolderPop(j.detail || '無法加入'); $('#fpPath').value = path; return; }
     FOLD = j; $('#folderN').textContent = j.folders.length || ''; $('#folderBtn').classList.add('has'); renderFolderPop('已加入；SinoBee 下一步就看得到'); };
+  $('#fpBrowse').onclick = () => folderBrowse($('#fpPath').value.trim() || '');
   $('#fpAdd').onclick = add; $('#fpPath').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } };
+}
+/** pick a folder by browsing your home (folder names only; ones that can never be given are locked) */
+async function folderBrowse(path, hidden = false){
+  const pop = $('#folderPop'), keepMode = $('#fpMode')?.value || 'write';
+  pop.innerHTML = '<div class="sd"><span class="spin"></span> 讀取中…</div>';
+  let r = await fetch(`/api/sandbox-browse?path=${encodeURIComponent(path)}${hidden ? '&hidden=1' : ''}&token=${encodeURIComponent(token)}`);
+  let j = await r.json().catch(() => ({}));
+  if (!r.ok && path) { r = await fetch(`/api/sandbox-browse?token=${encodeURIComponent(token)}`); j = await r.json().catch(() => ({})); }
+  if (!r.ok) { renderFolderPop(j.detail || '無法瀏覽'); return; }
+  const parts = j.shown.split('/').filter(Boolean);
+  pop.innerHTML = `<div class="fp-h"><b>選擇資料夾</b><button class="ad-fold" type="button" data-x aria-label="返回">✕</button></div>`
+    + `<div class="fb-short">${j.shortcuts.map(x => `<button class="btn sm" type="button" data-go="${esc(x.path)}">${esc(x.label)}</button>`).join('')}</div>`
+    + `<div class="fb-path"><button class="btn sm" type="button" data-up${j.parent ? '' : ' disabled'} aria-label="上一層">↑</button><nav class="fb-crumbs" aria-label="目前位置">`
+      + (j.crumbs || []).map((c, i, a) => i === a.length - 1 ? `<b>${esc(c.label)}</b>` : `<button type="button" data-go="${esc(c.path)}">${esc(c.label)}</button><i>›</i>`).join('') + `</nav></div>`
+    + `<div class="fb-list" role="listbox" aria-label="子資料夾">${j.dirs.length ? j.dirs.map(d => `<button type="button" class="fb-d${d.can_pick ? '' : ' lock'}" data-go="${esc(d.path)}" title="${esc(d.why || d.shown)}">`
+      + `${ic('folder')}<span>${esc(d.name)}</span>${d.can_pick ? '<i>›</i>' : '<i>🔒</i>'}</button>`).join('') : '<div class="sd" style="padding:8px">這裡沒有子資料夾</div>'}</div>`
+    + `<label class="fb-hid"><input type="checkbox" id="fbHidden"${hidden ? ' checked' : ''}> 顯示隱藏資料夾</label>`
+    + (j.can_pick ? '' : `<div class="fp-msg">${esc(j.why || '')}</div>`)
+    + `<div class="fb-foot"><button class="btn" type="button" data-cancel>取消</button><button class="btn primary" type="button" data-pick${j.can_pick ? '' : ' disabled'}>選擇「${esc(parts[parts.length - 1] || j.shown)}」</button></div>`;
+  pop.querySelectorAll('[data-go]').forEach(b => b.onclick = () => folderBrowse(b.dataset.go, hidden));
+  pop.querySelector('[data-up]').onclick = () => j.parent && folderBrowse(j.parent, hidden);
+  $('#fbHidden').onchange = e => folderBrowse(j.path, e.target.checked);
+  const back = () => { renderFolderPop(); $('#fpMode').value = keepMode; };
+  pop.querySelector('[data-x]').onclick = back; pop.querySelector('[data-cancel]').onclick = back;
+  pop.querySelector('[data-pick]').onclick = () => { back(); $('#fpPath').value = j.shown; $('#fpAdd').focus(); };
+  pop.querySelector('.fb-list button')?.focus({preventScroll: true});
 }
 async function folderRemove(path, force = false){
   const r = await fetch(`/api/sandbox/${encodeURIComponent(sessionId)}/folders?path=${encodeURIComponent(path)}${force ? '&force=1' : ''}&token=${encodeURIComponent(token)}`, {method: 'DELETE'});
