@@ -1,9 +1,11 @@
 """Serve workspace files to the UI (images / videos / attachments referenced in markdown) and accept uploads."""
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 import re
 import secrets
+import subprocess
 import time
 from pathlib import Path
 
@@ -175,8 +177,29 @@ def register(app: FastAPI, rt_getter) -> None:
     async def file_info(path: str):
         f = resolve_file(rt_getter().config, path)
         st = f.stat()
-        return {"name": f.name, "path": str(f), "size": st.st_size, "modified": st.st_mtime,
-                "mime": mimetypes.guess_type(f.name)[0] or "application/octet-stream"}
+        out = {"name": f.name, "path": str(f), "size": st.st_size, "modified": st.st_mtime,
+               "mime": mimetypes.guess_type(f.name)[0] or "application/octet-stream"}
+        from .. import media
+        if media.is_video(f, out["mime"]):
+            try:
+                _, meta = await asyncio.to_thread(media.thumbnail, rt_getter().config, f)
+                out.update(meta)
+            except (media.MediaError, OSError, subprocess.SubprocessError):
+                pass
+        return out
+
+    @app.get("/api/files/thumb")
+    async def file_thumb(path: str):
+        """A video's poster frame (media.thumbnail): video cards show it instead of loading a player."""
+        from .. import media
+        f = resolve_file(rt_getter().config, path)
+        if not media.is_video(f):
+            raise HTTPException(415, "not a video")
+        try:
+            jpg, _ = await asyncio.to_thread(media.thumbnail, rt_getter().config, f)
+        except (media.MediaError, OSError, subprocess.SubprocessError) as e:
+            raise HTTPException(404, str(e)) from None
+        return FileResponse(jpg, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
 
     @app.post("/api/upload")
     async def upload(files: list[UploadFile] = File(...)):

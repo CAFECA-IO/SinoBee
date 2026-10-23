@@ -89,3 +89,23 @@ def test_the_sandbox_image_compresses_when_this_computer_has_no_ffmpeg(config, m
     assert media._runner(config)[0] == "docker"
     out = media.shrink_video(config, src, src.stat().st_size // 3)
     assert out.stat().st_size <= src.stat().st_size // 3
+
+
+@needs_ffmpeg
+def test_video_cards_get_a_poster_frame_and_length(config):
+    from fastapi.testclient import TestClient
+
+    from sinobee.agent import Runtime
+    from sinobee.server import create_app
+    (config.workspace / "out").mkdir(parents=True, exist_ok=True)
+    clip = make_clip(config.workspace / "out" / "爆炸.mp4", seconds=4, rate="1M")
+    jpg, meta = media.thumbnail(config, clip)
+    assert jpg.read_bytes()[:2] == b"\xff\xd8" and round(meta["duration"]) == 4 and meta["width"] == 1280
+    assert media.thumbnail(config, clip)[0] == jpg                  # cached
+    c = TestClient(create_app(Runtime(config)))
+    r = c.get("/api/files/thumb", params={"path": str(clip)})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    info = c.get("/api/files/info", params={"path": str(clip)}).json()
+    assert round(info["duration"]) == 4 and info["height"] == 720
+    (config.workspace / "out" / "a.txt").write_text("x")
+    assert c.get("/api/files/thumb", params={"path": str(config.workspace / "out" / "a.txt")}).status_code == 415

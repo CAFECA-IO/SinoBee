@@ -124,3 +124,40 @@ def prune(config, keep_mb: int = 500) -> None:
             break
         total -= f.stat().st_size
         f.unlink(missing_ok=True)
+
+
+def thumbnail(config, src: Path, width: int = 480) -> tuple[Path, dict]:
+    """A JPEG frame from about a tenth into the video (at most 3 s in) and {"duration", "width", "height"},
+    cached by path, size and mtime: what a video card shows instead of a player."""
+    src = Path(src).resolve()
+    st = src.stat()
+    key = hashlib.sha1(f"{src}|{st.st_size}|{st.st_mtime_ns}|{width}".encode()).hexdigest()[:16]
+    cache = Path(config.home) / "cache" / "video-thumbs"
+    cache.mkdir(parents=True, exist_ok=True)
+    jpg, meta_p = cache / f"{key}.jpg", cache / f"{key}.json"
+    if jpg.is_file() and meta_p.is_file():
+        try:
+            return jpg, json.loads(meta_p.read_text())
+        except ValueError:
+            pass
+    kind, image = _runner(config)
+    r = subprocess.run(_cmd(kind, image, "ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries",
+                                                     "stream=width,height:format=duration", "-of", "json", str(src)],
+                            src, None), capture_output=True, timeout=120)
+    try:
+        info = json.loads(r.stdout or b"{}")
+        stream = (info.get("streams") or [{}])[0]
+        meta = {"duration": float(info.get("format", {}).get("duration") or 0),
+                "width": int(stream.get("width") or 0), "height": int(stream.get("height") or 0)}
+    except (ValueError, TypeError):
+        raise MediaError("讀不出影片資訊") from None
+    at = min(3.0, meta["duration"] / 10) if meta["duration"] else 0
+    tmp = cache / f"{key}.part.jpg"
+    r = subprocess.run(_cmd(kind, image, "ffmpeg", ["-y", "-v", "error", "-ss", f"{at:.2f}", "-i", str(src), "-frames:v", "1",
+                                                    "-vf", f"scale={width}:-2", "-q:v", "4", str(tmp)], src, cache),
+                       capture_output=True, timeout=120)
+    if r.returncode != 0 or not tmp.is_file():
+        raise MediaError("擷取影片畫面失敗：" + (r.stderr or b"").decode(errors="replace")[-200:])
+    tmp.replace(jpg)
+    meta_p.write_text(json.dumps(meta))
+    return jpg, meta
