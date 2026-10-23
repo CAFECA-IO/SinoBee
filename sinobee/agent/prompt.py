@@ -137,7 +137,8 @@ def environment_block(config) -> str:
                   "evidence id (E1, E2 ...): a checklist item about what is seen on screen is done only when its "
                   "evidence cites a passing id. The sandbox has no SinoBee.ai account and no `sinobee` command: to put "
                   "something on SinoBee.ai, tell the user to press the share button (分享) at the top of the "
-                  "conversation - it uploads the conversation with the files it shows, up to 25 MB each - instead "
+                  "conversation - it uploads the conversation with the files it shows and the user attached, up to 25 MB each; a "
+                  "larger video is compressed to fit on upload - instead "
                   "of asking for network access to sinobee.ai. If the user takes over the desktop, those tools wait until it is "
                   "handed back, and nothing is recorded meanwhile.")
     return "# Environment\n" + "\n".join(f"- {l}" for l in lines) + (f"\n\n{paths}" if paths else "")

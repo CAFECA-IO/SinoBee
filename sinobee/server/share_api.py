@@ -79,7 +79,9 @@ def register(app: FastAPI, rt) -> None:
     @app.post("/api/share/preview")
     async def preview(body: dict):
         b = await asyncio.to_thread(build, body)
-        files = [{"id": str(i + 1), "name": f["name"], "mime": f["mime"], "size": f["size"]} for i, f in enumerate(b["files"])]
+        files = [{"id": str(i + 1), "name": f["name"], "mime": f["mime"], "size": f["size"],
+                  **({"shrink": True, "orig_size": f.get("orig_size")} if f.get("shrink") else {})}
+                 for i, f in enumerate(b["files"])]
         turns = [] if b.get("kind") == "doc" else share.user_turns(msgs_of(str(body.get("session_id") or "")))
         out = {k: v for k, v in b.items() if not k.startswith("_")}
         return {**out, "files": files, "turns": turns, "signed_in": bool(account.token(rt().config)),

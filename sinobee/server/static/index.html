@@ -4922,12 +4922,12 @@ async function renderShare(first){
   const r = await fetch('/api/share/preview?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({...shTarget(), include_tools: tools, title: o.title || undefined, until_turn: o.until_turn, query_rows: o.query_rows,
       mask_hosts: o.mask_hosts, extra_mask: o.extra_mask})});
-  const p = await r.json().catch(() => ({}));
+  const p = await r.json().catch(() => ({})); SH.last = p;
   if (!r.ok){ $('#shBody').innerHTML = `<div class="dbmsg err">${esc(p.detail || '無法產生預覽')}</div>`; return; }
   SH.preview = p;
   const red = (p.redactions || []).filter(x => x.count);
   const files = SH.doc ? `${p.files.length} 個檔案：${p.files.map(f => `<code>${esc(f.name)}</code>`).join('　')}`
-    : p.files.length ? `附件 ${p.files.length} 個：${p.files.map(f => esc(f.name) + ' ' + fmtSize(f.size)).join('、')}` : '沒有附件';
+    : p.files.length ? `附件 ${p.files.length} 個：${p.files.map(f => esc(f.name) + ' ' + (f.shrink ? `${fmtSize(f.orig_size)}，上傳前壓縮到 25 MB 以內` : fmtSize(f.size))).join('、')}` : '沒有附件';
   $('#shBody').innerHTML = `${!p.signed_in ? `<div class="lcard" style="font-size:13px;margin-bottom:12px">需要先登入 SinoBee.ai 才能分享。<button class="btn primary" type="button" id="shLogin" style="margin-left:8px">登入</button></div>` : ''}
     <div class="shcard${SH.thumbOn ? '' : ' nothumb'}">
       <div class="shcard-img" id="shThumb"><span class="spin"></span></div>
@@ -4989,7 +4989,7 @@ async function loadThumb(){
 $('#shareBtn').onclick = () => openShare();
 $('#shClose').onclick = () => $('#shareModal').classList.remove('open');
 $('#shGo').onclick = async () => {
-  $('#shGo').disabled = true; $('#shState').textContent = '上傳中…';
+  $('#shGo').disabled = true; $('#shState').textContent = (SH.last?.files || []).some(f => f.shrink) ? '壓縮影片並上傳中…（可能要一兩分鐘）' : '上傳中…';
   const o = shOpts(false);
   const r = await fetch('/api/share?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
     ...shTarget(), include_tools: o.include_tools, title: o.title.trim(), visibility: SH.vis, description: o.description.trim(), thumbnail: SH.thumbOn,

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import httpx
 
-from . import account
+from . import account, media
 from .db import DSN_RE
 
 MAX_BYTES = 5 * 1024 * 1024
@@ -267,6 +267,7 @@ def build(config, messages: list[dict], *, include_tools: bool = True, title: st
     files = attach_files(config, out, clean) if attach else []
     first = next((x["text"].strip() for x in out if x["role"] == "user" and x["text"].strip()), "")
     from .share_doc import describe_chat
+    first = re.sub(r"\[([^\]]+)\]\((?:files/\d+|[^)]*)\)", r"\1", re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"[\1]", first))
     body = {"title": (title or (first.splitlines()[0] if first else "") or "對話")[:160],
             "description": describe_chat(out), "messages": out, "files": files, "redactions": red.summary(), "skills": skills,
             "model": config.get("model.default") or None}
@@ -311,12 +312,17 @@ def attach_files(config, messages: list[dict], clean=None) -> list[dict]:
         if str(p) in seen:
             return seen[str(p)]
         size = p.stat().st_size
-        if len(files) >= 40 or size > MAX_FILE or total + size > MAX_TOTAL:
+        mime = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+        shrink = size > MAX_FILE and media.is_video(p, mime)       # re-encoded to fit just before upload
+        counted = MAX_FILE if shrink else size
+        if len(files) >= 40 or (size > MAX_FILE and not shrink) or total + counted > MAX_TOTAL:
             return None
-        total += size
+        total += counted
         fid = str(len(files) + 1)
-        files.append({"name": p.name, "mime": mimetypes.guess_type(p.name)[0] or "application/octet-stream",
-                      "path": str(p), "size": size})
+        entry = {"name": p.name, "mime": mime, "path": str(p), "size": counted}
+        if shrink:
+            entry.update(name=p.stem + ".mp4", mime="video/mp4", shrink=True, orig_size=size)
+        files.append(entry)
         seen[str(p)] = fid
         return fid
 
@@ -358,6 +364,8 @@ def attach_files(config, messages: list[dict], clean=None) -> list[dict]:
     for msg in messages:
         if msg["role"] == "assistant":
             msg["text"] = LINK_REF.sub(link, IMG_REF.sub(img, msg["text"]))
+        elif msg["role"] == "user":                 # what you attached (a picture, a video) travels with the share
+            msg["text"] = IMG_REF.sub(img, msg["text"])
     return files
 
 
@@ -459,6 +467,13 @@ def upload(config, body: dict, *, visibility: str = "LINK", accounts: list[str] 
     try:
         parts = []
         for f in body.get("files") or []:
+            if f.get("shrink"):
+                try:
+                    f["path"] = str(media.shrink_video(config, Path(f["path"]), MAX_FILE))
+                except media.MediaError as e:
+                    raise ShareError(f"{f['name']}：{e}") from None
+                f.pop("shrink", None)
+                f["size"] = Path(f["path"]).stat().st_size
             if "path" in f:
                 fh = open(f["path"], "rb")
                 handles.append(fh)
