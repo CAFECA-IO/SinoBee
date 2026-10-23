@@ -332,6 +332,34 @@ table.t th:first-child,table.t td:first-child{text-align:left}table.t th{color:v
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.seg button{border:0;background:none;padding:5px 10px;cursor:pointer;color:var(--muted);font:inherit}.seg button.on{background:var(--tool);color:var(--ink)}
 #runbar{display:none;align-items:center;gap:10px;margin:0 max(16px,calc((100% - 820px)/2));padding:9px 12px;border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;background:var(--panel);font-size:13px}
 #runbar.on{display:flex}#runbar.wait{background:var(--user)}
+/* the question waiting for you, docked where you type (plan: 詢問選項固定在輸入欄附近, sketch B) */
+#askDock{margin:0 max(16px,calc((100% - 820px)/2)) 14px;border:1px solid var(--accent-solid);border-radius:14px;background:var(--panel);padding:12px 14px;box-shadow:0 -10px 30px rgba(0,0,0,.28)}
+main.asking #form,main.asking #runbar{display:none!important}
+#askDock .ad-h{display:flex;align-items:center;gap:8px;font-size:13px}
+#askDock .ad-dot{width:8px;height:8px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 3px rgba(255,197,107,.18);flex:none;animation:adPulse 1.6s ease-in-out infinite}
+@keyframes adPulse{50%{box-shadow:0 0 0 6px rgba(255,197,107,.05)}}
+#askDock .ad-n{font-size:11px;background:var(--warn);color:#1b1300;border-radius:999px;padding:0 6px;font-weight:700}
+#askDock .ad-meta{margin-left:auto;color:var(--muted);font-size:12px;white-space:nowrap}
+#askDock .ad-fold{all:unset;cursor:pointer;color:var(--muted);padding:2px 6px;border-radius:6px;font-size:12px}#askDock .ad-fold:hover{background:var(--panel2);color:var(--ink)}
+#askDock .ad-q{margin:6px 0 10px;font-size:14px;line-height:1.55;max-height:30vh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap}
+#askDock .ad-o{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-bottom:10px}
+#askDock .ad-o.one{grid-template-columns:1fr}
+#askDock .ad-o button{all:unset;box-sizing:border-box;display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:start;padding:9px 11px;border:1px solid var(--line);border-radius:11px;background:var(--panel2);cursor:pointer;font-size:13px;transition:border-color .15s}
+#askDock .ad-o button:hover,#askDock .ad-o button:focus-visible{border-color:var(--accent)}
+#askDock .ad-o button.rec{border-color:var(--accent-solid);box-shadow:0 0 0 1px var(--glow)}
+#askDock .ad-o button.on{border-color:var(--accent);background:var(--glow)}
+#askDock .ad-k{width:20px;height:20px;border-radius:6px;background:var(--line);display:grid;place-items:center;font-size:11px;color:var(--muted)}
+#askDock .ad-t b{font-weight:600}#askDock .ad-t>span{display:block;color:var(--muted);font-size:12px;margin-top:1px}
+#askDock .tag{font-size:10.5px;color:var(--accent-ink);background:var(--accent);border-radius:4px;padding:0 5px;margin-left:6px;font-weight:600}
+#askDock .ad-x{display:flex;gap:8px;align-items:center}
+#askDock .ad-x textarea{flex:1;min-width:0;resize:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:13.5px;max-height:120px}
+#askDock .ad-mini{display:flex;justify-content:space-between;gap:10px;margin-top:7px;font-size:11.5px;color:var(--muted)}
+#askDock .ad-mini a,#askDock .ad-stop{color:var(--muted)}#askDock .ad-mini a:hover,#askDock .ad-stop:hover{color:var(--ink)}
+#askDock .ad-mini .r{display:flex;gap:14px}#askDock .ad-stop{all:unset;cursor:pointer;font-size:11.5px;text-decoration:underline}
+#askDock.folded{padding:8px 10px;margin-bottom:8px}#askDock.folded .ad-line{display:flex;align-items:center;gap:8px;font-size:13px}
+#askDock .ad-line .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.askcard.flash{animation:askFlash 1.2s ease-out}@keyframes askFlash{0%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:0 0 0 0 transparent}}
+@media (max-width:560px){#askDock .ad-o{grid-template-columns:1fr}#askDock{margin:0 10px 10px}}
 #runbar .rb-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #runbar .rb-time{color:var(--muted);font-variant-numeric:tabular-nums}
 .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite;flex:none}
@@ -870,6 +898,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
     <button class="btn icon" data-icon="gear" aria-label="設定" id="settingsBtn"></button><button class="btn icon tip-left" data-icon="sun" aria-label="切換深色／淺色" id="themeBtn"></button></header>
   <div id="chat"><div class="empty"><div class="hero"><canvas data-ht="hero"></canvas></div><h2>今天要我做什麼？</h2><div>我可以操作瀏覽器、滑鼠鍵盤、終端機與檔案，並記住你的偏好與做事方法。</div></div></div>
   <div id="runbar" role="status" aria-live="polite"><div class="spin"></div><div class="rb-txt" id="rbText"></div><span class="rb-time" id="rbTime"></span><button class="btn icon sm tip-up tip-left" data-icon="stop" aria-label="停止任務" id="rbStop" type="button"></button></div>
+  <div id="askDock" role="region" aria-label="SinoBee 需要你決定" hidden></div>
   <div id="attachRow"></div>
   <div id="skillRow" aria-live="polite"></div>
   <div id="skillPick" class="skpick" role="dialog" aria-label="選擇技能" hidden>
@@ -2100,10 +2129,69 @@ function askCard(a, replay){
 function askBind(ev){
   let d = [...document.querySelectorAll('.askcard.waiting:not([data-rid])')].reverse().find(x => x.dataset.q === ev.question);
   if (!d) d = askCard(ev, false);
-  d.dataset.rid = ev.request_id; d.classList.add('live');
+  d.dataset.rid = ev.request_id; d.classList.add('live'); d._ask = ev;
   d.querySelector('.ask-st').textContent = '等你回覆';
-  if (document.activeElement === $('#input') || document.activeElement === document.body) d.querySelector('.ask-o button')?.focus({preventScroll: true});
+  dockShow(d);
 }
+// ---------- the waiting question, docked where you type (sketch B): full question, numbered options, your own words ----------
+const DOCK = {card: null, folded: false}, ASKS = {};
+const liveCards = () => [...document.querySelectorAll('#chat .askcard.live:not(.done)')].filter(c => c.dataset.rid);
+function dockAnswer(card, choices, text){
+  if (!card?.dataset.rid || card.classList.contains('done')) return;
+  if (!choices.length && !text) return;
+  card.classList.add('sending'); ws.send(JSON.stringify({type: 'answer', request_id: card.dataset.rid, choices, text}));
+  $('#askDock').querySelectorAll('button,textarea').forEach(x => x.disabled = true);
+}
+function dockShow(card){
+  if (card) { if (DOCK.card !== card) DOCK.folded = false; DOCK.card = card; }
+  const dock = $('#askDock'), live = liveCards();
+  if (!DOCK.card || !live.includes(DOCK.card)) DOCK.card = live[live.length - 1] || null;
+  const c = DOCK.card;
+  if (!c) { dock.hidden = true; dock.innerHTML = ''; document.querySelector('main').classList.remove('asking'); return; }
+  const a = c._ask || {}, opts = (a.options || []).filter(o => o && o.label), multi = !!a.multi, more = live.length > 1 ? `<span class="ad-n" title="還有其他問題等你">${live.length}</span>` : '';
+  const rec = opts.find(o => o.recommended);
+  dock.hidden = false; dock.classList.toggle('folded', DOCK.folded);
+  document.querySelector('main').classList.toggle('asking', !DOCK.folded);
+  if (DOCK.folded) {
+    dock.innerHTML = `<div class="ad-line"><span class="ad-dot"></span><span class="t"><b>需要你決定：</b>${esc(String(a.question || '').split('\n')[0])}</span>${more}`
+      + (rec && !multi ? `<button class="btn sm primary" type="button" data-q="rec">${esc(rec.label)}</button>` : '') + `<button class="btn sm" type="button" data-q="open">展開</button></div>`;
+    dock.querySelector('[data-q=open]').onclick = () => { DOCK.folded = false; dockShow(); };
+    dock.querySelector('[data-q=rec]')?.addEventListener('click', () => dockAnswer(c, [rec.label], ''));
+    return;
+  }
+  const text = a.allow_text !== false;
+  dock.innerHTML = `<div class="ad-h"><span class="ad-dot"></span><b>SinoBee 需要你決定</b>${more}<span class="ad-meta">${esc($('#rbText')?.textContent || '等你回覆')}</span>`
+    + `<button class="ad-fold" type="button" title="收起成一行（Esc）" aria-label="收起">收起 ▾</button></div>`
+    + `<div class="ad-q">${mathText(a.question || '')}</div>`
+    + `<div class="ad-o${opts.length > 4 || opts.some(o => (o.label + (o.description || '')).length > 42) ? ' one' : ''}" role="${multi ? 'group' : 'radiogroup'}">${opts.map((o, i) => `<button type="button" data-l="${esc(o.label)}" role="${multi ? 'checkbox' : 'radio'}" aria-checked="false"${o.recommended ? ' class="rec"' : ''}>`
+      + `<span class="ad-k">${i < 9 ? i + 1 : ''}</span><span class="ad-t"><b>${esc(o.label)}${o.recommended ? '<span class="tag">建議</span>' : ''}</b>${o.description ? `<span>${mathText(o.description)}</span>` : ''}</span></button>`).join('')}</div>`
+    + (text || multi ? `<div class="ad-x">${text ? `<textarea rows="1" placeholder="${multi ? '補充說明（可選）' : '或寫下你自己的回答…'}" aria-label="自己的回答"></textarea>` : '<span style="flex:1"></span>'}`
+      + `<button class="btn icon lg primary" data-icon="send" type="button" aria-label="送出回答" title="送出回答（Enter）"></button></div>` : '')
+    + `<div class="ad-mini"><span>${opts.length ? `按 1–${Math.min(opts.length, 9)} 選擇 · ` : ''}Esc 收起成一行</span><span class="r"><button class="ad-stop" type="button" data-q="stop">停止任務</button><a href="#" data-q="card">對話裡的紀錄卡 ↑</a></span></div>`;
+  dock.querySelectorAll('[data-icon]').forEach(b => { if (!b.innerHTML) b.innerHTML = ic(b.dataset.icon); });
+  const ta = dock.querySelector('textarea');
+  const picked = () => [...dock.querySelectorAll('.ad-o button.on')].map(b => b.dataset.l);
+  dock.querySelectorAll('.ad-o button').forEach(b => b.onclick = () => {
+    if (multi) { const on = b.getAttribute('aria-checked') !== 'true'; b.setAttribute('aria-checked', on); b.classList.toggle('on', on); }
+    else dockAnswer(c, [b.dataset.l], ta?.value.trim() || '');
+  });
+  dock.querySelector('[data-icon=send]')?.addEventListener('click', () => dockAnswer(c, multi ? picked() : [], ta?.value.trim() || ''));
+  dock.querySelector('[data-q=stop]').onclick = () => $('#rbStop').click();
+  dock.querySelector('.ad-fold').onclick = () => { DOCK.folded = true; dockShow(); };
+  dock.querySelector('[data-q=card]').onclick = e => { e.preventDefault(); c.scrollIntoView({behavior: 'smooth', block: 'center'}); c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash'); };
+  if (ta) { ta.oninput = () => { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; };
+    ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); dockAnswer(c, multi ? picked() : [], ta.value.trim()); } }; }
+  const active = document.activeElement;
+  if (!active || active === document.body || active === $('#input')) (dock.querySelector('.ad-o button') || ta)?.focus({preventScroll: true});
+}
+document.addEventListener('keydown', e => {
+  const dock = $('#askDock'); if (dock.hidden || !DOCK.card) return;
+  if (document.querySelector('.modal.open')) return;
+  if (e.key === 'Escape' && !DOCK.folded) { DOCK.folded = true; dockShow(); return; }
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (DOCK.folded || tag === 'textarea' || tag === 'input' || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (/^[1-9]$/.test(e.key)) { const b = dock.querySelectorAll('.ad-o button')[+e.key - 1]; if (b) { e.preventDefault(); b.click(); } }
+});
 function askParse(t){
   if (/did not answer|unattended/i.test(t)) return {timeout: true};
   const m = t.match(/The user chose: (.*?)(?:\. Their note: ([\s\S]*))?$/s);
@@ -2112,8 +2200,10 @@ function askParse(t){
   return a ? {choices: [], text: a[1]} : {choices: [], text: ''};
 }
 function askDone(d, ev){
-  if (!d) return;
+  if (!d) { dockShow(); return; }
   d.classList.remove('waiting', 'live', 'sending'); d.classList.add('done');
+  if (DOCK.card === d) { DOCK.card = null; DOCK.folded = false; }
+  setTimeout(dockShow);
   const picked = ev.choices || [];
   d.querySelectorAll('.ask-o button').forEach(b => { const on = picked.includes(b.dataset.l); b.classList.toggle('on', on); b.setAttribute('aria-checked', on); b.disabled = true; });
   d.querySelectorAll('.ask-x').forEach(x => x.remove());
@@ -2135,7 +2225,7 @@ function handle(ev, replay = false){
   }
   if (ev.type === 'hello') { setRunning(ev.running);
     const ap = (ev.approvals || []).find(a => a.session_id === sessionId); if (ap) handle({...ap, type: 'approval_request'});
-    for (const q of ev.questions || []) if (q.session_id === sessionId) handle({...q, type: 'ask'}); return; }
+    for (const q of ev.questions || []) { ASKS[q.request_id] = q; if (q.session_id === sessionId) handle({...q, type: 'ask'}); } return; }
   if (ev.type === 'run_state') { setRunning(ev.running); return; }
   if (!replay && ev.session_id && RUNNING[ev.session_id]) {
     const r = RUNNING[ev.session_id];
@@ -2146,7 +2236,10 @@ function handle(ev, replay = false){
     if (ev.type === 'ask') { Object.assign(r, {activity: '等待你回覆', tool: null}); renderRun(); }
     if (ev.type === 'ask_resolved') { Object.assign(r, {activity: '思考中', tool: null}); renderRun(); }
   }
-  if (ev.type === 'turn_end' && ev.session_id) { delete RUNNING[ev.session_id]; setBusy(); }
+  if (ev.type === 'ask' && ev.request_id) ASKS[ev.request_id] = ev;       // kept for when you switch back to it
+  if (ev.type === 'ask_resolved') delete ASKS[ev.request_id];
+  if (ev.type === 'turn_end' && ev.session_id) { delete RUNNING[ev.session_id]; setBusy();
+    for (const [k, q] of Object.entries(ASKS)) if (q.session_id === ev.session_id) delete ASKS[k]; }
   if (ev.session_id && ev.type !== 'session' && ev.session_id !== sessionId) return;
   switch (ev.type) {
     case 'session': if (!sessionId && ev.client_ref === CLIENT_REF) { sessionId = ev.session_id; markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; setBusy(); } break;
@@ -2406,7 +2499,7 @@ function userHtml(text){
   for (let m; (m = rest.match(/^\/([\w.-]+)(?:\s+|$)/)) && names.length < 5 && !/^learn$/i.test(m[1]);) { names.push(m[1]); rest = rest.slice(m[0].length); }
   return names.map(n => `<span class="skchip">${SKILL_SVG}${esc(n)}</span>`).join('') + (rest ? md(rest) : '');
 }
-$('#newBtn').onclick = () => { PROC = null; TB = null; sessionId = null; setTimeout(deskSession); setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
+$('#newBtn').onclick = () => { PROC = null; TB = null; sessionId = null; setTimeout(dockShow); setTimeout(deskSession); setTimeout(setBusy); $('#learnBtn').hidden = true; $('#shareBtn').hidden = true; showEmpty(); $('#title').textContent = '新對話'; toolEls = {}; loadSide(); };
 $('#stopBtn').onclick = () => ws.send(JSON.stringify({type:'cancel', session_id: sessionId}));
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); tab = b.dataset.tab; loadSide(); });
@@ -2487,6 +2580,8 @@ async function openSession(s){
   }
   REPLAY = false; if (replayLast && RUNNING[s.id]) { replayLast.live = true; }
   evSessionCard(s.id);
+  for (const q of Object.values(ASKS)) if (q.session_id === s.id) askBind(q);      // a question still waiting there
+  dockShow();
   for (const a of Array.isArray(arts) ? arts : []) showArtifacts(a.id, a.files);
   if (!RUNNING[s.id]) hostCheck(s.id);
   if (!RUNNING[s.id]) api('/api/sessions/' + s.id + '/interrupted').then(r => {
