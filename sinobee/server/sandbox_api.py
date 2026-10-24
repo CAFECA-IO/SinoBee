@@ -14,6 +14,7 @@
     GET  /api/sandbox-browse?path=&hidden=     the folders inside a folder of your home (or /Volumes), to pick one
     GET  /api/sandbox/{sid}/changes            changes waiting for review in the copies of your folders (staging.py)
     POST /api/sandbox/{sid}/changes/apply      {folder, paths?, force?}  bring them to your folder
+    POST /api/sandbox/{sid}/changes/branch     {folder, paths?, branch?, message?}  a git folder: a commit on a branch
     POST /api/sandbox/{sid}/changes/discard    {folder, paths?}          drop them (the copy gets the original back)
     POST /api/sandbox/{sid}/changes/undo       {id}                      put back what an apply replaced
     POST /api/sandbox/{sid}/changes/resume     {id}                      finish a write-back that was cut off
@@ -418,6 +419,25 @@ def register(app: FastAPI, rt, broadcast=None, running=None) -> None:
                                           [str(p) for p in body.get("force") or []])
         except staging.StagingError as e:          # found while preparing: nothing in your folder was changed
             raise HTTPException(409, f"沒有寫回任何檔案：{e}") from None
+        return {**res, **await _after(sid)}
+
+    @app.post("/api/sandbox/{sid}/changes/branch")
+    async def host_branch(sid: str, body: dict):
+        """A git folder's reviewed changes as a commit on a branch of your repository (stage 3); your working tree
+        and the branch you are on stay as they are."""
+        from .. import audit
+        from ..sandbox import staging
+        f = _folder(sid, str(body.get("folder") or ""))
+        paths = body.get("paths")
+        try:
+            res = await asyncio.to_thread(staging.to_branch, rt().config, sid, f,
+                                          [str(p) for p in paths] if isinstance(paths, list) else None,
+                                          str(body.get("branch") or "") or None, str(body.get("message") or "") or None)
+        except staging.StagingError as e:
+            raise HTTPException(409, f"沒有建立分支：{e}") from None
+        audit.record(rt().config, sid, {"tool": "deliver_branch", "what": f"{f['name']} → {res['branch']} "
+                                        f"({res['commit'][:10]}, {len(res['files'])} 個檔案)", "outcome": "ok",
+                                        "where": "host"})
         return {**res, **await _after(sid)}
 
     @app.post("/api/sandbox/{sid}/changes/discard")

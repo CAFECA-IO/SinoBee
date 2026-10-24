@@ -68,8 +68,8 @@ def available(config=None) -> bool:
 
 
 def _key(ctx: ToolContext) -> str:
-    from ..sandbox import executor_of
-    ex = executor_of(ctx)
+    from ..sandbox import screen_executor
+    ex = screen_executor(ctx, "browser")
     return f"sandbox:{ex.conversation}" if ex.kind == "sandbox" else "host"
 
 
@@ -160,6 +160,12 @@ async def _context(ctx: ToolContext):
             return await _sandbox_context(ctx, st)
         from playwright.async_api import async_playwright
         pw = await async_playwright().start()
+        cdp = ctx.config.get("browser.cdp_url")
+        if cdp:      # your own Chrome, started with --remote-debugging-port (its logins, its windows)
+            browser = await pw.chromium.connect_over_cdp(str(cdp))
+            bctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+            st.update(pw=pw, browser=browser, context=bctx, current=0, loop=asyncio.get_running_loop())
+            return bctx
         headless = ctx.config.get("browser.headless")
         if headless is None:
             headless = platform.system() == "Linux" and not os.environ.get("DISPLAY")
@@ -260,8 +266,8 @@ async def browser(ctx: ToolContext, action: str, url: str | None = None, ref: st
                   seconds: float | None = None, index: int | None = None, script: str | None = None,
                   path: str | None = None):
     action = action.lower().strip()
-    from ..sandbox import executor_of
-    ex = executor_of(ctx)
+    from ..sandbox import screen_executor
+    ex = screen_executor(ctx, "browser")         # SinoBee's browser on your Mac when you lent it to the task
     if ex.kind == "sandbox" and ex.conversation in ex.manager.takeover:
         return f"ERROR: {ex.TAKEN}"
     from .guard import own_server
@@ -395,10 +401,18 @@ async def browser(ctx: ToolContext, action: str, url: str | None = None, ref: st
         from .files import resolve
         host = resolve(ctx, path)              # never SinoBee's own data or a credential store
         import mimetypes                   # sent as content: the browser may be in the sandbox
-        await _loc(page, ref, selector).set_input_files(
-            {"name": host.name, "mimeType": mimetypes.guess_type(host.name)[0] or "application/octet-stream",
-             "buffer": host.read_bytes()})
-        return f"uploaded {path}"
+        payload = {"name": host.name, "mimeType": mimetypes.guess_type(host.name)[0] or "application/octet-stream",
+                   "buffer": host.read_bytes()}
+        loc = _loc(page, ref, selector)
+        is_input = await loc.evaluate("e => e.tagName === 'INPUT' && e.type === 'file'")
+        if is_input:
+            await loc.set_input_files(payload)
+        else:                              # a button that opens the file picker: answer the picker instead
+            async with page.expect_file_chooser(timeout=10000) as fc:
+                await loc.click()
+            await (await fc.value).set_files(payload)
+        await asyncio.sleep(0.3)
+        return f"uploaded {path}\n\n" + await _snapshot(page)
     return f"ERROR: unknown action '{action}'"
 
 

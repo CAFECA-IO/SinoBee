@@ -1206,8 +1206,8 @@ def main(argv: list[str] | None = None) -> None:
     tn.add_argument("--json", action="store_true")
     tn.set_defaults(action="tune")
     sb = sub.add_parser("sandbox", help="the Docker sandbox the tools run in (build the image, list, stop, remove)")
-    sb.add_argument("action", choices=["build", "status", "stop", "rm", "sweep"])
-    sb.add_argument("conversation", nargs="?", help="stop / rm: the conversation (session id)")
+    sb.add_argument("action", choices=["build", "status", "stop", "rm", "sweep", "probe-overlay"])
+    sb.add_argument("conversation", nargs="?", help="stop / rm: the conversation (session id); probe-overlay: a folder")
     sb.add_argument("--office", action="store_true", help="build: the image with LibreOffice")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
@@ -1259,7 +1259,7 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _sandbox_cmd(args) -> None:
-    """sinobee sandbox build | status | stop <conversation> | rm <conversation> | sweep"""
+    """sinobee sandbox build | status | stop <conversation> | rm <conversation> | sweep | probe-overlay <folder>"""
     import subprocess
     from pathlib import Path as _P
 
@@ -1278,6 +1278,13 @@ def _sandbox_cmd(args) -> None:
         cmd = ["docker", "build", "-f", str(dockerfile), "-t", tag] + (["--build-arg", "OFFICE=1"] if args.office else []) + [str(root)]
         print("building", tag, "(the first time downloads about 2 GB) ...")
         sys.exit(subprocess.call(cmd))
+    if args.action == "probe-overlay":
+        from .sandbox import overlay
+        if not args.conversation:
+            sys.exit("usage: sinobee sandbox probe-overlay <folder>")
+        res = overlay.probe(args.conversation)
+        print(overlay.report(res))
+        sys.exit(0 if res["ok"] else 1)
     if args.action == "status":
         why = m.unavailable(max_age=0)
         print(f"wanted: {wanted_kind(cfg)}   running tools on: {executor_kind(cfg)}   image: {image_name(cfg)}")

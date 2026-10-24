@@ -1203,6 +1203,9 @@ class Agent:
                 routing.HINT.reset(tok)
                 if self.depth == 0 and self.ctx.state.get("task_secrets"):    # stopped or failed: keys go back too
                     self._take_back_keys()
+                if self.depth == 0 and self.ctx.state.get("host_screen"):
+                    from ..tools.sandbox_tools import lend_end
+                    lend_end(self.ctx, self._emit)
             self._report_outcome(usage_scope, hint, t0)
             return out
 
@@ -1905,6 +1908,8 @@ class Agent:
             had_keys = end_task(self.ctx)
         except Exception:  # noqa: BLE001
             had_keys = False
+        from ..tools.sandbox_tools import lend_end
+        lend_end(self.ctx, self._emit)              # your Mac's screen / browser go back with the task
         ex = self.ctx.state.get("executor")
         if getattr(ex, "kind", "") != "sandbox":
             return

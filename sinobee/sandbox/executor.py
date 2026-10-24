@@ -427,6 +427,20 @@ def make_executor(config, conversation: str = "") -> Executor:
     return HostExecutor(config, for_config(config))
 
 
+def screen_executor(ctx, kind: str) -> Executor:
+    """Where a desktop ("desktop") or browser ("browser") tool runs: this computer when you lent it to the task
+    (request_host_screen - your screen, mouse and keyboard, or SinoBee's browser on your Mac with its logins), else
+    the session's executor (the sandbox's own desktop and browser)."""
+    granted = (getattr(ctx, "state", None) or {}).get("host_screen") or ()
+    if kind in granted:
+        ex = ctx.state.get("host_executor")
+        if ex is None or ex.config is not ctx.config:
+            from .paths import for_config
+            ex = ctx.state["host_executor"] = HostExecutor(ctx.config, for_config(ctx.config))
+        return ex
+    return executor_of(ctx)
+
+
 def executor_of(ctx) -> Executor:
     """The executor of a tool's session (created on first use and kept in ctx.state; made again when the
     settings switch between this computer and the sandbox)."""

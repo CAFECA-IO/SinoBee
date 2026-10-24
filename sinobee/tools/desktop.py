@@ -277,6 +277,11 @@ def available(config=None) -> bool:
         from ..sandbox import executor_kind
         if executor_kind(config) == "sandbox":
             return True
+    return host_available()
+
+
+def host_available() -> bool:
+    """This computer's own screen can be driven (pyautogui; xdotool on Linux)."""
     if platform.system() == "Linux":
         return bool(os.environ.get("DISPLAY")) and (shutil.which("xdotool") is not None or _has("pyautogui"))
     return _has("pyautogui")
@@ -315,8 +320,8 @@ def grab_screen(max_width: int = 1280) -> tuple[bytes, int, int, int, int]:
 
 def _ex(ctx: ToolContext):
     """The session's executor: the screen and the input backend are reached through it (sandbox plan A1)."""
-    from ..sandbox import executor_of
-    return executor_of(ctx)
+    from ..sandbox import screen_executor
+    return screen_executor(ctx, "desktop")       # your Mac's screen when you lent it to the task
 
 
 def _scale(ctx: ToolContext) -> tuple[float, float]:

@@ -172,3 +172,112 @@ def rebase(copy: Path, meta: dict, stem: Path, now: dict[str, Path | None]) -> N
     tree = _git(copy, "write-tree", index=tmp).strip()
     tmp.unlink(missing_ok=True)
     meta["base"] = _commit(copy, tree, meta["base"], "SinoBee 基準更新（套用／捨棄／復原）")
+
+
+BRANCH = __import__("re").compile(r"^(?!/)(?!.*\.\.)(?!.*//)[A-Za-z0-9._/\-]{1,120}(?<![./])$")
+
+
+def _orig_git(repo: Path, *args: str, index: Path | None = None, input: str | None = None,
+              check: bool = True) -> subprocess.CompletedProcess:
+    """git in YOUR repository, with your own identity (author of the branch commit) - never its working tree or index."""
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"}
+    if index is not None:
+        env["GIT_INDEX_FILE"] = str(index)
+    r = subprocess.run(["git", "-c", "core.quotePath=false", "-c", "core.autocrlf=false", "-C", str(repo), *args],
+                       capture_output=True, input=input, env=env, timeout=900, text=True, encoding="utf-8",
+                       errors="replace")
+    if check and r.returncode:
+        from .staging import StagingError
+        raise StagingError(f"git {args[0]}: {(r.stderr or r.stdout).strip()[:300]}")
+    return r
+
+
+def to_branch(copy: Path, orig_root: Path, meta: dict, stem: Path, items: list[dict], branch: str,
+              message: str) -> dict:
+    """The reviewed changes as a commit on a branch of YOUR repository (stage 3): its parent is the branch's tip if
+    the branch exists, else the commit your folder was on when the copy was made. Only objects and the branch ref are
+    written: your working tree, your index and the branch you have checked out stay as they are."""
+    from .staging import StagingError
+    if not BRANCH.match(branch) or branch.endswith(".lock"):
+        raise StagingError(f"分支名稱不合法：{branch}")
+    if not items:
+        raise StagingError("沒有要交付的變更")
+    ref = f"refs/heads/{branch}"
+    cur = _orig_git(orig_root, "symbolic-ref", "-q", "HEAD", check=False).stdout.strip()
+    if cur == ref:
+        raise StagingError(f"{branch} 是你目前所在的分支：請換一個名稱（交付到分支不會改動你正在用的分支）")
+    old = _orig_git(orig_root, "rev-parse", "-q", "--verify", f"{ref}^{{commit}}", check=False).stdout.strip()
+    parent = old or meta.get("head")
+    tmp = _idx(stem, "branch")
+    tmp.unlink(missing_ok=True)
+    try:
+        if parent:
+            _orig_git(orig_root, "read-tree", parent, index=tmp)
+        zero = "0" * 40
+        lines = []
+        for c in items:
+            rel, f = c["path"], copy / c["path"]
+            if c["kind"] == "deleted" or not f.is_file():
+                lines.append(f"0 {zero}\t{rel}")
+            else:
+                sha = _orig_git(orig_root, "hash-object", "-w", "--path", rel, str(f)).stdout.strip()
+                lines.append(f"{'100755' if os.access(f, os.X_OK) else '100644'} {sha}\t{rel}")
+        _orig_git(orig_root, "update-index", "--add", "--remove", "--index-info", index=tmp,
+                  input="\n".join(lines) + "\n")
+        tree = _orig_git(orig_root, "write-tree", index=tmp).stdout.strip()
+    finally:
+        tmp.unlink(missing_ok=True)
+    args = ["commit-tree", tree, "-m", message] + (["-p", parent] if parent else [])
+    r = _orig_git(orig_root, *args, check=False)
+    if r.returncode:                      # no identity configured for this repository: SinoBee's
+        r = subprocess.run(["git", "-C", str(orig_root), *args], capture_output=True, text=True,
+                           env={**os.environ, **ENV}, timeout=120)
+        if r.returncode:
+            raise StagingError(f"git commit-tree: {(r.stderr or r.stdout).strip()[:300]}")
+    commit = r.stdout.strip()
+    _orig_git(orig_root, "update-ref", "-m", "SinoBee: 交付審核的變更", ref, commit, old or zero)
+    return {"branch": branch, "commit": commit, "parent": parent, "created": not old,
+            "files": [c["path"] for c in items]}
+
+
+def sync(copy: Path, orig_root: Path, meta: dict, stem: Path) -> int:
+    """At the start of a task: what you changed in your folder since the copy was made comes into the copy - files the
+    sandbox has not changed (those stay conflicts for the review). Your working tree is read through the copy's own
+    repository (objects go there, not into yours). Returns how many files moved."""
+    oidx = _idx(stem, "orig")
+    if not oidx.is_file() and _idx(stem, "base").is_file():
+        shutil.copyfile(_idx(stem, "base"), oidx)
+    _git(copy, f"--work-tree={orig_root}", "add", "-A", "--", ".", *EXCLUDES, index=oidx)
+    theirs = _git(copy, "write-tree", index=oidx).strip()
+    raw = _git(copy, "diff-tree", "-r", "-z", "--name-status", "--no-renames", meta["base"], theirs).split("\0")
+    yours = [(raw[i], raw[i + 1]) for i in range(0, len(raw) - 1, 2) if raw[i]]
+    if not yours:
+        return 0
+    ridx = _idx(stem, "review")
+    if not ridx.is_file() and _idx(stem, "base").is_file():
+        shutil.copyfile(_idx(stem, "base"), ridx)
+    _snapshot(copy, ridx)
+    mine = _git(copy, "diff", "--cached", "--name-only", "-z", "--no-renames", meta["base"], index=ridx).split("\0")
+    touched = {x for x in mine if x}
+    now: dict[str, Path | None] = {}
+    for st, rel in yours:
+        if rel in touched:
+            continue                                  # both changed it: the review shows a conflict
+        src, dst = orig_root / rel, copy / rel
+        try:
+            if st.startswith("D") or not src.is_file():
+                if dst.exists() or dst.is_symlink():
+                    dst.unlink()
+                now[rel] = None
+            else:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if dst.exists() or dst.is_symlink():
+                    dst.unlink()
+                clone.clone_file(src, dst)
+                s = src.stat()
+                os.utime(dst, ns=(s.st_atime_ns, s.st_mtime_ns))
+                now[rel] = dst
+        except OSError:
+            continue
+    rebase(copy, meta, stem, now)
+    return len(now)

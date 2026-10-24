@@ -676,6 +676,9 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 .audtbl{max-height:60vh;overflow:auto;font-size:13px}.audr{display:grid;grid-template-columns:150px 90px minmax(0,3fr) 64px minmax(0,2fr);gap:8px;padding:5px 0;border-bottom:1px solid var(--line)}
 .audr .mono{overflow-wrap:anywhere}.aud-ok{color:var(--ok)}.aud-bad{color:var(--err)}.aud-warn{color:var(--warn,#b7791f)}
 @media (max-width:640px){.tkform{grid-template-columns:1fr}.tkrow,.audr{grid-template-columns:1fr}}
+#lendBar{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:6px;max-width:calc(100vw - 32px)}
+#lendBar[hidden]{display:none}.hb-r{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:var(--panel);border:2px solid var(--err);box-shadow:0 6px 24px rgba(0,0,0,.35);font-size:13px;flex-wrap:wrap}
+.hb-dot{width:10px;height:10px;border-radius:50%;background:var(--err);animation:hbp 1.2s infinite}@keyframes hbp{50%{opacity:.3}}
 #sbHint{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:860px;margin:0 auto 6px;padding:8px 12px;border:1px solid var(--warn);border-radius:12px;font-size:13px;background:var(--panel)}#sbHint[hidden]{display:none}#sbHint .sd{flex:1;min-width:200px}
 .sbimg{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:2px 0}.sbimg .ok,.sbr .ok{color:var(--ok, #2fbf71)}
 .sbtbl{margin-top:10px;border:1px solid var(--line);border-radius:10px;font-size:12.5px;overflow:auto}.sbh,.sbr{display:grid;grid-template-columns:minmax(120px,2fr) 90px 70px 90px 70px minmax(150px,auto);gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line)}
@@ -953,6 +956,7 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
 </style>
 </head>
 <body>
+<div id="lendBar" role="status" aria-live="assertive" hidden></div>
 <aside>
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2fb3a0"/><stop offset="1" stop-color="#7fe8b6"/></linearGradient></defs><ellipse cx="12" cy="14" rx="5" ry="6" fill="url(#bg1)" stroke="none"/><path d="M7.5 12h9M7.5 15.5h9" stroke="var(--bg)"/><path d="M9 8c-3-4-7-2-6 1s5 2 6 1M15 8c3-4 7-2 6 1s-5 2-6 1" stroke="var(--accent)"/></svg><b>SinoBee</b></div>
   <div class="tabs" role="tablist"><button data-tab="sessions" class="on" role="tab" data-icon="chat" aria-label="對話"></button><button data-tab="memory" role="tab" data-icon="brain" aria-label="記憶"></button><button data-tab="skills" role="tab" data-icon="skill" aria-label="技能"></button><button data-tab="data" role="tab" data-icon="database" aria-label="資料庫"></button><button data-tab="work" role="tab" data-icon="clock" aria-label="工作：過去、現在、接下來"></button></div>
@@ -2330,7 +2334,9 @@ function handle(ev, replay = false){
   }
   if (ev.type === 'hello') { setRunning(ev.running);
     const ap = (ev.approvals || []).find(a => a.session_id === sessionId); if (ap) handle({...ap, type: 'approval_request'});
-    for (const q of ev.questions || []) { ASKS[q.request_id] = q; if (q.session_id === sessionId) handle({...q, type: 'ask'}); } return; }
+    for (const q of ev.questions || []) { ASKS[q.request_id] = q; if (q.session_id === sessionId) handle({...q, type: 'ask'}); }
+    for (const r of ev.running || []) api(`/api/host-screen/${encodeURIComponent(r.session_id)}`).then(j => { if ((j.what || []).length) { HOSTSCR[r.session_id] = j.what; lendBar(); } }).catch(() => {});
+    return; }
   if (ev.type === 'run_state') { setRunning(ev.running); return; }
   if (!replay && ev.session_id && RUNNING[ev.session_id]) {
     const r = RUNNING[ev.session_id];
@@ -2356,6 +2362,7 @@ function handle(ev, replay = false){
     case 'artifact': showArtifacts(ev.id, ev.files); break;
     case 'host_changes': hostBar(ev.session_id, ev.count, ev.interrupted || 0); if (!$('#folderPop').hidden) folderRefresh(); break;
     case 'folders': folderRefresh(); break;
+    case 'host_screen': if (ev.on) HOSTSCR[ev.session_id] = ev.what; else delete HOSTSCR[ev.session_id]; lendBar(); break;
     case 'sandbox_queue': if (ev.position) SBQUEUE[ev.session_id] = ev; else delete SBQUEUE[ev.session_id]; renderRun(); break;
     case 'sandbox_health': sbHealthCheck(); if (document.querySelector('#accBox[open]')) sbAdmin(); break;
     case 'evidence': if (ev.items?.length) { const g = procGroup(); const d = document.createElement('div'); d.innerHTML = evStrip(ev.items, null, true); g.body.appendChild(d); } break;
@@ -2659,6 +2666,21 @@ function markSideSession(){
   document.querySelectorAll('#side .item[data-sid]').forEach(d => { const on = d.dataset.sid === sessionId;
     d.classList.toggle('on', on); on ? d.setAttribute('aria-current', 'true') : d.removeAttribute('aria-current'); });
 }
+/** a task that was lent your Mac's screen or browser: always said at the top, with 停止 */
+const HOSTSCR = {};
+const HOST_NAME = {browser: '瀏覽器', desktop: '螢幕、滑鼠與鍵盤'};
+function lendBar(){
+  const bar = $('#lendBar'), ids = Object.keys(HOSTSCR).filter(k => (HOSTSCR[k] || []).length);
+  bar.hidden = !ids.length;
+  if (!ids.length) { bar.innerHTML = ''; return; }
+  bar.innerHTML = ids.map(sid => `<div class="hb-r"><span class="hb-dot"></span><b>SinoBee 正在使用你的電腦</b><span>${(HOSTSCR[sid] || []).map(w => HOST_NAME[w] || w).join('、')}</span>`
+    + `<span class="sd">${esc(sideTitle(sid))}</span><button class="btn sm danger" type="button" data-hstop="${esc(sid)}">停止</button></div>`).join('');
+  bar.querySelectorAll('[data-hstop]').forEach(b => b.onclick = async () => { b.disabled = true;
+    try { await hcFetch(`/api/host-screen/${encodeURIComponent(b.dataset.hstop)}/stop`, {}); } catch (e) { uiAlert(e.message); }
+    delete HOSTSCR[b.dataset.hstop]; lendBar(); });
+}
+function sideTitle(sid){ const el = document.querySelector(`#side .item[data-sid="${CSS.escape(sid)}"] .t`) || document.querySelector(`#side .item[data-sid="${CSS.escape(sid)}"]`);
+  return el ? el.textContent.trim().slice(0, 40) : ''; }
 async function openSession(s){
   sessionId = s.id; folderChips(); markSideSession(); $('#learnBtn').hidden = false; $('#shareBtn').hidden = false; markShared(); $('#title').textContent = s.title || s.id; $('#chat').innerHTML = ''; toolEls = {}; PROC = null; TB = null; REPLAY = true;
   const [msgs, turns, arts, tls] = await Promise.all([api('/api/sessions/' + s.id), api('/api/sessions/' + s.id + '/turns'),
@@ -4314,7 +4336,7 @@ async function openHostReview(sid){
   const short = p => home && p.startsWith(home) ? '~' + p.slice(home.length) : p;
   const cutFolders = new Set((r.interrupted || []).map(x => x.folder));
   let html = r.folders.filter(f => f.changes.length && !cutFolders.has(f.name)).map(f => `<div class="hc-f" data-f="${esc(f.name)}"><div class="hc-fh"><b>${esc(f.name)}</b>${f.via === 'git' ? '<span class="fp-m">git</span>' : ''}<span class="sd mono">${esc(short(f.origin))}</span><span class="sd">${f.changes.length} 個變更</span>`
-    + `<span class="acts"><button class="btn sm" type="button" data-all="1">全選</button><button class="btn sm" type="button" data-export title="把勾選的變更存成${f.via === 'git' ? ' .patch（git apply）' : ' .zip（含差異與檔案）'}，不寫回">匯出差異</button></span></div>`
+    + `<span class="acts"><button class="btn sm" type="button" data-all="1">全選</button><button class="btn sm" type="button" data-export title="把勾選的變更存成${f.via === 'git' ? ' .patch（git apply）' : ' .zip（含差異與檔案）'}，不寫回">匯出差異</button>${f.via === 'git' ? '<button class="btn sm" type="button" data-branch title="把勾選的變更提交到你專案的一個分支，不改動你的工作目錄與目前分支">交付到分支</button>' : ''}</span></div>`
     + f.changes.map(c => `<div class="hc-row${c.conflict ? ' conflict' : ''}" data-p="${esc(c.path)}"><div class="hc-rh"><input type="checkbox" class="hc-pick"${c.conflict ? '' : ' checked'} aria-label="選取 ${esc(c.path)}">`
       + `<span class="hc-k ${c.kind}">${HC_KIND[c.kind]}</span><span class="p">${esc(c.path)}</span>${c.size != null ? `<span class="sd">${fmtSize(c.size)}</span>` : ''}</div>`
       + (c.conflict ? `<div class="hc-cf" style="padding:0 10px 6px">⚠︎ 副本做出後你也改過原檔。<label><input type="checkbox" class="hc-force"> 仍以副本覆蓋（原檔會先保存，可復原）</label></div>` : '')
@@ -4331,6 +4353,13 @@ async function openHostReview(sid){
   $('#hcBody').querySelectorAll('[data-export]').forEach(b => b.onclick = () => { const f = b.closest('.hc-f');
     const picked = [...f.querySelectorAll('.hc-row')].filter(x => x.querySelector('.hc-pick').checked).map(x => x.dataset.p);
     location.href = `/api/sandbox/${encodeURIComponent(sid)}/changes/export?folder=${encodeURIComponent(f.dataset.f)}${picked.map(p => '&path=' + encodeURIComponent(p)).join('')}&token=${encodeURIComponent(token)}`; });
+  $('#hcBody').querySelectorAll('[data-branch]').forEach(b => b.onclick = async () => { const f = b.closest('.hc-f');
+    const picked = [...f.querySelectorAll('.hc-row')].filter(x => x.querySelector('.hc-pick').checked).map(x => x.dataset.p);
+    if (!picked.length) { $('#hcState').textContent = '請先勾選要交付的變更'; return; }
+    const name = await uiPrompt(`把 ${picked.length} 個變更提交到哪個分支？（已存在就接在它後面；你的工作目錄與目前分支不會改動）`, `sinobee/${sid.slice(0, 12)}`, {title: '交付到分支', ok: '建立提交'});
+    if (!name) return;
+    hcRun('建立提交中…', async s2 => { const j = await hcFetch(`/api/sandbox/${encodeURIComponent(s2)}/changes/branch`, {folder: f.dataset.f, paths: picked, branch: name.trim()});
+      hcDone(s2, `已${j.created ? '建立分支' : '提交到分支'} ${j.branch}（${j.commit.slice(0, 8)}，${j.files.length} 個檔案）；你的工作目錄沒有改動，可用 git switch ${j.branch} 查看`, j.pending); }); });
   $('#hcBody').querySelectorAll('[data-cut]').forEach(box => {
     const run = async (what, label) => { box.querySelectorAll('button').forEach(x => x.disabled = true); $('#hcState').textContent = label;
       try { const j = await hcFetch(`/api/sandbox/${encodeURIComponent(sid)}/changes/${what}`, {id: box.dataset.cut});

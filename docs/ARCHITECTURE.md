@@ -2275,3 +2275,23 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   上傳檔案；Docker：容器 uid 1000、CapEff 0、唯讀根目錄、無 docker.sock、沒有 SinoBee 的金鑰、連不到主機的 SinoBee；任務金鑰在 URL、
   本文、子網域都被擋、同網站不帶金鑰可通、紀錄不含金鑰、任務結束收回。全部通過：0 外洩、0 未經同意的跨對話讀取。
 - 其他測試：tests/test_server_security.py、test_tool_guard.py、test_task_secrets.py、test_supply_chain.py。
+
+## 62. 沙盒階段 3：借用你的 Mac、git 分支交付、方案 C 實驗、D 驗收補完（2026-10-24）
+
+- **F1 借用你的 Mac**（`request_host_screen`，`tools/sandbox_tools.py`）：沙盒模式下，任務需要已登入的網站或 Mac 上的 App 時，
+  Agent 申請 `browser`（你 Mac 上 SinoBee 的瀏覽器，保留登入；設定 `browser.cdp_url` 時改連你自己以
+  --remote-debugging-port 啟動的 Chrome）和/或 `desktop`（你的螢幕、滑鼠、鍵盤）。每次任務問一次；允許後
+  `screen_executor(ctx, kind)` 把該類工具導到 HostExecutor（檔案仍經沙盒），這些工具不再算「沙盒內」，危險動作照常詢問、SinoBee
+  自己的頁面仍不能開。畫面頂端常駐紅框提示（`#lendBar`）與「停止」（`POST /api/host-screen/{sid}/stop`，之後該工具回一次錯誤說明已收回）；
+  任務結束、停止或失敗都收回（`lend_end`），重新整理頁面會從 `GET /api/host-screen/{sid}` 補回提示。
+- **git 分支交付**（`gitreview.to_branch`、`staging.to_branch`、`POST /api/sandbox/{sid}/changes/branch`，審核視窗「交付到分支」）：
+  勾選的變更成為你 repo 裡一個分支（預設 `sinobee/<對話>`）的提交——父提交是分支現有的尖端，否則是副本建立時你的 HEAD；作者用你 repo
+  的身分。只寫物件與分支 ref：工作目錄、index、目前分支都不動；不能交付到你正在用的分支。交付後基準跟著前進，那些變更不再待審。
+- **git 任務前同步**（`gitreview.sync`）：每個任務開始時，你在原資料夾改過、而沙盒沒改的檔案帶進副本（透過副本自己的 repository
+  讀你的工作樹，物件不寫進你的 repo）；兩邊都改的仍是衝突。
+- **方案 C 實驗**（`sandbox/overlay.py`、`sinobee sandbox probe-overlay <資料夾>`）：lower＝你的資料夾（唯讀）、upper＝Docker 磁碟上的
+  volume，以 local driver 的 overlay volume 掛進容器。雲端 Linux：3,000 檔掛載與計數 0.4 秒，寫入／修改／刪除都只落在 upper，原資料夾不變。
+  Docker Desktop（virtiofs 當 lower）需在 Mac 上跑 probe 決定是否採用。
+- **D 驗收**：瀏覽器 `upload` 支援「按鈕開啟檔案選擇視窗」（`expect_file_chooser`），Docker 實測通過；`scripts/acceptance/stage3.sh`
+  在 Mac 上一次跑 overlay probe 與 LibreOffice（Word 表單填寫＋PDF、試算表重算），並列出 Thorium 重跑、G7、分支交付的手動步驟。
+- 測試：tests/test_host_screen.py、test_git_branch.py、test_stage3_docker.py（Docker：檔案選擇視窗、overlay probe）。

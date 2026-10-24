@@ -6,8 +6,8 @@ egress.py     the proxy, the sandbox's only way out (runs in its own container)
 paths.py      paths of this computer <-> paths the tools see
 """
 from .executor import (Executor, HostExecutor, RunResult, SandboxExecutor, executor_kind, executor_of, make_executor,
-                       sandbox_unavailable, wanted_kind)
+                       sandbox_unavailable, screen_executor, wanted_kind)
 from .paths import Mount, PathMap, for_config, sandbox_map
 
 __all__ = ["Executor", "HostExecutor", "RunResult", "SandboxExecutor", "executor_kind", "executor_of",
-           "make_executor", "sandbox_unavailable", "wanted_kind", "Mount", "PathMap", "for_config", "sandbox_map"]
+           "make_executor", "sandbox_unavailable", "screen_executor", "wanted_kind", "Mount", "PathMap", "for_config", "sandbox_map"]

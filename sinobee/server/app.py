@@ -582,6 +582,23 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             if not run["task"].done():
                 run["task"].cancel()           # stuck in a long model/tool call -> force stop
 
+    @app.get("/api/host-screen/{sid}")
+    async def host_screen(sid: str):
+        """What of your computer this conversation's task was lent (request_host_screen), for the banner."""
+        agent = state["agents"].get(sid)
+        return {"what": sorted((agent.ctx.state.get("host_screen") or []) if agent else [])}
+
+    @app.post("/api/host-screen/{sid}/stop")
+    async def host_screen_stop(sid: str):
+        """停止 on the banner: your screen / browser go back now; the task carries on in the sandbox."""
+        from ..tools.sandbox_tools import lend_end
+        agent = state["agents"].get(sid)
+        had = bool(agent) and lend_end(agent.ctx, lambda k, d: broadcast(k, {**d, "session_id": sid}), stopped=True)
+        if agent:
+            from .. import audit
+            audit.record(rt().config, sid, {"tool": "host_screen", "what": "停止", "outcome": "ok", "where": "host"})
+        return {"stopped": had}
+
     from ..work.hub import get_hub as _get_hub
     _hub = _get_hub(rt())
     _hub.chat_resumer = lambda sid, text: asyncio.create_task(start_turn(sid, text))

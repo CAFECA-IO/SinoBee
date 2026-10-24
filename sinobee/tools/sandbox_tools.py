@@ -306,3 +306,82 @@ async def host_folder_info(ctx: ToolContext, path: str):
         "suggested": "ro if you only read; " + ("review (by git)" if git else
                                                  "review (by copy)" if n <= limit else "direct, or git init / a subfolder"),
     }, ensure_ascii=False)
+
+
+# ----------------------------------------------------------------- your Mac's screen and browser (plan stage 3, F1)
+LEND, NOT_LEND = "只這次任務允許", "不允許"
+HOST_WHAT = {"desktop": "你的螢幕、滑鼠與鍵盤", "browser": "你 Mac 上 SinoBee 的瀏覽器（保留你登入過的網站）"}
+
+
+def host_screen_available(config=None) -> bool:
+    if not available(config):
+        return False
+    from .desktop import host_available
+    try:
+        import playwright  # noqa: F401
+        has_browser = True
+    except ImportError:
+        has_browser = False
+    return host_available() or has_browser
+
+
+def lend_end(ctx, emit=None, stopped: bool = False) -> bool:
+    """Take back what the task was lent (the task ended, or you pressed 停止). True when something was lent."""
+    had = sorted(ctx.state.pop("host_screen", None) or [])
+    if not had:
+        return False
+    if stopped:
+        for k in had:
+            ctx.state[f"host_{k}_stopped"] = True
+    if emit:
+        emit("host_screen", {"on": False, "what": had, "stopped": stopped})
+    return True
+
+
+@tool("request_host_screen", "shell",
+      "Ask the user to lend this task their own computer: what='browser' (SinoBee's browser on their Mac - sites they "
+      "are signed in to there stay signed in) and/or what='desktop' (their screen, mouse and keyboard). Only when the "
+      "sandbox cannot do it: a site that needs their login, an app installed on their Mac. After a yes, the browser / "
+      "desktop tools act on their computer until this task ends (they see a banner and can press 停止).",
+      {"properties": {
+          "what": {"type": "array", "items": {"type": "string", "enum": ["browser", "desktop"]}},
+          "reason": {"type": "string", "description": "what you need it for, in the user's language"},
+      }, "required": ["what", "reason"]}, check=host_screen_available)
+async def request_host_screen(ctx: ToolContext, what: list, reason: str = ""):
+    from ..sandbox import executor_of
+    if executor_of(ctx).kind != "sandbox":
+        return "The tools already run on the user's computer: use the browser / desktop tools directly."
+    wanted = [w for w in (what if isinstance(what, list) else [what]) if w in HOST_WHAT]
+    if not wanted:
+        return ToolResult.error("what must be ['browser'] and/or ['desktop']")
+    from .desktop import host_available
+    if "desktop" in wanted and not host_available():
+        return ToolResult.error("this computer's screen cannot be driven by SinoBee (on a Mac: allow 輔助使用 and "
+                                "螢幕錄製 for SinoBee's terminal in System Settings → Privacy & Security)")
+    have = set(ctx.state.get("host_screen") or ())
+    if set(wanted) <= have:
+        return f"already lent for this task: {', '.join(sorted(have))}"
+    if ctx.ask is None:
+        return ToolResult.error("nobody is there to lend their computer now; continue in the sandbox")
+    question = ("要讓這個任務使用" + "、".join(HOST_WHAT[w] for w in wanted) + "嗎？\n"
+                f"用途：{reason or '（未說明）'}\n"
+                "允許後畫面上方會一直顯示提示，你可以隨時按「停止」；任務結束就收回。"
+                + ("\n注意：SinoBee 會看到並操作你整個螢幕，請先關掉不想讓它看到的視窗。" if "desktop" in wanted else ""))
+    ans = await ctx.ask(question, [{"label": LEND, "description": "這次任務結束就收回", "recommended": True},
+                                   {"label": NOT_LEND, "description": "SinoBee 會留在沙盒裡繼續，或說明做不到的部分"}],
+                        False, False)
+    if ((ans or {}).get("choices") or [NOT_LEND])[0] != LEND:
+        return "The user did not lend their computer. Continue in the sandbox, or explain what cannot be done."
+    now = sorted(have | set(wanted))
+    ctx.state["host_screen"] = set(now)
+    for w in wanted:
+        ctx.state.pop(f"host_{w}_stopped", None)
+    if ctx.emit:
+        ctx.emit("host_screen", {"on": True, "what": now, "reason": reason})
+    tips = []
+    if "browser" in wanted:
+        tips.append("the browser tool now drives SinoBee's browser on the user's Mac (their logins there)")
+    if "desktop" in wanted:
+        tips.append("the desktop tools (screenshot, mouse, keyboard) now act on the user's real screen - take a "
+                    "screenshot first; do not open or read anything unrelated to the task")
+    return "lent for this task: " + "; ".join(tips) + ". Files are still reached through the sandbox."

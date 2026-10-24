@@ -108,8 +108,11 @@ class Registry:
                 return ToolResult.error(refused)
         mode = ctx.config.get("permissions.approval", "confirm")
         if tool.toolset in ("desktop", "browser"):
-            from ..sandbox import executor_of
-            ex = executor_of(ctx)
+            from ..sandbox import screen_executor
+            if ctx.state.pop(f"host_{tool.toolset}_stopped", False):
+                return ToolResult.error(f"The user took back their computer's {tool.toolset} (停止). Continue in the "
+                                        "sandbox, or tell the user what still needs their computer.")
+            ex = screen_executor(ctx, tool.toolset)
             if ex.kind == "sandbox":
                 try:
                     await ex.prepare()          # the sandbox's desktop must be up before a desktop / browser tool
@@ -117,9 +120,10 @@ class Registry:
                     return ToolResult.error(f"the sandbox desktop is not available: {e}")
         if mode == "sandbox":
             # the sandbox: what stays inside it needs no approval; anything else is asked as in "confirm"
-            from ..sandbox import executor_of
-            contained = (tool.name in CONTAINED or tool.toolset in ("desktop", "browser")) \
-                and executor_of(ctx).kind == "sandbox"
+            from ..sandbox import executor_of, screen_executor
+            screen = tool.toolset in ("desktop", "browser")
+            contained = (tool.name in CONTAINED or screen) and \
+                (screen_executor(ctx, tool.toolset) if screen else executor_of(ctx)).kind == "sandbox"
             mode = "auto" if contained and not tool.always_confirm else "confirm"
         if mode == "readonly" and tool.writes:
             return ToolResult.error(f"'{tool.name}' is blocked: SinoBee is running in readonly mode")
@@ -199,8 +203,9 @@ def _audit(ctx, tool, args, outcome: str, reason: str | None = None, detail: str
         from .. import audit
         from ..memory.scope import conversation_of
         from ..sandbox import executor_of
-        entry = {"tool": tool.name, "what": audit.summary(tool.name, args), "outcome": outcome,
-                 "where": executor_of(ctx).kind}
+        from ..sandbox import screen_executor
+        ex = screen_executor(ctx, tool.toolset) if tool.toolset in ("desktop", "browser") else executor_of(ctx)
+        entry = {"tool": tool.name, "what": audit.summary(tool.name, args), "outcome": outcome, "where": ex.kind}
         if reason:
             entry["reason"] = reason
         if detail:

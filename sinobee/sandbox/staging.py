@@ -14,7 +14,8 @@ A review folder is reviewed one of two ways (folder["via"]):
   has not touched), so the sandbox never works on stale files.
 - **git** (a git repository; gitreview.py): the copy carries the repository, and the baseline is a commit of your
   working tree. Changes are `git diff` against it - only what changed is looked at, so the size of the project does not
-  matter; files git ignores are not reviewed and never written back.
+  matter; files git ignores are not reviewed and never written back. `sync` brings your edits in the same way, and
+  `to_branch` delivers reviewed changes as a commit on a branch of your repository instead of your working tree.
 
 Either way a change whose original was edited after the copy was made is a **conflict**: applying it needs an explicit
 choice (`force`), never happens by itself. **Apply** writes the copy's version over the original after saving what it
@@ -198,11 +199,20 @@ def changes(config, conversation: str, folder: dict, with_diff: bool = True) -> 
 
 def sync(config, conversation: str, folder: dict) -> int:
     """Bring into a copy what you changed in your folder since it was made - files the sandbox has not touched
-    (copy-reviewed folders; a git folder shows such edits as conflicts instead). Returns how many files moved."""
+    (both ways of review; a file changed on both sides stays a conflict). Returns how many files moved."""
     name = folder["name"]
     copy = copy_dir(config, conversation, name)
     base = _baseline(config, conversation, name)
-    if base.get("via") == "git" or not copy.is_dir() or not base.get("files") and not base.get("path"):
+    if base.get("via") == "git":
+        orig_root = Path(base.get("path") or folder["path"])
+        if not copy.is_dir() or not orig_root.is_dir() or not base.get("base"):
+            return 0
+        from . import gitreview
+        n = gitreview.sync(copy, orig_root, base, _base_file(config, conversation, name).with_suffix(""))
+        if n:
+            _save_baseline(config, conversation, name, base)
+        return n
+    if not copy.is_dir() or not base.get("files") and not base.get("path"):
         return 0
     files = base.setdefault("files", {})
     orig_root = Path(base.get("path") or folder["path"])
@@ -277,6 +287,26 @@ def apply(config, conversation: str, folder: dict, paths: list[str] | None = Non
     Returns {"id", "applied": [...], "conflicts": [...], "trashed": [...]}."""
     from . import writeback
     return writeback.apply(config, conversation, folder, paths, force)
+
+
+def to_branch(config, conversation: str, folder: dict, paths: list[str] | None = None, branch: str | None = None,
+              message: str | None = None) -> dict:
+    """A git folder's reviewed changes (all, or `paths`) as a commit on a branch of your repository instead of your
+    working tree (gitreview.to_branch); then they count as delivered (the baseline follows the copy)."""
+    name = folder["name"]
+    base = _baseline(config, conversation, name)
+    if base.get("via") != "git":
+        raise StagingError("只有 git 專案能交付成分支")
+    orig_root = Path(base.get("path") or folder["path"])
+    copy = copy_dir(config, conversation, name)
+    items = [c for c in changes(config, conversation, folder, with_diff=False) if paths is None or c["path"] in paths]
+    from . import gitreview
+    branch = (branch or f"sinobee/{conversation[:12]}").strip()
+    msg = (message or "").strip() or f"SinoBee：{len(items)} 個檔案的變更（對話 {conversation[:12]}）"
+    res = gitreview.to_branch(copy, orig_root, base, _base_file(config, conversation, name).with_suffix(""), items,
+                              branch, msg)
+    _follow(config, conversation, name, base, copy, {c["path"]: (copy / c["path"]) for c in items})
+    return res
 
 
 def discard(config, conversation: str, folder: dict, paths: list[str] | None = None) -> list[str]:
