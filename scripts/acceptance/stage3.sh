@@ -6,10 +6,20 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 FOLDER=${1:-$HOME/Documents}
-PY=${PYTHON:-python3}
-VER=$($PY -c 'import sinobee; print(sinobee.__version__)')
+# the Python SinoBee runs with: $PYTHON, else the repository's .venv, else the one behind the `sinobee` command
+PY=${PYTHON:-}
+if [ -z "$PY" ] && [ -x .venv/bin/python ]; then PY=.venv/bin/python; fi
+if [ -z "$PY" ] && command -v sinobee >/dev/null 2>&1; then
+  PY=$(head -1 "$(command -v sinobee)" | sed 's/^#![[:space:]]*//; s/[[:space:]].*$//')
+fi
+PY=${PY:-python3}
+if ! "$PY" -c 'import sinobee.config' >/dev/null 2>&1; then
+  echo "cannot import SinoBee with $PY: set PYTHON=/path/to/the/python/that/runs/sinobee"; exit 2
+fi
+VER=$("$PY" -c 'import sinobee; print(sinobee.__version__)')
+echo "(using $PY)"
 echo "== 1. overlay of $FOLDER (nothing in it is written)"
-$PY -m sinobee.cli sandbox probe-overlay "$FOLDER"; OVL=$?
+"$PY" -m sinobee.cli sandbox probe-overlay "$FOLDER"; OVL=$?
 
 echo; echo "== 2. LibreOffice in sinobee-sandbox-office:$VER"
 if ! docker image inspect "sinobee-sandbox-office:$VER" >/dev/null 2>&1; then
