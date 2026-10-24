@@ -2273,6 +2273,9 @@ class Agent:
         self._step_tools_s = getattr(self, "_step_tools_s", 0.0) + (time.time() - t0)
         stats["tool_calls"] += 1
         denied = result.is_error and "user did not approve" in str(result.content)[:300]
+        # a checklist entry SinoBee would not accept yet (evidence missing) is bookkeeping, not a failed operation:
+        # it must not turn a finished task into "最後的操作失敗" - the open item is reported by the checklist itself
+        denied = denied or (result.is_error and call.name == "task_checklist")
         if result.is_error and not denied:   # a refused approval is the user's decision, not a failure
             stats["errors"] += 1
             stats["consecutive_errors"] = stats.get("consecutive_errors", 0) + 1

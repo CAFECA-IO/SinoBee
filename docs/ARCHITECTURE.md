@@ -2320,3 +2320,18 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
 - 介面：資料夾標示「審核（疊加）」、審核視窗標「疊加」；技能 host-folder-strategies 增加疊加方式的說明。
 - 測試：tests/test_overlay_review.py（門檻判斷；Docker 端到端：修改／新增／刪除／整個目錄刪除、檔案工具、原資料夾不變、衝突、寫回、
   捨棄、再次修改、清除環境保留、拿走資料夾刪除 volume）。
+
+## 64. calc favicon 任務的發現與修正（2026-10-24）
+
+使用者在 Mac 上跑「替換 calc 的 favicon、刪除 public/vercel.svg 與 next.svg」：檔案都改對了，卻顯示「最後的操作失敗」、驗收清單 4/5。
+
+- **沙盒瀏覽器在伺服器（uvicorn＋uvloop）下完全不能用**：`manager.bridge` 在 asyncio Server 物件上設屬性 `_sb_loop`，uvloop 的
+  Server 沒有 `__dict__` → AttributeError。測試一直在標準 asyncio 下跑所以沒發現。改把 loop 記在 `_bridge_loops`；新增 uvloop 下的測試，
+  並在雲端以 uvloop 實測 navigate／screenshot 恢復正常。
+- **檔案檢查被當成畫面檢查**：清單項目「favicon.svg 存在、內容與來源相同（cmp 顯示相同）」因含「顯示」被判為畫面項目，要求截圖證據。
+  改成 `is_visual`：明確指畫面的字（畫面、螢幕、截圖、點擊、screen、click…，英文有字界）才算；「顯示、看到、visible、shows」只在項目不是
+  檔案／指令輸出檢查時才算。
+- **清單更新被拒不算「操作失敗」**：`task_checklist` 回錯（證據不足）是記帳，不再計入連續錯誤；任務因此會照常進入成果檢查與驗收，
+  未完成的項目由清單本身回報。
+- 沙盒檔案工具需要啟動沙盒時，改在伺服器自己的事件迴圈上啟動（`run_coroutine_threadsafe`），不在工作執行緒另開迴圈。
+- 測試：tests/test_favicon_findings.py。

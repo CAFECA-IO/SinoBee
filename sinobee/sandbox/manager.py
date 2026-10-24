@@ -147,6 +147,7 @@ class SandboxManager:
         self._checked: dict[str, float] = {}     # conversation -> when its box was last confirmed running
         self.takeover: dict[str, float] = {}     # conversation -> since when you control its desktop (plan D1)
         self._bridges: dict[tuple[str, int], asyncio.base_events.Server] = {}
+        self._bridge_loops: dict[tuple[str, int], asyncio.AbstractEventLoop] = {}
         self.connections: list[dict] = []       # recent connection log from the egress proxy
         self.busy: dict[str, float] = {}        # conversation -> since when a task of it runs (never stopped for room)
         self.waiting: list[str] = []            # conversations waiting for a sandbox to be free, first come first
@@ -520,7 +521,7 @@ class SandboxManager:
         key = (conversation, int(port))
         srv = self._bridges.get(key)
         loop = asyncio.get_running_loop()
-        if srv is not None and srv.is_serving() and getattr(srv, "_sb_loop", None) is loop:
+        if srv is not None and srv.is_serving() and self._bridge_loops.get(key) is loop:
             return srv.sockets[0].getsockname()[1]
 
         async def handle(reader, writer):
@@ -549,8 +550,8 @@ class SandboxManager:
             if proc.returncode is None:
                 proc.kill()
         srv = await asyncio.start_server(handle, "127.0.0.1", 0)
-        srv._sb_loop = loop
         self._bridges[key] = srv
+        self._bridge_loops[key] = loop       # (uvloop's Server takes no attributes: the server runs under uvloop)
         return srv.sockets[0].getsockname()[1]
 
     async def recreate(self, conversation: str) -> None:
@@ -578,6 +579,7 @@ class SandboxManager:
 
     def _close_bridges(self, conversation: str) -> None:
         for key in [k for k in self._bridges if k[0] == conversation]:
+            self._bridge_loops.pop(key, None)
             try:
                 self._bridges.pop(key).close()
             except RuntimeError:          # its event loop is already closed
@@ -714,7 +716,7 @@ def manager_for(config) -> SandboxManager:
             m.last_used, m.boxes, m.grants, m.open_all = old.last_used, old.boxes, old.grants, old.open_all
             m.until, m.task_secrets = old.until, old.task_secrets
             m._egress, m._log_seq, m.connections = old._egress, old._log_seq, old.connections
-            m.takeover, m._bridges = old.takeover, old._bridges
+            m.takeover, m._bridges, m._bridge_loops = old.takeover, old._bridges, old._bridge_loops
     return m
 
 

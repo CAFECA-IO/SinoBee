@@ -188,6 +188,7 @@ class SandboxExecutor(Executor):
              "waiting for.")
 
     async def prepare(self) -> None:
+        self._loop = asyncio.get_running_loop()
         box = await self.manager.ensure(self.conversation)
         for _ in range(50):                      # a new container: its X server takes a moment
             rc = await _rc("exec", box.name, "test", "-e", "/tmp/.X11-unix/X99")
@@ -249,7 +250,13 @@ class SandboxExecutor(Executor):
         r = subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", name], capture_output=True, text=True,
                            timeout=30)
         if r.stdout.strip() != "true":
-            asyncio.run(self.manager.ensure(self.conversation))      # file tools run in a worker thread
+            # file tools run in a worker thread: start the sandbox on the server's own loop when there is one
+            # (its locks and bridges belong to that loop), else on a loop of this thread
+            loop = getattr(self, "_loop", None)
+            if loop is not None and loop.is_running():
+                asyncio.run_coroutine_threadsafe(self.manager.ensure(self.conversation), loop).result(timeout=600)
+            else:
+                asyncio.run(self.manager.ensure(self.conversation))
         return name
 
     def _sh(self, script: str, *args: str, data: bytes | None = None):
@@ -337,6 +344,7 @@ class SandboxExecutor(Executor):
 
     async def run(self, command: str, cwd: Path, timeout: int, env: dict | None = None) -> RunResult:
         from .manager import DockerError
+        self._loop = asyncio.get_running_loop()
         try:
             box = await self.manager.ensure(self.conversation)
         except DockerError as e:

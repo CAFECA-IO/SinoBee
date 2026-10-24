@@ -158,6 +158,9 @@ class Registry:
                 return ToolResult.error(f"user did not approve '{tool.name}' ({reason}). "
                                         "Choose a safer approach or ask the user.")
 
+        box = ctx.state.get("executor")
+        if getattr(box, "kind", "") == "sandbox":          # file tools in a worker thread start it on this loop
+            box._loop = asyncio.get_running_loop()
         try:
             sig = inspect.signature(tool.handler)
             accepted = {k: v for k, v in args.items()

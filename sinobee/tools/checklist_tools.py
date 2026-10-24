@@ -103,9 +103,21 @@ def verifiable(ctx: ToolContext, evidence: str) -> bool:
     return any(norm[i:i + 16] in flat for i in range(0, max(1, len(norm) - 15), 4)) if len(norm) >= 16 else False
 
 
-VISUAL = re.compile(r"截圖|截图|畫面|画面|螢幕|看到|看得到|顯示|显示|視覺|视觉|動畫|动画|操作|遊戲|游戏|按下|點擊|點選|"
-                    r"screenshot|screen|visible|visual|looks?|displays?|shows? up|animat|playable|click|press",
-                    re.IGNORECASE)
+# an item is about what is SEEN when it names the screen itself; softer words (顯示, 看到, visible, displays) count
+# only when the item is not a check of files or command output ("cmp 顯示相同" is not a picture)
+VISUAL = re.compile(r"截圖|截图|畫面|画面|螢幕|视觉|視覺|動畫|动画|遊戲畫面|按下|點擊|點選|頁面上|網頁上|看得到|"
+                    r"\b(screenshots?|screens?|visual(ly)?|animat\w*|playable|click(s|ed|ing)?|press(es|ed)?|"
+                    r"on the page|in the browser)\b", re.IGNORECASE)
+SOFT_VISUAL = re.compile(r"顯示|显示|看到|操作|\b(visible|looks?|displays?|shows?( up)?|renders?)\b", re.IGNORECASE)
+FILE_CHECK = re.compile(r"\b(cmp|diff|grep|ls|test|stat|sha\d*sum|md5|wc|cat|exit code|bytes?)\b|檔案|内容|內容|相同|一致|"
+                        r"存在|大小|路徑|輸出|指令|\.(svg|png|json|txt|md|py|ts|tsx|js|css|html|ico)\b", re.IGNORECASE)
+
+
+def is_visual(text: str) -> bool:
+    """Whether a checklist item is about what is seen on screen (then a captured picture is its evidence)."""
+    if VISUAL.search(text):
+        return True
+    return bool(SOFT_VISUAL.search(text)) and not FILE_CHECK.search(text)
 
 
 def visual_needs(ctx: ToolContext, item: dict, evidence: str) -> str | None:
@@ -117,7 +129,7 @@ def visual_needs(ctx: ToolContext, item: dict, evidence: str) -> str | None:
             return None
     except Exception:  # noqa: BLE001
         return None
-    if not VISUAL.search(f"{item.get('text', '')} {item.get('check', '')}"):
+    if not is_visual(f"{item.get('text', '')} {item.get('check', '')}"):
         return None
     from ..agent.evidence import ID_RE, store_of
     store = store_of(ctx)
