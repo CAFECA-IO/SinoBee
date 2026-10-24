@@ -5,9 +5,10 @@
 #
 #   docker build -f docker/sandbox.Dockerfile -t sinobee-sandbox:<version> .          (or: sinobee sandbox build)
 #   docker build -f docker/sandbox.Dockerfile --build-arg OFFICE=1 -t sinobee-sandbox-office:<version> .
-FROM node:24.22.1-bookworm-slim AS node
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS node
 
-FROM python:3.12-slim-bookworm
+# base images pinned by digest (security review 2026-10-24); scripts/pin-images.sh refreshes them
+FROM python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70
 ARG OFFICE=0
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -19,9 +20,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/bee \
     SINOBEE_IN_SANDBOX=1
 
-# desktop (Xvfb + fluxbox), live view (x11vnc + websockify), mouse/keyboard/clipboard/windows, fonts, tools
+# desktop (Xvfb + fluxbox), live view (x11vnc, reached through docker exec), mouse/keyboard/clipboard/windows, fonts, tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      xvfb fluxbox x11vnc websockify xdotool xclip wmctrl xterm pcmanfm \
+      xvfb fluxbox x11vnc xdotool xclip wmctrl xterm pcmanfm \
       fonts-noto-cjk fonts-noto-color-emoji fonts-dejavu-core \
       ca-certificates curl wget git procps tini tzdata nano jq unzip zip ffmpeg imagemagick sqlite3 \
     && if [ "$OFFICE" = "1" ]; then apt-get install -y --no-install-recommends \
@@ -30,9 +31,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # the same Python packages as `sinobee[all]` (skills import them, one imports sinobee itself), and a Chromium
 WORKDIR /opt/sinobee
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md requirements.lock ./
 COPY sinobee ./sinobee
-RUN pip install ".[all]" yt-dlp \
+# exact versions with hashes, at least 7 days old when locked (scripts/lock.sh): a just-published malicious
+# release (LiteLLM 1.107.0, 2026-10-21) does not get in by the next build
+RUN pip install --require-hashes -r requirements.lock && pip install --no-deps . \
     && python -m playwright install --with-deps chromium \
     && chmod -R a+rx /opt/pw-browsers \
     && ln -sf "$(find /opt/pw-browsers -path '*/chromium-*/chrome-linux*/chrome' -type f | head -n 1)" /usr/bin/chromium \

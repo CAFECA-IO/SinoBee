@@ -248,22 +248,38 @@ class SandboxExecutor(Executor):
         pidf = f"/tmp/.sbx-{secrets.token_hex(6)}"
         script = f"echo $$ > {pidf}; exec bash -lc {shlex.quote(command)}"
         args = ["exec", "-w", inner]
+        envfile = None
+        plain = {k: v for k, v in (env or {}).items() if "\n" not in str(v)}
+        if plain:                  # in a 0600 file, not on the command line (keys given to the task: ps shows argv)
+            import tempfile
+            fd, envfile = tempfile.mkstemp(prefix="sbenv-", suffix=".env")
+            with os.fdopen(fd, "w") as f:
+                f.write("".join(f"{k}={v}\n" for k, v in plain.items()))
+            args += ["--env-file", envfile]
         for k, v in (env or {}).items():
-            args += ["-e", f"{k}={v}"]
+            if k not in plain:
+                args += ["-e", f"{k}={v}"]
         # setsid makes the command its own process group (a timeout or stop kills all of it); --wait, because a
         # process-group leader's setsid forks and returns at once - docker exec would end before the output does
         args += [box.name, "setsid", "--wait", "bash", "-c", script]
-        proc = await asyncio.create_subprocess_exec(
-            "docker", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-            stdin=asyncio.subprocess.DEVNULL)
         try:
-            out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            await self._kill(box.name, pidf, proc)
-            return RunResult(-9, "", True)
-        except asyncio.CancelledError:      # the user pressed "stop": end the command inside the sandbox too
-            await asyncio.shield(self._kill(box.name, pidf, proc))
-            raise
+            proc = await asyncio.create_subprocess_exec(
+                "docker", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+                stdin=asyncio.subprocess.DEVNULL)
+            try:
+                out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            except asyncio.TimeoutError:
+                await self._kill(box.name, pidf, proc)
+                return RunResult(-9, "", True)
+            except asyncio.CancelledError:      # the user pressed "stop": end the command inside the sandbox too
+                await asyncio.shield(self._kill(box.name, pidf, proc))
+                raise
+        finally:
+            if envfile:
+                try:
+                    os.unlink(envfile)
+                except OSError:
+                    pass
         text = out.decode("utf-8", errors="replace")
         if proc.returncode in (125, 126, 127) and ("No such container" in text or "is not running" in text):
             self.manager.forget(self.conversation)          # the box went away: start it again next time
@@ -286,16 +302,24 @@ class SandboxExecutor(Executor):
         if new:
             self._seen_seq = max(e.get("seq", 0) for e in new)
         hosts: dict[str, int] = {}
+        keyed: list[str] = []
         for e in new:
             if e.get("host", "").endswith(BACKGROUND):      # Chromium phoning home, not the task's doing
                 continue
             if e.get("conversation") == self.conversation and not e.get("allowed"):
-                hosts[e["host"]] = hosts.get(e["host"], 0) + 1
-        if not hosts:
-            return ""
-        listed = ", ".join(f"{h} ({n}×)" if n > 1 else h for h, n in hosts.items())
-        return (f"\n[SinoBee sandbox] network blocked: {listed}. If the task needs them, call request_network("
-                f"domains=[{', '.join(repr(h) for h in hosts)}], reason=...); otherwise work without them.")
+                if str(e.get("reason", "")).startswith("key:"):
+                    keyed.append(f"{e['host']} ({e['reason'][5:]})")
+                else:
+                    hosts[e["host"]] = hosts.get(e["host"], 0) + 1
+        out = ""
+        if keyed:
+            out += ("\n[SinoBee sandbox] blocked because the request carried a key: " + "; ".join(dict.fromkeys(keyed))
+                    + ". Keys may only go to their own sites; do not try another way - tell the user.")
+        if hosts:
+            listed = ", ".join(f"{h} ({n}×)" if n > 1 else h for h, n in hosts.items())
+            out += (f"\n[SinoBee sandbox] network blocked: {listed}. If the task needs them, call request_network("
+                    f"domains=[{', '.join(repr(h) for h in hosts)}], reason=...); otherwise work without them.")
+        return out
 
     @staticmethod
     async def _kill(name: str, pidf: str, proc) -> None:

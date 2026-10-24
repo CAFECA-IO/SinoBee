@@ -1201,6 +1201,8 @@ class Agent:
                 out = await self._run(user_input, usage_scope)
             finally:
                 routing.HINT.reset(tok)
+                if self.depth == 0 and self.ctx.state.get("task_secrets"):    # stopped or failed: keys go back too
+                    self._take_back_keys()
             self._report_outcome(usage_scope, hint, t0)
             return out
 
@@ -1885,15 +1887,31 @@ class Agent:
 
     IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)\s]+\.(?:png|jpe?g|gif|webp))\)", re.I)
 
+    def _take_back_keys(self) -> None:
+        from ..task_secrets import end_task
+        try:
+            end_task(self.ctx)
+            ex = self.ctx.state.get("executor")
+            if getattr(ex, "kind", "") == "sandbox":
+                asyncio.get_running_loop().create_task(ex.manager.push_policy(ex.conversation))
+        except Exception:  # noqa: BLE001
+            log.debug("taking back task keys failed", exc_info=True)
+
     async def _sandbox_task_end(self) -> None:
-        """Network allowed "only for this task" (request_network) ends with the task (sandbox plan C2)."""
+        """Network allowed "only for this task" (request_network) and keys given to it (request_secret) end with the
+        task (sandbox plan C2, security stage 2)."""
+        from ..task_secrets import end_task
+        try:
+            had_keys = end_task(self.ctx)
+        except Exception:  # noqa: BLE001
+            had_keys = False
         ex = self.ctx.state.get("executor")
         if getattr(ex, "kind", "") != "sandbox":
             return
         m, conv = ex.manager, ex.conversation
         if hasattr(m, "end"):
             m.end(conv)
-        if m.grants.pop(conv, None) is not None or conv in m.open_all:
+        if m.grants.pop(conv, None) is not None or conv in m.open_all or had_keys:
             m.open_all.discard(conv)
             try:
                 await m.push_policy(conv)

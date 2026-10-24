@@ -174,19 +174,15 @@ def _lan_addresses() -> list[str]:
     return [a for a in dict.fromkeys(found) if not a.startswith("127.")]
 
 
-def serve_token(cfg, host: str, *, explicit: str | None = None, renew: bool = False) -> tuple[str | None, str]:
-    """(token, source). A server reachable from other machines always needs a token: one is generated and kept in
-    secrets.json the first time. Inside Docker the published port decides reachability, so nothing is generated."""
+def serve_token(cfg, host: str, *, explicit: str | None = None, renew: bool = False) -> tuple[str, str]:
+    """(token, source). There is always one (security review 2026-10-24): generated and kept in secrets.json the
+    first time. On this computer the page gets it as a cookie by itself; other devices open the URL with ?token= once."""
     import secrets as _secrets
     if explicit:
         cfg.data.setdefault("server", {})["token"] = explicit
         return explicit, "flag"
     if cfg.get("server.token"):
         return cfg.get("server.token"), "env" if "server.token" in cfg.locked else "config"
-    in_docker = os.path.exists("/.dockerenv") or os.environ.get("SINOBEE_IN_DOCKER") == "1"
-    if host in LOOPBACK or in_docker:
-        tok = cfg.secrets.get_secret("server_token")
-        return (tok, "saved") if tok else (None, "none")
     tok = None if renew else cfg.secrets.get_secret("server_token")
     if not tok:
         tok = _secrets.token_urlsafe(24)
@@ -202,8 +198,9 @@ def _serve(args) -> None:
     host = "0.0.0.0" if args.public else (args.host or rt.config.get("server.host", "127.0.0.1"))
     port = args.port or int(rt.config.get("server.port", 10024))
     token, source = serve_token(rt.config, host, explicit=args.token, renew=args.new_token)
-    q = f"/?token={token}" if token else ""
-    print(f"SinoBee UI → http://localhost:{port}{q}")
+    q = f"/?token={token}"
+    in_docker = os.path.exists("/.dockerenv") or os.environ.get("SINOBEE_IN_DOCKER") == "1"
+    print(f"SinoBee UI → http://localhost:{port}{q if in_docker else ''}")
     if host not in LOOPBACK:
         hosts = _lan_addresses() if host in ("0.0.0.0", "::") else [host]
         for h in hosts:
@@ -211,9 +208,7 @@ def _serve(args) -> None:
         note = {"generated": "已產生新的存取權杖並存在 secrets.json（--new-token 可更換）",
                 "saved": "使用 secrets.json 裡的存取權杖（--new-token 可更換）", "flag": "使用 --token 指定的權杖",
                 "env": "使用 SINOBEE_SERVER_TOKEN", "config": "使用設定檔的 server.token"}.get(source, "")
-        print(f"對外開放中：其他裝置用上面含 token 的網址開啟。{note}")
-        if not token:
-            print("⚠︎ 沒有存取權杖：任何連得到這個連接埠的人都能操作這台電腦。請設定 SINOBEE_SERVER_TOKEN。")
+        print(f"對外開放中：其他裝置用上面含 token 的網址開啟一次（之後會記住）。{note}")
         print("提醒：只在信任的網路開放；跨網際網路請改用 HTTPS 通道（例如 Tailscale、Cloudflare Tunnel），"
               f"並保持核准模式為 confirm（目前：{rt.config.get('permissions.approval', 'confirm')}）。")
     uvicorn.run(create_app(rt), host=host, port=port, log_level="info")

@@ -142,6 +142,9 @@ async def _github(url: str, max_chars: int) -> str | None:
       {"properties": {"url": {"type": "string"}, "max_chars": {"type": "integer", "description": "default 20000"}},
        "required": ["url"]})
 async def web_fetch(ctx: ToolContext, url: str, max_chars: int = 20000):
+    from .guard import own_server
+    if own_server(ctx.config, url):
+        return "ERROR: that is SinoBee's own server; web_fetch does not open it"
     try:
         gh = await _github(url, max_chars)
     except httpx.HTTPError:

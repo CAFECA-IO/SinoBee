@@ -222,8 +222,17 @@ def install(mgr: SkillManager, ref: str, *, config=None, scope: str = "global", 
                 raise SkillError(f"unknown skill reference '{ref}'")
             src = p if any((p / n).exists() for n in spec.SKILL_FILENAMES) else _find_skill_dir(p)
             source = "path"
-        return mgr.install_dir(src, source=source, ref=ref, trust=trust or default_trust, scope=scope,
-                               extra=extra, overwrite=force)
+        res = mgr.install_dir(src, source=source, ref=ref, trust=trust or default_trust, scope=scope,
+                              extra=extra, overwrite=force)
+    if res.get("trust") == "community" and config is not None:
+        # unreviewed: installed but off until you read it and turn it on (security review 2026-10-24)
+        cur = set(config.get("skills.disabled") or [])
+        cur.add(res["name"])
+        config.save_gui_settings({"skills": {"disabled": sorted(cur)}})
+        mgr.set_disabled(sorted(cur))
+        res["enabled"] = False
+        res["note"] = "社群技能未經審查：已安裝但先停用；看過內容後在 設定 → 技能 開啟"
+    return res
 
 
 def export(mgr: SkillManager, name: str, out_dir: Path) -> tuple[Path, dict]:

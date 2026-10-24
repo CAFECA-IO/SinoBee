@@ -30,6 +30,8 @@ async def shell(ctx: ToolContext, command: str, timeout: int = 120, cwd: str | N
     sandbox = getattr(ctx.config, "sandbox", None)
     if sandbox is not None:                 # an evaluation trial: decoy home, no network
         env.update(sandbox.env())
+    from ..task_secrets import env_for
+    env.update(env_for(ctx))                # keys given to this task (request_secret); never shown to the model
     res = await ex.run(command, workdir, timeout, env)
     text = res.output.strip()
     header = (f"[exit {res.code}{' (timed out after %ss)' % timeout if res.timed_out else ''}] "

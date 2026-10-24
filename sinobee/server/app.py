@@ -11,13 +11,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 from ..agent import Agent, Runtime
 from ..config import Config
 from ..tools import desktop as desktop_tools
 from . import (account_api, db_api, evals_api, share_api, files_api, local_api, quality_api, sandbox_api, settings_api,
-               skills_api, work_api)
+               security, security_api, skills_api, work_api)
 
 log = logging.getLogger("sinobee.server")
 STATIC = Path(__file__).resolve().parent / "static"
@@ -85,20 +85,18 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             state["rt"] = Runtime(Config.load())
         return state["rt"]
 
-    def check_token(token: str | None):
-        expected = rt().config.server_token()
-        if expected and not secrets.compare_digest(str(token or ""), str(expected)):
-            raise HTTPException(401, "invalid token")
-
     @app.middleware("http")
     async def auth(request: Request, call_next):
-        if request.url.path.startswith("/api/"):
-            token = request.headers.get("x-sinobee-token") or request.query_params.get("token") \
-                or request.cookies.get("sb_token")      # a sandbox page preview's own requests (sandbox_api.py)
-            try:
-                check_token(token)
-            except HTTPException as e:
-                return JSONResponse({"detail": e.detail}, status_code=e.status_code)
+        """security.py: the right Host everywhere; token and own-page origin for the API."""
+        path = request.url.path
+        if not security.disabled():
+            if not security.host_ok(rt().config, request.headers.get("host", "")):
+                return JSONResponse({"detail": "unknown host name (add it to server.allowed_hosts)"}, status_code=421)
+            if path.startswith("/api/") or path == "/auth/login":
+                bad = security.check(rt().config, method=request.method, headers=request.headers,
+                                     query=request.query_params, cookies=request.cookies)
+                if bad and not (path == "/auth/login" and bad[0] == 401):
+                    return JSONResponse({"detail": bad[1]}, status_code=bad[0])
         return await call_next(request)
 
     settings_api.register(app, rt)
@@ -107,10 +105,36 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     db_api.register(app, rt)
     account_api.register(app, rt, busy=lambda: bool(state.get("running")))
     share_api.register(app, rt)
+    security_api.register(app, rt)
 
     @app.get("/")
-    async def index():
-        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})  # an update shows on reload
+    async def index(request: Request):
+        """The page. With ?token= (another device): keep it as the session cookie and drop it from the address.
+        Opened on this computer: the cookie is set without asking."""
+        cfg = rt().config
+        https = request.url.scheme == "https"
+        tok = request.query_params.get("token")
+        if tok is not None:
+            out = RedirectResponse("/", status_code=303)
+            if security.token_ok(cfg, tok):
+                security.set_cookie(out, cfg, https=https)
+            return out
+        out = FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})  # an update shows on reload
+        if (not security.token_ok(cfg, request.cookies.get(security.COOKIE))
+                and security.is_loopback_client(request.client.host if request.client else None)
+                and security._hostname(request.headers.get("host", "")) in security.LOCAL_NAMES):
+            security.set_cookie(out, cfg, https=https)
+        return out
+
+    @app.post("/auth/login")
+    async def login(request: Request, body: dict):
+        """The sign-in card on another device: the token pasted there becomes the session cookie."""
+        cfg = rt().config
+        if not security.token_ok(cfg, str((body or {}).get("token") or "")):
+            raise HTTPException(401, "invalid token")
+        out = JSONResponse({"ok": True})
+        security.set_cookie(out, cfg, https=request.url.scheme == "https")
+        return out
 
     def _mode_and_usage(r) -> dict:
         """P1 (plan "模型分配與備援機制"): the bottom-left card - version, who pays now, today's use for that mode."""
@@ -151,7 +175,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             "approval": r.config.get("permissions.approval"),
             "desktop": desktop_tools.available(),
             "sandbox": _sandbox_on(r.config),
-            "vnc_url": os.environ.get("SINOBEE_VNC_URL", ""),
             "skills": len(r.skills.skills),
             "memories": len(r.memory.list(limit=100000)),
             "needs_setup": settings_api.settings_payload(r)["needs_setup"],
@@ -576,12 +599,58 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     async def running():
         return run_snapshot()
 
+    @app.websocket("/api/desktop/vnc")
+    async def desktop_vnc(websocket: WebSocket):
+        """SinoBee in Docker: its own desktop, through this server (token, origin) - x11vnc listens on the
+        container's 127.0.0.1:5900 only; websockify no longer publishes it on :6080 (security review 2026-10-24)."""
+        bad = security.check(rt().config, method="GET", headers=websocket.headers, query=websocket.query_params,
+                             cookies=websocket.cookies, websocket=True)
+        if bad:
+            await websocket.close(code=4000 + bad[0])
+            return
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", int(os.environ.get("SINOBEE_VNC_PORT", 5900)))
+        except OSError as e:
+            await websocket.close(code=4500, reason=f"no desktop here ({e.__class__.__name__})")
+            return
+        sub = "binary" if "binary" in (websocket.headers.get("sec-websocket-protocol") or "") else None
+        await websocket.accept(subprotocol=sub)
+
+        async def down():
+            try:
+                while data := await reader.read(65536):
+                    await websocket.send_bytes(data)
+            except Exception:  # noqa: BLE001
+                pass
+
+        async def up():
+            try:
+                while True:
+                    msg = await websocket.receive()
+                    if msg.get("type") == "websocket.disconnect":
+                        break
+                    data = msg.get("bytes") or (msg.get("text") or "").encode()
+                    if data:
+                        writer.write(data)
+                        await writer.drain()
+            except (WebSocketDisconnect, ConnectionError, RuntimeError):
+                pass
+        tasks = [asyncio.create_task(down()), asyncio.create_task(up())]
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for t in tasks:
+            t.cancel()
+        writer.close()
+        try:
+            await websocket.close()
+        except Exception:  # noqa: BLE001
+            pass
+
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
-        token = websocket.query_params.get("token")
-        expected = rt().config.server_token()
-        if expected and not secrets.compare_digest(str(token or ""), str(expected)):
-            await websocket.close(code=4401)
+        bad = security.check(rt().config, method="GET", headers=websocket.headers, query=websocket.query_params,
+                             cookies=websocket.cookies, websocket=True)
+        if bad:
+            await websocket.close(code=4000 + bad[0])
             return
         await websocket.accept()
         outbox: asyncio.Queue = asyncio.Queue()

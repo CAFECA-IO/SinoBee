@@ -62,10 +62,25 @@ class SecretStore:
                 sec.pop(name, None)
             self._write(data)
 
+    # ---- keys a task may be given (task_secrets.py): {"task_secrets": {name: {value, env, domains, note}}} ----
+    def task_secrets(self) -> dict[str, dict]:
+        return {k: dict(v) for k, v in (self._read().get("task_secrets") or {}).items() if isinstance(v, dict)}
+
+    def set_task_secret(self, name: str, entry: dict | None) -> None:
+        with self._lock:
+            data = self._read()
+            ts = data.setdefault("task_secrets", {})
+            if entry:
+                ts[name] = entry
+            else:
+                ts.pop(name, None)
+            self._write(data)
+
     def all_values(self, min_len: int = 6) -> list[str]:
         """Every stored secret value (for redaction), longest first."""
         d = self._read()
-        vals = list((d.get("api_keys") or {}).values()) + list((d.get("secrets") or {}).values())
+        vals = list((d.get("api_keys") or {}).values()) + list((d.get("secrets") or {}).values()) + \
+            [v.get("value") for v in (d.get("task_secrets") or {}).values() if isinstance(v, dict)]
         return sorted({v for v in vals if isinstance(v, str) and len(v) >= min_len}, key=len, reverse=True)
 
     def set(self, provider: str, key: str | None) -> None:

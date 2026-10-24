@@ -136,11 +136,21 @@ class Registry:
                 if ctx.emit:
                     ctx.emit("status", {"message": f"{tool.name} pre-approved by an active skill's allowed-tools"})
                 reason = None
+        from . import guard
+        sent = guard.outbound(tool, args, ctx)     # a secret was seen here: whatever can carry it out asks first
+        if sent and not reason:
+            reason = sent
+        from .. import audit
+        keep = audit.wanted(tool, args)
+        asked = False
         if reason and (mode != "auto" or tool.always_confirm):
             ok = False
             if ctx.approve is not None:
                 ok = await ctx.approve(tool.name, args, reason)
+            asked = True
             if not ok:
+                if keep:
+                    _audit(ctx, tool, args, "refused", reason)
                 return ToolResult.error(f"user did not approve '{tool.name}' ({reason}). "
                                         "Choose a safer approach or ask the user.")
 
@@ -160,7 +170,44 @@ class Registry:
         if sandbox is not None:
             from ..evals.sandbox import text_of
             sandbox.after(tool.name, args, text_of(value))
-        return _normalise(value, int(ctx.config.get("agent.tool_output_limit", 12000)))
+        res = _normalise(value, int(ctx.config.get("agent.tool_output_limit", 12000)))
+        from ..task_secrets import redact            # keys never reach the model, the transcript or a log
+        if isinstance(res.content, str):
+            res.content = redact(res.content, ctx)
+        else:
+            res.content = [TextPart(redact(p.text, ctx)) if isinstance(p, TextPart) else p for p in res.content]
+        texts = [res.content] if isinstance(res.content, str) else [p.text for p in res.content
+                                                                     if isinstance(p, TextPart)]
+        if tool.name != "request_secret" and any(guard.has_secret(t) for t in texts):
+            guard.note_secret(ctx, f"a key or token in the {tool.name} output")
+        if keep:
+            _audit(ctx, tool, args, "error" if res.is_error else "ok", reason if asked else None,
+                   texts[0][:300] if texts and (res.is_error or tool.name.startswith("request_")) else None)
+        if tool.toolset in TAINTING and not res.is_error:     # outside content reaches the model as data
+            src = args.get("url") or args.get("query") or f"{tool.name} {args.get('action', '')}".strip()
+            if isinstance(res.content, str):
+                res.content = guard.wrap_untrusted(res.content, src)
+            else:
+                res.content = [TextPart(guard.wrap_untrusted(p.text, src)) if isinstance(p, TextPart) else p
+                               for p in res.content]
+        return res
+
+
+def _audit(ctx, tool, args, outcome: str, reason: str | None = None, detail: str | None = None) -> None:
+    """audit.py: what this conversation's tools did (approved after asking, refused, failed)."""
+    try:
+        from .. import audit
+        from ..memory.scope import conversation_of
+        from ..sandbox import executor_of
+        entry = {"tool": tool.name, "what": audit.summary(tool.name, args), "outcome": outcome,
+                 "where": executor_of(ctx).kind}
+        if reason:
+            entry["reason"] = reason
+        if detail:
+            entry["detail"] = detail
+        audit.record(ctx.config, conversation_of(ctx), entry, ctx)
+    except Exception:  # noqa: BLE001
+        log.debug("audit record failed", exc_info=True)
 
 
 def _truncate(text: str, limit: int) -> str:

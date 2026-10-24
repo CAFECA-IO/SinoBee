@@ -212,16 +212,16 @@ def test_public_serve_always_has_a_token(home, provider, monkeypatch):
     from sinobee.server import create_app
     monkeypatch.delenv("SINOBEE_SERVER_TOKEN", raising=False)
     monkeypatch.delenv("SINOBEE_IN_DOCKER", raising=False)
+    monkeypatch.delenv("SINOBEE_INSECURE_NO_AUTH", raising=False)
     monkeypatch.setattr("os.path.exists", lambda p, _e=__import__("os").path.exists: False if p == "/.dockerenv" else _e(p))
     cfg = Config.load()
-    assert serve_token(cfg, "127.0.0.1") == (None, "none")              # local only: no token needed
-    tok, src = serve_token(cfg, "0.0.0.0")
+    tok, src = serve_token(cfg, "127.0.0.1")                             # on this computer too (review 2026-10-24)
     assert src == "generated" and len(tok) >= 24
     assert serve_token(cfg, "0.0.0.0") == (tok, "saved")                  # kept for later runs
     new, src = serve_token(cfg, "0.0.0.0", renew=True)
     assert src == "generated" and new != tok
     assert serve_token(cfg, "0.0.0.0", explicit="my-own-token-123") == ("my-own-token-123", "flag")
-    c = TestClient(create_app(Runtime(Config.load(), provider=provider)))
+    c = TestClient(create_app(Runtime(Config.load(), provider=provider)), base_url="http://localhost:10024")
     assert c.get("/api/status").status_code == 401                      # the saved token protects the API
     assert c.get(f"/api/status?token={new}").status_code == 200
     assert c.get("/favicon.ico").status_code == 200                      # static files stay public

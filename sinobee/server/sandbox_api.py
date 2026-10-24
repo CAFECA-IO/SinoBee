@@ -3,7 +3,9 @@
     GET  /api/sandbox/{sid}                    is there a sandbox, is it yours right now, what got blocked
     POST /api/sandbox/{sid}/takeover {on}      you take over the desktop (the agent's desktop/browser tools wait)
     WS   /api/sandbox/{sid}/vnc?token=          the desktop: VNC over a WebSocket (noVNC in the page)
-    ANY  /api/sandbox/{sid}/preview/{port}/... a web server running in the sandbox, in your own browser
+    POST /api/sandbox/{sid}/preview/{port}     a link for a web server running in the sandbox: /preview/{key}/...
+    ANY  /preview/{key}/...                    that page in your own browser - a sandboxed origin (CSP sandbox), so
+                                               its scripts cannot use SinoBee's API, cookies or storage
     GET  /api/sandbox/{sid}/settings           the conversation's settings file (convconf.py): folders, network, overrides
     PUT  /api/sandbox/{sid}/settings           {network: {domains, all}, overrides: {review_writes, image}} (null = as Settings)
     GET  /api/sandbox/{sid}/folders            the folders of this computer given to the conversation (📁 資料夾)
@@ -40,6 +42,11 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
 
+PREVIEWS: dict[str, tuple[str, int, float]] = {}      # key -> (conversation, port, created)
+PREVIEW_TTL = 12 * 3600
+PREVIEW_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads"
+PREVIEW_DROP = {"set-cookie", "content-security-policy", "access-control-allow-origin",
+                "access-control-allow-credentials"}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
        "transfer-encoding", "upgrade", "host", "content-length", "content-encoding"}
 
@@ -604,10 +611,11 @@ def register(app: FastAPI, rt, broadcast=None, running=None) -> None:
 
     @app.websocket("/api/sandbox/{sid}/vnc")
     async def vnc(websocket: WebSocket, sid: str):
-        expected = rt().config.server_token()
-        token = websocket.query_params.get("token")
-        if expected and not secrets.compare_digest(str(token or ""), str(expected)):
-            await websocket.close(code=4401)
+        from . import security
+        bad = security.check(rt().config, method="GET", headers=websocket.headers, query=websocket.query_params,
+                             cookies=websocket.cookies, websocket=True)
+        if bad:
+            await websocket.close(code=4000 + bad[0])
             return
         try:
             m = manager()
@@ -652,19 +660,30 @@ def register(app: FastAPI, rt, broadcast=None, running=None) -> None:
         except Exception:  # noqa: BLE001
             pass
 
-    @app.api_route("/api/sandbox/{sid}/preview/{port}/{path:path}",
-                   methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
-    async def preview(sid: str, port: int, path: str, request: Request):
-        import httpx
-        m = manager()
+    @app.post("/api/sandbox/{sid}/preview/{port}")
+    async def preview_link(sid: str, port: int):
         if not 1 <= port <= 65535:
             raise HTTPException(400, "bad port")
-        local = await m.bridge(sid, port)
+        now = time.time()
+        for k in [k for k, v in PREVIEWS.items() if now - v[2] > PREVIEW_TTL]:
+            PREVIEWS.pop(k, None)
+        key = secrets.token_urlsafe(18)
+        PREVIEWS[key] = (sid, port, now)
+        return {"url": f"/preview/{key}/", "expires_in": PREVIEW_TTL}
+
+    @app.api_route("/preview/{key}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+    async def preview(key: str, path: str, request: Request):
+        """What the sandbox serves is the task's work - possibly a page written after reading the web - so it runs
+        as an opaque origin: no SinoBee cookies, storage or API (security review 2026-10-24)."""
+        import httpx
+        found = PREVIEWS.get(key)
+        if not found or time.time() - found[2] > PREVIEW_TTL:
+            raise HTTPException(404, "this preview link has expired")
+        sid, port, _ = found
+        local = await manager().bridge(sid, port)
         url = f"http://127.0.0.1:{local}/{path}" + (f"?{request.url.query}" if request.url.query else "")
-        query_token = request.query_params.get("token")
-        if query_token:            # the page's own links do not carry ?token: keep it in a cookie for this preview
-            url = url.replace(f"token={query_token}", "").replace("?&", "?").rstrip("?&")
-        headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP and k.lower() != "cookie"}
+        headers = {k: v for k, v in request.headers.items()
+                   if k.lower() not in HOP and k.lower() not in ("cookie", "origin", "referer")}
         headers["host"] = f"localhost:{port}"
         try:
             async with httpx.AsyncClient(trust_env=False, timeout=60) as c:
@@ -672,8 +691,9 @@ def register(app: FastAPI, rt, broadcast=None, running=None) -> None:
         except httpx.HTTPError as e:
             raise HTTPException(502, f"nothing answers on port {port} in the sandbox ({type(e).__name__})")
         out = Response(r.content, status_code=r.status_code,
-                       headers={k: v for k, v in r.headers.items() if k.lower() not in HOP})
-        if query_token:
-            out.set_cookie("sb_token", query_token, path=f"/api/sandbox/{sid}/preview/{port}", httponly=True,
-                           samesite="strict")
+                       headers={k: v for k, v in r.headers.items()
+                                if k.lower() not in HOP and k.lower() not in PREVIEW_DROP})
+        out.headers["content-security-policy"] = PREVIEW_CSP
+        out.headers["access-control-allow-origin"] = "*"
+        out.headers["referrer-policy"] = "no-referrer"
         return out

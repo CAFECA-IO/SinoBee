@@ -2,6 +2,7 @@
 
 The answer is pushed to the egress proxy at once (sandbox/manager.py):
     只這次任務   these domains, for this conversation until the task (turn) ends
+    1 小時內     these domains, for this conversation for the next hour (security plan stage 2)
     這個對話一直允許 these domains, kept in the conversation's settings (convconf.py)
     記住這些網域 these domains, added to sandbox.network.remembered (every sandbox, from now on)
     全部網路     everything, for this conversation until the task ends
@@ -14,6 +15,7 @@ import re
 from .registry import ToolContext, ToolResult, tool
 
 ONCE, HERE, REMEMBER, ALL, NO = "只這次任務允許", "這個對話一直允許", "所有對話都允許", "這次任務允許全部網路", "不允許"
+HOUR = "這個對話 1 小時內允許"
 DOMAIN = re.compile(r"^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,63}$|^\d{1,3}(\.\d{1,3}){3}$")
 
 
@@ -53,14 +55,18 @@ async def request_network(ctx: ToolContext, domains: list, reason: str = ""):
         return ToolResult.error("give domain names such as github.com (not URLs with paths, not wildcards only)")
     m, conv = ex.manager, ex.conversation
     allowed = m.policy(conv)
-    if allowed["all"] or all(any(n == d or n.endswith("." + d) for d in allowed["domains"]) for n in names):
+    have = list(allowed["domains"]) + list((allowed.get("until") or {}).keys())
+    if allowed["all"] or all(any(n == d or n.endswith("." + d) for d in have) for n in names):
         return f"already allowed: {', '.join(names)}"
     if ctx.ask is None:
         return ToolResult.error("nobody is there to allow network access now; continue without these domains")
     mounts = [str(x.inner) for x in ex.paths.mounts if str(x.inner).startswith("/host/")]
     question = (f"沙盒要連到 {', '.join(names)}。\n理由：{reason or '（未說明）'}"
                 + (f"\n注意：這個任務可以讀到 {', '.join(mounts)}，連網後資料有可能被傳出。" if mounts else ""))
+    if ctx.state.get("task_secrets"):
+        question += "\n注意：這個任務持有金鑰；金鑰只能送到它自己的網站，其他網站收到含金鑰的請求會被擋下。"
     options = [{"label": ONCE, "description": "這次任務結束就收回", "recommended": True},
+               {"label": HOUR, "description": "一小時後自動收回（這個對話的其他任務也可用）"},
                {"label": HERE, "description": "這個對話之後的任務也不再問（對話設定可移除）"},
                {"label": REMEMBER, "description": "每個對話都不再問（設定 → 沙盒的網路可移除）"},
                {"label": ALL, "description": "這次任務不限制連線"},
@@ -71,6 +77,9 @@ async def request_network(ctx: ToolContext, domains: list, reason: str = ""):
         return f"The user did not allow {', '.join(names)}. Continue without them, or explain what cannot be done."
     if choice == ALL:
         m.open_all.add(conv)
+    elif choice == HOUR:
+        import time
+        m.until.setdefault(conv, {}).update({n: time.time() + 3600 for n in names})
     else:
         m.grants.setdefault(conv, set()).update(names)
         if choice == HERE:
@@ -84,7 +93,7 @@ async def request_network(ctx: ToolContext, domains: list, reason: str = ""):
             ctx.config.save_gui_settings({"sandbox": {"network": {"remembered": current + [n for n in names
                                                                                           if n not in current]}}})
     await m.push_policy(conv)
-    scope = {ONCE: "for this task", HERE: "for this conversation", REMEMBER: "from now on",
+    scope = {ONCE: "for this task", HOUR: "for the next hour", HERE: "for this conversation", REMEMBER: "from now on",
              ALL: "all network, for this task"}[choice]
     return f"allowed {scope}: {', '.join(names) if choice != ALL else 'everything'}. Run the command again."
 

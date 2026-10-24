@@ -670,6 +670,12 @@ label.swl{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-siz
 #folderChips small{color:var(--muted)}#folderChips button{all:unset;cursor:pointer;color:var(--muted);padding:0 5px}#folderChips button:hover{color:var(--err)}
 .restarting{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)}.restarting>div{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;display:flex;flex-direction:column;gap:8px;align-items:center;max-width:420px;text-align:center}
 .memflag{display:inline-block;font-size:11px;border:1px solid var(--warn);color:var(--warn);border-radius:999px;padding:0 7px;margin-right:6px}.memflag.dim{border-color:var(--line);color:var(--muted)}
+.tkform{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.tkform #tkSave{justify-self:start}
+.tkrow{display:grid;grid-template-columns:minmax(80px,1fr) minmax(120px,1.2fr) 2fr 1.4fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.tkrow .acts{display:flex;gap:6px}
+.audtbl{max-height:60vh;overflow:auto;font-size:13px}.audr{display:grid;grid-template-columns:150px 90px minmax(0,3fr) 64px minmax(0,2fr);gap:8px;padding:5px 0;border-bottom:1px solid var(--line)}
+.audr .mono{overflow-wrap:anywhere}.aud-ok{color:var(--ok)}.aud-bad{color:var(--err)}.aud-warn{color:var(--warn,#b7791f)}
+@media (max-width:640px){.tkform{grid-template-columns:1fr}.tkrow,.audr{grid-template-columns:1fr}}
 #sbHint{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:860px;margin:0 auto 6px;padding:8px 12px;border:1px solid var(--warn);border-radius:12px;font-size:13px;background:var(--panel)}#sbHint[hidden]{display:none}#sbHint .sd{flex:1;min-width:200px}
 .sbimg{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:2px 0}.sbimg .ok,.sbr .ok{color:var(--ok, #2fbf71)}
 .sbtbl{margin-top:10px;border:1px solid var(--line);border-radius:10px;font-size:12.5px;overflow:auto}.sbh,.sbr{display:grid;grid-template-columns:minmax(120px,2fr) 90px 70px 90px 70px minmax(150px,auto);gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line)}
@@ -1108,6 +1114,14 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
           </div></details>
         <details class="pacc" id="accBox"><summary><span class="pa-i" data-icon="monitor"></span><b>沙盒資源與管理</b><span class="pa-s" id="accBoxSum"></span></summary>
           <div class="pa-b" id="sbAdmin"><div class="sd"><span class="spin"></span> 讀取中…</div></div></details>
+        <details class="pacc" id="accKeys"><summary><span class="pa-i" data-icon="key"></span><b>任務金鑰</b><span class="pa-s" id="accKeysSum"></span></summary>
+          <div class="pa-b"><div class="sd" style="margin-bottom:8px">任務需要 API 金鑰或權杖時，SinoBee 會先問你；你允許後，金鑰只在那次任務以環境變數提供給指令，只能送到你指定的網站，任務結束就收回。SinoBee 與模型都看不到它的值。請不要把金鑰貼在對話裡。</div>
+            <div id="tkList"></div>
+            <div class="tkform"><input class="inp" id="tkName" placeholder="名稱，例如 stripe" aria-label="金鑰名稱"><input class="inp mono" id="tkEnv" placeholder="環境變數，例如 STRIPE_API_KEY" aria-label="環境變數">
+              <input class="inp" id="tkDom" placeholder="會用到的網域，例如 api.stripe.com" aria-label="網域"><input class="inp" id="tkVal" type="password" autocomplete="off" placeholder="金鑰的值" aria-label="金鑰的值">
+              <input class="inp" id="tkNote" placeholder="說明（選填）" aria-label="說明"><button class="btn primary" type="button" id="tkSave">儲存</button></div>
+            <div class="sd" id="tkMsg"></div>
+          </div></details>
         <details class="pacc" id="accTools"><summary><span class="pa-i" data-icon="zap"></span><b>可以使用的能力</b><span class="pa-s" id="accToolsSum"></span><span class="lock" data-lock="permissions.toolsets"></span></summary>
           <div class="pa-b"><div class="sd" style="margin-bottom:8px">關掉後模型就看不到這類工具</div><div id="pToolsets" class="tsgrid"></div></div></details>
       </section>
@@ -1339,23 +1353,27 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
 <script src="/vendor/sb-math.js"></script>
 <script>
 const $ = s => document.querySelector(s);
-// access token (needed when SinoBee is opened from another device): taken from ?token=, remembered on this browser,
-// and removed from the address bar so it does not end up in screenshots, history or shared links
-const token = (() => {
-  const u = new URL(location.href), t = u.searchParams.get('token');
-  if (t !== null) { try { localStorage.setItem('sb-token', t); } catch {}
-    u.searchParams.delete('token'); history.replaceState(null, '', u.pathname + u.search + u.hash); return t; }
-  try { return localStorage.getItem('sb-token') || ''; } catch { return ''; }
+// access: an HttpOnly session cookie (server/security.py) - set by itself on this computer, from the ?token= URL once on
+// another device, or from the sign-in card below. The page never holds the token (other pages cannot read it).
+const token = '';
+(async () => {
+  let old = '';
+  try { old = localStorage.getItem('sb-token') || ''; localStorage.removeItem('sb-token'); } catch {}
+  if (old) await fetch('/auth/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({token: old})}).catch(() => {});
+  const r = await fetch('/api/status').catch(() => null);
+  if (r && r.status === 401) askToken(false);
 })();
-fetch('/api/status?token=' + encodeURIComponent(token)).then(r => { if (r.status === 401) askToken(!!token); }).catch(() => {});
 function askToken(wrong){
   const d = document.createElement('div'); d.className = 'modal open'; d.style.zIndex = 200;
   d.innerHTML = `<div class="card" role="dialog" aria-labelledby="tkT" style="max-width:420px"><h3 id="tkT">需要存取權杖</h3>
-    <p class="sd" style="margin:6px 0 12px">這個 SinoBee 只允許持有權杖的人使用。${wrong ? '<b style="color:var(--err)">目前的權杖不正確。</b>' : ''}
-    請開啟啟動時印出的網址（含 <code>?token=</code>），或在下面貼上權杖。</p>
+    <p class="sd" style="margin:6px 0 12px">這個 SinoBee 只允許持有權杖的人使用。<b class="tkErr" style="color:var(--err)" ${wrong ? '' : 'hidden'}>權杖不正確。</b>
+    請開啟啟動時印出的網址（含 <code>?token=</code>），或在下面貼上權杖。這個瀏覽器之後會記住。</p>
     <form style="display:flex;gap:8px"><input class="inp" type="password" autocomplete="off" placeholder="存取權杖" style="flex:1" required>
     <button class="btn primary">進入</button></form></div>`;
-  d.querySelector('form').onsubmit = e => { e.preventDefault(); try { localStorage.setItem('sb-token', d.querySelector('input').value.trim()); } catch {} location.reload(); };
+  d.querySelector('form').onsubmit = async e => { e.preventDefault();
+    const r = await fetch('/auth/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: d.querySelector('input').value.trim()})}).catch(() => null);
+    if (r && r.ok) location.reload(); else d.querySelector('.tkErr').hidden = false; };
   document.body.appendChild(d); d.querySelector('input').focus();
 }
 const api = (p, o={}) => fetch(p + (p.includes('?')?'&':'?') + 'token=' + encodeURIComponent(token), o).then(r => r.json());
@@ -2618,6 +2636,17 @@ async function deskConnect(){
   rfb.addEventListener('disconnect', () => { if (RFBOBJ !== rfb) return; RFBOBJ = null; deskPaint('連線中斷，重新連線中…');
     setTimeout(() => { if (DESK_SID === sid && !RFBOBJ) deskConnect(); }, 2500); });
 }
+async function ownDeskConnect(){
+  deskClose(); $('#vncScreen').innerHTML = ''; DESK_TAKE = true; deskPaint('連線中…');
+  try { await loadRFB(); } catch (e) { deskPaint('無法載入即時畫面元件'); return; }
+  const rfb = new RFB($('#vncScreen'), `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/desktop/vnc`, {shared: true});
+  RFBOBJ = rfb; rfb.scaleViewport = true; rfb.background = '#000';
+  rfb.addEventListener('credentialsrequired', async () => { const pw = await uiPrompt('虛擬桌面密碼（VNC_PASSWORD）', '', {title: '桌面'});
+    if (pw) rfb.sendCredentials({password: pw}); else rfb.disconnect(); });
+  rfb.addEventListener('connect', () => deskPaint('Agent 桌面（可直接操作）'));
+  rfb.addEventListener('disconnect', () => { if (RFBOBJ !== rfb) return; RFBOBJ = null; deskPaint('連線中斷，重新連線中…');
+    setTimeout(() => { if ($('#desk').classList.contains('open') && !RFBOBJ) ownDeskConnect(); }, 2500); });
+}
 function deskSession(){ if (SANDBOX_ON && $('#desk').classList.contains('open') && DESK_SID !== sessionId) deskConnect(); }
 $('#deskTake').onclick = async () => {
   if (!sessionId) return;
@@ -2934,10 +2963,10 @@ async function refreshStatus(full = true){
     $('#deskLabel').textContent = '沙盒桌面'; $('#deskTake').hidden = false;
     $('#deskBtn').onclick = () => { $('#deskBtn').classList.remove('pulse'); const d = $('#desk'); d.classList.toggle('open');
       if (d.classList.contains('open')) deskConnect(); else deskClose(); };
-  } else if (s.desktop) {
-    const url = s.vnc_url || `${location.protocol}//${location.hostname}:6080/vnc.html?autoconnect=1&resize=scale&reconnect=1`;
-    $('#deskBtn').hidden = false; $('#deskPop').href = url;
-    $('#deskBtn').onclick = () => { const d = $('#desk'); if (!$('#vnc').src) $('#vnc').src = url; d.classList.toggle('open'); };
+  } else if (s.desktop) {             // SinoBee in Docker: its own desktop through /api/desktop/vnc (no :6080)
+    $('#deskBtn').hidden = false; $('#deskPop').hidden = true; $('#vnc').hidden = true; $('#vncScreen').hidden = false;
+    $('#deskBtn').onclick = () => { const d = $('#desk'); d.classList.toggle('open');
+      if (d.classList.contains('open')) ownDeskConnect(); else deskClose(); };
   }
   loadSide();
 }
@@ -4542,8 +4571,10 @@ function renderFolderPop(msg = ''){
     + `<div class="fp-row"><span>沙盒映像</span><select id="fpImage" data-seg aria-label="沙盒映像"><option value="">依設定（${IMG[df.image] || df.image}）</option><option value="standard">標準</option><option value="office"${f.office_built ? '' : ' disabled'}>含 LibreOffice</option></select></div>`
     + (f.office_built ? '' : '<div class="sd">含 LibreOffice 的映像還沒建立：在終端機執行 <span class="mono">sinobee sandbox build --office</span>。</div>')
     + `<div class="fp-row"><span>讀取其他對話</span><select id="fpCross" data-seg aria-label="讀取其他對話"><option value="">依設定（${df.cross_conversations ? '允許' : '先詢問'}）</option><option value="on">允許</option></select></div>`
-    + '<div class="sd">寫入前審核只影響之後加入的資料夾；換映像會重新啟動這個對話的沙盒。</div>';
+    + '<div class="sd">寫入前審核只影響之後加入的資料夾；換映像會重新啟動這個對話的沙盒。</div>'
+    + `<div class="fp-sec">安全</div><div class="fp-row"><span>指令、寫入與連線的紀錄</span><button class="btn sm" type="button" id="fpAudit">操作紀錄</button></div>`;
   pop.querySelector('[data-x]').onclick = () => folderPop(false);
+  $('#fpAudit').onclick = () => auditShow(folderSid());
   pop.querySelectorAll('[data-rev]').forEach(b => b.onclick = () => openHostReview(folderSid()));
   pop.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => folderRemove(b.dataset.rm));
   pop.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => folderCheckpoints(b.dataset.cp));
@@ -4689,6 +4720,47 @@ async function sbAdmin(){
   if (Object.values(img).some(i => i.building) || !h.ok) SBA_T = setTimeout(() => { if ($('#accBox').open && $('#settings').classList.contains('open')) sbAdmin(); }, 3000);
 }
 $('#accBox').addEventListener('toggle', () => { if ($('#accBox').open) sbAdmin(); });
+/** 任務金鑰: names, sites and variables are shown; a value never comes back (only its last four characters) */
+async function tkAdmin(msg = ''){
+  let list; try { list = await api('/api/task-secrets'); } catch { list = []; }
+  $('#accKeysSum').textContent = list.length ? `${list.length} 把` : '沒有';
+  $('#tkMsg').textContent = msg;
+  $('#tkList').innerHTML = list.length ? list.map(k => `<div class="tkrow"><b>${esc(k.name)}</b><span class="mono">$${esc(k.env)}</span>`
+    + `<span>${k.domains.map(esc).join('、')}</span><span class="sd">${esc(k.hint || '')}${k.note ? ' · ' + esc(k.note) : ''}</span>`
+    + `<span class="acts"><button class="btn sm" type="button" data-tke="${esc(k.name)}">修改</button><button class="btn sm" type="button" data-tkd="${esc(k.name)}">刪除</button></span></div>`).join('')
+    : '<div class="sd" style="padding:6px 0">還沒有任務金鑰</div>';
+  $('#tkList').querySelectorAll('[data-tke]').forEach(b => b.onclick = () => { const k = list.find(x => x.name === b.dataset.tke);
+    $('#tkName').value = k.name; $('#tkEnv').value = k.env; $('#tkDom').value = k.domains.join(' '); $('#tkNote').value = k.note || '';
+    $('#tkVal').value = ''; $('#tkVal').placeholder = '留空＝保留原本的值'; $('#tkVal').focus(); });
+  $('#tkList').querySelectorAll('[data-tkd]').forEach(b => b.onclick = async () => {
+    if (!await uiConfirm(`刪除金鑰「${b.dataset.tkd}」？之後的任務就不能使用它。`)) return;
+    try { await hcFetch(`/api/task-secrets/${encodeURIComponent(b.dataset.tkd)}`, {}, 'DELETE'); tkAdmin('已刪除'); } catch (e) { uiAlert(e.message); } });
+}
+$('#tkSave').onclick = async () => {
+  const name = $('#tkName').value.trim();
+  if (!name) { $('#tkMsg').textContent = '請輸入名稱'; return; }
+  try { await hcFetch(`/api/task-secrets/${encodeURIComponent(name)}`, {env: $('#tkEnv').value.trim() || undefined,
+      domains: $('#tkDom').value.trim().split(/[\s,、]+/).filter(Boolean), value: $('#tkVal').value || undefined, note: $('#tkNote').value.trim()}, 'PUT');
+    ['#tkName', '#tkEnv', '#tkDom', '#tkVal', '#tkNote'].forEach(id => $(id).value = ''); $('#tkVal').placeholder = '金鑰的值';
+    tkAdmin('已儲存'); } catch (e) { $('#tkMsg').textContent = e.message; }
+};
+$('#accKeys').addEventListener('toggle', () => { if ($('#accKeys').open) tkAdmin(); });
+/** 操作紀錄: what this conversation's tools did, and its sandbox's connections */
+async function auditShow(sid){
+  let j; try { j = await api(`/api/audit/${encodeURIComponent(sid)}?limit=800`); } catch { j = {entries: [], network: []}; }
+  const OUT = {ok: ['完成', 'ok'], error: ['失敗', 'bad'], refused: ['未允許', 'warn']};
+  const t = x => new Date(x * 1000).toLocaleString('zh-TW', {hour12: false});
+  const rows = [...(j.entries || []).map(e => ({t: e.t, kind: e.tool, what: e.what, out: OUT[e.outcome] || [e.outcome, ''], note: [e.where === 'sandbox' ? '沙盒' : e.where === 'host' ? '這台電腦' : '', e.reason ? '詢問：' + e.reason : '', e.detail || ''].filter(Boolean).join(' · ')})),
+    ...(j.network || []).filter(n => !n.allowed || /^key/.test(n.reason || '')).map(n => ({t: n.t, kind: '連線', what: `${n.method || ''} ${n.host}:${n.port}`, out: n.allowed ? ['允許', 'ok'] : ['擋下', 'bad'], note: n.reason || ''}))]
+    .sort((a, b) => b.t - a.t);
+  const d = document.createElement('div'); d.className = 'modal open'; d.style.zIndex = 150;
+  d.innerHTML = `<div class="card" role="dialog" aria-labelledby="audT" style="max-width:920px;width:calc(100vw - 32px)"><h3 id="audT">操作紀錄</h3>
+    <p class="sd" style="margin:4px 0 10px">這個對話的工具執行過的指令、寫入的檔案、開過的網站，以及沙盒被擋下的連線。金鑰以 [key …] 表示。</p>
+    <div class="audtbl">${rows.length ? rows.map(r => `<div class="audr"><span class="sd">${esc(t(r.t))}</span><span>${esc(r.kind)}</span><span class="mono">${esc(r.what || '')}</span><span class="aud-${r.out[1]}">${esc(r.out[0])}</span><span class="sd">${esc(r.note)}</span></div>`).join('') : '<div class="sd">還沒有紀錄</div>'}</div>
+    <div style="text-align:right;margin-top:12px"><button class="btn" type="button" data-x>關閉</button></div></div>`;
+  d.querySelector('[data-x]').onclick = () => d.remove(); d.onclick = e => { if (e.target === d) d.remove(); };
+  document.body.appendChild(d);
+}
 function permSummaries(){
   const open = $('#pNetMode').value === 'open';
   $('#pNetList').hidden = open; $('#pNetOpenNote').hidden = !open;

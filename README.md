@@ -353,7 +353,7 @@ docker exec -it sinobee sinobee keys set openai
 | `SINOBEE_DAILY_BUDGET` / `SINOBEE_MONTHLY_BUDGET` | 預算（USD） |
 | `SINOBEE_OLLAMA_URL` / `SINOBEE_HOST_HARDWARE` | 本機模型服務位址 / 主機硬體資訊 |
 | `SINOBEE_PROJECT` | 專案資料夾（載入其中的技能） |
-| `SINOBEE_SERVER_TOKEN` / `VNC_PASSWORD` | 網頁存取權杖 / 虛擬桌面密碼 |
+| `SINOBEE_SERVER_TOKEN` / `VNC_PASSWORD` | 網頁存取權杖 / 虛擬桌面密碼（桌面只經由 SinoBee 的頁面觀看，不再開放 6080） |
 
 資料保存在 Docker volume `sinobee-home`（設定、金鑰、記憶、技能、瀏覽器登入）與 `sinobee-workspace`（工作檔案）；更新版本用 `git pull && docker compose up -d --build`，資料不會遺失。
 </details>
@@ -387,9 +387,9 @@ SINOBEE_SERVER_TOKEN=<權杖> sinobee serve --host 0.0.0.0   # 用環境變數�
 
 啟動時會印出 `http://<這台電腦的 IP>:10024/?token=…`，在其他裝置開啟即可。
 
-- 瀏覽器會記住權杖，並把它從網址列移除。
+- 權杖一律存在（包括只在這台電腦使用時）：在這台電腦開 `http://localhost:10024` 會自動登入；其他裝置用含 `?token=` 的網址開一次，之後這個瀏覽器會記住（HttpOnly Cookie，網頁程式讀不到），網址列裡的權杖也會移除。
 - 沒有權杖或權杖錯誤時，畫面會請你輸入。
-- 對外開放時一定要有權杖：沒有設定時會自動產生，不會以無密碼的狀態開放。
+- 其他網站的網頁無法操作 SinoBee：會檢查請求來源（Origin）與主機名稱（Host），擋下 DNS rebinding。用自己的網域或通道名稱連線時，把它加到設定檔的 `server.allowed_hosts`（例如 `["*.ts.net"]`）。
 
 Docker：
 

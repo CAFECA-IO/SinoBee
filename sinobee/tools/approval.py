@@ -17,14 +17,25 @@ DANGEROUS_SHELL = [
     (r"\b(kill|pkill|killall)\s+-9\b", "force kill processes"),
     (r"\bcrontab\s+-r\b", "remove crontab"),
     (r"(~|\$HOME)/\.ssh|id_rsa|\.aws/credentials|\.env\b", "touches credentials"),
+    (r"\.sinobee\b|secrets\.json|\.git-credentials|\.netrc\b|Keychains|security\s+find-(generic|internet)-password",
+     "touches SinoBee's private data or a credential store"),
     (r"\bnc\s+-[a-z]*l|\bncat\b.*-e\b|/dev/tcp/", "network shell"),
     (r"\b(pip|npm|apt(-get)?|brew)\s+(install|uninstall|remove)\b", "installs or removes software"),
 ]
 
 _SECRET = re.compile(r"(sk-[A-Za-z0-9_\-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|"
                      r"-----BEGIN [A-Z ]*PRIVATE KEY-----)")
-_INJECTION = re.compile(r"(ignore (all |any )?(previous|prior|above) instructions|disregard (the )?system prompt|"
-                        r"you are now (in )?developer mode|忽略(之前|以上|先前)的?(所有)?指令)", re.I)
+_INJECTION = re.compile(r"(ignore (all |any )?(previous|prior|above|earlier) (instructions|rules)|"
+                        r"disregard (the |your )?(system prompt|instructions|rules)|you are now (in )?developer mode|"
+                        r"do not (tell|inform|mention (this|it) to) the user|without (telling|asking) the user|"
+                        r"忽略(之前|以上|先前|前面)的?(所有)?(指令|規則)|不要(告訴|讓)使用者(知道)?)", re.I)
+_EXFIL = re.compile(r"(\b(curl|wget)\b[^\n]{0,160}(\$\((cat|base64)|`(cat|base64)|\.ssh/|\.aws/|\.env\b|secrets\.json|"
+                    r"\$\{?[A-Z_]*(API_KEY|TOKEN|SECRET|PASSWORD)\b)|"
+                    r"\b(send|upload|post|exfiltrate|forward)\s[^\n]{0,60}\b(api keys?|tokens|credentials|secrets|"
+                    r"passwords?|\.ssh|\.env|cookies)\b[^\n]{0,40}\b(to|into)\s+(https?://|[a-z0-9-]+\.[a-z]{2,}\b)|"
+                    r"把[^\n]{0,30}(金鑰|密碼|憑證|權杖|token|cookie)[^\n]{0,30}(上傳|傳送|寄|回傳|貼)到\s*(https?://|"
+                    r"[a-z0-9-]+\.[a-z]{2,}))", re.I)
+_HIDDEN = re.compile(r"<!--[^>]{0,400}(instruction|system prompt|ignore|assistant|指令|忽略)[^>]{0,400}-->", re.I)
 _INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\U000e0000-\U000e007f]")
 
 
@@ -46,6 +57,13 @@ def scan_content(text: str) -> list[str]:
         issues.append("contains invisible unicode characters")
     if re.search(r"authorized_keys|ssh-rsa AAAA", text):
         issues.append("references SSH key installation")
+    if _EXFIL.search(text):
+        issues.append("tells the agent to send keys, tokens or private files somewhere")
+    if _HIDDEN.search(text):
+        issues.append("hides instructions in an HTML comment")
+    if re.search(r"(~|\$HOME)/\.sinobee|secrets\.json|permissions\.(approval|allowed_paths|allow_sensitive_paths)",
+                 text):
+        issues.append("touches SinoBee's own settings or keys")
     return issues
 
 

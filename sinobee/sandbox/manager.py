@@ -18,6 +18,7 @@ so there is no Python dependency and the same code drives Docker Desktop and Lin
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -32,7 +33,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 INTERNAL, EXTERNAL, EGRESS = "sinobee-int", "sinobee-ext", "sinobee-egress"
-EGRESS_IMAGE = "python:3.12-alpine"
+EGRESS_IMAGE = "python:3.12-alpine@sha256:b658b05ce9c4eb97ec6fc19424818a1f31993659c2b505a532f470e83807815d"  # pinned
 ROLE = "org.sinobee.role"
 REMEMBERED = ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org"]
 _managers: dict[str, "SandboxManager"] = {}
@@ -137,6 +138,8 @@ class SandboxManager:
         self.boxes: dict[str, Box] = {}          # conversation -> running box
         self.grants: dict[str, set[str]] = {}    # conversation -> domains allowed for it (plan C2)
         self.open_all: set[str] = set()          # conversations allowed all network this task (plan C2)
+        self.until: dict[str, dict[str, float]] = {}     # conversation -> {domain: allowed until (time)}
+        self.task_secrets: dict[str, dict[str, dict]] = {}   # conversation -> {name: {value, domains}} this task
         self._locks: dict = {}                   # one asyncio.Lock per event loop
         self._avail: tuple[float, str | None] = (0.0, "not checked")
         self._egress: dict | None = None
@@ -292,8 +295,10 @@ class SandboxManager:
             saved = json.loads(self._egress_file().read_text())
         except (OSError, ValueError):
             pass
+        src = (Path(__file__).resolve().parent / "egress.py").read_text()
+        version = hashlib.sha256(src.encode()).hexdigest()[:16]     # a new SinoBee with a changed proxy restarts it
         rc, out, _ = await docker("inspect", "-f", "{{.State.Running}}", EGRESS, timeout=20)
-        if rc == 0 and out.strip() == "true" and saved.get("token"):
+        if rc == 0 and out.strip() == "true" and saved.get("token") and saved.get("version") == version:
             port = await self._published(EGRESS, 8080)
             info = {"token": saved["token"], "port": port}
             if port and await self._health(info):
@@ -302,7 +307,6 @@ class SandboxManager:
                 return info
         await docker("rm", "-f", EGRESS, timeout=30)
         token = secrets.token_urlsafe(24)
-        src = (Path(__file__).resolve().parent / "egress.py").read_text()
         image = str(self.config.get("sandbox.egress_image", EGRESS_IMAGE) or EGRESS_IMAGE)
         rc, _, err = await docker(
             "run", "-d", "--name", EGRESS, "--label", f"{ROLE}=egress", "--network", EXTERNAL,
@@ -324,7 +328,7 @@ class SandboxManager:
         else:
             raise DockerError("the egress proxy did not answer")
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        self._egress_file().write_text(json.dumps({"token": token}))
+        self._egress_file().write_text(json.dumps({"token": token, "version": version}))
         self._egress_file().chmod(0o600)
         self._egress = info
         await self._push_all()
@@ -362,7 +366,14 @@ class SandboxManager:
         domains += [d for d in mine if d not in domains]
         open_all = (self.config.get("sandbox.network.mode", "ask") == "open") or conversation in self.open_all \
             or mine_all
-        return {"conversation": conversation, "domains": domains, "all": open_all}
+        now = time.time()
+        until = {d: t for d, t in (self.until.get(conversation) or {}).items() if t > now}
+        held = self.task_secrets.get(conversation) or {}
+        for v in held.values():                           # a key given to the task reaches its own sites
+            domains += [d for d in v.get("domains") or [] if d not in domains]
+        return {"conversation": conversation, "domains": domains, "all": open_all, "until": until,
+                "secrets": [{"name": k, "value": v["value"], "domains": list(v.get("domains") or [])}
+                            for k, v in held.items()]}
 
     async def push_policy(self, conversation: str) -> None:
         box = self.boxes.get(conversation)
@@ -387,6 +398,9 @@ class SandboxManager:
             return []
         if new:
             self._log_seq = max(e["seq"] for e in new)
+            from ..task_secrets import redact
+            for e in new:                                  # stored keys never reach the log the GUI shows
+                e["host"] = redact(str(e.get("host") or ""), config=self.config)
             self.connections = (self.connections + new)[-2000:]
         return new
 
@@ -688,6 +702,7 @@ def manager_for(config) -> SandboxManager:
         m = _managers[key] = SandboxManager(config)
         if old is not None:                      # keep what a reload must not forget
             m.last_used, m.boxes, m.grants, m.open_all = old.last_used, old.boxes, old.grants, old.open_all
+            m.until, m.task_secrets = old.until, old.task_secrets
             m._egress, m._log_seq, m.connections = old._egress, old._log_seq, old.connections
             m.takeover, m._bridges = old.takeover, old._bridges
     return m

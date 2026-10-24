@@ -24,7 +24,6 @@ services:
     shm_size: "1gb"                 # Chromium needs more than the 64MB default
     ports:
       - "${SINOBEE_BIND:-127.0.0.1}:${SINOBEE_PORT:-10024}:10024"   # Web UI + API (SINOBEE_BIND=0.0.0.0 to open it to other devices)
-      - "127.0.0.1:6080:6080"       # noVNC live desktop (kept local)
     environment:                    # pass-through: taken from the shell running `docker compose`, skipped if unset
       - SINOBEE_MODEL
       - SINOBEE_FALLBACKS
@@ -63,7 +62,7 @@ services:
       - "host.docker.internal:host-gateway"         # reach Ollama / LM Studio on the host
 
   ollama:                           # optional local model runtime: docker compose --profile local-llm up -d
-    image: ollama/ollama:${OLLAMA_TAG:-latest}
+    image: ollama/ollama:${OLLAMA_TAG:-0.40.5}   # a fixed release, not :latest (security review 2026-10-24)
     container_name: sinobee-ollama
     profiles: ["local-llm"]
     restart: unless-stopped

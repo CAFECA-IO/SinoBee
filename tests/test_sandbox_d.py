@@ -24,6 +24,7 @@ class StubManager:
         self.config = config
         self.grants, self.open_all, self.takeover, self.pushed = {}, set(), {}, []
         self.connections = []
+        self.until, self.task_secrets = {}, {}
 
     def policy(self, conv):
         return SandboxManager.policy(self, conv)
@@ -245,9 +246,12 @@ def test_the_sandbox_browser_and_previews(box):
     app = FastAPI()
     sandbox_api.register(app, lambda: rt)
     with TestClient(app) as c:
-        r = c.get(f"/api/sandbox/{conv}/preview/8765/index.html")
+        link = c.post(f"/api/sandbox/{conv}/preview/8765").json()["url"]
+        r = c.get(link + "index.html")
         assert r.status_code == 200 and "preview ok" in r.text
-        assert c.get(f"/api/sandbox/{conv}/preview/9999/").status_code == 502
+        assert r.headers["content-security-policy"].startswith("sandbox ")      # its own opaque origin
+        assert c.get(c.post(f"/api/sandbox/{conv}/preview/9999").json()["url"]).status_code == 502
+        assert c.get("/preview/not-a-key/").status_code == 404
         st = c.get(f"/api/sandbox/{conv}").json()
         assert st["sandbox"] and not st["takeover"]
         with c.websocket_connect(f"/api/sandbox/{conv}/vnc") as ws:

@@ -5,14 +5,22 @@ A sandbox container sits on an internal Docker network with no route out. This p
 domain for that sandbox. The server keeps the decisions; it pushes each sandbox's policy here through a small
 control API that Docker publishes on 127.0.0.1 only, and reads the connection log back the same way:
 
-    PUT    /policy/<sandbox ip>   {"conversation": "...", "domains": ["pypi.org", ...], "all": false}
+    PUT    /policy/<sandbox ip>   {"conversation": "...", "domains": ["pypi.org", ...], "all": false,
+                                   "until": {"example.com": <time>}, "secrets": [{"name", "value", "domains"}]}
     DELETE /policy/<sandbox ip>
     GET    /log?since=<seq>       [{"seq", "t", "ip", "conversation", "host", "port", "method", "allowed", "reason"}]
     GET    /health
     (every call needs the header X-SinoBee-Token: <the token given at start>)
 
 A domain allows itself and its subdomains ("github.com" also allows "api.github.com"); an IP address only when it is
-listed itself. A refused connection gets HTTP 403 whose body says which domain to ask for.
+listed itself; one in "until" only until that time. A refused connection gets HTTP 403 whose body says which domain
+to ask for.
+
+What goes out is checked for keys (security plan stage 2): a key given to the task ("secrets") may only go to its
+own domains - in a plain-HTTP request (request line, headers, body), or in the host name of any connection (a key
+spelled into a subdomain). A plain-HTTP request carrying anything that looks like a key (sk-…, ghp_…, AKIA…, a private
+key) is refused unless it goes to a domain of a key given to the task. HTTPS content is encrypted end to end and is
+not opened: there the domain list is the limit.
 
 The file runs on its own with the standard library (the manager starts it with `python -c <this file>` in a
 python:3.12-alpine container), so it imports nothing from SinoBee.
@@ -20,12 +28,14 @@ python:3.12-alpine container), so it imports nothing from SinoBee.
 from __future__ import annotations
 
 import asyncio
+import base64
 import ipaddress
 import json
 import os
+import re
 import time
 from collections import deque
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 PROXY_PORT = 3128
 CONTROL_PORT = 8080
@@ -35,30 +45,82 @@ log: deque = deque(maxlen=5000)
 seq = 0
 
 
-def allowed(ip: str, host: str) -> tuple[bool, str]:
-    pol = policies.get(ip)
-    if pol is None:
-        return False, "not a known sandbox"
-    if pol.get("all"):
-        return True, "all network allowed"
+KEYLIKE = re.compile(r"(sk-[A-Za-z0-9_\-]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|"
+                     r"github_pat_[A-Za-z0-9_]{40,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_\-]{35}|"
+                     r"glpat-[A-Za-z0-9_\-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)")
+SCAN_MAX = 1 << 20
+
+
+def _in(host: str, domains) -> str | None:
     host = host.lower().rstrip(".")
     try:
         ipaddress.ip_address(host.strip("[]"))
         is_ip = True
     except ValueError:
         is_ip = False
-    for d in pol.get("domains") or []:
+    for d in domains or []:
         d = str(d).lower().strip().lstrip("*.").rstrip(".")
-        if not d:
-            continue
-        if host == d or (not is_ip and host.endswith("." + d)):
-            return True, f"allowed: {d}"
+        if d and (host == d or (not is_ip and host.endswith("." + d))):
+            return d
+    return None
+
+
+def allowed(ip: str, host: str) -> tuple[bool, str]:
+    pol = policies.get(ip)
+    if pol is None:
+        return False, "not a known sandbox"
+    if pol.get("all"):
+        return True, "all network allowed"
+    d = _in(host, pol.get("domains"))
+    if d:
+        return True, f"allowed: {d}"
+    now = time.time()
+    d = _in(host, [k for k, t in (pol.get("until") or {}).items() if t > now])
+    if d:
+        return True, f"allowed for now: {d}"
     return False, "domain not allowed"
+
+
+def _variants(value: str) -> list[bytes]:
+    v = value.encode()
+    out = {v, quote(value, safe="").encode(), base64.b64encode(v).rstrip(b"="),
+           base64.urlsafe_b64encode(v).rstrip(b"=")}
+    return [x for x in out if len(x) >= 8]
+
+
+def leak(ip: str, host: str, data: bytes) -> str | None:
+    """Why this outgoing request may not go out (it carries a key), or None."""
+    pol = policies.get(ip) or {}
+    keys = pol.get("secrets") or []
+    low_host = host.lower().encode()
+    for k in keys:
+        value = str(k.get("value") or "")
+        if len(value) < 8 or _in(host, k.get("domains")):
+            continue
+        for v in _variants(value):
+            if v in data or v.lower() in low_host:
+                return f"carries the key {k.get('name')}, which may only go to {', '.join(k.get('domains') or [])}"
+    m = KEYLIKE.search(data.decode("latin-1"))
+    if m and not any(_in(host, k.get("domains")) for k in keys):
+        return "carries something that looks like a key or token"
+    return None
+
+
+def masked(ip: str, host: str) -> str:
+    """A key spelled into a host name never reaches the log."""
+    for k in (policies.get(ip) or {}).get("secrets") or []:
+        value = str(k.get("value") or "")
+        for v in _variants(value) if len(value) >= 8 else []:
+            vs = v.decode()
+            for form in (vs, vs.lower()):
+                host = host.replace(form, f"[key {k.get('name')}]")
+    return host
 
 
 def record(ip: str, host: str, port: int, method: str, ok: bool, reason: str) -> None:
     global seq
     seq += 1
+    host = masked(ip, host)
     pol = policies.get(ip) or {}
     log.append({"seq": seq, "t": round(time.time(), 3), "ip": ip, "conversation": pol.get("conversation"),
                 "host": host, "port": port, "method": method, "allowed": ok, "reason": reason})
@@ -81,8 +143,10 @@ async def pipe(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
             pass
 
 
-def refuse(host: str) -> bytes:
-    body = (f"SinoBee: network access to {host} is not allowed in this sandbox. "
+def refuse(host: str, why: str | None = None) -> bytes:
+    body = (f"SinoBee: this request to {host} was blocked: it {why}. Do not send keys or tokens to other sites; "
+            f"tell the user what you were doing.\n" if why else
+            f"SinoBee: network access to {host} is not allowed in this sandbox. "
             f"Ask the user for access to {host} (request_network), or work without it.\n").encode()
     return (b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\nX-SinoBee-Blocked: " +
             host.encode() + b"\r\nContent-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body)
@@ -115,9 +179,30 @@ async def handle_proxy(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
         path = (u.path or "/") + (f"?{u.query}" if u.query else "")
     host = host.strip("[]")
     ok, reason = allowed(ip, host)
+    body = b""
+    if ok:
+        scan = head
+        if method.upper() != "CONNECT":
+            n = 0
+            for l in lines[1:]:
+                if l.lower().startswith("content-length:"):
+                    try:
+                        n = int(l.split(":", 1)[1])
+                    except ValueError:
+                        n = 0
+            if 0 < n <= SCAN_MAX:
+                try:
+                    body = await asyncio.wait_for(reader.readexactly(n), 30)
+                except (asyncio.IncompleteReadError, asyncio.TimeoutError, ConnectionError):
+                    writer.close()
+                    return
+            scan = head + body
+        why = leak(ip, host, scan)
+        if why:
+            ok, reason = False, "key: " + why
     record(ip, host, port, method.upper(), ok, reason)
     if not ok:
-        writer.write(refuse(host))
+        writer.write(refuse(host, reason[5:] if reason.startswith("key: ") else None))
         await writer.drain()
         writer.close()
         return
@@ -136,7 +221,7 @@ async def handle_proxy(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
     else:
         headers = [l for l in lines[1:] if l and not l.lower().startswith(("proxy-", "connection:", "keep-alive:"))]
         req = f"{method} {path} {version}\r\n" + "\r\n".join(headers + ["Connection: close"]) + "\r\n\r\n"
-        up_w.write(req.encode("latin-1"))
+        up_w.write(req.encode("latin-1") + body)
         await up_w.drain()
     await asyncio.gather(pipe(reader, up_w), pipe(up_r, writer))
 
@@ -170,13 +255,14 @@ async def handle_control(reader: asyncio.StreamReader, writer: asyncio.StreamWri
         if method == "PUT":
             data = json.loads(body or b"{}")
             policies[ip] = {"conversation": data.get("conversation"), "domains": list(data.get("domains") or []),
-                            "all": bool(data.get("all"))}
-            return await answer(200, policies[ip])
+                            "all": bool(data.get("all")), "until": dict(data.get("until") or {}),
+                            "secrets": list(data.get("secrets") or [])}
+            return await answer(200, {k: v for k, v in policies[ip].items() if k != "secrets"})
         if method == "DELETE":
             policies.pop(ip, None)
             return await answer(200, {"ok": True})
         if method == "GET":
-            return await answer(200, policies.get(ip) or {})
+            return await answer(200, {k: v for k, v in (policies.get(ip) or {}).items() if k != "secrets"})
     if route == "/log":
         since = 0
         for part in query.split("&"):

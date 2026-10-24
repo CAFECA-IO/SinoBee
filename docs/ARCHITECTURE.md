@@ -2240,3 +2240,38 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   重新啟動後 health 立即恢復 ok，兩個對話的任務照常執行，egress 自動重建。
 - 修正：任務執行到一半 Docker 停了，`docker exec` 的「連不上 Docker」錯誤改為附上「請使用者開啟 Docker Desktop」的說明，並清除
   快取（下一個指令重新檢查 Docker，而不是沿用 20 秒內的沙盒）。
+
+## 61. 階段 2 安全＋安全性檢視（2026-10-24）的修正
+
+依專案文件「SinoBee 安全性檢視（2026-10-24）」與沙盒計畫階段 2 一起完成。
+
+- **本機 Web UI 不再對其他網頁開放**（`server/security.py`，檢視 #1 嚴重）：權杖一律存在（含 127.0.0.1 與 Docker）；頁面以
+  HttpOnly、SameSite=Strict 的 `sb_session` Cookie 持有（這台電腦開 `/` 自動取得；其他裝置以 `?token=` 開一次，伺服器設 Cookie 並
+  303 轉回 `/`，或在登入卡貼上權杖 → `POST /auth/login`）；頁面本身不再保存權杖（舊的 localStorage 權杖自動換成 Cookie 後刪除）。
+  Host 只接受 localhost／IP／本機名稱／`server.allowed_hosts`（擋 DNS rebinding，回 421）；會改變狀態的請求與所有 WebSocket 必須來自
+  同一個 Origin（`null` 一律拒絕）。測試以環境變數 `SINOBEE_INSECURE_NO_AUTH=1` 關閉（只有 conftest 設定）。
+- **沙盒網頁預覽**改為能力網址 `/preview/{key}/…`（`POST /api/sandbox/{sid}/preview/{port}` 產生，12 小時），回應加 CSP
+  `sandbox`（不含 allow-same-origin）、去掉上游 Set-Cookie：沙盒產生的網頁無法讀 SinoBee 的 Cookie、儲存或呼叫 API。
+- **noVNC**（#2）：Docker 版不再執行 websockify、不再發佈 6080；桌面經 `WS /api/desktop/vnc`（權杖＋Origin）轉到容器內
+  127.0.0.1:5900，頁面內 noVNC 顯示（有 VNC_PASSWORD 時詢問）。
+- **提示注入 → 外洩**（#3，`tools/guard.py`）：檔案工具永遠不碰 SinoBee 資料夾（只開放工作區、技能、審核副本）與 ~/.ssh、~/.aws、
+  ~/.gnupg、~/.kube、鑰匙圈、瀏覽器設定檔、~/.netrc 等（`permissions.allow_sensitive_paths` 可刻意開放）；符號連結與 ../ 以解析後路徑判斷。
+  讀到 .env／*.pem／id_* 等，或任何工具輸出含金鑰樣式、或任務取得金鑰後，這個對話之後的 web、瀏覽器（非唯讀動作）、本機 shell
+  都要先問；`browser upload` 一律要核准；web／瀏覽器輸出包在 `<untrusted_content>`（無法以假結束標籤跳出），系統提示說明不可照做；
+  web_fetch／本機瀏覽器不開 SinoBee 自己的伺服器；shell 危險偵測加入 ~/.sinobee、secrets.json、鑰匙圈指令。
+- **任務金鑰**（F3，`task_secrets.py`、`tools/secret_tools.py`、設定 → 權限與安全 → 任務金鑰）：名稱、環境變數、網域、值（secrets.json）；
+  `request_secret` 經你同意後只給這次任務，以 0600 的 env-file 注入指令環境（不出現在命令列），模型看不到值，所有工具輸出、稽核與
+  連線紀錄中的金鑰都換成 `[key 名稱]`；任務結束（含停止或失敗）收回。
+- **egress 外送檢查**（`sandbox/egress.py`）：任務持有的金鑰只能送到它的網域——明文 HTTP 的請求列、標頭、本文（含 URL／base64 編碼）
+  與任何連線的主機名稱（金鑰拼進子網域）都檢查；明文 HTTP 中像金鑰的內容（sk-、ghp_、AKIA…、私鑰）送到非金鑰網域也擋下。HTTPS
+  內容是端對端加密、不解開，以網域清單限制。被擋時工具輸出說明「請求帶有金鑰」而不建議 request_network。egress.py 改版時代理自動重啟。
+- **網域授權期限**：request_network 增加「這個對話 1 小時內允許」（`manager.until`，代理依時間判斷）。
+- **操作紀錄**（`audit.py`）：每個對話 `sandbox/<對話>/audit.jsonl`——指令、寫入、開過的網站、網路與金鑰決定、詢問結果（完成／失敗／
+  未允許）；工具讀寫不到；對話設定 →「操作紀錄」顯示，並列出沙盒被擋的連線。`GET /api/audit/{sid}`。
+- **供應鏈**（#4、#5）：`requirements.lock`（全部雜湊、7 天冷卻，`scripts/lock.sh`），Docker 映像以 `--require-hashes` 安裝；基礎映像與
+  egress 映像以 digest 鎖定（`scripts/pin-images.sh`）；Ollama 改固定版本；`starlette>=1.3.0`（CVE-2026-54282）。社群技能安裝後先停用，
+  本文與檔案以 `<untrusted_content>` 交給模型；掃描加入外傳指示、HTML 註解藏指令、「不要告訴使用者」、改 SinoBee 設定。
+- **G5**（`tests/test_g5_attacks.py`）：金鑰與憑證檔（直接、符號連結、../）、網頁誘導外傳、植入全域記憶、讀其他對話、SinoBee 自己的 API、
+  上傳檔案；Docker：容器 uid 1000、CapEff 0、唯讀根目錄、無 docker.sock、沒有 SinoBee 的金鑰、連不到主機的 SinoBee；任務金鑰在 URL、
+  本文、子網域都被擋、同網站不帶金鑰可通、紀錄不含金鑰、任務結束收回。全部通過：0 外洩、0 未經同意的跨對話讀取。
+- 其他測試：tests/test_server_security.py、test_tool_guard.py、test_task_secrets.py、test_supply_chain.py。

@@ -24,6 +24,13 @@ def resolve(ctx: ToolContext, path: str, write: bool = False) -> Path:
     ex = _ex(ctx)
     p = ex.paths.to_host(path, ex.paths.workspace or ctx.config.workspace).resolve()   # relative: from /workspace
     ex.check(p, write)
+    from . import guard
+    why = guard.blocked(ctx.config, p)
+    if why:
+        raise PermissionError(f"{p} is {why}: SinoBee's tools never open it (the user can allow a path in "
+                              "permissions.allow_sensitive_paths)")
+    if not write and guard.secretish(p):
+        guard.note_secret(ctx, f"read {p.name}")
     allowed = [Path(a).expanduser().resolve() for a in (ctx.config.get("permissions.allowed_paths") or [])]
     if allowed and not any(p == a or a in p.parents for a in allowed + [ctx.config.workspace.resolve()]):
         raise PermissionError(f"{p} is outside permissions.allowed_paths")

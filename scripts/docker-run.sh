@@ -46,7 +46,7 @@ done
 [[ -n $MODEL ]] && { export SINOBEE_MODEL=$MODEL; ENVS+=(-e SINOBEE_MODEL); }
 [[ -n $APPROVAL ]] && { export SINOBEE_APPROVAL=$APPROVAL; ENVS+=(-e SINOBEE_APPROVAL); }
 [[ -n $BUDGET ]] && { export SINOBEE_MONTHLY_BUDGET=$BUDGET; ENVS+=(-e SINOBEE_MONTHLY_BUDGET); }
-if [[ $PUBLIC == 1 && -z $TOKEN ]]; then   # never expose SinoBee without an access token
+if [[ -z $TOKEN ]]; then   # always an access token (security review 2026-10-24): any web page can reach localhost
   TOKEN=$(openssl rand -hex 24 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(24))')
 fi
 BIND=127.0.0.1; [[ $PUBLIC == 1 ]] && BIND=0.0.0.0
@@ -60,9 +60,9 @@ if (( LOCAL_LLM )); then
     echo "Using the Ollama already running on this machine (reached from the container via host.docker.internal)."
   else
     [[ $(uname -s) == Darwin ]] && echo "Tip: on a Mac, native Ollama (https://ollama.com/download) is much faster than a container (Metal GPU)."
-    GPU=(); TAG=latest
+    GPU=(); TAG=${OLLAMA_TAG:-0.40.5}   # a fixed release, not :latest
     if command -v nvidia-smi >/dev/null 2>&1 && docker info 2>/dev/null | grep -qi nvidia; then GPU=(--gpus all)
-    elif [[ -e /dev/kfd ]]; then GPU=(--device /dev/kfd --device /dev/dri); TAG=rocm; fi
+    elif [[ -e /dev/kfd ]]; then GPU=(--device /dev/kfd --device /dev/dri); TAG="${TAG}-rocm"; fi
     docker network create sinobee-net >/dev/null 2>&1 || true
     docker rm -f "${NAME}-ollama" >/dev/null 2>&1 || true
     docker run -d --name "${NAME}-ollama" --restart unless-stopped --network sinobee-net --network-alias ollama \
@@ -76,10 +76,10 @@ fi
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker build -t "$IMAGE" "$(dirname "$0")/.."
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 docker run -d --name "$NAME" --restart unless-stopped --shm-size 1g ${NET[@]+"${NET[@]}"} \
-  -p "${BIND}:${PORT}:10024" -p 127.0.0.1:6080:6080 \
+  -p "${BIND}:${PORT}:10024" \
   --add-host host.docker.internal:host-gateway \
   -v sinobee-home:/home/bee/.sinobee -v sinobee-workspace:/home/bee/workspace ${ENVS[@]+"${ENVS[@]}"} "$IMAGE" >/dev/null
-echo "SinoBee is starting → http://localhost:${PORT}${TOKEN:+/?token=$TOKEN}"
+echo "SinoBee is starting → http://localhost:${PORT}/?token=${TOKEN}   (open it once; this browser then remembers)"
 if [[ $PUBLIC == 1 ]]; then
   ip=$( (ipconfig getifaddr en0 || ipconfig getifaddr en1 || hostname -I | awk '{print $1}') 2>/dev/null | head -1)
   echo "Other devices        → http://${ip:-<this-computer-ip>}:${PORT}/?token=${TOKEN}"

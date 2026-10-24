@@ -624,7 +624,11 @@ class SkillManager:
             target = (s.path / path).resolve()
             if not str(target).startswith(str(s.path.resolve()) + "/") or not target.is_file():
                 raise SkillError(f"file '{path}' not found in skill '{name}'")
-            return target.read_text(encoding="utf-8", errors="replace")
+            text = target.read_text(encoding="utf-8", errors="replace")
+            if s.policy.caution:
+                from ..tools.guard import wrap_untrusted
+                return wrap_untrusted(text, f"skill {s.name} ({s.trust}) {path}")
+            return text
         if record:
             self.record_use(name)
         st = self.stats(name)
@@ -637,7 +641,11 @@ class SkillManager:
             parts.append(f"Compatibility: {s.frontmatter['compatibility']}")
         if s.quickstart:
             parts.append(f"<quick_start>\n{s.quickstart}\n</quick_start>")
-        parts.append(s.body)
+        if s.policy.caution:                    # unreviewed text reaches the model as data (tools/guard.py)
+            from ..tools.guard import wrap_untrusted
+            parts.append(wrap_untrusted(s.body, f"skill {s.name} ({s.trust})"))
+        else:
+            parts.append(s.body)
         from .largefiles import NOTE, needs_note
         if needs_note(s.body):                 # U7: SinoBee's own note; the skill's text stays as its author wrote it
             parts.append(NOTE)

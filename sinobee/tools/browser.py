@@ -224,6 +224,8 @@ def _loc(page, ref=None, selector=None, text=None):
 def _danger(args: dict) -> str | None:
     if args.get("action") == "evaluate":
         return "runs arbitrary JavaScript in the page"
+    if args.get("action") == "upload":
+        return f"sends a file ({args.get('path')}) to the web page"
     return None
 
 
@@ -262,6 +264,9 @@ async def browser(ctx: ToolContext, action: str, url: str | None = None, ref: st
     ex = executor_of(ctx)
     if ex.kind == "sandbox" and ex.conversation in ex.manager.takeover:
         return f"ERROR: {ex.TAKEN}"
+    from .guard import own_server
+    if action in ("navigate", "new_tab") and url and ex.kind != "sandbox" and own_server(ctx.config, url):
+        return "ERROR: that is SinoBee's own page; the browser tool does not open it"
     _state = _st(ctx)
     if action == "new_tab":
         page = await _page(ctx, new=True)
@@ -387,8 +392,8 @@ async def browser(ctx: ToolContext, action: str, url: str | None = None, ref: st
     if action == "upload":
         if not path:
             return "ERROR: path required"
-        host = ex.paths.to_host(path, ex.paths.workspace or ctx.config.workspace).resolve()
-        ex.check(host)
+        from .files import resolve
+        host = resolve(ctx, path)              # never SinoBee's own data or a credential store
         import mimetypes                   # sent as content: the browser may be in the sandbox
         await _loc(page, ref, selector).set_input_files(
             {"name": host.name, "mimeType": mimetypes.guess_type(host.name)[0] or "application/octet-stream",
