@@ -64,7 +64,7 @@ def _sha(p: Path) -> str:
 
 
 def _via(folder: dict) -> str:
-    return "git" if folder.get("via") == "git" else "copy"
+    return folder.get("via") if folder.get("via") in ("git", "overlay") else "copy"
 
 
 def clone_tree(src: Path, dst: Path) -> str:
@@ -77,6 +77,19 @@ def ensure_copy(config, conversation: str, folder: dict) -> Path:
     """The review copy of folder ({"path", "name", "via"}), made (with its baseline) the first time."""
     dst = copy_dir(config, conversation, folder["name"])
     base = _base_file(config, conversation, folder["name"])
+    if _via(folder) == "overlay":                  # no copy: the view is made of your folder (overlay.py)
+        from . import overlay
+        if dst.is_dir() and base.is_file():
+            data = _baseline(config, conversation, folder["name"])
+            if data.get("via") == "overlay":
+                overlay.make(config, conversation, folder)          # its volumes, again if they went
+                return dst
+        dst.mkdir(parents=True, exist_ok=True)
+        base.parent.mkdir(parents=True, exist_ok=True)
+        meta = overlay.make(config, conversation, folder)
+        base.write_text(json.dumps({"path": str(Path(folder["path"])), "made": time.time(), **meta}),
+                        encoding="utf-8")
+        return dst
     if dst.is_dir() and base.is_file():
         return dst
     src = Path(folder["path"])
@@ -165,6 +178,9 @@ def changes(config, conversation: str, folder: dict, with_diff: bool = True) -> 
         from . import gitreview
         return gitreview.changes(copy, orig_root, base, _base_file(config, conversation, name).with_suffix(""),
                                  name, with_diff, DIFF_LINES)
+    if base.get("via") == "overlay":
+        from . import overlay
+        return overlay.changes(config, conversation, folder, base, copy, with_diff)
     files = base.get("files") or {}
     now = clone.walk(copy, SKIP)
     out = []
@@ -203,6 +219,8 @@ def sync(config, conversation: str, folder: dict) -> int:
     name = folder["name"]
     copy = copy_dir(config, conversation, name)
     base = _baseline(config, conversation, name)
+    if base.get("via") == "overlay":
+        return 0                                   # your folder is the layer below: the view sees your edits
     if base.get("via") == "git":
         orig_root = Path(base.get("path") or folder["path"])
         if not copy.is_dir() or not orig_root.is_dir() or not base.get("base"):
@@ -267,6 +285,9 @@ def _follow(config, conversation: str, name: str, base: dict, copy: Path, now: d
     if base.get("via") == "git":
         from . import gitreview
         gitreview.rebase(copy, base, _base_file(config, conversation, name).with_suffix(""), now)
+    elif base.get("via") == "overlay":
+        from . import overlay
+        overlay.follow(base, Path(base.get("path") or ""), now)
     else:
         files = base.setdefault("files", {})
         for rel, f in now.items():
@@ -313,6 +334,10 @@ def discard(config, conversation: str, folder: dict, paths: list[str] | None = N
     """Put the original back into the copy for these changes (all by default)."""
     name = folder["name"]
     base = _baseline(config, conversation, name)
+    if base.get("via") == "overlay":
+        from . import overlay
+        picked = [c for c in changes(config, conversation, folder, with_diff=False) if paths is None or c["path"] in paths]
+        return overlay.put_back(config, conversation, folder, base, picked)
     orig_root = Path(base.get("path") or folder["path"])
     copy = copy_dir(config, conversation, name)
     done, now = [], {}

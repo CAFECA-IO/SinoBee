@@ -1,6 +1,6 @@
 ---
 name: host-folder-strategies
-description: Chooses and uses the right way to work in a folder of the user's computer from the sandbox - review by git (git repositories of any size), review by a light copy (other folders up to 200,000 files), or direct writing with checkpoints (fixing a real environment, or a non-git project too big to copy) - and how to work safely in each. Use before asking for a folder, and when the folder is a large project, a monorepo, a git repository or a live environment to repair (大型專案、巨型專案、monorepo、修復環境、本機資料夾、git 專案).
+description: Chooses and uses the right way to work in a folder of the user's computer from the sandbox - review by git (git repositories of any size), review by a light copy (other folders), review by overlay (non-git folders with too many files to copy), or direct writing with checkpoints (fixing a real environment, or a non-git project too big to copy) - and how to work safely in each. Use before asking for a folder, and when the folder is a large project, a monorepo, a git repository or a live environment to repair (大型專案、巨型專案、monorepo、修復環境、本機資料夾、git 專案).
 license: MIT
 metadata:
   version: 1.0.0
@@ -15,11 +15,12 @@ The user wants you to work on files that live on their computer, not in /workspa
 repair a configuration, clean up a folder. The sandbox sees a folder only after `request_host_access`, and HOW it is
 given decides what is safe and what scales. Choose deliberately; do not ask for more than the task needs.
 
-# The three ways
+# The ways
 | Way | strategy | Use when | Cost / limits |
 |---|---|---|---|
 | Review by git | `review` on a git repository (automatic) | Developing or fixing a git project - any size | Ignored files (.env, build output) are never written back |
-| Review by copy | `review` on a non-git folder (automatic) | Documents, small and medium non-git projects | Up to 200,000 reviewed files (node_modules, .git, caches not counted) |
+| Review by copy | `review` on a non-git folder (automatic) | Documents, small and medium non-git projects | Up to 20,000 reviewed files by default (node_modules, .git, caches not counted) |
+| Review by overlay | `review` on a bigger non-git folder (automatic, when Docker supports it) | Huge non-git folders: data sets, asset libraries, old projects | No copy: the sandbox sees their folder with its own changes kept apart; do not ask them to edit the folder while you work |
 | Direct, with checkpoints | `direct` | A real environment that must change in place (config folders, a running service's data, a dev setup to repair); a non-git project too big to copy | Changes land at once; a checkpoint is taken before every task and on demand |
 | Read only | `ro` | Reading, analysing, comparing | Nothing can change |
 
@@ -32,8 +33,8 @@ given decides what is safe and what scales. Choose deliberately; do not ask for 
 2. **Choose:**
    - Only reading → `ro`.
    - git repository → `review` (by git; size does not matter). Prefer this for any code project that has .git.
-   - Not git, under the limit → `review` (by copy).
-   - Not git and over the limit → suggest the user run `git init` there (then review by git), work on a smaller
+   - Not git → `review` (by copy, or by overlay when it has many files - the tool picks).
+   - Not git, too big and the tool refuses review (this Docker cannot overlay) → suggest the user run `git init` there (then review by git), work on a smaller
      subfolder, or `direct` - say plainly that direct means their files change at once and that checkpoints let
      them go back.
    - Fixing a real environment whose files must change where they are (e.g. a tool's config folder, a project's
@@ -51,7 +52,10 @@ given decides what is safe and what scales. Choose deliberately; do not ask for 
 - **Review by copy**: node_modules, virtualenvs and build caches are not copied - install dependencies in the
   sandbox (`npm ci`, `pip install -r ...`). Edits the user makes in their folder meanwhile reach the copy before
   each task unless you changed the same file (then the review shows a conflict).
-- **Both review ways**: nothing reaches their folder until they apply it. End by telling them to open
+- **Review by overlay**: /host/<name> is their folder as it is, with your changes on top (kept in Docker, not in
+  their folder). Work as in a copy; dependencies you install there count as changes, so install them elsewhere
+  (e.g. /workspace) when you can. Ask the user not to change that folder while the task runs.
+- **All review ways**: nothing reaches their folder until they apply it. End by telling them to open
   本機檔案變更 / 審核變更, summarise what changed and why, and point out conflicts.
 - **Direct**: a checkpoint exists from the start of the task. Before anything risky (migrations, mass renames,
   deleting, rewriting configs) call `folder_checkpoint(folder, action="make", label="…")`. If something breaks,

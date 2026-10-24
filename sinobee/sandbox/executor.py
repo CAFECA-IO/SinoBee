@@ -236,6 +236,105 @@ class SandboxExecutor(Executor):
         if write and m.mode == "ro":
             raise PermissionError(f"{self.paths.to_exec(p)} is read-only in the sandbox")
 
+    # ----------------------------------------------------------------- files of a folder reviewed by overlay
+    # They have no copy on this computer: the file tools reach them in the sandbox (docker exec), where the view of
+    # your folder with the sandbox's changes is mounted (overlay.py).
+    def _ovl(self, p: Path) -> str | None:
+        m = self.paths.mount_of(p)
+        return self.paths.to_exec(p) if m is not None and m.via == "overlay" else None
+
+    def _box(self) -> str:
+        import subprocess
+        name = self.manager.name_of(self.conversation)
+        r = subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", name], capture_output=True, text=True,
+                           timeout=30)
+        if r.stdout.strip() != "true":
+            asyncio.run(self.manager.ensure(self.conversation))      # file tools run in a worker thread
+        return name
+
+    def _sh(self, script: str, *args: str, data: bytes | None = None):
+        import subprocess
+        return subprocess.run(["docker", "exec", "-i", self._box(), "sh", "-c", script, "sh", *args], input=data,
+                              capture_output=True, timeout=300)
+
+    def read_bytes(self, p: Path) -> bytes:
+        inner = self._ovl(p)
+        if inner is None:
+            return super().read_bytes(p)
+        r = self._sh('cat -- "$1"', inner)
+        if r.returncode != 0:
+            raise FileNotFoundError(f"{inner}: {r.stderr.decode(errors='replace').strip()[:200]}")
+        return r.stdout
+
+    def read_text(self, p: Path, errors: str | None = None) -> str:
+        if self._ovl(p) is None:
+            return super().read_text(p, errors)
+        return self.read_bytes(p).decode("utf-8", errors=errors or "strict")
+
+    def write_text(self, p: Path, text: str, append: bool = False) -> None:
+        inner = self._ovl(p)
+        if inner is None:
+            return super().write_text(p, text, append)
+        r = self._sh('mkdir -p -- "$(dirname -- "$1")" && cat ' + (">>" if append else ">") + ' "$1"', inner,
+                     data=text.encode("utf-8"))
+        if r.returncode != 0:
+            raise PermissionError(f"{inner}: {r.stderr.decode(errors='replace').strip()[:200]}")
+
+    def mkdir(self, p: Path) -> None:
+        inner = self._ovl(p)
+        if inner is None:
+            return super().mkdir(p)
+        self._sh('mkdir -p -- "$1"', inner)
+
+    def _test(self, flag: str, p: Path, local) -> bool:
+        inner = self._ovl(p)
+        if inner is None:
+            return local(p)
+        return self._sh(f'test {flag} "$1"', inner).returncode == 0
+
+    def exists(self, p: Path) -> bool:
+        return self._test("-e", p, super().exists)
+
+    def is_file(self, p: Path) -> bool:
+        return self._test("-f", p, super().is_file)
+
+    def is_dir(self, p: Path) -> bool:
+        return self._test("-d", p, super().is_dir)
+
+    def stat(self, p: Path) -> os.stat_result:
+        inner = self._ovl(p)
+        if inner is None:
+            return super().stat(p)
+        r = self._sh('stat -c "%f %i %d %h %u %g %s %X %Y %Z" -- "$1"', inner)
+        if r.returncode != 0:
+            raise FileNotFoundError(inner)
+        f = r.stdout.decode().split()
+        return os.stat_result((int(f[0], 16), *(int(x) for x in f[1:])))
+
+    def walk(self, root: Path):
+        inner = self._ovl(root)
+        if inner is None:
+            yield from super().walk(root)
+            return
+        r = self._sh('find "$1" -mindepth 1 \\( -type d -printf "d %P\\0" \\) -o -printf "f %P\\0"', inner)
+        tree: dict[str, tuple[list, list]] = {"": ([], [])}
+        for item in r.stdout.decode("utf-8", errors="replace").split("\0"):
+            if len(item) < 3:
+                continue
+            kind, rel = item[0], item[2:]
+            parent, _, leaf = rel.rpartition("/")
+            tree.setdefault(parent, ([], []))[0 if kind == "d" else 1].append(leaf)
+            if kind == "d":
+                tree.setdefault(rel, ([], []))
+        stack = [""]
+        while stack:
+            rel = stack.pop(0)
+            dirs, files = tree.get(rel, ([], []))
+            dirs.sort()
+            files.sort()
+            yield (str(Path(root) / rel) if rel else str(root)), dirs, files
+            stack[0:0] = [f"{rel}/{d}" if rel else d for d in dirs]
+
     async def run(self, command: str, cwd: Path, timeout: int, env: dict | None = None) -> RunResult:
         from .manager import DockerError
         try:

@@ -50,7 +50,14 @@ def read_file(ctx: ToolContext, path: str, offset: int = 1, limit: int = 400):
         return [TextPart(f"Image file {shown}"), ImagePart.from_bytes(ex.read_bytes(p), IMAGE_EXT[p.suffix.lower()])]
     from ..docread import EXT as DOC_BINARY, extract
     if p.suffix.lower() in DOC_BINARY:      # Office / PDF: their text, not the bytes of the zip or PDF
-        lines = extract(p).splitlines()
+        if getattr(ex, "_ovl", lambda _p: None)(p):          # a folder reviewed by overlay: the file is in the sandbox
+            import tempfile
+            with tempfile.TemporaryDirectory() as td:
+                local = Path(td) / p.name
+                local.write_bytes(ex.read_bytes(p))
+                lines = extract(local).splitlines()
+        else:
+            lines = extract(p).splitlines()
     else:
         lines = ex.read_text(p, errors="replace").splitlines()
     start = max(1, int(offset or 1))

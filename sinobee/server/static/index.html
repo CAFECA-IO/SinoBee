@@ -4335,7 +4335,7 @@ async function openHostReview(sid){
   const home = (r.folders[0]?.origin || '').match(/^\/(Users|home)\/[^/]+/)?.[0];
   const short = p => home && p.startsWith(home) ? '~' + p.slice(home.length) : p;
   const cutFolders = new Set((r.interrupted || []).map(x => x.folder));
-  let html = r.folders.filter(f => f.changes.length && !cutFolders.has(f.name)).map(f => `<div class="hc-f" data-f="${esc(f.name)}"><div class="hc-fh"><b>${esc(f.name)}</b>${f.via === 'git' ? '<span class="fp-m">git</span>' : ''}<span class="sd mono">${esc(short(f.origin))}</span><span class="sd">${f.changes.length} 個變更</span>`
+  let html = r.folders.filter(f => f.changes.length && !cutFolders.has(f.name)).map(f => `<div class="hc-f" data-f="${esc(f.name)}"><div class="hc-fh"><b>${esc(f.name)}</b>${f.via === 'git' ? '<span class="fp-m">git</span>' : f.via === 'overlay' ? '<span class="fp-m" title="檔案太多不複製：沙盒的改動另外存放">疊加</span>' : ''}<span class="sd mono">${esc(short(f.origin))}</span><span class="sd">${f.changes.length} 個變更</span>`
     + `<span class="acts"><button class="btn sm" type="button" data-all="1">全選</button><button class="btn sm" type="button" data-export title="把勾選的變更存成${f.via === 'git' ? ' .patch（git apply）' : ' .zip（含差異與檔案）'}，不寫回">匯出差異</button>${f.via === 'git' ? '<button class="btn sm" type="button" data-branch title="把勾選的變更提交到你專案的一個分支，不改動你的工作目錄與目前分支">交付到分支</button>' : ''}</span></div>`
     + f.changes.map(c => `<div class="hc-row${c.conflict ? ' conflict' : ''}" data-p="${esc(c.path)}"><div class="hc-rh"><input type="checkbox" class="hc-pick"${c.conflict ? '' : ' checked'} aria-label="選取 ${esc(c.path)}">`
       + `<span class="hc-k ${c.kind}">${HC_KIND[c.kind]}</span><span class="p">${esc(c.path)}</span>${c.size != null ? `<span class="sd">${fmtSize(c.size)}</span>` : ''}</div>`
@@ -4461,8 +4461,9 @@ let FOLD = null, DRAFT_SID = null, FOLD_SEQ = 0;
 const folderSid = () => sessionId || DRAFT_SID || (DRAFT_SID = [...crypto.getRandomValues(new Uint8Array(6))].map(b => b.toString(16).padStart(2, '0')).join(''));
 const FOLD_MODE = {review: ['審核後寫回', 'w'], ro: ['唯讀', ''], rw: ['直接寫入', 'r']};
 const FOLD_HELP = {review: '沙盒改的是副本，你審核後才寫回', git: 'git 專案：沙盒在副本上工作，以 git diff 審核後寫回，專案大小不限',
+  overlay: '檔案太多不複製：沙盒直接看到你的資料夾，它的改動另外存放在 Docker 裡，你審核後才寫回。任務執行中請盡量不要同時修改這個資料夾',
   rw: '直接改你的資料夾；每個任務開始前自動建立檢查點，可還原', ro: '沙盒只能讀'};
-const FOLD_ADD_HELP = {review: '沙盒在副本上工作，你看過變更才寫回。git 專案以 git 比對，大小不限；其他資料夾最多 20 萬個檔案（不含 node_modules、.git 與快取）。',
+const FOLD_ADD_HELP = {review: '沙盒在副本上工作，你看過變更才寫回。git 專案以 git 比對，大小不限；其他資料夾超過 2 萬個檔案時（Docker 支援時）不複製，改用疊加（你的資料夾在下、沙盒的改動另外存放），一樣審核後才寫回。',
   direct: '沙盒直接修改你的資料夾，適合修復實際環境或超大的非 git 專案。每個任務開始前自動建立檢查點，可在這裡還原。',
   ro: '沙盒只能讀取。'};
 /** checkpoints of a folder written directly: newest first, each can be compared and gone back to */
@@ -4551,7 +4552,7 @@ function folderChips(){
   box.hidden = !list.length;
   if (!list.length) { box.innerHTML = ''; return; }
   box.innerHTML = `<span>送出後，這個新對話可以使用：</span>` + list.map(x => `<span class="fchip" title="${esc(x.shown)}">${ic('folder')}${esc(x.inner)}`
-    + `<small>${x.mode === 'review' ? (x.via === 'git' ? '審核（git）' : '審核後寫回') : x.mode === 'rw' ? '直接寫入' : '唯讀'}</small>`
+    + `<small>${x.mode === 'review' ? (x.via === 'git' ? '審核（git）' : x.via === 'overlay' ? '審核（疊加）' : '審核後寫回') : x.mode === 'rw' ? '直接寫入' : '唯讀'}</small>`
     + `<button type="button" data-unfold="${esc(x.path)}" aria-label="不要讓這個對話使用 ${esc(x.inner)}">✕</button></span>`).join('');
   box.querySelectorAll('[data-unfold]').forEach(b => b.onclick = () => folderRemove(b.dataset.unfold));
 }
@@ -4573,7 +4574,7 @@ function renderFolderPop(msg = ''){
     // folders
     + `<div class="fp-sec">資料夾</div>`
     + (f.folders.length ? f.folders.map(x => `<div class="fp-r"><div class="fp-n"><b>${esc(x.inner)}</b><span class="mono">${esc(x.shown)}${x.exists ? '' : '（找不到）'}</span></div>`
-      + `<span class="fp-m ${FOLD_MODE[x.mode]?.[1] || ''}" title="${esc(FOLD_HELP[x.mode === 'review' && x.via === 'git' ? 'git' : x.mode] || '')}">${x.mode === 'review' && x.via === 'git' ? '審核（git）' : FOLD_MODE[x.mode]?.[0] || x.mode}</span>`
+      + `<span class="fp-m ${FOLD_MODE[x.mode]?.[1] || ''}" title="${esc(FOLD_HELP[x.mode === 'review' && x.via ? (x.via === 'copy' ? 'review' : x.via) : x.mode] || '')}">${x.mode === 'review' && x.via === 'git' ? '審核（git）' : x.mode === 'review' && x.via === 'overlay' ? '審核（疊加）' : FOLD_MODE[x.mode]?.[0] || x.mode}</span>`
       + (x.pending ? `<button class="btn sm" type="button" data-rev>${x.pending} 待審</button>` : '')
       + (x.mode === 'rw' ? `<button class="btn sm${x.restore_cut ? ' warn' : ''}" type="button" data-cp="${esc(x.name)}">${x.restore_cut ? '⚠︎ 還原中斷' : '檢查點' + (x.checkpoints ? ' ' + x.checkpoints : '')}</button>` : '')
       + `<button class="btn sm" type="button" data-rm="${esc(x.path)}">移除</button></div>`).join('')

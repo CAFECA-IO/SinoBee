@@ -32,6 +32,7 @@ class Mount:
     mode: str = "rw"
     label: str = ""
     origin: Path | None = None   # review mode: the user's folder; `host` is then the copy the tools work on
+    via: str = ""                # "overlay": no copy on this computer - the files are reached in the sandbox
 
     def contains_host(self, p: Path) -> bool:
         return p == self.host or self.host in p.parents
@@ -124,6 +125,9 @@ class PathMap:
             host = "~" + host[len(home):] if host.startswith(home + "/") or host == home else host
             how = {"rw": "read/write", "ro": "read-only",
                    "review": "a copy: your changes reach the user's folder after they review them"}[m.mode]
+            if m.via == "overlay":
+                how = ("the user's folder with your changes kept apart (too many files to copy); they reach the "
+                       "folder after the user reviews them")
             rows.append(f"- {m.inner} = {host} ({how})")
         return ("Your tools run in a sandbox. Paths there differ from the user's computer:\n" + "\n".join(rows) +
                 "\nUse the sandbox paths in commands; paths of the user's computer given to file tools are "
@@ -157,7 +161,8 @@ def sandbox_map(workspace: Path, folders: list[dict] | None = None,
         used.add(name)
         mode = f.get("mode") if f.get("mode") in MODES else "review"
         if mode == "review" and f.get("stage"):          # the tools work on the copy (staging.py)
-            mounts.append(Mount(_norm_host(Path(f["stage"])), PurePosixPath("/host") / name, mode, name, origin=host))
+            mounts.append(Mount(_norm_host(Path(f["stage"])), PurePosixPath("/host") / name, mode, name, origin=host,
+                                via=str(f.get("via") or "")))
         else:
             mounts.append(Mount(host, PurePosixPath("/host") / name, mode, name))
     return PathMap(mounts, ws)

@@ -429,6 +429,9 @@ class SandboxManager:
         for f in folders_for(self.config, conversation):
             if f["mode"] in ("ro", "rw") and Path(f["path"]).is_dir():
                 out.append((Path(f["path"]), f"/host/{f['name']}", f["mode"]))
+            elif f["mode"] == "review" and f.get("via") == "overlay":     # the overlay view volume (overlay.py)
+                from .overlay import vol_names
+                out.append((vol_names(conversation, f["name"])[1], f"/host/{f['name']}", "volume"))
         return out
 
     def mount_key(self, conversation: str) -> str:
@@ -472,6 +475,8 @@ class SandboxManager:
                 # the image was rebuilt (a new SinoBee) or a folder was granted: a new container; the home volume
                 # stays, what ran in the old one stops
                 await docker("rm", "-f", name, timeout=60)
+                from . import overlay
+                await asyncio.to_thread(overlay.prune, self.config, conversation)   # a folder taken away
                 self._close_bridges(conversation)
                 rc = 1
             from .staging import ensure_copies          # review folders added since: their copies appear at once
@@ -599,7 +604,10 @@ class SandboxManager:
                 "--label", f"org.sinobee.mounts={self.mount_key(conversation)}",
                 "-v", f"sinobee-home-{safe(conversation)}:/home/bee"]
         for host, inner, mode in self.mounts() + self.folder_mounts(conversation):
-            args += ["-v", f"{host}:{inner}" + (":ro" if mode == "ro" else "")]
+            if mode == "volume":
+                args += ["--mount", f"type=volume,src={host},dst={inner}"]
+            else:
+                args += ["-v", f"{host}:{inner}" + (":ro" if mode == "ro" else "")]
         proxy = "http://egress:3128"
         for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
             args += ["-e", f"{k}={proxy}"]
@@ -649,6 +657,8 @@ class SandboxManager:
         await self.stop(conversation)
         await docker("rm", "-f", self.name_of(conversation), timeout=60)
         await docker("volume", "rm", "-f", f"sinobee-home-{safe(conversation)}", timeout=60)
+        from . import overlay      # overlay views of folders no longer given (those still given keep their changes)
+        await asyncio.to_thread(overlay.prune, self.config, conversation)
 
     async def sweep(self, known=None) -> dict:
         """Stop sandboxes idle for sandbox.idle_minutes; remove ones stopped for sandbox.prune_days; once an hour

@@ -2295,3 +2295,28 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
 - **D 驗收**：瀏覽器 `upload` 支援「按鈕開啟檔案選擇視窗」（`expect_file_chooser`），Docker 實測通過；`scripts/acceptance/stage3.sh`
   在 Mac 上一次跑 overlay probe 與 LibreOffice（Word 表單填寫＋PDF、試算表重算），並列出 Thorium 重跑、G7、分支交付的手動步驟。
 - 測試：tests/test_host_screen.py、test_git_branch.py、test_stage3_docker.py（Docker：檔案選擇視窗、overlay probe）。
+
+## 63. 第三種審核方式：疊加（overlay）（2026-10-24）
+
+給「不是 git 專案、檔案又多到不適合複製」的資料夾（超過 `sandbox.overlay_min_files`，預設 2 萬個要審核的檔案）。Mac 實測：
+166,019 個檔案的資料夾可行（掛載＋計數 8.75 秒、寫入 0.19 秒，原資料夾不變）。
+
+- **決定方式**（`sandbox_tools.plan_folder`）：審核模式、非 git、檔案數超過門檻，且這台電腦的 Docker 能疊加
+  （`overlay.capability`：每個 Docker 版本在 SinoBee 自己的小資料夾上試一次，以沙盒使用者 uid 1000 修改、新增、刪除，結果存在
+  `~/.sinobee/sandbox/overlay.json`）→ `via: "overlay"`；不能疊加且超過 `review_max_files` 才拒絕。
+- **兩個 volume**（`overlay.vol_names`）：`sinobee-ovu-<對話>-<id>`（upper/ 由 uid 1000 擁有、work/）與 `sinobee-ovl-…`（local driver 的
+  overlay volume：lowerdir＝你的資料夾，Docker Desktop 以原路徑看到 /Users/…）。容器以 `--mount type=volume` 掛在 /host/<名稱>。
+- **檔案工具**：疊加資料夾在這台電腦沒有副本，`SandboxExecutor` 的檔案方法（讀、寫、列出、stat、walk）對這些路徑改用 `docker exec`
+  在沙盒裡做（`Mount.via == "overlay"`）；Office／PDF 先取出到暫存檔再擷取文字。
+- **變更**（`overlay.changes`）：以短暫容器（唯讀掛 upper、讀 trusted.overlay.opaque 需 SYS_ADMIN）列出 upper：一般檔＝新增或修改
+  （內容與你的檔案相同就不算）、whiteout＝刪除、opaque 目錄＝你在那裡、沙盒沒重寫的檔案都算刪除；node_modules 等不審。upper 的檔案取到
+  `sandbox/<對話>/host/<名稱>/` 當快取（只取大小或時間變了的），寫回與匯出照舊從這裡讀。衝突＝你的檔案在掛載後（或上次寫回後，`seen`）
+  被改過。
+- **寫回**沿用交易流程；之後記下 `seen`。**捨棄**不直接改掛載中的 upper：在執行中的沙盒（或掛 view 的短暫容器，uid 1000）把你的版本寫回
+  view、或刪掉沙盒新增的檔案，upper 與原檔相同就不再列出。**同步**不需要（你的資料夾就是下層）；但任務執行中改原資料夾，overlay 的行為
+  沒有保證，介面提醒你避免。
+- **清理**：清除環境／停用沙盒保留疊加 volume（變更還在等審核）；資料夾被拿走、容器因此重建、或對話被整理掉時，`overlay.prune` /
+  `remove` 刪掉不再使用的 volume。
+- 介面：資料夾標示「審核（疊加）」、審核視窗標「疊加」；技能 host-folder-strategies 增加疊加方式的說明。
+- 測試：tests/test_overlay_review.py（門檻判斷；Docker 端到端：修改／新增／刪除／整個目錄刪除、檔案工具、原資料夾不變、衝突、寫回、
+  捨棄、再次修改、清除環境保留、拿走資料夾刪除 volume）。

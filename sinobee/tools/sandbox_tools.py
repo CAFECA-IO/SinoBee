@@ -101,6 +101,7 @@ async def request_network(ctx: ToolContext, domains: list, reason: str = ""):
 # ----------------------------------------------------------------- folders of this computer (plan E1; A, B, D)
 ALLOW, READ = "允許", "只允許讀取"
 MODE_TEXT = {"review": "審核後寫回：沙盒改的是副本，你看過變更後才會寫回原資料夾",
+             "review-overlay": "審核後寫回（疊加）：檔案太多不複製，沙盒看到你的資料夾、改動另外存放，你看過變更後才會寫回",
              "review-git": "審核後寫回（git）：沙盒在這個 git 專案的副本上工作，變更以 git diff 給你審核後才寫回",
              "ro": "唯讀：沙盒只能讀",
              "rw": "直接寫入：沙盒的修改直接改到原資料夾；每個任務開始前自動建立檢查點，可在對話設定還原"}
@@ -108,7 +109,9 @@ STRATEGIES = ("auto", "review", "direct", "ro")
 
 
 def mode_text(f: dict) -> str:
-    return MODE_TEXT["review-git" if f.get("mode") == "review" and f.get("via") == "git" else f.get("mode", "review")]
+    if f.get("mode") == "review" and f.get("via") in ("git", "overlay"):
+        return MODE_TEXT[f"review-{f['via']}"]
+    return MODE_TEXT[f.get("mode", "review")]
 
 
 def plan_folder(config, target, strategy: str, conversation: str | None) -> tuple[str, str | None, str | None]:
@@ -122,9 +125,15 @@ def plan_folder(config, target, strategy: str, conversation: str | None) -> tupl
     if strategy == "auto" and not fd.review_writes(config, conversation):
         return "rw", None, None
     via = fd.review_via(target)
-    if via == "copy" and fd.count_files(target, fd.review_max(config)) > fd.review_max(config):
-        return "review", via, (f"{target} 不是 git 專案，且有超過 {fd.review_max(config):,} 個要審核的檔案（不含 node_modules、"
-                               ".git 與快取），太大無法做審核用的副本")
+    if via == "copy":
+        n = fd.count_files(target, max(fd.review_max(config), fd.overlay_min(config)))
+        if n > fd.overlay_min(config):
+            from ..sandbox import overlay
+            if overlay.available(config):           # too many files to copy well: your folder below, changes above
+                return "review", "overlay", None
+        if n > fd.review_max(config):
+            return "review", via, (f"{target} 不是 git 專案，且有超過 {fd.review_max(config):,} 個要審核的檔案（不含 node_modules、"
+                                   ".git 與快取），太大無法做審核用的副本")
     return "review", via, None
 
 

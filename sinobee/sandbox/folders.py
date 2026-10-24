@@ -93,13 +93,18 @@ def review_max(config) -> int:
     return int(config.get("sandbox.review_max_files", 200_000) or 200_000)
 
 
+def overlay_min(config) -> int:
+    """A folder that is not a git project with more files than this is reviewed by overlay when Docker can (no copy)."""
+    return int(config.get("sandbox.overlay_min_files", 20_000) or 20_000)
+
+
 def entry(path: str | os.PathLike, mode: str = "review", name: str | None = None, via: str | None = None) -> dict:
     """A folder given to a conversation. A review folder is reviewed via "git" (a git repository) or "copy"."""
     p = Path(os.fspath(path)).expanduser().resolve()
     nm = NAME_RX.sub("_", name or p.name).strip("._") or "folder"
     out = {"path": str(p), "name": nm[:60], "mode": mode if mode in MODES else "review"}
     if out["mode"] == "review":
-        out["via"] = via if via in ("git", "copy") else "copy"
+        out["via"] = via if via in ("git", "copy", "overlay") else "copy"
     return out
 
 
@@ -154,6 +159,9 @@ def remove_grant(config, conversation: str, path: str) -> dict | None:
     if name:
         shutil.rmtree(d / "host" / name, ignore_errors=True)
         (d / "base" / f"{name}.json").unlink(missing_ok=True)
+        if gone.get("via") == "overlay":            # its volumes (in use until the sandbox is made again: then too)
+            from . import overlay
+            overlay.remove(conversation, name)
     return gone
 
 

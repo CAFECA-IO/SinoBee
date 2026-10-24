@@ -128,6 +128,15 @@ def domains(config, conversation: str) -> tuple[list[str], bool]:
 
 
 # ----------------------------------------------------------------- tidying up
+def _drop_overlays(conversation: str) -> None:
+    """A conversation tidied away: its overlay views go too (nothing waits for review there)."""
+    try:
+        from . import overlay
+        overlay.remove(conversation)
+    except Exception:  # noqa: BLE001 - Docker may not be running
+        pass
+
+
 def sweep_files(config, known=None, now: float | None = None) -> dict:
     """Keep ~/.sinobee/sandbox from growing for ever:
 
@@ -162,12 +171,14 @@ def sweep_files(config, known=None, now: float | None = None) -> dict:
             out["kept_pending"].append(conv)
             continue
         if known is not None and now - used > 86400 and not known(conv):
+            _drop_overlays(conv)
             shutil.rmtree(d, ignore_errors=True)
             # a draft's own workspace holds only what was attached before a first message that never came
             shutil.rmtree(Path(config.workspace) / "conversations" / d.name, ignore_errors=True)
             out["drafts"].append(conv)
             continue
         if now - used > keep:
+            _drop_overlays(conv)
             gone = False
             for sub in ("host", "base", "applied", "checkpoints"):
                 if (d / sub).exists():
