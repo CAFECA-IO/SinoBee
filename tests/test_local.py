@@ -70,19 +70,135 @@ def test_ollama_provider_payload_and_parse(monkeypatch, tmp_path):
     assert isinstance(p, OllamaProvider) and p.base_url == "http://gpu-box:11434" and p.num_ctx == 20000
     seen = {}
 
-    async def fake_post(url, payload, headers):
-        seen.update(url=url, payload=payload)
+    async def fake_request(payload):
+        seen.update(url=p.base_url + "/api/chat", payload=payload)
         return {"model": "qwen3:8b", "message": {"role": "assistant", "content": "",
                 "tool_calls": [{"function": {"name": "shell", "arguments": {"command": "ls"}}}]},
                 "done_reason": "stop", "prompt_eval_count": 1234, "eval_count": 56}
-    monkeypatch.setattr(p, "_post", fake_post)
+    monkeypatch.setattr(p, "_chat_request", fake_request)
     from sinobee.types import ToolSpec
     r = asyncio.run(p.chat([Message("user", "hi")], [ToolSpec("shell", "run", {"type": "object"})], max_tokens=8192))
     assert seen["url"] == "http://gpu-box:11434/api/chat"
-    assert seen["payload"]["options"]["num_ctx"] == 20000 and seen["payload"]["options"]["num_predict"] == 5000
-    assert seen["payload"]["stream"] is False and seen["payload"]["tools"][0]["function"]["name"] == "shell"
+    assert seen["payload"]["options"]["num_ctx"] == 20000 and seen["payload"]["options"]["num_predict"] == 8192
+    assert seen["payload"]["stream"] is True and seen["payload"]["tools"][0]["function"]["name"] == "shell"
     assert r.message.tool_calls[0].name == "shell" and r.message.tool_calls[0].arguments == {"command": "ls"}
     assert r.usage.input_tokens == 1234 and r.usage.output_tokens == 56
+
+
+def test_ollama_thinking_that_fills_the_limit_is_reported_and_turned_off(monkeypatch, tmp_path):
+    """gemma4 et al. think by default: when the thinking uses up num_predict the answer comes back empty with
+    done_reason=length. The usage must say so (thinking_tokens), and a turned-down effort must switch thinking off."""
+    from sinobee.providers.base import REASONING_EFFORT
+    monkeypatch.setenv("SINOBEE_HOME", str(tmp_path))
+    cfg = Config({"local": {"num_ctx": 16384}}, tmp_path)
+    p = build_provider("ollama/gemma4:e4b", cfg)
+    sent = []
+
+    async def fake_post(payload):
+        sent.append(payload)
+        return {"model": "gemma4:e4b", "message": {"role": "assistant", "content": "", "thinking": "x" * 9000},
+                "done_reason": "length", "prompt_eval_count": 9000, "eval_count": 4096}
+    monkeypatch.setattr(p, "_chat_request", fake_post)
+    r = asyncio.run(p.chat([Message("user", "hi")], [], max_tokens=4096))
+    assert "think" not in sent[-1] and r.stop_reason == "length"
+    assert r.usage.thinking_tokens == r.usage.output_tokens == 4096
+    tok = REASONING_EFFORT.set("medium")
+    try:
+        asyncio.run(p.chat([Message("user", "hi")], [], max_tokens=4096))
+    finally:
+        REASONING_EFFORT.reset(tok)
+    assert sent[-1]["think"] is False
+    g = build_provider("ollama/gpt-oss:20b", cfg)
+    monkeypatch.setattr(g, "_chat_request", fake_post)
+    tok = REASONING_EFFORT.set("none")
+    try:
+        asyncio.run(g.chat([Message("user", "hi")], [], max_tokens=4096))
+    finally:
+        REASONING_EFFORT.reset(tok)
+    assert sent[-1]["think"] == "low"
+
+
+def test_ollama_drops_think_for_a_model_without_thinking(monkeypatch, tmp_path):
+    from sinobee.providers.base import ProviderError, REASONING_EFFORT
+    monkeypatch.setenv("SINOBEE_HOME", str(tmp_path))
+    p = build_provider("ollama/llama3.2:3b", Config({"local": {"num_ctx": 8192}}, tmp_path))
+    sent = []
+
+    async def fake_post(payload):
+        sent.append(dict(payload))
+        if "think" in payload:
+            raise ProviderError('"llama3.2:3b" does not support thinking', 400)
+        return {"message": {"role": "assistant", "content": "ok"}, "done_reason": "stop", "eval_count": 2}
+    monkeypatch.setattr(p, "_chat_request", fake_post)
+    tok = REASONING_EFFORT.set("low")
+    try:
+        r = asyncio.run(p.chat([Message("user", "hi")], [], max_tokens=1024))
+        asyncio.run(p.chat([Message("user", "hi")], [], max_tokens=1024))
+    finally:
+        REASONING_EFFORT.reset(tok)
+    assert r.message.text() == "ok" and [("think" in s) for s in sent] == [True, False, False]
+
+
+def test_ollama_streams_so_a_long_think_has_no_overall_time_limit(monkeypatch, tmp_path):
+    """Streamed chunks (thinking, then the answer, then a tool call) are joined into one answer; the window the agent
+    grew for the task is sent, and num_predict leaves the prompt its room."""
+    import json
+
+    import httpx
+    from sinobee import local
+    monkeypatch.setenv("SINOBEE_HOME", str(tmp_path))
+    p = build_provider("ollama/gemma4:e4b", Config({"local": {"base_url": "http://box:11434", "num_ctx": 16384}},
+                                                   tmp_path))
+    seen = {}
+    lines = [{"message": {"role": "assistant", "content": "", "thinking": "hmm "}},
+             {"message": {"role": "assistant", "content": "", "thinking": "ok"}},
+             {"message": {"role": "assistant", "content": "答"}},
+             {"message": {"role": "assistant", "content": "案", "tool_calls": [
+                 {"function": {"name": "shell", "arguments": {"command": "ls"}}}]}},
+             {"done": True, "done_reason": "stop", "model": "gemma4:e4b", "prompt_eval_count": 900, "eval_count": 40,
+              "message": {"role": "assistant", "content": ""}}]
+
+    def handler(request):
+        seen["payload"] = json.loads(request.content)
+        return httpx.Response(200, content="\n".join(json.dumps(x) for x in lines).encode(),
+                              headers={"content-type": "application/x-ndjson"})
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    tok = local.GROWN_CTX.set(65536)
+    try:
+        r = asyncio.run(p.chat([Message("user", "hi")], [], max_tokens=10 ** 6))
+    finally:
+        local.GROWN_CTX.reset(tok)
+    assert seen["payload"]["stream"] is True and seen["payload"]["options"]["num_ctx"] == 65536
+    assert 60000 < seen["payload"]["options"]["num_predict"] < 65536
+    assert r.message.text() == "答案" and r.message.tool_calls[0].name == "shell"
+    assert r.usage.output_tokens == 40 and 0 < r.usage.thinking_tokens < 40 and r.stop_reason == "stop"
+
+
+def test_larger_ctx_steps_up_within_memory_and_the_model_limit(monkeypatch, tmp_path):
+    from sinobee import local
+    monkeypatch.setattr(local, "resolve_url", lambda cfg: ("http://box:11434", True))
+
+    async def caps(cli, m):
+        return {"ctx": 131072, "params": "8.0B"}
+    monkeypatch.setattr(local, "_caps", caps)
+
+    async def no_tags(self):
+        raise OSError("offline")
+    monkeypatch.setattr(local.Ollama, "tags", no_tags)
+    cfg = Config({}, tmp_path)
+    monkeypatch.setattr(local, "model_budget", lambda c: {"fast_gb": 12.0, "total_gb": 12.0})
+    run = lambda cur, need: asyncio.run(local.larger_ctx(cfg, "ollama/gemma4:e4b", cur, need))
+    assert run(16384, 30000) == 32768                  # the smallest step that holds it
+    assert run(16384, 10 ** 6) == 131072               # none holds it: the largest the model and memory allow
+    monkeypatch.setattr(local, "model_budget", lambda c: {"fast_gb": 6.5, "total_gb": 6.5})
+    assert run(16384, 30000) is None                   # the memory holds no larger window
+    async def tags(self):
+        return [{"name": "gemma4:e4b", "size": 9_600_000_000}]
+    monkeypatch.setattr(local.Ollama, "tags", tags)
+    monkeypatch.setattr(local, "model_budget", lambda c: {"fast_gb": 12.0, "total_gb": 12.0})
+    assert run(16384, 30000) is None                   # the real download (9.6 GB) leaves no room for 32k
+    assert local._params_b("gemma4:e4b", None) == 4 and local._params_b("x:latest", "12.2B") == 12.2
 
 
 def test_local_model_needs_no_key_and_is_free(tmp_path):

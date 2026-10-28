@@ -95,6 +95,8 @@ def thinking_room(label: str, max_tokens: int) -> int:
     """A thinking model's short calls (plan 1500, consult 1400, budget check 400 ...) on a reasoning model: its
     hidden thinking counts against the limit, so the plan never came out (E5: gemini-pro-latest at 1500 gave 1 plan
     in 3, at 8192 3 in 3). Reasoning models get at least THINKING_FLOOR, never more than the model's max."""
+    if local.is_local_spec(label):
+        return max(max_tokens, THINKING_FLOOR)   # local models think by default; Ollama caps it to the window
     if not REASONING_MODEL_RE.search(label or ""):
         return max_tokens
     from ..providers import limits
@@ -102,6 +104,19 @@ def thinking_room(label: str, max_tokens: int) -> int:
     floor = min(THINKING_FLOOR, mx) if mx else THINKING_FLOOR
     return max(max_tokens, floor)
 
+
+# the tools a local model always gets (local.slim_tools): the 45 schemas of every enabled tool are ~8k tokens, a
+# third of a 16-32k window. The rest are listed in more_tools and sent once asked for, used, or needed by a skill.
+LOCAL_BASE_TOOLS = frozenset({
+    "ask_user", "task_checklist", "milestone", "more_tools", "read_file", "write_file", "edit_file", "list_dir",
+    "search_files", "shell", "web_search", "web_fetch", "skill_search", "skill_view", "skill_run", "memory_search",
+    "memory_save"})
+
+# tools that only look: their success changes nothing a failed call depended on (see _execute, failed_calls)
+READ_ONLY_TOOLS = frozenset({
+    "read_file", "list_dir", "search_files", "web_search", "web_fetch", "skill_view", "skill_search",
+    "memory_search", "memory_stats", "session_read", "session_search", "usage_stats", "db_list", "db_schema",
+    "db_query", "screen_info", "screenshot", "zoom", "board_read", "job_list", "host_folder_info", "wait_change"})
 
 EMPTY_NUDGE = ("[SinoBee notice] Your previous reply was empty. Continue the task now: call the next tool you need, "
                "or - if you already have enough information - write the complete answer for the user in their "
@@ -585,7 +600,7 @@ class Agent:
         that fails or runs out of time is recorded (stats["thinking_skipped"]) and the caller goes on without it."""
         model = self.rt.thinker()
         max_tokens = thinking_room(getattr(model, "label", ""), max_tokens)
-        deadline = float(self.config.get("agent.model_deadline", 240)) or None
+        deadline = self._deadline(model)
         try:
             return await asyncio.wait_for(model.chat(messages, None, temperature=0.2, max_tokens=max_tokens), deadline)
         except asyncio.CancelledError:
@@ -595,6 +610,14 @@ class Agent:
             stats.setdefault("thinking_skipped", []).append(f"{what}: {why}")
             self._event(f"⚠︎ 思維模型 {model.label} 無法完成{what}（{str(why)[:120]}），這一步略過")
             return None
+
+    def _deadline(self, model) -> float | None:
+        """Seconds a side call (thinking model, judge, auxiliary check) may take: agent.model_deadline - or none for
+        a local model, which costs nothing to wait for and on a laptop needs minutes for a long prompt (a 4-minute
+        limit turned every consult of gemma4:e4b into "沒有回覆")."""
+        if local.is_local_spec(getattr(model, "label", "")):
+            return None
+        return float(self.config.get("agent.model_deadline", 240)) or None
 
     def _should_plan(self, query: str, explicit, stats: dict) -> bool:
         mode = str(self.config.get("agent.plan", "auto")).lower()
@@ -639,6 +662,12 @@ class Agent:
             stats["plan_failed"] = why
             self._event(f"⚠︎ 思維模型 {model.label} 沒有給出計畫（{why}）：這次不分里程碑，直接由執行模型開始")
             return
+        if (getattr(self, "_fitness", None) or {}).get("weak"):
+            from .roles import concretize_outputs
+            n = concretize_outputs(plan)       # a weak elephant's plan: every output gets a file (evidence)
+            if n:
+                stats["plan_paths_added"] = n
+                self._event(f"計畫檢查：為 {n} 個沒有指定檔案的產出加上檔案路徑")
         stats["plan"] = plan
         items = checklist_tools.get(self.ctx)
         if plan["checklist"] and not items and "task_checklist" in self.tool_names:
@@ -668,7 +697,7 @@ class Agent:
                                               trace=trace or "(none)", work=work or "(none)")
         try:
             resp = await asyncio.wait_for(model.chat([Message("user", prompt)], None, temperature=0, max_tokens=400),
-                                          float(self.config.get("agent.model_deadline", 240)) / 2)
+                                          (self._deadline(model) or 0) / 2 or None)
             data = progress_mod.parse_semantic(resp.message.text())
         except asyncio.CancelledError:
             raise
@@ -770,6 +799,17 @@ class Agent:
                     f" - {sem.get('pattern') or ''} (evidence: {sem.get('evidence') or ''})")
         request = [self.system] + self.history + [Message("user", [TextPart(
             context_block + "\n\n" + thinking.CONSULT.format(why=why), volatile=True)])]
+        fit = getattr(self, "_fitness", None) or {}
+        window = fit.get("window") or context_window(self.config, getattr(model, "label", ""))[0]
+        if fit.get("weak") or estimate_tokens(request) > window - 4096 - max(1024, window // 50):
+            # the elephant reads a brief, not the whole conversation: it fits any window, and a small model
+            # follows a short record better than 20k tokens of tool output
+            from . import roles
+            request = [Message("user", roles.consult_brief(self, stats) + "\n\n" + context_block + "\n\n"
+                               + thinking.CONSULT.format(why=why)
+                               + "\nNOTE: you get a brief of the work (request, plan, milestones, checklist, recent "
+                                 "steps), not the whole conversation.")]
+            stats["consult_brief"] = stats.get("consult_brief", 0) + 1
         stats["consults"] = stats.get("consults", 0) + 1
         stats["consult_at"] = stats.get("step", 0)
         resp = await self._thinking_call("請教", request, 1400, stats)
@@ -1138,7 +1178,7 @@ class Agent:
             parts += image_parts(img, "image/jpeg", f"Screenshot of {Path(path).name} as the user sees it:")
         model = self.rt.judge()
         self._event(f"驗收審查：由 {model.label} 以全新上下文檢查結果")
-        deadline = float(self.config.get("agent.model_deadline", 240)) or None
+        deadline = self._deadline(model)
         try:
             resp = await asyncio.wait_for(model.chat([Message("user", parts)], None, temperature=0,
                                                      max_tokens=1500), deadline)
@@ -1197,10 +1237,13 @@ class Agent:
         t0 = time.time()
         with scope(self.session_id, "agent") as usage_scope:
             tok = routing.HINT.set(hint)
+            # a window enlarged for this session (local.larger_ctx) holds for its next tasks too, and only for them
+            ctx_tok = local.GROWN_CTX.set(getattr(self, "_grown_ctx", None) or local.GROWN_CTX.get())
             try:
                 out = await self._run(user_input, usage_scope)
             finally:
                 routing.HINT.reset(tok)
+                local.GROWN_CTX.reset(ctx_tok)
                 if self.depth == 0 and self.ctx.state.get("task_secrets"):    # stopped or failed: keys go back too
                     self._take_back_keys()
                 if self.depth == 0 and self.ctx.state.get("host_screen"):
@@ -1256,6 +1299,7 @@ class Agent:
                  "skill_request": bool(SKILL_REQUEST_RE.search(query)) and not learn, "learn_command": learn,
                  "skill_gap": not best or best[0][1] < 1.0, "explicit_skills": explicit,
                  "best_skill": best[0][0].name if best and best[0][1] >= 1.0 and hasattr(best[0][0], "name") else None}
+        self._slim_off = bool(learn)      # /learn writes skills: it needs every skill tool (see _slim_tools)
         self._emit("turn_start", {"session_id": self.session_id, "input": query})
         # what the AI asked and answered, did and got - one ordered list for the turn's bubble (agent/timeline.py)
         self._timeline = Timeline(self._emit, self.config.workspace) if self.depth == 0 else None
@@ -1281,6 +1325,14 @@ class Agent:
             await limits.discover(getattr(self._prov, "primary", self._prov))
         except Exception:  # noqa: BLE001
             pass
+        from . import roles
+        self._fitness = roles.thinking_fitness(self.rt)
+        if self._fitness["weak"]:
+            stats["thinking_weak"] = self._fitness["reasons"]
+            if self.depth == 0 and not getattr(self, "_warned_thinking", False):
+                self._warned_thinking = True
+                self._event("⚠︎ " + "；".join(self._fitness["reasons"]) + "。建議在設定 →「模型」選一個雲端思維模型"
+                            "（只負責規劃與少數幾次請教，費用很低）。這次改用精簡摘要請教，並由程式檢查計畫的產出路徑")
         max_tokens = base_out = self._max_tokens()     # only the default is reserved from the context window
         low_effort_left = 0
         # how far thinking was turned down after hidden thinking filled the limit: -1 none yet, then an index into
@@ -1289,6 +1341,8 @@ class Agent:
         step_effort = "low"
         size_tip = None
         empty_replies = 0
+        empty_since = 0.0             # when the current run of empty replies began (local models wait by time)
+        empty_stalls = 0              # local: empty replies in a row after which nothing more could be tried
         overflow_retried = False
         image_retries = 2             # a provider refused the pictures: shrink them and send again (images.shrink)
         after_length = False          # the last reply was cut off at the output limit (U4)
@@ -1409,8 +1463,17 @@ class Agent:
                 break
             self._drain_inbox()
             prune_images(self.history, keep_last=2)
+            if self._slim_tools() is not None:
+                tool_specs = self._tool_specs()        # more_tools may have added some since the last step
             budget = self._context_budget(base_out)
             context_block = self._render_context()
+            need = estimate_tokens([self.system] + self.history, tool_specs, context_block)
+            if need > budget * 0.8 and await self._fit_local_window(need, tool_specs, stats):
+                # a larger window, or fewer tool schemas: no need to summarise away the skill and the plan
+                tool_specs = self._tool_specs()
+                base_out = self._max_tokens()
+                max_tokens = max(max_tokens, base_out)
+                budget = self._context_budget(base_out)
             if estimate_tokens([self.system] + self.history, tool_specs, context_block) > budget * 0.8:
                 if await self._memory_diet():
                     context_block = self._render_context()
@@ -1591,33 +1654,65 @@ class Agent:
                 # back as text or a cut tool call), and keeps its thinking.
                 thinking_cut = truncated and (think_tok == 0 or all_thinking)
                 turned = ""
-                if truncated:
+                empty_since = empty_since or time.monotonic()
+                last_level = len(EFFORT_LEVELS) - 1
+                local_wait = truncated and local.is_local_spec(self._model_label())
+                progressed = False
+                grew = ""
+                if local_wait:
+                    # a local model costs nothing to wait for: first give the thinking room (the rest of the window,
+                    # then a larger window if the memory holds it); switch thinking off only when no room is left
+                    more, grew = await self._local_room(max_tokens, request, tool_specs, context_block)
+                    if more > max_tokens:
+                        max_tokens, progressed, thinking_cut = more, True, False
+                elif truncated:
                     max_tokens = self._more_room(max_tokens, request, tool_specs, context_block)
-                if thinking_cut:
-                    think_level = min(think_level + 1, len(EFFORT_LEVELS) - 1)
+                if thinking_cut and not (local_wait and think_level == last_level):
+                    # local: straight to off - Ollama has no levels for most models, and the room is used up
+                    think_level = last_level if local_wait else min(think_level + 1, last_level)
                     step_effort = EFFORT_LEVELS[think_level]
-                    low_effort_left = int(self.config.get("agent.low_effort_steps", 5))
+                    low_effort_left = 10 ** 6 if local_wait else int(self.config.get("agent.low_effort_steps", 5))
                     stats["low_effort"] = stats.get("low_effort", 0) + 1
                     stats.setdefault("effort_steps", []).append({"step": steps, "effort": step_effort})
                     turned = {"medium": "思考強度調為中", "low": "思考強度調為低", "none": "關閉思考"}[step_effort]
-                if empty_replies <= 2:
+                    progressed = True
+                if local_wait:
+                    waited = time.monotonic() - empty_since
+                    limit_s = float(self.config.get("local.empty_minutes", 30)) * 60
+                    empty_stalls = 0 if progressed else empty_stalls + 1
+                    give_up = waited > limit_s or empty_stalls > 2
+                else:
+                    give_up = empty_replies > 2
+                if not give_up:
                     why = (f"模型把輸出上限的 {think_tok:,} tokens 全部用在隱藏的思考，回覆還沒開始就到上限"
                            if all_thinking else f"模型回傳空白回覆（finish_reason={resp.stop_reason or 'n/a'}）")
-                    plan = (f"輸出上限放寬到 {max_tokens}、接下來幾步{turned + '，' if turned else ''}並請它分段寫檔"
-                            if truncated else "要求繼續")
+                    if grew:
+                        plan = grew
+                    elif truncated:
+                        plan = f"輸出上限放寬到 {max_tokens:,}、接下來{'' if local_wait else '幾步'}{turned + '，' if turned else ''}並請它分段寫檔"
+                    else:
+                        plan = "要求繼續"
                     self._emit("status", {"message": f"{why}，{plan}"})
                     nudge = "length" if truncated else True
                     continue
+                if local_wait:
+                    stats["empty_wait_s"] = round(time.monotonic() - empty_since)
+                    error_detail = (f"已等待 {stats['empty_wait_s'] // 60} 分鐘，" + (
+                        "思考已關閉、context window 也無法再擴大" if think_level == last_level else "仍未產生回覆"))
+                else:
+                    error_detail = ""
                 final_text = (f"⚠︎ 模型 {resp.model or self._prov.label} 連續 {empty_replies} 次回傳空白回覆"
-                              f"（finish_reason={resp.stop_reason or 'n/a'}），任務沒有完成，已保存失敗報告。建議換用能力較強的執行模型，"
-                              "或在設定頁提高輸出上限後重試。")
+                              f"（finish_reason={resp.stop_reason or 'n/a'}）{'，' + error_detail if error_detail else ''}"
+                              "，任務沒有完成，已保存失敗報告。建議換用能力較強的執行模型，或在設定頁提高輸出上限後重試。")
                 self.history.append(Message("assistant", "[上一次嘗試失敗：模型沒有產生回覆]"))
                 status = "failed"
                 error_info = {"summary": f"執行模型連續 {empty_replies} 次回傳空白回覆", "kind": "capability",
                               "hint": "已保存失敗報告。建議換用能力較強的執行模型，或在設定頁提高輸出上限後重試。",
                               "detail": f"model={resp.model}, finish_reason={resp.stop_reason or 'n/a'}"
-                                        + (f", thinking_tokens={think_tok}/{out_tok}" if think_tok else "")}
+                                        + (f", thinking_tokens={think_tok}/{out_tok}" if think_tok else "")
+                                        + (f", waited={stats['empty_wait_s']}s" if error_detail else "")}
                 break
+            empty_replies, empty_since, empty_stalls = 0, 0.0, 0   # "連續": a real answer starts the count again
             self.history.append(msg)
             size_tip = size_reminder(msg, resp, max_tokens)
             if size_tip:
@@ -2030,6 +2125,8 @@ class Agent:
         self._last_compaction_changed = res.changed
         if not res.changed:
             return turn_start
+        # the instructions of skills loaded earlier may have been summarised away: skill_view loads them again
+        self.ctx.state.pop("skills_in_view", None)
         in_turn = len(self.history) - turn_start
         self.history = res.messages[1:]
         self._persisted = len(self.history)
@@ -2067,6 +2164,73 @@ class Agent:
         from ..providers import limits
         return limits.default_output(self.config, label, n)
 
+    async def _fit_local_window(self, need: int, tool_specs, stats: dict) -> bool:
+        """A local model's request does not fit its window (system prompt + tool schemas + a skill alone can pass
+        16k): rather than compacting every step - which summarises away the skill's instructions and the plan, and
+        costs a model call each time - enlarge the window (local.larger_ctx, kept for the session) or, when the
+        memory holds no larger one, leave out the tool schemas of local.trim_toolsets not used yet. True when the
+        request now has more room."""
+        if not local.is_local_spec(self._model_label()) or not self.config.get("local.grow_ctx", True):
+            return False
+        window = local.num_ctx(self.config)
+        if not getattr(self, "_grow_exhausted", False):
+            # just enough not to compact at once (SinoBee compacts at 80 % of the budget); grows again step by step
+            # as the task's history grows, so the window - and its memory - stays no larger than the task needs
+            want = int(need / 0.8) + 8192 + max(1024, window // 50)
+            try:
+                n = await local.larger_ctx(self.config, self._model_label(), window, want)
+            except Exception:  # noqa: BLE001
+                log.debug("larger_ctx failed", exc_info=True)
+                n = None
+            if n:
+                self._grown_ctx = n
+                local.GROWN_CTX.set(n)
+                stats.setdefault("ctx_grown", []).append({"step": stats.get("step"), "from": window, "to": n})
+                self._emit("status", {"message": f"本地模型的 context window {window:,} 放不下這個任務（約 {need:,} tokens）"
+                                                 f"，擴大到 {n:,}（Ollama 會重新載入模型）"})
+                return True
+            self._grow_exhausted = True
+        if getattr(self, "_trimmed_toolsets", None):
+            return False
+        used = {tc.name for m in self.history if m.role == "assistant" for tc in (m.tool_calls or [])}
+        trim = set(self.config.get("local.trim_toolsets") or ())
+        drop = {t.toolset for t in self.tools if t.toolset in trim} - {t.toolset for t in self.tools if t.name in used}
+        if not drop:
+            return False
+        self._trimmed_toolsets = drop
+        stats["trimmed_toolsets"] = sorted(drop)
+        self._emit("status", {"message": f"記憶體放不下更大的 context window：這個任務先不提供 {', '.join(sorted(drop))} "
+                                         "工具，讓技能說明和計畫留在模型看得到的範圍"})
+        return True
+
+    async def _local_room(self, max_tokens: int, request, tool_specs, context_block: str) -> tuple[int, str]:
+        """(new output limit, what was done) for a local model whose answer was cut empty at the limit: the rest of
+        the window beside this request, else - local.grow_ctx - a larger window that the model and the memory allow
+        (kept for the session). (max_tokens, "") when no more room can be had."""
+        label = self._model_label()
+        window, _ = context_window(self.config, label)
+        prompt = estimate_tokens(request, tool_specs, context_block)
+        room = window - prompt - max(1024, window // 50)
+        if room >= max_tokens * 1.25:
+            return room, f"輸出上限放寬到 {room:,}，保留思考"
+        if not self.config.get("local.grow_ctx", True):
+            return max_tokens, ""
+        want = prompt + max(max_tokens * 2, 16384)
+        try:
+            n = await local.larger_ctx(self.config, label, window, want + max(1024, want // 50))
+        except Exception:  # noqa: BLE001
+            log.debug("larger_ctx failed", exc_info=True)
+            n = None
+        if not n:
+            return max_tokens, ""
+        self._grown_ctx = n
+        local.GROWN_CTX.set(n)
+        new = n - prompt - max(1024, n // 50)
+        if new <= max_tokens:
+            return max_tokens, ""
+        return new, (f"context window 從 {window:,} 擴大到 {n:,} tokens（Ollama 會重新載入模型）、"
+                     f"輸出上限放寬到 {new:,}，保留思考")
+
     def _more_room(self, max_tokens: int, request, tool_specs, context_block: str) -> int:
         """The output limit after a reply was cut off at it: the model's max (U8) where known, else twice the limit
         (at most 32k) - never more than the context window leaves beside this request."""
@@ -2078,15 +2242,39 @@ class Agent:
         room = window - estimate_tokens(request, tool_specs, context_block) - max(1024, window // 50)
         return max(max_tokens, min(n, room))
 
+    def _slim_tools(self) -> set | None:
+        """The tools a local model is sent (local.slim_tools): LOCAL_BASE_TOOLS, the ones it asked for (more_tools),
+        used in this session, or that an active skill needs. None: send every tool (cloud models, /learn)."""
+        if not local.is_local_spec(self._model_label()) or not self.config.get("local.slim_tools", True) \
+                or getattr(self, "_slim_off", False):
+            return None
+        allowed = set(LOCAL_BASE_TOOLS) | set(self.ctx.state.get("tools_shown") or ())
+        allowed |= {tc.name for m in self.history if m.role == "assistant" for tc in (m.tool_calls or [])}
+        for name in self.ctx.state.get("skills_used") or ():
+            s = self.rt.skills.skills.get(name)
+            for need in (getattr(s, "requires_tools", None) or []) if s is not None else []:
+                allowed.add(need)
+                allowed |= {t.name for t in self.tools if t.toolset == need}
+        return allowed
+
     def _tool_specs(self) -> list:
         """Tool schemas for this turn: constrain skill names to an enum (agentskills.io client guidance) and drop
         activation tools entirely when no skill is visible."""
         import copy
         visible = sorted(s.name for s in self.rt.skills.visible(self.tool_names))
+        slim = self._slim_tools()
+        hidden: dict[str, str] = {}
         specs = []
         for t in self.tools:
             if t.name == "milestone" and not getattr(self, "_msr", None):
                 continue                      # only for a task that runs as milestones
+            if t.toolset in (getattr(self, "_trimmed_toolsets", None) or ()):
+                continue                      # left out to fit a local model's window (_fit_local_window)
+            if t.name == "more_tools" and slim is None:
+                continue
+            if slim is not None and t.name not in slim:
+                hidden[t.name] = t.toolset    # listed in more_tools instead
+                continue
             sp = t.spec()
             if t.name in SKILL_ARG_TOOLS:
                 if not visible:
@@ -2095,6 +2283,17 @@ class Agent:
                     sp.parameters = copy.deepcopy(sp.parameters)
                     sp.parameters["properties"]["name"]["enum"] = visible
             specs.append(sp)
+        if slim is not None:
+            self.ctx.state["hidden_tools"] = hidden
+            more = next((sp for sp in specs if sp.name == "more_tools"), None)
+            if more is not None and not hidden:
+                specs.remove(more)
+            elif more is not None:
+                groups: dict[str, list] = {}
+                for name, group in sorted(hidden.items()):
+                    groups.setdefault(group, []).append(name)
+                more.description += " Not sent now: " + "; ".join(
+                    f"{g}: {', '.join(ns)}" for g, ns in sorted(groups.items())) + "."
         return specs
 
     def _slash_commands(self, user_input):
@@ -2120,6 +2319,7 @@ class Agent:
             try:
                 blocks.append(self.rt.skills.view(n))
                 self.ctx.state.setdefault("skills_used", set()).add(n)
+                self.ctx.state.setdefault("skills_in_view", set()).add(n)
                 self.ctx.state.setdefault("preapproved", []).extend(self.rt.skills.preapprovals(n))
             except Exception as e:
                 blocks.append(f"(could not load skill {n}: {e})")
@@ -2276,6 +2476,10 @@ class Agent:
         # a checklist entry SinoBee would not accept yet (evidence missing) is bookkeeping, not a failed operation:
         # it must not turn a finished task into "最後的操作失敗" - the open item is reported by the checklist itself
         denied = denied or (result.is_error and call.name == "task_checklist")
+        if not result.is_error and call.name not in READ_ONLY_TOOLS and failed:
+            # something changed (an item marked done, a file written ...): a call that failed before may work now -
+            # m1 could never be closed: "milestone done" was refused as a repeat after its items were marked done
+            failed.clear()
         if result.is_error and not denied:   # a refused approval is the user's decision, not a failure
             stats["errors"] += 1
             stats["consecutive_errors"] = stats.get("consecutive_errors", 0) + 1

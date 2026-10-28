@@ -5,13 +5,20 @@ Selecting a local model sets model.default to "ollama/<tag>"; no API key is need
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import os
+import re
 
-from .catalog import CATALOG, CATALOG_CHECKED, fit, recommend
+from .catalog import CATALOG, CATALOG_CHECKED, fit, need_gb, recommend
 from .hardware import auto_num_ctx, budget, detect, parse_host_hardware, summary_zh
 from .ollama import LocalRuntime, Ollama, OllamaError, location, resolve_url
 
 _SHOW_CACHE: dict[str, dict] = {}
+
+# A larger window the agent asked for while a task ran (larger_ctx): an answer plus its hidden thinking did not fit
+# beside the prompt. Set per task (Agent.run), so the setting and other tasks keep their own window.
+GROWN_CTX: contextvars.ContextVar = contextvars.ContextVar("grown_num_ctx", default=None)
+CTX_STEPS = (16384, 32768, 65536, 131072, 262144)
 
 
 def full_tag(name: str) -> str:
@@ -45,10 +52,55 @@ def num_ctx(config, b: dict | None = None) -> int:
     v = config.get("local.num_ctx", "auto")
     try:
         if v not in (None, "", "auto"):
-            return max(2048, int(v))
+            return max(2048, int(v), GROWN_CTX.get() or 0)
     except (TypeError, ValueError):
         pass
-    return auto_num_ctx(b or model_budget(config))
+    return max(auto_num_ctx(b or model_budget(config)), GROWN_CTX.get() or 0)
+
+
+def _params_b(tag: str, params: str | None) -> float:
+    """Billions of parameters from Ollama's report ("8.0B") or the tag ("gemma4:e4b" -> 4); 8 when neither says."""
+    for text in (params or "", tag.split(":")[-1]):
+        m = re.search(r"(\d+(?:\.\d+)?)\s*b\b", text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+    return 8.0
+
+
+async def larger_ctx(config, tag: str, current: int, need: int) -> int | None:
+    """A larger window for a task whose answer (with its hidden thinking) does not fit beside the prompt: the smallest
+    step in CTX_STEPS that holds `need` tokens - or the largest that still fits, when none does - within the model's
+    own context length and the memory the runtime has (weights + KV cache, catalog.need_gb). None: no larger one fits.
+    Ollama reloads the model when the window changes (tens of seconds)."""
+    tag = full_tag(tag.split("/", 1)[-1])
+    url = (await asyncio.to_thread(resolve_url, config))[0]
+    try:
+        show = await _caps(Ollama(url), {"name": tag})
+    except Exception:  # noqa: BLE001
+        show = {}
+    b = await asyncio.to_thread(model_budget, config)
+    entry = next((m for m in CATALOG if full_tag(m["id"]) == tag), None)
+    params = entry["params_b"] if entry else _params_b(tag, show.get("params"))
+    size_gb = entry["size_gb"] if entry else round(params * 0.65, 1)
+    try:                                   # the downloaded size, when Ollama reports it, beats the estimates
+        size = next((m.get("size") for m in await Ollama(url).tags() if full_tag(m.get("name", "")) == tag), None)
+        if size:
+            size_gb = size / 1e9
+    except Exception:  # noqa: BLE001
+        pass
+    model = {"size_gb": size_gb, "params_b": params}
+    model_max = int(show.get("ctx") or (entry or {}).get("ctx_k", 0) * 1024 or 131072)
+    memory = b.get("fast_gb") or b.get("total_gb") or 0
+    best = None
+    for n in CTX_STEPS:
+        if n <= current or n > model_max:
+            continue
+        if need_gb(model, n) > memory:
+            break
+        best = n
+        if n >= need:
+            break
+    return best
 
 
 def is_local_spec(spec: str | None) -> bool:

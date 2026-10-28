@@ -120,7 +120,7 @@ def build_provider(spec: str, config: Config) -> Provider:
         from .. import local
         kwargs.update(vision=bool(override.get("vision", config.get("model.vision", True))),
                       num_ctx=local.num_ctx(config), keep_alive=str(config.get("local.keep_alive", "30m")),
-                      think=config.get("local.think"))
+                      think=config.get("local.think"), stream=bool(config.get("local.stream", True)))
     return cls(model, base_url, api_key, **kwargs)
 
 

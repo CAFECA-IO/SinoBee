@@ -73,6 +73,9 @@ DEFAULTS: dict[str, Any] = {
             "semantic_check": True,  # the auxiliary model reads the recent steps before the thinking model is asked
         },
         "model_deadline": 240,          # s a thinking / review call may take; after that it is skipped and recorded
+        # the thinking model plays the elephant (agent/roles.py): below this window, or when it is the execution
+        # model's own local model, SinoBee warns, consults it with a brief and checks the plan's outputs by program
+        "thinking_min_window": 32768,
         "plan": "auto",                 # auto | always | off: the thinking model plans before the first step (auto:
                                         # skills picked or multi-stage, or a long request)
         "consult_max": 2,
@@ -211,6 +214,12 @@ DEFAULTS: dict[str, Any] = {
         "memory_gb": None,          # override detected memory (e.g. runtime on another machine)
         "models_dir": None,         # where a SinoBee-started `ollama serve` stores models
         "think": None,              # None = model default; False disables thinking for faster answers
+        "stream": True,             # stream answers: no time limit while the model is still thinking or writing
+        "grow_ctx": True,           # a prompt or answer that does not fit may enlarge the window for the session
+        "slim_tools": True,         # send a local model the common tools only; it asks for others with more_tools
+        # tool groups left out for a local model when even the largest window that fits the memory is too small
+        "trim_toolsets": ["desktop", "database", "usage", "evalauthor"],
+        "empty_minutes": 30,        # a task gives up after this long of answers cut empty at the limit
     },
     "pricing": {},                  # per-model price overrides (USD / 1M tokens), edited in the Web UI
     "server": {"host": "127.0.0.1", "port": 10024, "token": None},

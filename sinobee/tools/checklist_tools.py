@@ -198,7 +198,8 @@ def task_checklist(ctx: ToolContext, action: str, items: list | None = None, id:
         if status == "done" and not verifiable(ctx, evidence):
             return ("ERROR: the evidence must be checkable: a file path that exists, a URL, or words copied from a tool "
                     "result of this task (for example a line of command output). A description of what you did, or "
-                    "'the check passed', is not evidence.")
+                    "'the check passed', is not evidence. Text you wrote in your reply is not evidence either: save it "
+                    "with write_file first (e.g. /workspace/report.md), then give that path as the evidence.")
         if status == "done":
             need = visual_needs(ctx, item, evidence)
             if need:

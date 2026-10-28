@@ -31,12 +31,19 @@ def skill_view(ctx: ToolContext, name: str, path: str | None = None, reload: boo
     if path:
         return ctx.skills.view(name, path)
     active = ctx.state.setdefault("skills_used", set())
-    if name in active and not reload:
+    in_view = ctx.state.setdefault("skills_in_view", set())
+    told = ctx.state.setdefault("skill_view_told", set())
+    if name in in_view and not reload and name not in told:
+        # once: the instructions are still in the context. Asked again, the model evidently cannot see them (small
+        # models do not pass reload=true; a window too small cuts them off) - load them instead of looping
+        told.add(name)
         s = ctx.skills.get(name)
         qs = f"\nQuick start: {s.quickstart}" if s.quickstart else ""
-        return (f"skill '{name}' is already active in this session.{qs}\n"
-                "If its instructions are no longer in view, call skill_view again with reload=true.")
+        return (f"skill '{name}' is already active in this session and its instructions are above.{qs}\n"
+                "Continue with its procedure now. If you cannot see them, call skill_view again and they are loaded.")
     content = ctx.skills.view(name)
+    told.discard(name)
+    in_view.add(name)
     active.add(name)
     pre = ctx.skills.preapprovals(name)
     if pre:

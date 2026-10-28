@@ -55,7 +55,7 @@ class OllamaProvider(Provider):
     name = "ollama"
 
     def __init__(self, *a, vision: bool = True, num_ctx: int = 8192, keep_alive: str = "30m",
-                 think: bool | None = None, **kw):
+                 think: bool | None = None, stream: bool = True, **kw):
         kw.setdefault("timeout", 900.0)  # CPU inference and first-time model loads can be slow
         super().__init__(*a, **kw)
         self.base_url = self.base_url.removesuffix("/v1")
@@ -63,6 +63,8 @@ class OllamaProvider(Provider):
         self.num_ctx = num_ctx
         self.keep_alive = keep_alive
         self.think = think
+        self.stream = stream
+        self._no_think_field = False   # learned: this model rejects the `think` field
 
     def _headers(self) -> dict:
         h = {"Content-Type": "application/json"}
@@ -70,19 +72,47 @@ class OllamaProvider(Provider):
             h["Authorization"] = f"Bearer {self.api_key}"
         return h
 
+    def _think_value(self):
+        """The `think` field for this call. The agent turns thinking down (REASONING_EFFORT) after an answer that came
+        back empty because hidden thinking used up num_predict - Ollama leaves the answer empty then. A local model
+        has little output room, so any turned-down level switches thinking off; gpt-oss cannot switch it off and
+        takes a level instead. Otherwise the user's local.think (None = the model's default)."""
+        from .base import REASONING_EFFORT
+        if self._no_think_field:
+            return None
+        effort = REASONING_EFFORT.get()
+        if effort:
+            return "low" if self.model.lower().startswith("gpt-oss") else False
+        return self.think
+
     async def _chat(self, messages, tools, *, temperature, max_tokens) -> ChatResponse:
-        opts: dict = {"num_ctx": self.num_ctx, "num_predict": min(max_tokens, max(1024, self.num_ctx // 4))}
+        from .. import local
+        from ..agent.context import estimate_tokens
+        # the window: the configured one, or the larger one the agent asked for during this task (local.larger_ctx)
+        num_ctx = max(self.num_ctx, local.GROWN_CTX.get() or 0)
+        # the answer (with its hidden thinking) must fit beside the prompt, or Ollama drops the start of the prompt
+        room = num_ctx - estimate_tokens(messages, tools) - 256
+        opts: dict = {"num_ctx": num_ctx, "num_predict": max(256, min(max_tokens, room))}
         if temperature is not None:
             opts["temperature"] = temperature
         payload: dict = {"model": self.model, "messages": to_ollama_messages(messages, self.vision),
-                         "stream": False, "options": opts, "keep_alive": self.keep_alive}
-        if self.think is not None:
-            payload["think"] = self.think
+                         "stream": self.stream, "options": opts, "keep_alive": self.keep_alive}
+        think = self._think_value()
+        if think is not None:
+            payload["think"] = think
         if tools:
             payload["tools"] = [{"type": "function", "function": {
                 "name": t.name, "description": t.description, "parameters": t.parameters}} for t in tools]
         try:
-            data = await self._post(f"{self.base_url}/api/chat", payload, self._headers())
+            try:
+                data = await self._chat_request(payload)
+            except ProviderError as e:
+                if "think" in payload and "does not support thinking" in str(e):
+                    self._no_think_field = True     # a model without a thinking mode rejects the field: drop it
+                    payload.pop("think")
+                    data = await self._chat_request(payload)
+                else:
+                    raise
         except ProviderError as e:
             msg = str(e)
             if e.status == 404 or "not found" in msg:
@@ -99,10 +129,55 @@ class OllamaProvider(Provider):
                 from .openai_compat import parse_arguments
                 args = parse_arguments(args)
             calls.append(ToolCall(tc.get("id") or f"call_{i}_{uuid.uuid4().hex[:8]}", fn.get("name", ""), args))
-        usage = Usage(int(data.get("prompt_eval_count") or 0), int(data.get("eval_count") or 0))
+        content = msg.get("content") or ""
+        out_tok = int(data.get("eval_count") or 0)
+        # eval_count includes the thinking; Ollama returns that text separately in message.thinking. Share the count
+        # out by length so the agent can tell "thinking used up the limit" from an ordinary empty answer.
+        thinking = msg.get("thinking") or ""
+        think_tok = 0
+        if thinking and out_tok:
+            visible = len(content) + sum(len(str(c.arguments)) for c in calls)
+            think_tok = out_tok if not visible else round(out_tok * len(thinking) / (len(thinking) + visible))
+        usage = Usage(int(data.get("prompt_eval_count") or 0), out_tok, thinking_tokens=think_tok)
         reason = data.get("done_reason") or ("tool_calls" if calls else "stop")
-        return ChatResponse(Message("assistant", msg.get("content") or "", calls), usage, reason,
-                            data.get("model", self.model))
+        return ChatResponse(Message("assistant", content, calls), usage, reason, data.get("model", self.model))
+
+    async def _chat_request(self, payload: dict) -> dict:
+        """POST /api/chat. Streamed (the default), the wait has no overall limit: the read timeout only fires when
+        Ollama goes quiet, never while the model is still thinking or writing - a local model may take as long as it
+        needs. The chunks are joined into the shape of a non-streamed answer."""
+        url = f"{self.base_url}/api/chat"
+        if not payload.get("stream"):
+            return await self._post(url, payload, self._headers(), timeout=self.call_timeout(
+                (payload.get("options") or {}).get("num_predict")))
+        import json as _json
+
+        import httpx
+        out: dict = {}
+        content, thinking, calls = [], [], []
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, connect=30.0)) as client:
+            async with client.stream("POST", url, json=payload, headers=self._headers()) as r:
+                if r.status_code >= 400:
+                    text = (await r.aread()).decode("utf-8", "replace")[:2000]
+                    raise self._http_error(r.status_code, text)
+                async for line in r.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        ev = _json.loads(line)
+                    except ValueError:
+                        continue
+                    if ev.get("error"):
+                        raise ProviderError(f"{self.label}: {ev['error']}", 500, False)
+                    m = ev.get("message") or {}
+                    content.append(m.get("content") or "")
+                    thinking.append(m.get("thinking") or "")
+                    calls.extend(m.get("tool_calls") or [])
+                    if ev.get("done"):
+                        out = ev
+        out["message"] = {"role": "assistant", "content": "".join(content), "thinking": "".join(thinking),
+                          "tool_calls": calls}
+        return out
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         data = await self._post(f"{self.base_url}/api/embed",

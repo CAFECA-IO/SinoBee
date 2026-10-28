@@ -4105,6 +4105,14 @@ function roleState(spec){
   if (p.status === 'error') return {ok: false, msg: `${p.label} 連線失敗：${p.error || ''}`};
   return {ok: true};
 }
+function thinkingWarn(spec){
+  // the thinking model plans and advises (the "elephant", agent/roles.py): the execution model's own local model, or
+  // another local one, plans vaguely - SinoBee then consults it with a brief and checks the plan by program
+  const exe = $('#mDefault').value, local = s => /^(ollama|local|lmstudio|vllm)\//.test(String(s || ''));
+  if (!spec && local(exe)) return `<span class="pwarn">⚠︎ 目前沿用本地執行模型規劃與請教，複雜任務的計畫容易模糊。建議選一個雲端模型擔任思維模型（只負責規劃與少數幾次請教，費用很低）；不選時 SinoBee 會改用精簡摘要請教，並由程式檢查計畫</span>`;
+  if (local(spec)) return `<span class="pwarn">⚠︎ 本地模型擔任思維模型時，SinoBee 會改用精簡摘要請教，並由程式檢查計畫；context window 建議至少 32k</span>`;
+  return '';
+}
 function renderRoles(){
   if (!SET) return;
   const locked = k => (SET.locked || []).includes(k);
@@ -4112,7 +4120,7 @@ function renderRoles(){
     return `<div class="srow"><div class="sl"><b>${r.name}</b><span class="sd">${r.desc}</span></div>
       <div class="sc mpick" data-role="${r.k}"><select class="inp" ${locked(r.lock) ? 'disabled' : ''} aria-label="${r.name}">${modelOptions(r.kind, cur, r.empty, st.ok)}</select>
         <input class="inp" hidden placeholder="例如 gemini/gemini-flash-latest" value="${esc(cur)}">
-        ${st.ok ? '' : `<span class="pwarn">⚠︎ ${esc(st.msg)}</span>`}${locked(r.lock) ? '<span class="lock">🔒 由啟動參數提供（docker -e），此處唯讀</span>' : ''}</div></div>`; };
+        ${st.ok ? '' : `<span class="pwarn">⚠︎ ${esc(st.msg)}</span>`}${r.k === 'thinking' ? thinkingWarn(cur) : ''}${locked(r.lock) ? '<span class="lock">🔒 由啟動參數提供（docker -e），此處唯讀</span>' : ''}</div></div>`; };
   $('#roleRows').innerHTML = ROLES.filter(r => r.k !== 'embedding' && !(r.k === 'default' && $('#mDefault').value === 'sinobee/auto')).map(row).join('');
   $('#embRow').innerHTML = ROLES.filter(r => r.k === 'embedding').map(r => row({...r, name: '記憶搜尋（Embedding）'})).join('');
   const fb = $('#mFallbacks').value.split(',').map(x => x.trim()).filter(Boolean), auto = $('#mDefault').value === 'sinobee/auto';

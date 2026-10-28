@@ -136,3 +136,60 @@ async def test_steering_message_reaches_the_running_task(cfg):
     assert any("[使用者在執行中補充指示] 改成直式 9:16" in t for t in texts)
     assert ("steer_applied", {"text": "改成直式 9:16"}) in seen
     assert agent.last_status["status"] == "done"
+
+
+async def test_a_failed_call_may_run_again_once_something_changed(cfg):
+    """m1 could never be closed: "milestone done" failed while its items were open, and after they were marked done
+    the identical call was refused as a repeat. A successful call that changes something lifts the refusal."""
+    path = "later.txt"
+
+    class StepsOnly(Scripted):                 # side calls (consult after errors) do not take the scripted steps
+        async def chat(self, messages, tools=None, **kw):
+            if not tools:
+                return ChatResponse(Message("assistant", "continue"), Usage(10, 5, 0))
+            return await super().chat(messages, tools, **kw)
+    model = StepsOnly([call("read_file", path=path), call("read_file", path=path),
+                      call("write_file", path=path, content="now it exists"), call("read_file", path=path), "完成"])
+    agent = Agent(Runtime(cfg, provider=model), session_id="changed")
+    calls = []
+    orig = agent._emit
+    agent._emit = lambda ev, data: (calls.append((ev, data)), orig(ev, data))
+    await agent.run("讀 later.txt")
+    names = {d["id"]: d["name"] for e, d in calls if e == "tool_call"}
+    res = [(names.get(d.get("id")), d) for e, d in calls if e == "tool_result"]
+    reads = [d for n, d in res if n == "read_file"]
+    writes = [d for n, d in res if n == "write_file"]
+    assert reads[0]["error"] and reads[1]["preview"].startswith("ERROR: REPEATED CALL")   # nothing changed yet
+    assert writes and not writes[0]["error"], [(n, d["preview"][:80]) for n, d in res]
+    assert not reads[-1]["error"] and "now it exists" in reads[-1]["preview"]           # runs again
+
+
+async def test_skill_view_loads_the_instructions_when_asked_again(cfg):
+    """A small model does not pass reload=true: asked again, the instructions are loaded instead of the same note."""
+    _agent, _model, results = await run(cfg, [call("skill_view", name=SKILL), call("skill_view", name=SKILL),
+                                            call("skill_view", name=SKILL), "完成"])
+    full = results[0]["preview"]
+    assert "already active" not in full
+    assert "already active" in results[1]["preview"]
+    assert "already active" not in results[2]["preview"]
+
+
+async def test_skill_instructions_compacted_away_are_loaded_again(cfg):
+    agent = Agent(Runtime(cfg, provider=Scripted([])), session_id="compact")
+    agent.ctx.state["skills_used"] = {SKILL}            # loaded earlier, then summarised away by compaction
+    from sinobee.tools.skill_tools import skill_view
+    assert "already active" not in str(skill_view(agent.ctx, SKILL))
+
+
+def test_side_calls_wait_for_a_local_model(cfg):
+    agent = Agent(Runtime(cfg, provider=Scripted([])), session_id="deadline")
+    local_model = type("M", (), {"label": "ollama/gemma4:e4b"})()
+    cloud_model = type("M", (), {"label": "anthropic/claude-sonnet-4-6"})()
+    assert agent._deadline(local_model) is None
+    assert agent._deadline(cloud_model) == 240
+
+
+def test_evidence_error_says_how_to_make_evidence():
+    from sinobee.tools import checklist_tools
+    import inspect
+    assert "write_file" in inspect.getsource(checklist_tools)

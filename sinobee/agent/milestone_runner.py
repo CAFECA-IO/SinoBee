@@ -110,7 +110,7 @@ class MilestoneRunner:
                 if len(items) >= checklist_tools.MAX_ITEMS:
                     break
                 items.append({"id": len(items) + 1, "status": "todo", "evidence": "", "updated": time.time(),
-                              "text": f"[{m['id']}] {text}", "check": "", "milestone": m["id"]})
+                              "text": f"[{m['id']}] {text}", "check": _file_check(m), "milestone": m["id"]})
         checklist_tools.save(self.agent.ctx)
 
     async def _confirm(self, stats: dict) -> None:
@@ -370,6 +370,9 @@ class MilestoneRunner:
             self.control(stats, "milestone_replanned", f"{why}：思維模型沒有給出新計畫，維持原計畫", decision="kept")
             return
         cancel = self.plan.apply_replan(data)
+        if (getattr(self.agent, "_fitness", None) or {}).get("weak"):
+            from .roles import concretize_milestones
+            concretize_milestones([m for m in self.plan.milestones if m["status"] in ("todo", "doing")])
         for mid in cancel:
             t = self.tasks.pop(mid, None)
             if t:
@@ -398,7 +401,7 @@ class MilestoneRunner:
                 for text in m["acceptance"]:
                     if len(items) < checklist_tools.MAX_ITEMS:
                         items.append({"id": len(items) + 1, "status": "todo", "evidence": "", "updated": time.time(),
-                                      "text": f"[{m['id']}] {text}", "check": "", "milestone": m["id"]})
+                                      "text": f"[{m['id']}] {text}", "check": _file_check(m), "milestone": m["id"]})
         checklist_tools.save(self.agent.ctx)
 
     async def on_final(self, stats: dict) -> str | None:
@@ -453,3 +456,9 @@ class MilestoneRunner:
             t.cancel()
         self.tasks.clear()
         self.save("done" if self.plan.finished() else status)
+
+
+def _file_check(m: dict) -> str:
+    """The checklist's "check" for a milestone whose outputs have files (roles.concretize_milestones)."""
+    files = m.get("output_files") or []
+    return f"write the result with write_file to {' / '.join(files)} and give that path as the evidence" if files else ""
