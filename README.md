@@ -372,7 +372,7 @@ docker compose up -d --build
 | 類別 | 技能 |
 |---|---|
 | 辦公文件 | `word-documents`（Word，含追蹤修訂）、`spreadsheets`（Excel，公式重算檢查）、`presentations`（PowerPoint，逐頁截圖檢查）、`pdf-documents`（讀取、合併分割、填表、HTML 轉 PDF） |
-| 呈現 | `data-visualization`（色覺安全配色、中文字型）、`frontend-design`（網頁設計，手機與深色模式檢查）、`anatomy`（3D 機構圖） |
+| 呈現 | `data-visualization`（色覺安全配色、中文字型）、`frontend-design`（網頁設計，手機與深色模式檢查）、`anatomy`（3D 機構圖）、`dimensional-drawing` / `dimensional-drawing-motion`（Apple 風格元件尺寸圖與動畫，出自 [enesozturk/dimensional-drawing](https://github.com/enesozturk/dimensional-drawing)，MIT） |
 | 研究與分析 | `web-research`、`youtube-analysis`、`engineering-feasibility`、`database-analysis` |
 | 程式 | `code-review`（找真正的缺陷與資安問題）、`code-repo-explainer` |
 | 操作 | `browser-form-filling`、`desktop-automation` |

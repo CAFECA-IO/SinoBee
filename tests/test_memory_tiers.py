@@ -253,3 +253,19 @@ def test_anatomy_is_bundled_with_its_credits(config):
     for f in ("LICENSE", "NOTICE.md", "kit/iso-kit.mjs", "scripts/capture.mjs", "references/craft.md"):
         assert (sk.path / f).exists(), f
     assert "Copyright (c) 2026 Ryan" in (sk.path / "LICENSE").read_text()
+
+
+@pytest.mark.parametrize("name", ["dimensional-drawing", "dimensional-drawing-motion"])
+def test_dimensional_drawing_is_bundled_with_its_credits(config, name):
+    """dimensional-drawing (MIT, by Enes Ozturk @enesozturk) ships built in, spec-valid, and keeps its source and author."""
+    from sinobee.skills import spec
+    rt = Runtime(config, provider=Aux([]))
+    sk = rt.skills.skills[name]
+    assert sk.trust == "builtin" and not [d for d in sk.diagnostics if "error" in str(d).lower()]
+    p = spec.parse((sk.path / "SKILL.md").read_text(encoding="utf-8"))
+    assert not p.diagnostics and not spec.validate(p.frontmatter, name)
+    assert sk.metadata["author"].startswith("Enes Ozturk")
+    assert sk.metadata["sinobee-source"] == "https://github.com/enesozturk/dimensional-drawing"
+    assert "Copyright (c) 2026 Enes Ozturk" in (sk.path / "LICENSE").read_text()
+    assert "github.com/enesozturk/dimensional-drawing" in (sk.path / "NOTICE.md").read_text()
+    assert "Source and credits" in (sk.path / "SKILL.md").read_text(encoding="utf-8")
