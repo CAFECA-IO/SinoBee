@@ -101,3 +101,19 @@ async def test_a_weak_elephant_is_consulted_with_a_brief(config):
     sent = prov.side_requests[-1]
     assert len(sent) == 1 and "RECENT STEPS" in sent[0].text() and "read_file" in sent[0].text()
     assert stats["consult_brief"] == 1
+
+
+async def test_a_local_model_runs_independent_milestones_one_after_another(config):
+    """Sub-agents in parallel would only queue for the same local model: the plan runs in order instead."""
+    _local(config)
+    config.data["agent"]["plan"] = "always"
+    plan = json.loads(PLAN)
+    plan["milestones"][1]["depends_on"] = []
+    plan["milestones"][0]["parallel"] = True        # independent research: would go to a sub-agent
+    plan["milestones"].append({"id": "m3", "title": "Final", "goal": "combine", "depends_on": ["m1", "m2"],
+                               "outputs": ["report"], "acceptance": ["combined"]})
+    prov = Local(side=[json.dumps(plan)])
+    agent = Agent(Runtime(config, provider=prov))
+    await agent.run("研究釷熔鹽堆的關鍵零部件並寫成報告")
+    ms = agent._msr.plan.milestones
+    assert not any(m["parallel"] for m in ms) and not any(m["status"] == "delegated" for m in ms)

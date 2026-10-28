@@ -149,7 +149,7 @@ class _LocalThinker:
         from sinobee import local
         from sinobee.providers.base import REASONING_EFFORT
         from sinobee.types import ChatResponse, Usage
-        self.calls.append({"max_tokens": max_tokens, "effort": REASONING_EFFORT.get(), "ctx": local.GROWN_CTX.get()})
+        self.calls.append({"max_tokens": max_tokens, "effort": REASONING_EFFORT.get(), "ctx": local.grown(self.label)})
         if len(self.calls) <= self.empties:
             return ChatResponse(Message("assistant", ""), Usage(5000, max_tokens, thinking_tokens=max_tokens), "length")
         return ChatResponse(Message("assistant", "完成"), Usage(5000, 10), "stop")
@@ -293,3 +293,32 @@ def test_cloud_models_get_every_tool(config, provider):
     agent = Agent(Runtime(config, provider=provider))
     names = {s.name for s in agent._tool_specs()}
     assert "more_tools" not in names and "memory_stats" in names
+
+
+async def test_every_model_call_tells_the_ui_to_reload_todays_tokens(config, provider):
+    """The token count at the bottom left follows a running task (usage_tick after each step), not only its end."""
+    provider.push("", [("skill_view", {"name": "web-research"})])
+    provider.push("完成")
+    agent = Agent(Runtime(config, provider=provider))
+    seen = []
+    orig = agent._emit
+    agent._emit = lambda ev, data: (seen.append(ev), orig(ev, data))
+    await agent.run("explain the repo")
+    first_tick, end = seen.index("usage_tick"), seen.index("turn_end") if "turn_end" in seen else len(seen)
+    assert first_tick < seen.index("tool_call") < end
+
+
+async def test_tasks_on_the_same_local_model_share_one_window(config, monkeypatch):
+    """Two tasks at once on one model: the window one of them enlarged is the other's too (no Ollama reloads)."""
+    from sinobee import local
+    _local_setup(config, monkeypatch, [65536])
+    config.data["local"]["num_ctx"] = 8192
+    first = _LocalRecorder()
+    await Agent(Runtime(config, provider=first)).run("explain the repo")
+    assert first.calls[0]["ctx"] == 65536
+    second = _LocalRecorder()                       # another conversation: starts with the shared window
+    await Agent(Runtime(config, provider=second)).run("explain the repo")
+    assert second.calls[0]["ctx"] == 65536 and local.num_ctx(config, model="ollama/gemma4:e4b") == 65536
+    assert local.num_ctx(config) == 8192            # the setting itself is unchanged
+    local.set_grown("ollama/gemma4:e4b", 32768)     # never shrinks
+    assert local.grown("ollama/gemma4:e4b") == 65536

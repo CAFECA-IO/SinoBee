@@ -104,6 +104,33 @@ def _gateway_timeout(err: ProviderError) -> bool:
 # loop around a step (proposal U3: after a reply was cut off at the output limit, thinking is turned down so the
 # answer fits); providers that support it send it, the others ignore it.
 REASONING_EFFORT: contextvars.ContextVar = contextvars.ContextVar("reasoning_effort", default=None)
+# fn(output_tokens_so_far, done) set by a running task: a streamed answer reports how far it is (about once a
+# second) so the UI's token count moves while a local model thinks for minutes, and once more when it ends
+STREAM_PROGRESS: contextvars.ContextVar = contextvars.ContextVar("stream_progress", default=None)
+
+
+class StreamMeter:
+    """Counts streamed chunks (about one token each) and reports them through STREAM_PROGRESS, at most once a second."""
+
+    def __init__(self):
+        import time as _t
+        self._t, self.n, self.fn, self.last = _t, 0, STREAM_PROGRESS.get(), 0.0
+
+    def add(self, k: int = 1) -> None:
+        self.n += k
+        if self.fn and self._t.monotonic() - self.last >= 1.0:
+            self.last = self._t.monotonic()
+            try:
+                self.fn(self.n, False)
+            except Exception:  # noqa: BLE001 - progress must never break a call
+                pass
+
+    def done(self) -> None:
+        if self.fn:
+            try:
+                self.fn(self.n, True)
+            except Exception:  # noqa: BLE001
+                pass
 # how much a step may think when the agent turns it down: "medium" → "low" → "none" (see agent/loop.py)
 EFFORT_LEVELS = ("medium", "low", "none")
 # what the SinoBee.ai relay passes on beyond the basics (x-sinobee-relay-features), seen on its answers

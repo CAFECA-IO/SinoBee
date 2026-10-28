@@ -164,11 +164,16 @@ def test_ollama_streams_so_a_long_think_has_no_overall_time_limit(monkeypatch, t
                               headers={"content-type": "application/x-ndjson"})
     real = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    from sinobee.providers.base import STREAM_PROGRESS
+    progress = []
     tok = local.GROWN_CTX.set(65536)
+    ptok = STREAM_PROGRESS.set(lambda n, done: progress.append((n, done)))
     try:
         r = asyncio.run(p.chat([Message("user", "hi")], [], max_tokens=10 ** 6))
     finally:
         local.GROWN_CTX.reset(tok)
+        STREAM_PROGRESS.reset(ptok)
+    assert progress[0] == (1, False) and progress[-1] == (4, True)      # live count, then the end of the answer
     assert seen["payload"]["stream"] is True and seen["payload"]["options"]["num_ctx"] == 65536
     assert 60000 < seen["payload"]["options"]["num_predict"] < 65536
     assert r.message.text() == "答案" and r.message.tool_calls[0].name == "shell"
@@ -240,7 +245,7 @@ def test_status_assembly(monkeypatch, tmp_path):
 
 def test_agent_context_budget_shrinks_for_local(monkeypatch, tmp_path):
     from sinobee.agent.loop import Agent
-    monkeypatch.setattr(local, "num_ctx", lambda cfg, b=None: 16384)
+    monkeypatch.setattr(local, "num_ctx", lambda cfg, b=None, model=None: 16384)
 
     class Dummy:
         config = Config({"model": {"default": "ollama/qwen3:8b"}}, tmp_path)

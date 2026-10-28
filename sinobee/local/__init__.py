@@ -15,9 +15,32 @@ from .ollama import LocalRuntime, Ollama, OllamaError, location, resolve_url
 
 _SHOW_CACHE: dict[str, dict] = {}
 
-# A larger window the agent asked for while a task ran (larger_ctx): an answer plus its hidden thinking did not fit
-# beside the prompt. Set per task (Agent.run), so the setting and other tasks keep their own window.
+# The larger window a task asked for (larger_ctx): its prompt, or an answer with its hidden thinking, did not fit.
+# One value per model for the whole process, only ever growing: tasks that run at the same time on the same model
+# send the same num_ctx - a different num_ctx makes Ollama load the model again, so two tasks taking turns with 16k
+# and 32k reloaded it on every step. GROWN_CTX (per task) is kept for callers that set a window for one task only.
 GROWN_CTX: contextvars.ContextVar = contextvars.ContextVar("grown_num_ctx", default=None)
+_GROWN: dict[str, int] = {}
+
+
+def _model_key(model: str | None) -> str:
+    return full_tag(str(model).split("/", 1)[-1]) if model else ""
+
+
+def grown(model: str | None) -> int:
+    """The window enlarged for this model (0: none), or for this task (GROWN_CTX)."""
+    return max(_GROWN.get(_model_key(model), 0) if model else 0, GROWN_CTX.get() or 0)
+
+
+def set_grown(model: str, n: int) -> int:
+    """Enlarge the shared window of this model (never shrinks it); returns the window now in use."""
+    k = _model_key(model)
+    _GROWN[k] = max(_GROWN.get(k, 0), int(n))
+    return _GROWN[k]
+
+
+def reset_grown() -> None:
+    _GROWN.clear()
 CTX_STEPS = (16384, 32768, 65536, 131072, 262144)
 
 
@@ -48,14 +71,14 @@ def model_budget(config, hw: dict | None = None) -> dict:
     return budget(hw, config.get("local.memory_gb"))
 
 
-def num_ctx(config, b: dict | None = None) -> int:
+def num_ctx(config, b: dict | None = None, model: str | None = None) -> int:
     v = config.get("local.num_ctx", "auto")
     try:
         if v not in (None, "", "auto"):
-            return max(2048, int(v), GROWN_CTX.get() or 0)
+            return max(2048, int(v), grown(model))
     except (TypeError, ValueError):
         pass
-    return max(auto_num_ctx(b or model_budget(config)), GROWN_CTX.get() or 0)
+    return max(auto_num_ctx(b or model_budget(config)), grown(model))
 
 
 def _params_b(tag: str, params: str | None) -> float:

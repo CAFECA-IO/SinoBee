@@ -132,13 +132,7 @@ async def skill_run(ctx: ToolContext, name: str, script: str = "", args: str = "
             target = (s.path / s.entry).resolve()
             script = s.entry
         else:
-            scripts = sorted(f for f in s.files() if f.startswith("scripts/") and
-                             f.rsplit(".", 1)[-1] in ("py", "sh", "js"))
-            return ToolResult.error(
-                f"script {script!r} not found in skill {name}. `script` must be one of the skill's own scripts "
-                f"({', '.join(scripts) or 'none'}); put the command and file paths in `args`, e.g. "
-                f"skill_run(name=\"{name}\", script=\"{scripts[0] if scripts else 'scripts/<file>.py'}\", "
-                f"args=\"<command> <folder>\")")
+            return ToolResult.error(_no_script(ctx, s, name, script))
     from ..sandbox import executor_of
     contained = executor_of(ctx).kind == "sandbox"      # a script in the sandbox cannot reach this computer
     if pol.scripts == "confirm" and ctx.config.get("permissions.approval") != "auto" and not contained:
@@ -156,7 +150,8 @@ async def skill_run(ctx: ToolContext, name: str, script: str = "", args: str = "
             f"- or install SinoBee with the office extra: pip install \"sinobee[office]\"")
     from ..sandbox import executor_of
     ex = executor_of(ctx)
-    runner = {"py": shlex.quote(ex.python()), "sh": "bash", "js": "node"}.get(target.suffix.lstrip("."), "")
+    runner = {"py": shlex.quote(ex.python()), "sh": "bash", "js": "node", "mjs": "node", "cjs": "node"}.get(
+        target.suffix.lstrip("."), "")
     cmd = f"{runner} {shlex.quote(ex.paths.to_exec(target))} {args}".strip()
     ctx.state.setdefault("skills_used", set()).add(name)
     out = await shell(ctx, cmd, timeout=timeout, cwd=None)
@@ -164,6 +159,36 @@ async def skill_run(ctx: ToolContext, name: str, script: str = "", args: str = "
     if m and m.group(1) != "0":
         return ToolResult(f"ERROR: {script} exited with code {m.group(1)}\n{out}", True)
     return out
+
+
+RUNNABLE = ("py", "sh", "js", "mjs", "cjs")      # skill_run knows how to start these (node for .js/.mjs/.cjs)
+
+
+def _no_script(ctx, s, name: str, script: str) -> str:
+    """The error for a skill_run that names no script (or a missing one). A skill without an entry script is a
+    procedure, not a program: anatomy has no "run me on this input" - the model writes its own build script with the
+    skill's kit and runs it with shell. Saying "use scripts/<file>.py" there sent a small model the wrong way."""
+    scripts = sorted(f for f in s.files() if f.startswith("scripts/") and f.rsplit(".", 1)[-1] in RUNNABLE
+                     and ".test." not in f)
+    try:
+        from ..sandbox import executor_of
+        where = executor_of(ctx).paths.to_exec(s.path.resolve())
+    except Exception:  # noqa: BLE001
+        where = str(s.path)
+    if not script:
+        msg = (f"skill {name} has no entry script: it cannot be run on an input. It is a procedure - follow the "
+               f"steps in its instructions (call skill_view(name=\"{name}\") if they are not in view): write the files "
+               f"it asks for in the workspace with write_file, and run the commands it names with shell. Its files "
+               f"are in {where}")
+        if scripts:
+            msg += (f". Its own scripts, run with skill_run(name=\"{name}\", script=..., args=...): "
+                    f"{', '.join(scripts[:15])}" + (f" and {len(scripts) - 15} more" if len(scripts) > 15 else ""))
+        return msg
+    return (f"script {script!r} not found in skill {name}. "
+            + (f"Its scripts: {', '.join(scripts[:15])}; put the command and file paths in `args`, e.g. "
+               f"skill_run(name=\"{name}\", script=\"{scripts[0]}\", args=\"<command> <file>\")" if scripts else
+               f"It has no scripts to run: follow its instructions, write files with write_file and run commands "
+               f"with shell (its files are in {where})."))
 
 
 def missing_python(spec) -> list[str]:

@@ -424,6 +424,11 @@ class Agent:
             except Exception:
                 log.exception("emit failed")
 
+    def _stream_progress(self, out_tokens: int, done: bool) -> None:
+        """A streamed model call of this task: usage_live while it runs (tokens so far), usage_tick when it ended
+        (its usage is recorded - the UI reloads today's totals)."""
+        self._emit("usage_tick" if done else "usage_live", {"out": int(out_tokens)})
+
     def cancel(self) -> None:
         self._cancel = True
 
@@ -1237,13 +1242,13 @@ class Agent:
         t0 = time.time()
         with scope(self.session_id, "agent") as usage_scope:
             tok = routing.HINT.set(hint)
-            # a window enlarged for this session (local.larger_ctx) holds for its next tasks too, and only for them
-            ctx_tok = local.GROWN_CTX.set(getattr(self, "_grown_ctx", None) or local.GROWN_CTX.get())
+            from ..providers.base import STREAM_PROGRESS
+            prog_tok = STREAM_PROGRESS.set(self._stream_progress)    # the UI's token count follows a long answer
             try:
                 out = await self._run(user_input, usage_scope)
             finally:
                 routing.HINT.reset(tok)
-                local.GROWN_CTX.reset(ctx_tok)
+                STREAM_PROGRESS.reset(prog_tok)
                 if self.depth == 0 and self.ctx.state.get("task_secrets"):    # stopped or failed: keys go back too
                     self._take_back_keys()
                 if self.depth == 0 and self.ctx.state.get("host_screen"):
@@ -1629,6 +1634,7 @@ class Agent:
                 if self._quota_once(qe):
                     self._emit("quota", {**qe, "stopped": False, "answered_by": resp.model})
             self.usage.add(resp.usage)
+            self._emit("usage_tick", {"out": int(getattr(resp.usage, "output_tokens", 0) or 0)})
             msg = resp.message
             if effort_token is not None:
                 REASONING_EFFORT.reset(effort_token)
@@ -2160,7 +2166,7 @@ class Agent:
         if REASONING_MODEL_RE.search(label):
             n = max(n, int(self.config.get("model.reasoning_max_tokens", 16384)))
         if local.is_local_spec(label):
-            return min(n, max(1024, local.num_ctx(self.config) // 4))
+            return min(n, max(1024, local.num_ctx(self.config, model=label) // 4))
         from ..providers import limits
         return limits.default_output(self.config, label, n)
 
@@ -2172,7 +2178,7 @@ class Agent:
         request now has more room."""
         if not local.is_local_spec(self._model_label()) or not self.config.get("local.grow_ctx", True):
             return False
-        window = local.num_ctx(self.config)
+        window = local.num_ctx(self.config, model=self._model_label())
         if not getattr(self, "_grow_exhausted", False):
             # just enough not to compact at once (SinoBee compacts at 80 % of the budget); grows again step by step
             # as the task's history grows, so the window - and its memory - stays no larger than the task needs
@@ -2183,8 +2189,7 @@ class Agent:
                 log.debug("larger_ctx failed", exc_info=True)
                 n = None
             if n:
-                self._grown_ctx = n
-                local.GROWN_CTX.set(n)
+                self._grown_ctx = local.set_grown(self._model_label(), n)
                 stats.setdefault("ctx_grown", []).append({"step": stats.get("step"), "from": window, "to": n})
                 self._emit("status", {"message": f"本地模型的 context window {window:,} 放不下這個任務（約 {need:,} tokens）"
                                                  f"，擴大到 {n:,}（Ollama 會重新載入模型）"})
@@ -2223,8 +2228,7 @@ class Agent:
             n = None
         if not n:
             return max_tokens, ""
-        self._grown_ctx = n
-        local.GROWN_CTX.set(n)
+        self._grown_ctx = local.set_grown(label, n)
         new = n - prompt - max(1024, n // 50)
         if new <= max_tokens:
             return max_tokens, ""

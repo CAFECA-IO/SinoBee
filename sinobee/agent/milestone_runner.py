@@ -87,8 +87,23 @@ class MilestoneRunner:
             return False
         return bool(self.plan.data.get("ask_user")) or self.plan.uses_subagents()
 
+    def _sequential_if_local(self, stats: dict | None = None) -> None:
+        """A local execution model runs the milestones one after another: sub-agents in parallel would only queue
+        for the same model (one Ollama, one GPU) and each hold its own context in memory - three agents on one
+        gemma4:e4b made every step slower."""
+        if not self.agent.rt.is_local(getattr(self.agent, "_prov", None) or self.agent.rt.provider):
+            return
+        par = [m["id"] for m in self.plan.milestones if m.get("parallel") and m["status"] in ("todo", "doing")]
+        for m in self.plan.milestones:
+            if m["id"] in par:
+                m["parallel"] = False
+        if par and stats is not None:
+            self.control(stats, "milestone_sequential",
+                         f"本地模型：{', '.join(par)} 改為依序執行，不交給子代理同時跑（共用同一個模型只會互相排隊）")
+
     async def begin(self, stats: dict, resumed: bool = False) -> None:
         a = self.agent
+        self._sequential_if_local(stats)
         if not resumed:
             M.write_facts(self.store, self.scope, self.plan.data.get("facts") or {}, "plan")
             self._checklist()
@@ -297,8 +312,7 @@ class MilestoneRunner:
         left = [i for i in checklist_tools.open_items(checklist_tools.get(self.agent.ctx))
                 if i.get("milestone") == cur["id"]]
         if left:
-            return ("ERROR: acceptance items of this milestone are still open - finish and mark them done with "
-                    "evidence first: " + "; ".join(f"#{i['id']} {i['text']}" for i in left))
+            return _open_items_error(left, cur, outputs)
         if not str(summary or "").strip():
             return "ERROR: give a summary: what was done, the results and what later milestones need."
         self.agent.ctx.state["milestone_done"] = (cur["id"], str(summary)[:2000],
@@ -370,6 +384,7 @@ class MilestoneRunner:
             self.control(stats, "milestone_replanned", f"{why}：思維模型沒有給出新計畫，維持原計畫", decision="kept")
             return
         cancel = self.plan.apply_replan(data)
+        self._sequential_if_local(stats)
         if (getattr(self.agent, "_fitness", None) or {}).get("weak"):
             from .roles import concretize_milestones
             concretize_milestones([m for m in self.plan.milestones if m["status"] in ("todo", "doing")])
@@ -462,3 +477,17 @@ def _file_check(m: dict) -> str:
     """The checklist's "check" for a milestone whose outputs have files (roles.concretize_milestones)."""
     files = m.get("output_files") or []
     return f"write the result with write_file to {' / '.join(files)} and give that path as the evidence" if files else ""
+
+
+def _open_items_error(left: list[dict], m: dict, outputs) -> str:
+    """milestone done refused while items are open - with the exact calls to make. A small model marked item #5 done
+    three times and never #6, although the message named #6: the call to copy works better than a description."""
+    from .roles import PATH_RE
+    path = next((p.group(0) for p in (PATH_RE.search(str(o)) for o in (outputs or [])) if p), None) \
+        or next(iter(m.get("output_files") or []), None) or "<path of the file that shows it>"
+    calls = "\n".join(f'task_checklist(action="update", id={i["id"]}, status="done", evidence="{path}")'
+                      for i in left)
+    return ("ERROR: acceptance items of this milestone are still open: "
+            + "; ".join(f"#{i['id']} {i['text']}" for i in left)
+            + f". Mark EACH of them done with its evidence (a file that exists, a URL or tool output) - call:\n{calls}\n"
+            "then call milestone(action=\"done\") again. If an item is not true yet, do that work first.")

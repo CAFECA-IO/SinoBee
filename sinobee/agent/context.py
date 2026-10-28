@@ -106,7 +106,7 @@ def context_window(config, model_spec: str | None = None) -> tuple[int, str]:
         pass
     from .. import local
     if local.is_local_spec(spec):
-        return local.num_ctx(config), "local"
+        return local.num_ctx(config, model=spec), "local"
     known = known_window(spec)
     return (known, "model") if known else (DEFAULT_WINDOW, "default")
 

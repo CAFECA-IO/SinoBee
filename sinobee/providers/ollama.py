@@ -89,7 +89,7 @@ class OllamaProvider(Provider):
         from .. import local
         from ..agent.context import estimate_tokens
         # the window: the configured one, or the larger one the agent asked for during this task (local.larger_ctx)
-        num_ctx = max(self.num_ctx, local.GROWN_CTX.get() or 0)
+        num_ctx = max(self.num_ctx, local.grown(self.model))
         # the answer (with its hidden thinking) must fit beside the prompt, or Ollama drops the start of the prompt
         room = num_ctx - estimate_tokens(messages, tools) - 256
         opts: dict = {"num_ctx": num_ctx, "num_predict": max(256, min(max_tokens, room))}
@@ -153,8 +153,10 @@ class OllamaProvider(Provider):
         import json as _json
 
         import httpx
+        from .base import StreamMeter
         out: dict = {}
         content, thinking, calls = [], [], []
+        meter = StreamMeter()
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, connect=30.0)) as client:
             async with client.stream("POST", url, json=payload, headers=self._headers()) as r:
                 if r.status_code >= 400:
@@ -170,11 +172,14 @@ class OllamaProvider(Provider):
                     if ev.get("error"):
                         raise ProviderError(f"{self.label}: {ev['error']}", 500, False)
                     m = ev.get("message") or {}
+                    if m.get("content") or m.get("thinking") or m.get("tool_calls"):
+                        meter.add()
                     content.append(m.get("content") or "")
                     thinking.append(m.get("thinking") or "")
                     calls.extend(m.get("tool_calls") or [])
                     if ev.get("done"):
                         out = ev
+        meter.done()
         out["message"] = {"role": "assistant", "content": "".join(content), "thinking": "".join(thinking),
                           "tool_calls": calls}
         return out

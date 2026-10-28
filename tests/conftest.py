@@ -43,6 +43,15 @@ class ScriptedProvider:
         raise RuntimeError("no embeddings")
 
 
+@pytest.fixture(autouse=True)
+def _fresh_local_windows():
+    """local.set_grown is process-wide (one window per model): no test sees another test's window."""
+    from sinobee import local
+    local.reset_grown()
+    yield
+    local.reset_grown()
+
+
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("SINOBEE_HOME", str(tmp_path / "home"))

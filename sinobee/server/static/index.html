@@ -2321,7 +2321,25 @@ function askDone(d, ev){
   a.innerHTML = ev.timeout ? '沒有收到回覆，SinoBee 以建議做法繼續，之後可以再改。'
     : `${ic('check')}<span>${picked.length ? '你選了 <b>' + picked.map(esc).join('、') + '</b>' : '你的回答'}${ev.text ? (picked.length ? '：' : '：') + esc(ev.text) : ''}</span>`;
 }
+/** today's tokens while a task runs: usage_live = output tokens of the answer being streamed (a local model may think
+ *  for minutes), usage_tick = a model call ended and its usage is recorded - reload today's totals (at most every 2 s) */
+const LIVE_TOK = {};
+let statusSoonT = null, statusLast = 0;
+const liveTok = () => Object.values(LIVE_TOK).reduce((a, b) => a + (+b || 0), 0);
+function statusSoon(){
+  if (statusSoonT) return;
+  const wait = Math.max(800, 2000 - (Date.now() - statusLast));       // after the call is recorded; never faster than 2 s
+  statusSoonT = setTimeout(async () => { statusSoonT = null; statusLast = Date.now();
+    try { await refreshStatus(false); } catch {} }, wait);
+}
+function paintLiveTok(){
+  const el = $('#quotaBar .qx-s'), o = STATUS?.today_own;
+  if (!el || !o || STATUS.mode === 'subscription') return;
+  if (el.closest('.qx.loc')) el.textContent = `今日 ${fmtTok((o.local_tokens || 0) + liveTok())} tokens`;
+}
 function handle(ev, replay = false){
+  if (ev.type === 'usage_live') { if (!replay) { LIVE_TOK[ev.session_id] = ev.out || 0; paintLiveTok(); } return; }
+  if (ev.type === 'usage_tick') { if (!replay) { delete LIVE_TOK[ev.session_id]; statusSoon(); } return; }
   if (ev.type === 'local_progress' || ev.type === 'local_changed') { onLocalEvent(ev); return; }
   if (ev.type === 'work') { onWorkEvent(ev); return; }
   if (/^(campaign|suite)_/.test(ev.type || '')) { if (!replay) onEvalEvent(ev); return; }
@@ -2427,7 +2445,7 @@ function handle(ev, replay = false){
     case 'failure_diagnosed': if (ev.diagnosis?.summary) add(`ⓘ 失敗診斷（${esc(FAIL_CAT[ev.diagnosis.category] || ev.diagnosis.category || '')}${ev.diagnosis.model === 'rules' ? '・依紀錄判斷' : ''}）：${esc(ev.diagnosis.summary)}${ev.diagnosis.retry_advice ? `<small style="display:block;color:var(--muted)">${esc(ev.diagnosis.retry_advice)}</small>` : ''}`, 'note keep'); break;
     case 'qa': add(`<b>成果檢查發現 ${ev.issues.length} 個問題</b><ul>${ev.issues.slice(0, 8).map(i => `<li>${esc(i.name)}：${esc(i.problem)}${i.detail ? `<small>${esc(i.detail)}</small>` : ''}</li>`).join('')}</ul>`, 'note qacard'); break;
     case 'review': if (ev.verdict === 'revise') add(`<b>驗收審查：需要修正</b>${ev.summary ? `<div>${esc(ev.summary)}</div>` : ''}<ul>${(ev.problems || []).slice(0, 8).map(p => `<li>${esc(p.what)}${p.fix ? `<small>→ ${esc(p.fix)}</small>` : ''}</li>`).join('')}</ul>`, 'note qacard'); break;
-    case 'turn_end': {
+    case 'turn_end': { delete LIVE_TOK[ev.session_id];
       procClose(); document.querySelectorAll('#chat .cklist[data-live]').forEach(x => { x.removeAttribute('data-live'); x.querySelectorAll('.ckl-b .spin').forEach(sp => { sp.className = 'ckl-stop'; sp.title = '未完成：任務已停止'; }); });
       // mark any tool card still spinning (e.g. force-stopped) as interrupted
       document.querySelectorAll('details.tool.pending').forEach(d => { d.classList.remove('pending'); d.querySelector('.st').textContent = '–'; });
@@ -4992,7 +5010,7 @@ function modeLine(mode){
     cls = 'pts'; title = '平台點數'; stat = b.points != null ? `${Number(b.points).toLocaleString()} 點` : '扣點中';
     more = `<div class="qx-foot">依官方牌價扣點，1 點 = NT$1</div>${back}`;
   } else if (mode === 'local' || (mode === 'own' && STATUS.fallback_local && b.source === 'own')) {
-    cls = 'loc'; title = '本地模型'; stat = `今日 ${fmtTok(o.local_tokens || 0)} tokens`;
+    cls = 'loc'; title = '本地模型'; stat = `今日 ${fmtTok((o.local_tokens || 0) + liveTok())} tokens`;
     more = `${models}<div class="qx-foot" id="footLocal"></div>${back}`;
   } else {
     cls = 'own'; title = b.source === 'own' ? '自備金鑰與本地' : '自備金鑰'; stat = `今日 ${fmtCost(o.cost_usd || 0)}`;

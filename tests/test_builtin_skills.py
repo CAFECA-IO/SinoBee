@@ -341,3 +341,37 @@ def test_word_check_outside_sinobee_reads_table_text(tmp_path, monkeypatch):
     monkeypatch.setattr(builtins, "__import__", no_sinobee)
     text = mod._text(docx)
     assert "功率 | 2 MWt" in text and len("".join(text.split())) >= 20
+
+
+def test_a_procedure_skill_says_how_to_use_it_instead_of_a_python_script(config):
+    """anatomy has no entry script: "run it on my notes" must not be answered with "use scripts/<file>.py"."""
+    from sinobee.agent import Runtime
+    rt = Runtime(config)
+    ctx = ToolContext(config=config, skills=rt.skills)
+    r = asyncio.run(REGISTRY.dispatch(ToolCall("1", "skill_run", {"name": "anatomy", "args": "/workspace/notes.md"}),
+                                      ctx))
+    assert r.is_error and "no entry script" in r.content and "shell" in r.content
+    assert "scripts/lines.mjs" in r.content and ".py" not in r.content and ".test." not in r.content
+
+
+def test_mjs_scripts_of_a_skill_run_with_node(config):
+    import shutil
+    if not shutil.which("node"):
+        pytest.skip("node is not installed")
+    from sinobee.agent import Runtime
+    rt = Runtime(config)
+    ctx = ToolContext(config=config, skills=rt.skills)
+    r = asyncio.run(REGISTRY.dispatch(ToolCall("1", "skill_run", {"name": "anatomy", "script": "scripts/nope.mjs"}),
+                                      ctx))
+    assert r.is_error and "scripts/lines.mjs" in r.content            # the real scripts are listed
+    r = asyncio.run(REGISTRY.dispatch(ToolCall("2", "skill_run", {"name": "anatomy", "script": "kit/iso-kit.mjs"}),
+                                      ctx))
+    assert not r.is_error, r.content                                   # an ES module, started with node
+
+
+def test_milestone_done_refused_gives_the_calls_to_make():
+    from sinobee.agent.milestone_runner import _open_items_error
+    msg = _open_items_error([{"id": 6, "text": "[m1] challenges identified"}], {"id": "m1", "output_files": []},
+                            ["/workspace/SMR_Technical_Fact_Sheet.md"])
+    assert 'task_checklist(action="update", id=6, status="done", evidence="/workspace/SMR_Technical_Fact_Sheet.md")' in msg
+    assert "#6 [m1] challenges identified" in msg

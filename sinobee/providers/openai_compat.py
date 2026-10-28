@@ -117,10 +117,14 @@ class OpenAICompatProvider(Provider):
         self.stream = stream
 
     async def _read_stream(self, r) -> dict:
+        from .base import StreamMeter
         content: list[str] = []
         calls: dict[int, dict] = {}
         finish, model, usage = "", self.model, {}
+        meter = StreamMeter()
         async for ev in self._sse(r):
+            if ev.get("choices"):
+                meter.add()
             if ev.get("error"):
                 err = ev["error"] if isinstance(ev["error"], dict) else {"message": str(ev["error"])}
                 raise ProviderError(f"{self.label} stream error: {err.get('message', '')}", 500, True)
@@ -145,6 +149,7 @@ class OpenAICompatProvider(Provider):
                     c["extra"] = tc.get("extra_content") or c["extra"]
                 if ch.get("finish_reason"):
                     finish = ch["finish_reason"]
+        meter.done()
         if finish == "quota":                     # the relay ended the answer: the plan's window is used up
             from .base import QuotaExceeded
             raise QuotaExceeded(f"{self.label} SinoBee.ai quota used up while answering", "6h")
