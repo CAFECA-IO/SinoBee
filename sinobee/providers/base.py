@@ -174,6 +174,36 @@ def is_timeout(err) -> bool:
     return bool(re.search(r"timed out|ReadTimeout|HTTP 5(04|24)\b|gateway time-?out", str(err), re.I))
 
 
+# a call whose connection died (computer asleep, network gone) waits this long in total for the network to come
+# back before it fails (SINOBEE_NETWORK_WAIT_S); the wall clock running ahead of the monotonic clock by more than
+# SLEEP_GAP_S during a call means the computer slept (macOS: time.monotonic stops while asleep)
+SLEEP_GAP_S = 30.0
+
+
+def network_wait_s() -> float:
+    import os
+    try:
+        return max(0.0, float(os.environ.get("SINOBEE_NETWORK_WAIT_S", 900)))
+    except ValueError:
+        return 900.0
+
+
+def dropped_connection(err, elapsed: float, wall: float, timeout: float) -> str:
+    """Why a timeout error is really a dropped connection, or "" when it is a real timeout (the model was slow).
+    ConnectTimeout: no connection at all. A read timeout long before the configured timeout: the socket failed
+    (ETIMEDOUT after sleep or a network change is reported by Python as TimeoutError -> httpx ReadTimeout(''))."""
+    if wall - elapsed > SLEEP_GAP_S:
+        return f"the computer was asleep for {wall - elapsed:.0f}s during the call"
+    if isinstance(err, (httpx.ConnectTimeout, httpx.PoolTimeout)):
+        return "could not connect"
+    if TOO_LONG.get():
+        return ""            # right after a reply cut off at the output limit a timeout means "too long" (U4)
+    # (a read timeout within a second is not a socket giving up either - and not something a model does)
+    if isinstance(err, (httpx.ReadTimeout, httpx.WriteTimeout)) and 1.0 <= elapsed < 0.5 * float(timeout or 0):
+        return f"connection dropped after {elapsed:.0f}s (timeout {float(timeout):.0f}s)"
+    return ""
+
+
 class Provider(ABC):
     """A single (provider, model) endpoint."""
 
@@ -229,16 +259,31 @@ class Provider(ABC):
     async def _chat_retrying(self, messages, tools, temperature, max_tokens, retries, delay, timeouts, adapted,
                              attempt) -> ChatResponse:
         from . import compat
+        offline_wait = 0.0                 # seconds spent waiting for the network in this call
+        wait_budget = network_wait_s()
         while True:
+            m0, w0 = time.monotonic(), time.time()
+            network = False
             try:
                 return await self._chat(messages, tools, temperature=temperature, max_tokens=max_tokens)
             except httpx.TimeoutException as e:
-                # a request that already ran into the timeout usually does so again: retry it once, not four times
-                err: ProviderError = ProviderError(f"{self.label} timed out: {e!r}",
-                                                   retryable=timeouts == 0 and not TOO_LONG.get())
-                timeouts += 1
+                cut = dropped_connection(e, time.monotonic() - m0, time.time() - w0, self.timeout)
+                if cut:
+                    # not the model being slow: the connection died under it (the computer slept, Wi-Fi changed,
+                    # the OS gave up on the socket with ETIMEDOUT - which Python reports as a timeout). Waiting for
+                    # the network and sending the same call again is right; "write it in parts" is not.
+                    err: ProviderError = ProviderError(f"{self.label} network error: {cut} ({e!r})", retryable=True)
+                    network = True
+                else:
+                    # a request that already ran into the timeout usually does so again: retry it once, not 4 times
+                    err = ProviderError(f"{self.label} timed out: {e!r}",
+                                        retryable=timeouts == 0 and not TOO_LONG.get())
+                    timeouts += 1
             except httpx.TransportError as e:
-                err = ProviderError(f"{self.label} network error: {e!r}", retryable=True)
+                slept = time.time() - w0 - (time.monotonic() - m0) > SLEEP_GAP_S
+                err = ProviderError(f"{self.label} network error: {e!r}"
+                                    + (" - the computer was asleep" if slept else ""), retryable=True)
+                network = True
             except ProviderError as e:
                 sent = {"temperature": temperature, "reasoning_effort": REASONING_EFFORT.get(), **self.thinking_params()}
                 param = compat.rejected_param(e, {k: v for k, v in sent.items() if k not in adapted})
@@ -264,6 +309,16 @@ class Provider(ABC):
                 # retry it once, like a timeout, not four times
                 err.retryable = timeouts == 0 and not TOO_LONG.get()
                 timeouts += 1
+            if network and err.retryable and offline_wait < wait_budget:
+                # the network is gone: wait until the service can be reached again (a sleeping laptop, a Wi-Fi
+                # switch) instead of spending the retries in a few seconds and failing the whole task
+                waited = await self._wait_online(wait_budget - offline_wait)
+                offline_wait += waited
+                if waited >= 1.0:
+                    _scope_add(retry={"model": self.label, "status": err.status,
+                                      "error": f"network down {waited:.0f}s: {str(err)[:120]}"})
+                    if attempt >= retries:
+                        attempt = retries - 1        # the network came back: this attempt is not the last one
             if not err.retryable or attempt >= retries:
                 raise err
             sleep = delay * (2 ** attempt) + random.random()
@@ -271,6 +326,46 @@ class Provider(ABC):
             log.warning("%s failed (%s); retrying in %.1fs", self.label, err, sleep)
             await asyncio.sleep(sleep)
             attempt += 1
+
+    def _probe_target(self) -> tuple[str, int] | None:
+        """Where a TCP connect shows the service is reachable: the proxy when one is set, else the service's host."""
+        import os
+        from urllib.parse import urlparse
+        u = urlparse(self.base_url)
+        if not u.hostname:
+            return None
+        proxy = ""
+        if u.hostname not in ("localhost", "127.0.0.1", "::1"):
+            proxy = os.environ.get("HTTPS_PROXY" if u.scheme == "https" else "HTTP_PROXY") or \
+                os.environ.get("https_proxy" if u.scheme == "https" else "http_proxy") or os.environ.get("ALL_PROXY", "")
+        if proxy:
+            p = urlparse(proxy if "://" in proxy else "http://" + proxy)
+            if p.hostname:
+                return p.hostname, p.port or (443 if p.scheme == "https" else 80)
+        return u.hostname, u.port or (443 if u.scheme == "https" else 80)
+
+    async def _wait_online(self, budget: float) -> float:
+        """Wait (at most `budget` seconds) until the service accepts a TCP connection. Returns the seconds waited;
+        0 when it was reachable at once."""
+        target = self._probe_target()
+        if not target or budget <= 0:
+            return 0.0
+        t0 = time.monotonic()
+        pause = 5.0
+        while True:
+            try:
+                _, w = await asyncio.wait_for(asyncio.open_connection(*target), 8)
+                w.close()
+                return time.monotonic() - t0
+            except (OSError, asyncio.TimeoutError):
+                pass
+            spent = time.monotonic() - t0
+            if spent >= budget:
+                return spent
+            if spent < 2:
+                log.warning("%s: network unreachable (%s:%s); waiting up to %.0fs for it", self.label, *target, budget)
+            await asyncio.sleep(min(pause, max(0.5, budget - spent)))
+            pause = min(pause * 1.5, 30.0)
 
     async def _auth_headers(self, method: str, url: str, body: bytes) -> dict:
         if not self.auth:

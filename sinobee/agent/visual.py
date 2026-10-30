@@ -125,11 +125,42 @@ def _render_doc(path: Path) -> list[dict]:
                  "mime": "image/png"} for n, p in enumerate(pages, 1)]
 
 
+def _salvage_items(text: str) -> list[dict]:
+    """The whole items that came out of a judgment cut off (or broken) in the middle of its JSON."""
+    start = re.search(r'"items"\s*:\s*\[', text or "")
+    if not start:
+        return []
+    dec, i, out = json.JSONDecoder(), start.end(), []
+    while True:
+        j = text.find("{", i)
+        if j == -1:
+            break
+        try:
+            obj, end = dec.raw_decode(text, j)
+        except ValueError:
+            break
+        if isinstance(obj, dict):
+            out.append(obj)
+        i = end
+    return out
+
+
 def parse(text: str) -> list[dict]:
     m = re.search(r"\{[\s\S]*\}", text or "")
     if not m:
+        items = _salvage_items(text)
+        if items:
+            return items
         raise ValueError("no JSON in the visual judgment")
-    data = json.loads(m.group(0))
+    try:
+        data = json.loads(m.group(0))
+    except ValueError:
+        # a judgment cut off by the output limit, or one bad comma: keep the verdicts that are whole rather than
+        # skip the whole visual check (00935 task, 2026-10-30: "JSONDecodeError: Expecting ',' delimiter")
+        items = _salvage_items(m.group(0))
+        if items:
+            return items
+        raise
     items = data.get("items")
     if not isinstance(items, list):
         raise ValueError("visual judgment has no items")
@@ -170,7 +201,9 @@ async def judge(models: list, query: str, lang: str, shots: list[dict], deadline
     last: Exception | None = None
     for i, model in enumerate(models):
         try:
-            resp = await asyncio.wait_for(model.chat([msg], None, temperature=0, max_tokens=1500), deadline)
+            from .loop import thinking_room          # a thinking model's hidden reasoning counts against the limit
+            room = thinking_room(getattr(model, "label", ""), 1500)
+            resp = await asyncio.wait_for(model.chat([msg], None, temperature=0, max_tokens=room), deadline)
             return parse(resp.message.text())
         except Exception as e:  # noqa: BLE001
             last = e

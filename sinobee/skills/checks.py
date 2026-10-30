@@ -118,10 +118,19 @@ async def run(ctx, skill_names, paths: list[Path]) -> list[dict]:
             if not str(script).startswith(str(s.path.resolve()) + "/") or not script.is_file():
                 log.warning("skill %s declares a missing check script %s", name, parts[0])
                 break
-            args = (parts[1] if len(parts) > 1 else "").replace("{file}", shlex.quote(str(target))) \
-                .replace("{dir}", shlex.quote(str(target.parent)))
-            runner = {"py": shlex.quote(sys.executable), "sh": "bash", "js": "node"}.get(script.suffix.lstrip("."), "")
-            out = await shell(ctx, f"{runner} {shlex.quote(str(script))} {args}".strip(), timeout=180)
+            # where the check runs: in the sandbox the script, the file and Python are the sandbox's - this
+            # computer's paths and sys.executable do not exist there (exit 127: "…/.venv/bin/python3.12: No such
+            # file or directory" failed the 00935 HTML report's frontend-design check twice and ended the turn
+            # as 部分交付). skill_run already maps them the same way.
+            from ..sandbox import executor_of
+            ex = executor_of(ctx)
+            to = getattr(getattr(ex, "paths", None), "to_exec", None) or str
+            args = (parts[1] if len(parts) > 1 else "").replace("{file}", shlex.quote(to(target))) \
+                .replace("{dir}", shlex.quote(to(target.parent)))
+            py = ex.python() if hasattr(ex, "python") else sys.executable
+            runner = {"py": shlex.quote(py), "sh": "bash", "js": "node", "mjs": "node"}.get(
+                script.suffix.lstrip("."), "")
+            out = await shell(ctx, f"{runner} {shlex.quote(to(script))} {args}".strip(), timeout=180)
             m = re.match(r"\[exit (-?\d+)", out)
             code = int(m.group(1)) if m else 0
             problems = parse(code, out)

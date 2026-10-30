@@ -42,7 +42,12 @@ def settle(config, conversation: str, legacy: bool) -> str:
     data = convconf.load(config, conversation)
     if data.get("workspace") in MODES:
         return data["workspace"]
-    chosen = "shared" if legacy else "own"
+    # a conversation whose own folder already exists has been using it (its earlier turn, its sub-agents)
+    own = Path(config.workspace) / "conversations"
+    from .manager import safe
+    d = own / safe(conversation or "default")
+    has_own = d.is_dir() and any(d.iterdir())
+    chosen = "shared" if legacy and not has_own else "own"
     convconf.update(config, conversation, lambda d: d.__setitem__("workspace", chosen))
     return chosen
 

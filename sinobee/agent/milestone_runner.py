@@ -11,6 +11,7 @@ The agent loop calls the hooks:
 from __future__ import annotations
 
 import asyncio
+import re
 import logging
 import time
 
@@ -173,14 +174,14 @@ class MilestoneRunner:
     # ------------------------------------------------------------------ sub-agents
     def _delegate(self, m: dict, stats: dict) -> None:
         from ..work.agents import ROLES, run_subagent
-        from ..work.hub import get_hub
+        from ..work.hub import get_hub, original_request
         a = self.agent
         m["status"] = "delegated"
         m["started"] = time.time()
         facts = self.facts()
         done = [x for x in self.plan.milestones if x["status"] == "done"]
         context = "\n".join(
-            [f"This is milestone {m['id']} of a larger task: {self.query[:1500]}",
+            [f"This is milestone {m['id']} of a larger task: {original_request(self.query)[:1500]}",
              "Acceptance: " + "; ".join(m["acceptance"]) if m["acceptance"] else "",
              "Expected outputs: " + "; ".join(m["outputs"]) if m["outputs"] else "",
              ("Shared facts - use these values exactly; if you find a value must differ, write it with "
@@ -188,7 +189,10 @@ class MilestoneRunner:
               "coordinator decides):\n" + "\n".join(f"- {k}: {v}" for k, v in facts.items())) if facts else
              "Record values other parts must reuse with board_write(kind='fact', key=<name>, content=<value>).",
              ("Finished milestones:\n" + "\n".join(f"- {x['id']} {x['title']}: {x['summary'][:300]}" for x in done))
-             if done else ""])
+             if done else "",
+             ("An earlier sub-agent worked on this milestone and stopped on a temporary error (network/model service), "
+              "not because of the work: look at what it already left in /workspace and on the board, and continue "
+              "from there instead of starting over. " + m["previous_attempt"]) if m.get("previous_attempt") else ""])
         spec = ROLES.get(m["role"]) or ROLES["general"]
         limit = max(spec["iterations"], 3 * m["estimate_steps"])
 
@@ -235,6 +239,16 @@ class MilestoneRunner:
                 m["status"] = "done"
                 m["summary"] = (res.get("result") or "")[:1500]
                 self.control(stats, "milestone_done", f"子代理完成 {mid} {m['title']}")
+            elif _transient_stop(res) and not m.get("redelegated"):
+                # the sub-agent stopped on the network or the model service (a sleeping laptop, a dropped connection),
+                # not on the work itself: give the milestone to a new sub-agent once, in parallel as before, told
+                # where the first one got to - taking it over made the main agent redo it alone, sequentially
+                m["redelegated"] = 1
+                m["status"] = "todo"
+                m["previous_attempt"] = (f"子代理 {res.get('session_id') or ''} 因暫時性錯誤中斷："
+                                         f"{(res.get('result') or '')[:300]}")
+                self.control(stats, "milestone_redelegated",
+                             f"子代理在 {mid} 因暫時性錯誤（網路或模型服務）中斷，重新交給新的子代理一次")
             else:
                 # the coordinator takes it over instead of failing the whole task
                 m["status"] = "todo"
@@ -471,6 +485,15 @@ class MilestoneRunner:
             t.cancel()
         self.tasks.clear()
         self.save("done" if self.plan.finished() else status)
+
+
+TRANSIENT_STOP = re.compile(r"連不到模型服務|連線中斷|進入睡眠|沒有回完|暫時故障|network error|timed out|Timeout|"
+                            r"HTTP 5\d\d|overloaded|rate.?limit", re.I)
+
+
+def _transient_stop(res: dict) -> bool:
+    """A sub-agent that ended on the network or the model service rather than on its work."""
+    return res.get("status") == "error" and bool(TRANSIENT_STOP.search(str(res.get("result") or "")))
 
 
 def _file_check(m: dict) -> str:

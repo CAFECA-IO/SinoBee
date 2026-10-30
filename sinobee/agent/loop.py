@@ -58,8 +58,11 @@ Do this:
    material in references/ and helpers in scripts/ with skill_write_file.
 5. Reply with the skill name, scope and a 2-line summary of when it will be used."""
 
+# Claude 4.6+ (and 5.x, fable) think adaptively by default and hide it (providers/anthropic.py thinking_params): a
+# 1400-token consult came back as nothing but its thinking - "思維模型 anthropic/claude-opus-5-5：" with no advice,
+# every consult of the 00935 task (2026-10-30), and the 400-token budget check likewise
 REASONING_MODEL_RE = re.compile(r"(^|/)(o\d|gpt-5|gemini-(2\.5|[3-9])|gemini-[\w.-]*latest|.*thinking|.*reasoner|deepseek-r|"
-                                r"qwq|.*-r1)", re.I)
+                                r"qwq|.*-r1|claude-fable|claude-(?:opus|sonnet|haiku)-(?:4[-.][6-9]|[5-9]))", re.I)
 TRUNCATED_NUDGE = ("[SinoBee notice] Your previous reply ran out of output tokens (finish_reason=length) before any "
                    "tool call or text came out: the budget went to thinking and/or one very large tool argument. Do "
                    "not write a large file in one call. Write a short skeleton with write_file first, then add one "
@@ -89,6 +92,11 @@ def size_reminder(msg, resp, max_tokens: int) -> str | None:
 
 
 THINKING_FLOOR = 8192
+# appended to every check that sends the work back before it may end: the answer after the fixes REPLACES the one the
+# user would have read. The 00935 report's whole answer became "檢查列出的問題都已修好 ..." - a table of CSV headers and
+# removed web pages, addressed to the checker - with no word on the analysis itself.
+ANSWER_FOR_USER = ("\n\n（修好之後你的最後回答會直接給使用者看，並取代你上一個回答：請重新寫完整的交付說明——成果是什麼、"
+                   "檔案在哪裡、主要結論與數字、還沒查證的限制；修正了哪些檢查問題最多用一兩句帶過，不要只回報修正內容。）")
 
 
 def thinking_room(label: str, max_tokens: int) -> int:
@@ -938,13 +946,24 @@ class Agent:
         file and page checks, the user's rules, skill checks, the user's language); then, when those pass, a vision
         model's judgment of screenshots of every page, drawing and image it made."""
         open_items = checklist_tools.open_items(checklist_tools.get(self.ctx))
+        if open_items and "task_checklist" not in self.tool_names:
+            # a sub-agent without the checklist tool (researcher, analyst) sees the task's whole checklist but can
+            # neither tick nor drop an item: asking it to was a wasted step at 100k tokens for each sub-agent, which
+            # then asked the coordinator to tick them (00935 task, 2026-10-30). The coordinator checks them.
+            open_items = []
         if open_items:
             lines = "\n".join(f"- #{i['id']} {i['text']}" for i in open_items[:10])
             self._event(f"驗收清單還有 {len(open_items)} 項未完成")
             return "checklist", (f"[自動驗收] 驗收清單還有 {len(open_items)} 項未完成：\n{lines}\n請完成它們並附上證據"
                                  "（task_checklist update status=done），或改成 dropped 並說明原因，再回報結果。")
         paths = []
+        tr = getattr(self, "_progress", None)
+        written = {real for real, rec in (tr.files.items() if tr else []) if rec.get("history")}
         for a in stats.get("artifacts", []):
+            if artifacts.fetched_source(a["path"], written):
+                # a page or PDF the task downloaded as source material is not something it made: checking its
+                # language or links made the agent delete the sources (00935 task: "isin4.html is English")
+                continue
             try:
                 paths.append(resolve_file(self.config, a["path"]))
             except Exception:  # noqa: BLE001
@@ -1131,7 +1150,7 @@ class Agent:
             stats["verify_rounds"] += 1
             self._event(f"驗收審查未通過（第 {stats['verify_rounds']} 輪）：{data.get('summary') or '有問題需要修正'}")
             self.history.append(Message("user", "[自動驗收審查] 交付前的審查發現以下問題，請修正後再回報：\n" + fixes
-                                        + "\n只處理這些會影響正確性或需求的問題，不要額外擴大範圍。"))
+                                        + "\n只處理這些會影響正確性或需求的問題，不要額外擴大範圍。" + ANSWER_FOR_USER))
             self._persist()
             return "retry"
         return {"summary": "驗收審查未通過：" + (data.get("summary") or "還有問題沒有解決"), "detail": fixes,
@@ -1231,6 +1250,20 @@ class Agent:
         return ("<active_skills>\n" + "\n".join(lines) + "\n</active_skills>") if lines else ""
 
     # ------------------------------------------------------------------ main loop
+    def _file_exists(self, path: str) -> bool:
+        """A file a turn reported is still there (resolved like the quality gate does)."""
+        return resolve_file(self.config, path).exists()
+
+    def _sandboxed(self) -> bool:
+        """This conversation's tools run in the sandbox (the executor may not exist yet)."""
+        if getattr(self.ctx.state.get("executor"), "kind", "") == "sandbox":
+            return True
+        try:
+            from ..sandbox.executor import wanted_kind
+            return wanted_kind(self.config) == "sandbox"
+        except Exception:  # noqa: BLE001
+            return False
+
     async def run(self, user_input: str | list) -> str:
         from .. import routing
         text = user_input if isinstance(user_input, str) else " ".join(
@@ -1240,6 +1273,17 @@ class Agent:
         hint = {"task_kind": kind, "turn": f"{self.session_id}:{time.time()}",
                 "skill": lead.group(1).split()[0][1:] if lead else None, "complex": routing.is_complex(text, kind)}
         t0 = time.time()
+        from .. import keepawake
+        # the Mac must not go to idle sleep in the middle of a task: open model calls die with it (keepawake.py)
+        awake = keepawake.acquire(self.config) if self.depth == 0 else False
+        try:
+            return await self._run_scoped(user_input, hint, t0)
+        finally:
+            if awake:
+                keepawake.release()
+
+    async def _run_scoped(self, user_input, hint: dict, t0: float) -> str:
+        from .. import routing
         with scope(self.session_id, "agent") as usage_scope:
             tok = routing.HINT.set(hint)
             from ..providers.base import STREAM_PROGRESS
@@ -1295,6 +1339,7 @@ class Agent:
             if isinstance(user_msg.content, list) else user_msg.content
         if not self.history:
             self.rt.memory.ensure_session(self.session_id, self.platform, title=_title(query))
+        self._prior_messages = len(self.history)      # what earlier turns left (workspaces.settle: legacy or new)
         self.history.append(user_msg)
         self._persist()   # persist step by step so a reloaded page / crash never loses an in-progress turn
         turn_start = len(self.history) - 1
@@ -1407,9 +1452,17 @@ class Agent:
                     self.ctx.state["executor"].manager.begin(self.sandbox_conversation)   # not stopped for room
                 except Exception:  # noqa: BLE001
                     pass
-                try:                         # a new conversation gets its own /workspace; an older one keeps the shared
+            if self._sandboxed():
+                # decided at the FIRST turn - also when the sandbox starts only at the first tool call (the executor
+                # is made lazily): a new conversation gets its own /workspace; an older one keeps the shared.
+                # "Older" = messages from EARLIER turns (not this turn's own input, skill text and plan, which are
+                # already persisted here). Before, a new conversation's first turn was skipped and its second turn -
+                # which already has history - was taken for an old one: "shared", and the files the first turn and its sub-agents
+                # wrote in the conversation's own folder were gone from /workspace (00935 task, 2026-10-29)
+                try:
                     from ..sandbox import workspaces
-                    workspaces.settle(self.config, self.sandbox_conversation, legacy=self._persisted > 0)
+                    workspaces.settle(self.config, self.sandbox_conversation,
+                                      legacy=getattr(self, "_prior_messages", self._persisted) > 0)
                 except Exception:  # noqa: BLE001
                     log.warning("workspace of the conversation", exc_info=True)
             self._refresh_folders()
@@ -1740,7 +1793,7 @@ class Agent:
                     kind, text = gate
                     if stats["gate_rounds"].get(kind, 0) < int(self.config.get("agent.quality_rounds", 2)):
                         stats["gate_rounds"][kind] = stats["gate_rounds"].get(kind, 0) + 1
-                        self.history.append(Message("user", text))
+                        self.history.append(Message("user", text + ANSWER_FOR_USER))
                         self._persist()
                         continue
                     status = "incomplete"
@@ -1941,7 +1994,7 @@ class Agent:
             deliverables, other_files = artifacts.key_files(
                 stats.get("artifacts") or [], final_text,
                 self._msr.plan.card({}, status)["milestones"] if self._msr else None,
-                checklist_tools.get(self.ctx), written)
+                checklist_tools.get(self.ctx), written, exists=self._file_exists)
             rec = getattr(self, "_run_rec", None)
             if rec and rec.rid:
                 rec.state["evidence"] = evidence

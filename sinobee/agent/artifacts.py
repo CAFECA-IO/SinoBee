@@ -123,34 +123,94 @@ def is_junk(path: str) -> bool:
     return any(part.lower() in JUNK_DIRS for part in p.parts[:-1]) or bool(JUNK_NAME.search(p.name))
 
 
+RAW_DIRS = {"raw", "download", "downloads", "source", "sources", "cache", "vendor", "fetched"}
+OUT_DIRS = {"report", "reports", "output", "outputs", "deliverable", "deliverables", "dist", "final"}
+WORK_DIRS = {"notes", "work", "working", "drafts", "draft"}
+CODE_EXT = {".py", ".js", ".mjs", ".ts", ".sh", ".r", ".ipynb"}
+
+
+SOURCE_EXT = {".html", ".htm", ".pdf", ".xml", ".xhtml"}
+
+
+def _same_file(w: str, path: str) -> bool:
+    """A written file (this computer's real path) and a reported one (often the sandbox's /workspace/...): the same
+    when the path is equal or the last two parts (folder and name) match."""
+    if w == str(path):
+        return True
+    a, b = Path(str(w)).parts, Path(str(path)).parts
+    return len(a) >= 2 and len(b) >= 2 and a[-2:] == b[-2:]
+
+
+def fetched_source(path: str, written: set[str] | None = None) -> bool:
+    """A file the task downloaded as material (a saved web page or PDF under data/, raw/ ...) rather than made: not
+    written with the file tools, and either in a raw-data folder or a page/PDF outside the output folders."""
+    p = Path(str(path))
+    if written and any(_same_file(w, path) for w in written):
+        return False
+    parts = [x.lower() for x in p.parts[:-1]]
+    if any(x in RAW_DIRS for x in parts):
+        return True
+    return p.suffix.lower() in SOURCE_EXT and not any(x in OUT_DIRS for x in parts)
+
+
 def key_files(artifacts: list[dict], final_text: str = "", milestones: list | None = None,
-              checklist: list | None = None, written: set[str] | None = None) -> tuple[list[dict], list[dict]]:
+              checklist: list | None = None, written: set[str] | None = None,
+              exists=None) -> tuple[list[dict], list[dict]]:
     """(deliverables, other files) among the files a turn reported.
 
     A deliverable is named by the work itself: a milestone's declared or reported outputs, a file given as evidence in
     the acceptance checklist, or a file the final answer mentions. Without any of these, files the turn wrote with the
-    file tools that are not backups, tests or scratch. At most MAX_KEY; the rest stay available as other files."""
+    file tools that are not backups, tests or scratch. At most MAX_KEY, the most deliverable first; the rest stay
+    available as other files.
+
+    Ranked, not taken in the order the files appeared: the 00935 task (2026-10-30) showed two downloaded PDFs, three
+    raw web pages it had already removed (「找不到檔案」) and a note as 關鍵產出, while the report and its charts - named
+    in the answer, the milestones and the checklist - were cut off below them. `exists(path)` drops files that are gone."""
     seen, files = set(), []
     for a in artifacts or []:
         if a.get("path") and a["path"] not in seen:
             seen.add(a["path"])
             files.append(a)
-    named: list[str] = []
-    for m in milestones or []:
-        named += [str(x) for x in (m.get("result_outputs") or m.get("outputs") or [])]
-    for it in checklist or []:
-        named.append(str(it.get("evidence") or ""))
-    named.append(final_text or "")
-    blob = "\n".join(named)
+    outputs = "\n".join(str(x) for m in milestones or [] for x in (m.get("result_outputs") or m.get("outputs") or []))
+    evidence = "\n".join(str(it.get("evidence") or "") for it in checklist or [])
+    answer = final_text or ""
 
-    def mentioned(a: dict) -> bool:
-        return a["path"] in blob or (a.get("name") and re.search(r"(?<![\w.-])" + re.escape(a["name"]) + r"(?![\w-])",
-                                                                     blob) is not None)
-    key = [a for a in files if not is_junk(a["path"]) and mentioned(a)]
+    def hits(a: dict, blob: str) -> int:
+        n = blob.count(a["path"]) if a["path"] else 0
+        if not n and a.get("name"):
+            n = len(re.findall(r"(?<![\w.-])" + re.escape(a["name"]) + r"(?![\w-])", blob))
+        return n
+
+    def was_written(a: dict) -> bool:
+        return written is not None and any(_same_file(w, a["path"]) for w in written)
+
+    def gone(a: dict) -> bool:
+        if exists is None:
+            return False
+        try:
+            return not exists(a["path"])
+        except Exception:  # noqa: BLE001 - when unsure, keep it
+            return False
+
+    def score(a: dict) -> float:
+        parts = [x.lower() for x in Path(str(a["path"])).parts[:-1]]
+        sc = 4.0 * bool(hits(a, answer)) + 2.0 * bool(hits(a, outputs)) + min(3, hits(a, evidence))
+        sc += 2.0 * was_written(a)
+        sc += 2.0 * (any(x in OUT_DIRS for x in parts) or "report" in Path(str(a["path"])).name.lower())
+        sc -= 3.0 * any(x in RAW_DIRS for x in parts)
+        sc -= 4.0 * fetched_source(a["path"], written)     # material it downloaded, even when it names it
+        sc -= 1.5 * any(x in WORK_DIRS for x in parts)
+        # the script that made a chart is how, not what: below the report and its pictures unless code was the task
+        sc -= 2.5 * (Path(str(a["path"])).suffix.lower() in CODE_EXT and not code_task)
+        return sc
+
+    live = [a for a in files if not is_junk(a["path"]) and not gone(a)]
+    code_task = bool(live) and all(Path(str(a["path"])).suffix.lower() in CODE_EXT for a in live)
+    key = [a for a in live if hits(a, "\n".join((outputs, evidence, answer)))]
     if not key:
-        key = [a for a in files if not is_junk(a["path"]) and (written is None or any(
-            w == a["path"] or w.endswith("/" + a["path"]) for w in written))]
-    key = key[:MAX_KEY]
+        key = [a for a in live if was_written(a)]
+    order = {id(a): i for i, a in enumerate(key)}
+    key = sorted(key, key=lambda a: (-score(a), order[id(a)]))[:MAX_KEY]
     ids = {a["path"] for a in key}
     return key, [a for a in files if a["path"] not in ids]
 

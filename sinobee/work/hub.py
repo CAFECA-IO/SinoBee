@@ -19,6 +19,22 @@ log = logging.getLogger("sinobee.work")
 TICK = 10
 
 
+
+RESUME_PREFIXES = ("[自動續跑]", "[續跑]")
+RESUME_ORIGINAL = "原本的要求："
+RESUME_BRIEF = "\n進度整理（"
+
+
+def original_request(text: str) -> str:
+    """The user's own request inside a resumed turn's text. A resumed turn that is interrupted again is resumed with
+    ITS text as the input; without unwrapping, every resume nested the previous one ("原本的要求：[自動續跑] … 原本的要求：
+    [自動續跑] …") and repeated each 進度整理 - three resumes of the 00935 task (2026-10-29) carried three copies."""
+    t = (text or "").strip()
+    while t.startswith(RESUME_PREFIXES) and RESUME_ORIGINAL in t:
+        t = t.split(RESUME_ORIGINAL, 1)[1]
+        t = t.split(RESUME_BRIEF, 1)[0].strip()
+    return t
+
 class WorkError(Exception):
     pass
 
@@ -366,7 +382,7 @@ class WorkHub:
         if run["kind"] == "chat":      # a conversation continues in its session from where it stopped
             if not self.chat_resumer or not run.get("session_id"):
                 raise WorkError("這段對話需要在網頁介面中續跑")
-            req = (run.get("state") or {}).get("input") or run.get("name") or ""
+            req = original_request((run.get("state") or {}).get("input") or run.get("name") or "")
             text = ("[自動續跑]" if auto else "[續跑]") + (" 上一次的任務在中途被中斷了。已完成的步驟都在這段對話裡：先確認做到哪裡，"
                                                           f"從中斷處接著完成，不要重做已完成的部分。原本的要求：{req}")
             if brief:

@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["SINOBEE_NO_RESTART"] = "1"     # switching accounts restarts SinoBee in place: never the test run
 os.environ["SINOBEE_INSECURE_NO_AUTH"] = "1"   # API tests call it directly; tests/test_server_security.py turns it on
+os.environ["SINOBEE_NETWORK_WAIT_S"] = "0"     # a dropped model call does not wait for a real network in tests
 
 from sinobee.config import Config  # noqa: E402
 from sinobee.types import ChatResponse, Message, ToolCall, Usage  # noqa: E402
