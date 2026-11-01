@@ -31,7 +31,11 @@ either trusts them without review or, in the sandbox, loses them) and three robu
 4. **`utils.py` regexes**: lines over 300 characters are not tried as Markdown headings, and the table-of-contents
    pattern no longer lets whitespace span lines — both backtracked quadratically on hostile input (ReDoS).
    Every patch is marked `SinoBee patch` in the code; SinoBee's `tests/test_book_to_skill_patches.py` covers them.
-5. Left out of the folder: `.github/`, `tests/`, `docs/`, `evals/`, `overrides/`, `mkdocs.yml`, `cliff.toml`, the
+5. **Invisible characters escaped** in `book_to_skill/utils.py` (5: the ZWJ/ZWNJ inside Sinhala and Persian words in
+   comments and one dictionary key) and `tools/validate_skill.py` (1: a BOM in a comment): each literal character is
+   written as its `\uXXXX` escape so the Skill Hub's invisible-character scan has nothing to flag. The parsed program
+   is identical (same AST); only the source spelling changed.
+6. Left out of the folder: `.github/`, `tests/`, `docs/`, `evals/`, `overrides/`, `mkdocs.yml`, `cliff.toml`, the
    contributor notes (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `BACKERS.md`) and `README.ru.md`.
 
 Not changed: the extraction logic, parsers, sanitizer, `tools/` and `scripts/extract.py`.

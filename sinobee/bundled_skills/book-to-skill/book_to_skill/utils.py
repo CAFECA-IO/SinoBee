@@ -248,7 +248,7 @@ _TA_CHAPTER = re.compile(
 # පරිච්ඡේදය ("chapter") + a number. Grouped next to Tamil as the other Sri
 # Lankan script. Modern Sinhala prints numbers with ASCII digits; the Lith
 # digits (U+0DE6-U+0DEF) are included for historical texts, remapped like the
-# other Indic blocks. Only පරිච්ඡේදය is matched, not the Sanskrit loan අධ්‍යාය:
+# other Indic blocks. Only පරිච්ඡේදය is matched, not the Sanskrit loan අධ්\u200dයාය:
 # that word carries a ZERO WIDTH JOINER inside its conjunct, and
 # sanitize_extracted_text() strips U+200D before detect_structure() ever sees
 # the text, so a pattern containing one could never match. Requiring a number
@@ -382,7 +382,7 @@ _KO_CHAPTER = re.compile(
 # Trailing rules (Persian has no letter case for a Latin-style `_HEADING_TAIL`):
 #   - digits: EOL / punctuation / spaced title (Korean-style);
 #   - short word ordinals 1–10: require a separator (space, punct, ZWNJ, or EOL)
-#     so "فصل اولویت‌ها" / "فصل اولیه" are not read as chapter 1;
+#     so "فصل اولویت\u200cها" / "فصل اولیه" are not read as chapter 1;
 #   - teens and compounds: also allow a glued title letter — PDF extractors
 #     often drop the space, and a long ordinal is not a plausible word prefix.
 _FA_DIGITS = "۰-۹٠-٩"  # Persian then Arabic-Indic
@@ -410,11 +410,11 @@ def _fa_ordinal_map() -> dict[str, int]:
     for i, w in enumerate(_FA_TEENS, 11):
         m[w] = i
     m["هیجدهم"] = 18  # common alternate spelling of هجدهم
-    # Fused "بیستم" only — "بیست ام" / "بیست‌ام" are not common spellings
-    # (unlike "سی ام" / "سی‌ام" for 30), so they stay unmapped on purpose.
+    # Fused "بیستم" only — "بیست ام" / "بیست\u200cام" are not common spellings
+    # (unlike "سی ام" / "سی\u200cام" for 30), so they stay unmapped on purpose.
     m["بیستم"] = 20
     m["سی ام"] = 30
-    m["سی‌ام"] = 30  # ZWNJ spelling common in Persian typography
+    m["سی\u200cام"] = 30  # ZWNJ spelling common in Persian typography
     for i, w in enumerate(_FA_COMPOUND_ONES, 1):
         m[f"بیست و {w}"] = 20 + i
         m[f"سی و {w}"] = 30 + i
