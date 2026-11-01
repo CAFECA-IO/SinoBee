@@ -965,7 +965,7 @@ class Agent:
                 # language or links made the agent delete the sources (00935 task: "isin4.html is English")
                 continue
             try:
-                paths.append(resolve_file(self.config, a["path"]))
+                paths.append(resolve_file(self.config, a["path"], self.session_id))
             except Exception:  # noqa: BLE001
                 continue
         from . import language, qa, rules
@@ -1162,7 +1162,7 @@ class Agent:
         paths = []
         for a in stats.get("artifacts", [])[:20]:
             try:
-                paths.append(resolve_file(self.config, a["path"]))
+                paths.append(resolve_file(self.config, a["path"], self.session_id))
             except Exception:  # noqa: BLE001
                 continue
         shots: dict = {}
@@ -1252,7 +1252,7 @@ class Agent:
     # ------------------------------------------------------------------ main loop
     def _file_exists(self, path: str) -> bool:
         """A file a turn reported is still there (resolved like the quality gate does)."""
-        return resolve_file(self.config, path).exists()
+        return resolve_file(self.config, path, self.session_id).exists()
 
     def _sandboxed(self) -> bool:
         """This conversation's tools run in the sandbox (the executor may not exist yet)."""

@@ -128,3 +128,20 @@ def test_import_share(config, monkeypatch):
     assert (Path(config.workspace) / "imports/AbCdEf123456/c.png").read_bytes() == b"png"
     with pytest.raises(share.ShareError):
         share.import_share(config, mem, "https://evil.example/x")
+
+
+def test_a_document_is_found_in_its_conversations_sandbox(config, monkeypatch):
+    """/workspace/x of a sandboxed conversation is that conversation's own folder: sharing a page the task made there
+    looked in the shared workspace and said "file not found". The conversation goes along with the path."""
+    from sinobee import fileaccess, share
+    seen = {}
+
+    def fake(cfg, path, conversation=None):
+        seen.update(path=path, conversation=conversation)
+        raise fileaccess.FileAccessError(404, "file not found")
+    monkeypatch.setattr(fileaccess, "resolve_file", fake)
+    try:
+        share.build_doc(config, "/workspace/euv_lithography.html", conversation="abc123")
+    except share.ShareError:
+        pass
+    assert seen == {"path": "/workspace/euv_lithography.html", "conversation": "abc123"}

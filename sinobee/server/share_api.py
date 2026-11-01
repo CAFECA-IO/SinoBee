@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import re
 
 from fastapi import FastAPI, HTTPException
 
@@ -51,8 +52,10 @@ def register(app: FastAPI, rt) -> None:
         try:
             if body.get("doc_path"):
                 o = _opts(body)
+                sid = str(body.get("session_id") or "")
                 b = share.build_doc(rt().config, str(body["doc_path"]), title=o["title"], mask_hosts=o["mask_hosts"],
-                                    extra_mask=o["extra_mask"], keep_paths=o["keep_paths"])
+                                    extra_mask=o["extra_mask"], keep_paths=o["keep_paths"],
+                                    conversation=sid if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sid) else None)
                 b["doc_path"] = str(body["doc_path"])
                 return b
             sid = str(body.get("session_id") or "")

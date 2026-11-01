@@ -384,12 +384,14 @@ def _doc_file(f: dict, prefix: str, clean) -> dict:
 
 
 def build_doc(config, path: str, *, title: str | None = None, mask_hosts: bool = False,
-              extra_mask: list[str] | None = None, keep_paths: bool = False) -> dict:
+              extra_mask: list[str] | None = None, keep_paths: bool = False, conversation: str | None = None) -> dict:
     """A report or page a skill made, shared on its own: the entry, the files it uses, a title and a description."""
     from . import share_doc
     from .fileaccess import FileAccessError, resolve_file
     try:
-        entry = resolve_file(config, path)
+        # conversation: whose sandbox /workspace the path means - without it /workspace/x was looked up in the
+        # shared workspace and a page the task made in its sandbox was "file not found"
+        entry = resolve_file(config, path, conversation)
     except FileAccessError as e:
         raise ShareError(str(e)) from None
     if entry.suffix.lower() not in share_doc.DOC_EXT:

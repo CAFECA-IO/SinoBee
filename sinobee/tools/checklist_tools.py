@@ -87,7 +87,7 @@ def verifiable(ctx: ToolContext, evidence: str) -> bool:
     from ..fileaccess import resolve_file
     for token in PATHISH.findall(ev):
         try:
-            if resolve_file(ctx.config, token.strip(".,;:)(")).exists():
+            if resolve_file(ctx.config, token.strip(".,;:)("), ctx.session_id or None).exists():
                 return True
         except Exception:  # noqa: BLE001
             continue

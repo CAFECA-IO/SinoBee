@@ -5843,7 +5843,8 @@ async function renderShare(first){
   $('#shGo').disabled = !p.signed_in;
   loadThumb();
 }
-function shTarget(){ return SH.doc ? {doc_path: SH.doc} : {session_id: sessionId}; }
+// a document's path is in its conversation's sandbox (/workspace/x is that conversation's own): send which one
+function shTarget(){ return SH.doc ? {doc_path: SH.doc, session_id: sessionId || null} : {session_id: sessionId}; }
 let THUMB_N = 0;
 async function loadThumb(){
   const box = $('#shThumb'); if (!box) return; const n = ++THUMB_N;

@@ -180,7 +180,7 @@ async def propose_from_feedback(rt, turn: dict, messages: list, rating: int, com
             p = (c.arguments or {}).get("path") if c.name in ("write_file", "edit_file") else None
             if p:
                 try:
-                    paths.append(resolve_file(rt.config, str(p)))
+                    paths.append(resolve_file(rt.config, str(p), turn.get("session_id")))
                 except Exception:  # noqa: BLE001
                     continue
     paths = [p for p in dict.fromkeys(paths) if p.is_file()][:8]
