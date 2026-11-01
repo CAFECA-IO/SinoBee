@@ -4,7 +4,7 @@ description: "Converts books and documents (PDF, EPUB, DOCX, HTML, Markdown, pla
 license: MIT
 compatibility: SinoBee edition of book-to-skill (upstream written for GitHub Copilot CLI, Amp, Claude Code, Hermes Agent, OpenCode and OpenClaw). Runs on SinoBee's own Python through skill_run; PDF needs pypdf (sinobee[office]) or pdftotext, MOBI/AZW needs Calibre, technical mode needs docling - missing extractors fall back or are reported.
 metadata:
-  version: "1.4.1-main.7540eef.sinobee.1"
+  version: "1.4.1-main.7540eef.sinobee.2"
   author: "virgiliojr94"
   sinobee-source: "https://github.com/virgiliojr94/book-to-skill"
   sinobee-upstream-commit: "7540eefbe74933f5fc84c86becac52486b347778"

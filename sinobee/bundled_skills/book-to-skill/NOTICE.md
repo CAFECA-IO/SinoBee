@@ -7,7 +7,7 @@
 | Original author / 原作者 | virgiliojr94 ([@virgiliojr94](https://github.com/virgiliojr94)) and the project's contributors |
 | Source / 原始出處 | <https://github.com/virgiliojr94/book-to-skill> |
 | Upstream commit / 對應版本 | `7540eefbe74933f5fc84c86becac52486b347778` (2026-10-28; release v1.4.0 plus later fixes) |
-| SinoBee edition / SinoBee 版本 | `1.4.1-main.7540eef.sinobee.1`, packaged by CAFECA |
+| SinoBee edition / SinoBee 版本 | `1.4.1-main.7540eef.sinobee.2`, packaged by CAFECA |
 | License / 授權 | MIT License, Copyright (c) 2025 virgiliojr94 — full text in `LICENSE.md`. CAFECA's changes are released under the same license. |
 
 ## What the SinoBee edition changes / SinoBee 版本的變更
