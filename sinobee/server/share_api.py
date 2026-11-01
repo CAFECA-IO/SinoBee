@@ -71,12 +71,13 @@ def register(app: FastAPI, rt) -> None:
     def thumb_for(body: dict, b: dict) -> tuple[str, bytes | None]:
         title = str(body.get("title") or b["title"])[:160]
         desc = str(body.get("description") if body.get("description") is not None else b.get("description") or "")[:300]
+        capture = body.get("capture") if isinstance(body.get("capture"), str) else None
         key = hashlib.sha256(repr((body.get("doc_path"), body.get("session_id"), body.get("until_turn"), title, desc,
-                                   [f["name"] for f in b["files"]])).encode()).hexdigest()[:24]
+                                   [f["name"] for f in b["files"]], capture)).encode()).hexdigest()[:24]
         if key not in thumbs:
             if len(thumbs) > 40:
                 thumbs.clear()
-            thumbs[key] = share.make_thumbnail(b, title=title, description=desc) or b""
+            thumbs[key] = share.make_thumbnail(b, title=title, description=desc, capture=capture) or b""
         return key, thumbs[key] or None
 
     @app.post("/api/share/preview")
@@ -89,6 +90,67 @@ def register(app: FastAPI, rt) -> None:
         out = {k: v for k, v in b.items() if not k.startswith("_")}
         return {**out, "files": files, "turns": turns, "signed_in": bool(account.token(rt().config)),
                 "hub_url": account.base_url(rt().config)}
+
+    SUGGEST_PROMPT = (
+        "You write the title and the description that a link preview shows (LINE, Facebook, X, Slack) for a shared "
+        "{kind}. Write in the language of the content; Chinese means Traditional Chinese as used in Taiwan.\n"
+        "- title: what it is, for someone who has not seen it: at most 30 Chinese characters or 60 Latin characters, "
+        "no site, tool or skill names, no quotation marks.\n"
+        "- description: one or two sentences, at most 90 Chinese characters or 160 Latin characters: what the reader "
+        "will see or learn. Do not start with \"This page\" / \"本頁\". Leave out template text, credits and "
+        "placeholders.\n"
+        "Reply with JSON only: {{\"title\": \"...\", \"description\": \"...\"}}\n\n{content}")
+    suggestions: dict[str, dict] = {}
+
+    def suggest_source(body: dict) -> tuple[str, str]:
+        """(kind, the content the model reads) for a document or a conversation - redacted like the share."""
+        b = build(body)
+        if b.get("kind") == "doc":
+            from pathlib import Path
+            from .. import share_doc
+            red = share.Redactor(rt().config)
+            text = red(share_doc.page_text(Path(b["_entry_path"])))
+            kind = "report" if b["entry"].lower().endswith((".md", ".markdown")) else "interactive page"
+            return kind, f"PAGE TITLE: {b['title']}\nPAGE TEXT:\n{text}"
+        msgs = b.get("messages") or []
+        asks = [m["text"] for m in msgs if m.get("role") == "user"][:3]
+        answer = next((m["text"] for m in reversed(msgs) if m.get("role") == "assistant" and m.get("text")), "")
+        return "conversation with an AI agent", ("USER ASKED:\n" + "\n---\n".join(a[:800] for a in asks)
+                                                 + f"\n\nFINAL ANSWER:\n{answer[:3000]}")
+
+    @app.post("/api/share/suggest")
+    async def suggest(body: dict):
+        """A title and a description for the link card, written by the auxiliary model from what is shared."""
+        from ..agent.thinking import parse_json
+        from ..providers.base import REASONING_EFFORT
+        from ..types import Message
+        kind, content = await asyncio.to_thread(suggest_source, body)
+        key = hashlib.sha256((kind + content).encode()).hexdigest()[:24]
+        if key in suggestions:
+            return suggestions[key]
+        r = rt()
+        model = r.aux
+        local = r.is_local(model)
+        tok = REASONING_EFFORT.set("none")          # a short card: no hidden thinking (a local model: think off)
+        try:
+            resp = await asyncio.wait_for(model.chat([Message("user", SUGGEST_PROMPT.format(kind=kind, content=content))],
+                                                     None, temperature=0.3, max_tokens=600),
+                                          None if local else 60)
+        except Exception as e:  # noqa: BLE001 - the dialog keeps the page's own title and description
+            raise HTTPException(502, f"{getattr(model, 'label', '輔助模型')} 沒有給出標題與摘要：{str(e)[:200]}") from None
+        finally:
+            REASONING_EFFORT.reset(tok)
+        data = parse_json(resp.message.text())
+        red = share.Redactor(r.config)
+        title = red(re.sub(r"\s+", " ", str(data.get("title") or "")).strip().strip("「」\"'"))[:160]
+        desc = red(re.sub(r"\s+", " ", str(data.get("description") or "")).strip())[:300]
+        if not title and not desc:
+            raise HTTPException(502, "輔助模型的回覆不是標題與摘要")
+        out = {"title": title, "description": desc, "model": getattr(model, "label", "")}
+        if len(suggestions) > 50:
+            suggestions.clear()
+        suggestions[key] = out
+        return out
 
     @app.post("/api/share/thumbnail")
     async def thumbnail(body: dict):

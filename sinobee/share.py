@@ -47,7 +47,10 @@ class Redactor:
         if n:
             self.counts[kind] = self.counts.get(kind, 0) + n
 
-    def __call__(self, text: str) -> str:
+    def __call__(self, text: str, code: bool = False) -> str:
+        """code: the text is a program (.js/.mjs/.css, an HTML page's scripts) - "key = value" there is only a
+        password when the value is a quoted string. Unquoted, it is code: three.js has `const pass = this.passes[i]`
+        and 'THREE.Pass: .render()', and masking them broke the shared page's EffectComposer."""
         if not text:
             return text
         for v in self.secrets:
@@ -64,7 +67,7 @@ class Redactor:
         for kind, rx in PATTERNS:
             if kind == "password":
                 def pw(m):
-                    if m.group(4) == "••••":
+                    if m.group(4) == "••••" or (code and not m.group(3)):
                         return m.group(0)
                     self._hit(kind)
                     return f"{m.group(1)}{m.group(2)}{m.group(3)}••••{m.group(3)}"
@@ -189,8 +192,8 @@ def build(config, messages: list[dict], *, include_tools: bool = True, title: st
         red.home = ""
     extra = sorted({w.strip() for w in (extra_mask or []) if len(w.strip()) >= 2}, key=len, reverse=True)
 
-    def clean(t: str) -> str:
-        t = red(t)
+    def clean(t: str, code: bool = False) -> str:
+        t = red(t, code=code)
         for w in extra:
             if w in t:
                 red._hit("custom", t.count(w))
@@ -369,12 +372,16 @@ def attach_files(config, messages: list[dict], clean=None) -> list[dict]:
     return files
 
 
+CODE_EXT = {".js", ".mjs", ".css", ".html", ".htm", ".xhtml", ".svg"}
+
+
 def _doc_file(f: dict, prefix: str, clean) -> dict:
     """A document bundle file; text files are redacted and sent inline (the redacted text, not the disk file)."""
     from . import share_doc
     out = {"name": prefix + f["name"], "mime": f["mime"], "size": f["size"]}
     if clean and Path(f["name"]).suffix.lower() in share_doc.TEXT_EXT:
-        data = clean(Path(f["path"]).read_text(encoding="utf-8", errors="replace")).encode()
+        code = Path(f["name"]).suffix.lower() in CODE_EXT
+        data = clean(Path(f["path"]).read_text(encoding="utf-8", errors="replace"), code=code).encode()
         out.update(data=base64.b64encode(data).decode(), size=len(data))
         if out["mime"].startswith("text/") or out["mime"] in ("application/javascript", "image/svg+xml"):
             out["mime"] = out["mime"].split(";")[0]
@@ -401,8 +408,8 @@ def build_doc(config, path: str, *, title: str | None = None, mask_hosts: bool =
         red.home = ""
     extra = sorted({w.strip() for w in (extra_mask or []) if len(w.strip()) >= 2}, key=len, reverse=True)
 
-    def clean(t: str) -> str:
-        t = red(t)
+    def clean(t: str, code: bool = False) -> str:
+        t = red(t, code=code)
         for w in extra:
             if w in t:
                 red._hit("custom", t.count(w))
@@ -423,13 +430,31 @@ def build_doc(config, path: str, *, title: str | None = None, mask_hosts: bool =
             "model": None, "_entry_path": str(entry), "_bundle": bundle}
 
 
-def make_thumbnail(body: dict, *, title: str, description: str) -> bytes | None:
-    """The 1200×630 picture social platforms show for the link."""
+CAPTURE = re.compile(r"^data:(image/(?:jpeg|png));base64,([A-Za-z0-9+/=]+)$")
+
+
+def capture_image(data_url: str | None) -> tuple[bytes, str] | None:
+    """The picture the viewer took of the page as it is on screen (sb-capture.js): a JPEG or PNG data URL, ≤ 6 MB."""
+    m = CAPTURE.match(str(data_url or "")[: 8 * 1024 * 1024])
+    if not m:
+        return None
+    try:
+        img = base64.b64decode(m.group(2), validate=True)
+    except ValueError:
+        return None
+    ok = img[:3] == b"\xff\xd8\xff" if m.group(1) == "image/jpeg" else img[:8] == b"\x89PNG\r\n\x1a\n"
+    return (img, m.group(1)) if ok and len(img) <= 6 * 1024 * 1024 else None
+
+
+def make_thumbnail(body: dict, *, title: str, description: str, capture: str | None = None) -> bytes | None:
+    """The 1200×630 picture social platforms show for the link. capture: what the viewer shows now (a data URL) -
+    used instead of a picture of the page as it first loads."""
     from . import share_doc
     if body.get("kind") == "doc":
         entry = Path(body["_entry_path"])
         label = "報告" if entry.suffix.lower() in (".md", ".markdown") else "互動頁面"
-        return share_doc.thumbnail(title=title, description=description, label=label, entry=entry, files=body["_bundle"])
+        return share_doc.thumbnail(title=title, description=description, label=label, entry=entry, files=body["_bundle"],
+                                   image=capture_image(capture))
     image = None
     for f in body.get("files") or []:
         if f["mime"] in ("image/png", "image/jpeg", "image/webp") and "path" in f and f["size"] <= 8 * 1024 * 1024:

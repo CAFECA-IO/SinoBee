@@ -41,7 +41,7 @@ def view_csp(base: str) -> str:
 
 
 MATH_DIR = "__sinobee_math"
-MATH_FILES = {"katex.min.js", "katex.min.css", "sb-math.js"}
+MATH_FILES = {"katex.min.js", "katex.min.css", "sb-math.js", "sb-capture.js"}   # (and the capture helper below)
 _MATH_TEXT = re.compile(r"\$\$[\s\S]+?\$\$|\\\(|\\\[|(?<![\w$])\$(?![\s$\d])[^$\n<]{1,200}?(?<!\s)\$(?!\d)"
                         r"|class=[\"'][^\"']*\b(?:math|formula|equation|latex)\b", re.I)
 _HAS_MATH_LIB = re.compile(r"katex|mathjax|mathml|temml|asciimath", re.I)
@@ -51,6 +51,14 @@ def wants_math(page: str) -> bool:
     """An HTML page that writes formulas ($…$, \\(…\\), formula boxes) but brings no math renderer of its own."""
     body = re.sub(r"<(script|style)\b[\s\S]*?</\1>", " ", page, flags=re.I)
     return bool(_MATH_TEXT.search(body)) and not _HAS_MATH_LIB.search(page)
+
+
+def with_capture(page: str, base: str) -> str:
+    """Every page opened through /view gets sb-capture.js: the share dialog asks it for a picture of the page's
+    figure as it is on screen now (the user's camera angle, the state they put it in)."""
+    tag = f'<script src="{base}sb-capture.js"></script>'
+    m = re.search(r"<head\b[^>]*>", page, re.I)
+    return page[:m.end()] + tag + page[m.end():] if m else tag + page
 
 
 def with_math(page: str, base: str) -> str:
@@ -131,8 +139,10 @@ def register(app: FastAPI, rt_getter) -> None:
         mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
         if mime == "text/html" and f.stat().st_size < 8 * 1024 * 1024:
             page = f.read_text(encoding="utf-8", errors="replace")
+            helpers = f"/view/{cap}/{MATH_DIR}/"
             if wants_math(page):
-                return Response(with_math(page, f"/view/{cap}/{MATH_DIR}/"), media_type="text/html; charset=utf-8", headers=headers)
+                page = with_math(page, helpers)
+            return Response(with_capture(page, helpers), media_type="text/html; charset=utf-8", headers=headers)
         return FileResponse(f, media_type=mime, headers=headers)
 
     @app.get("/vendor/{name}")

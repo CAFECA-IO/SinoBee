@@ -5774,9 +5774,25 @@ const SH_EXP = [['7', '7 天', '一週後自動失效', CAL('7')], ['30', '30 �
 const shPick = (id, items, cur) => `<div class="shpick" id="${id}" role="radiogroup">${items.map(([v, label, hint, svg]) =>
   `<button type="button" role="radio" aria-checked="${cur === v}" data-v="${v}" title="${esc(hint)}"${cur === v ? ' class="on"' : ''}><svg class="i" viewBox="0 0 24 24" aria-hidden="true">${svg}</svg><b>${label}</b></button>`).join('')}</div>`;
 const shHint = (items, cur) => (items.find(x => x[0] === cur) || [])[2] || '';
+/** a picture of what the open page shows right now (sb-capture.js answers inside the viewer's sandbox) */
+function captureView(){
+  const f = $('#dvBody iframe');
+  if (!f || !f.contentWindow) return Promise.resolve(null);
+  const id = Math.random().toString(36).slice(2);
+  return new Promise(res => {
+    const done = img => { clearTimeout(t); removeEventListener('message', h); res(img); };
+    const h = e => { if (e.source !== f.contentWindow || e.data?.sinobee !== 'capture' || e.data.id !== id) return;
+      const img = e.data.image; done(typeof img === 'string' && /^data:image\/(jpeg|png);base64,/.test(img) && img.length < 8e6 ? img : null); };
+    const t = setTimeout(() => done(null), 3000);
+    addEventListener('message', h); f.contentWindow.postMessage({sinobee: 'capture', id}, '*');
+  });
+}
 async function openShare(doc){
   SH.doc = typeof doc === 'string' ? doc : null;
   if (!SH.doc && !sessionId) return;
+  // the card shows the page as you see it now (your angle, your state) - taken before the dialog covers it
+  SH.capture = SH.doc && SH.doc === DV.path ? await captureView() : null;
+  SH.sug = null;
   $('#shHead').textContent = SH.doc ? '分享文件' : '分享對話';
   $('#shState').textContent = ''; $('#shGo').hidden = false; $('#shGo').disabled = true;
   $('#shBody').innerHTML = '<div class="spin" style="margin:30px auto"></div>'; $('#shareModal').classList.add('open');
@@ -5805,7 +5821,7 @@ async function renderShare(first){
       <div class="shcard-t"><input id="shTitle" maxlength="160" value="${esc(o.title || p.title)}" aria-label="標題" placeholder="標題">
         <textarea id="shDesc" rows="4" maxlength="300" aria-label="摘要說明" placeholder="一兩句話說明這是什麼">${esc(o.description ?? p.description ?? '')}</textarea>
         <span class="shcard-host">sinobee.ai</span></div></div>
-    <div class="note shcard-cap">${ic('eye')} 貼到 LINE、Facebook、X、Slack 時會這樣顯示；標題與說明可以直接修改。</div>
+    <div class="note shcard-cap">${ic('eye')} 貼到 LINE、Facebook、X、Slack 時會這樣顯示；標題與說明可以直接修改。<span id="shSug"></span></div>
     <div class="shrow"><span class="shlab">誰可以看</span>${shPick('shVis', SH_VIS, SH.vis)}</div>
     <div class="shhint" id="shVisHint">${shHint(SH_VIS, SH.vis)}</div>
     <label class="f" id="shAccRow" ${SH.vis === 'LOGIN' ? '' : 'hidden'}>只有這些 CAFECA 帳號能看（0x 地址或 @代稱；留空＝任何已登入者）<textarea id="shAcc" rows="2" style="font-family:ui-monospace,Menlo,monospace">${esc(SH.acc || '')}</textarea></label>
@@ -5842,17 +5858,47 @@ async function renderShare(first){
   if ($('#shLogin')) $('#shLogin').onclick = () => { $('#shareModal').classList.remove('open'); openSettings(false, 'account'); };
   $('#shGo').disabled = !p.signed_in;
   loadThumb();
+  if (first) suggestCard(); else paintSug();
+}
+/** title and description written by the auxiliary model; filled in only while you have not edited them */
+async function suggestCard(){
+  const start = {t: $('#shTitle')?.value, d: $('#shDesc')?.value}, target = JSON.stringify(shTarget());
+  SH.sug = {state: 'busy'}; paintSug();
+  const r = await fetch('/api/share/suggest?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({...shTarget(), include_tools: SH.opts?.include_tools, until_turn: SH.opts?.until_turn})}).catch(() => null);
+  const j = r ? await r.json().catch(() => ({})) : {};
+  if (JSON.stringify(shTarget()) !== target || !$('#shareModal').classList.contains('open')) return;
+  if (!r || !r.ok) { SH.sug = {state: 'err', msg: j.detail || '無法產生'}; paintSug(); return; }
+  SH.sug = {state: 'ok', ...j};
+  const t = $('#shTitle'), d = $('#shDesc');
+  if (t && d && t.value === start.t && d.value === start.d) {          // untouched: use the model's
+    if (j.title) t.value = j.title; if (j.description) d.value = j.description;
+    shOpts(false); loadThumb(); SH.sug.applied = true;
+  }
+  paintSug();
+}
+function paintSug(){
+  const el = $('#shSug'); if (!el || !SH.sug) return;
+  const s = SH.sug;
+  el.innerHTML = s.state === 'busy' ? '　<span class="spin" style="width:12px;height:12px;vertical-align:-2px"></span> AI 正在寫標題與摘要…'
+    : s.state === 'err' ? `　AI 標題與摘要：${esc(s.msg)}`
+    : s.applied ? `　標題與摘要由 ${esc(s.model || 'AI')} 撰寫。`
+    : '　<a href="#" id="shSugUse">改用 AI 寫的標題與摘要</a>';
+  const a = $('#shSugUse'); if (a) a.onclick = e => { e.preventDefault(); $('#shTitle').value = s.title || $('#shTitle').value;
+    $('#shDesc').value = s.description || $('#shDesc').value; s.applied = true; shOpts(false); loadThumb(); paintSug(); };
 }
 // a document's path is in its conversation's sandbox (/workspace/x is that conversation's own): send which one
 function shTarget(){ return SH.doc ? {doc_path: SH.doc, session_id: sessionId || null} : {session_id: sessionId}; }
-let THUMB_N = 0;
+let THUMB_N = 0, THUMB_AC = null;
 async function loadThumb(){
   const box = $('#shThumb'); if (!box) return; const n = ++THUMB_N;
   box.classList.add('busy');
   const o = shOpts(false);
-  const r = await fetch('/api/share/thumbnail?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'},
+  // one request at a time: a newer title or description cancels the one in flight (typing used to queue dozens)
+  if (THUMB_AC) THUMB_AC.abort(); const ac = THUMB_AC = new AbortController();
+  const r = await fetch('/api/share/thumbnail?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, signal: ac.signal,
     body: JSON.stringify({...shTarget(), title: o.title, description: o.description, include_tools: o.include_tools, until_turn: o.until_turn,
-      query_rows: o.query_rows, mask_hosts: o.mask_hosts, extra_mask: o.extra_mask})}).catch(() => null);
+      query_rows: o.query_rows, mask_hosts: o.mask_hosts, extra_mask: o.extra_mask, capture: SH.capture || undefined})}).catch(() => null);
   const j = r && r.ok ? await r.json().catch(() => ({})) : {};
   if (n !== THUMB_N || !$('#shThumb')) return;
   box.classList.remove('busy');
@@ -5865,6 +5911,7 @@ $('#shGo').onclick = async () => {
   const o = shOpts(false);
   const r = await fetch('/api/share?token=' + encodeURIComponent(token), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
     ...shTarget(), include_tools: o.include_tools, title: o.title.trim(), visibility: SH.vis, description: o.description.trim(), thumbnail: SH.thumbOn,
+    capture: SH.capture || undefined,
     until_turn: o.until_turn, query_rows: o.query_rows, mask_hosts: o.mask_hosts, extra_mask: o.extra_mask,
     accounts: SH.vis === 'LOGIN' ? (SH.acc || '').split(/[\s,]+/).filter(Boolean) : [], expires_days: +SH.exp || null})});
   const j = await r.json().catch(() => ({}));
