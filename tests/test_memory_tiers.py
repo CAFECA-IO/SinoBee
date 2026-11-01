@@ -301,3 +301,7 @@ def test_book_to_skill_is_bundled_with_its_credits(config):
         assert (sk.path / f).exists(), f
     assert "Copyright (c) 2025 virgiliojr94" in (sk.path / "LICENSE.md").read_text()
     assert "Source and credits" in (sk.path / "SKILL.md").read_text(encoding="utf-8")
+    # SinoBee edition: runs through skill_run, fits the 500-line guideline, keeps the upstream text for diffing
+    assert sk.entry == "scripts/extract.py" and (sk.path / "book_to_skill/limits.py").exists()
+    assert not spec.quality_warnings(p.frontmatter, p.body)
+    assert (sk.path / "references/upstream-SKILL.md").read_text(encoding="utf-8").count("~/.claude/skills") > 0

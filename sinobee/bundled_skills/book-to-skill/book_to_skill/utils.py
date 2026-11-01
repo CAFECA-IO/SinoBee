@@ -14,6 +14,7 @@ import zipfile
 from pathlib import Path
 
 from book_to_skill.exceptions import ExtractionError
+from book_to_skill.limits import check_file_size, check_zip
 
 from book_to_skill.config import (
     OUTPUT_DIR,
@@ -471,9 +472,9 @@ _TOC_HEADERS = (
 )
 _TOC_CJK_PATTERN = r"目[ \t\u3000]*(?:录|錄|次)"
 _TOC_PATTERN = re.compile(
-    r"^\s*(?:#{1,6}\s*)?(?:"
+    r"^[ \t]*(?:#{1,6}[ \t]*)?(?:"
     + "|".join([*(re.escape(h) for h in _TOC_HEADERS), _TOC_CJK_PATTERN])
-    + r")\s*$",
+    + r")[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -525,6 +526,10 @@ def _is_non_chapter_section(title: str) -> bool:
 # reStructuredText underline "=====" (no space) — the latter is intentionally
 # ignored (RST underline headings are out of scope).
 _ATX_HEADING = re.compile(r"^(#{1,6}|={1,6})\s+(.+?)\s*#*$")
+# SinoBee patch: _ATX_HEADING backtracks quadratically on one long line ("# a" + 16k spaces
+# + "b" takes seconds). A real chapter heading is never this long, so longer lines are
+# not tried as headings at all.
+_MAX_HEADING_LINE = 300
 # Setext/RST underline: a full line of "=" (level 1) or "-" (level 2), length
 # >= 2. Marks the line directly above it as a heading title.
 _SETEXT_UNDERLINE = re.compile(r"^(={2,}|-{2,})$")
@@ -659,7 +664,7 @@ def _structural_chapter_headings(text: str) -> list[str]:
             prev = ""
             continue
         # ATX heading ("# Title", "== Section").
-        m = _ATX_HEADING.match(s)
+        m = _ATX_HEADING.match(s) if len(s) <= _MAX_HEADING_LINE else None
         if m:
             title = m.group(2).strip().lower()
             depth = len(m.group(1))
@@ -1046,6 +1051,31 @@ def parse_arguments(argv: list[str]) -> tuple[list[str], str, str]:
     return input_paths, extraction_mode, install_mode
 
 
+def _glob_root(pattern: str) -> Path:
+    """The fixed directory part of a glob pattern ("~/books/**/*.epub" -> ~/books)."""
+    parts = Path(pattern).parts
+    fixed = []
+    for part in parts:
+        if glob.has_magic(part):
+            break
+        fixed.append(part)
+    return Path(*fixed).resolve() if fixed else Path.cwd().resolve()
+
+
+def _inside(file_path: Path, root: Path) -> bool:
+    """SinoBee patch: a folder or glob may hold a symlink to a private file elsewhere
+    (e.g. an unpacked "book bundle" with ch1.md -> ~/notes.txt). Files the user named
+    one by one are trusted as given; files found by expanding a folder or glob must be
+    regular files that stay inside it."""
+    try:
+        if file_path.is_symlink() or not file_path.resolve().is_relative_to(root):
+            print(f"  [skip] {file_path.name}: symlink or outside {root}", file=sys.stderr)
+            return False
+    except OSError:
+        return False
+    return True
+
+
 def resolve_input_files(paths: list[str]) -> list[Path]:
     """Resolve paths including files, directories, and glob patterns to Path objects.
 
@@ -1069,11 +1099,14 @@ def resolve_input_files(paths: list[str]) -> list[Path]:
             char in path_str for char in ("*", "?", "[")
         ):
             glob_matches = glob.glob(path_str, recursive=True)
+            glob_root = _glob_root(path_str)
             # Sort expanded glob results deterministically
             expanded = []
             for match in glob_matches:
                 p = Path(match)
                 if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS:
+                    if not _inside(p, glob_root):
+                        continue
                     expanded.append(p.resolve())
             expanded.sort(key=lambda x: str(x).lower())
             resolved.extend(expanded)
@@ -1082,10 +1115,13 @@ def resolve_input_files(paths: list[str]) -> list[Path]:
             if p.is_dir():
                 # Sort expanded directory results deterministically
                 dir_files = []
-                for root, _, files in os.walk(p):
+                dir_root = p.resolve()
+                for root, _, files in os.walk(p):   # os.walk does not descend into linked folders
                     for file in files:
                         file_path = Path(root) / file
                         if file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
+                            if not _inside(file_path, dir_root):
+                                continue
                             dir_files.append(file_path.resolve())
                 dir_files.sort(key=lambda x: str(x).lower())
                 resolved.extend(dir_files)
@@ -1196,6 +1232,8 @@ def extract_single_file(input_path: Path, extraction_mode: str, install_mode: st
     if not input_path.exists():
         raise ExtractionError(f"File not found: {input_str}")
 
+    check_file_size(input_path)   # SinoBee patch: size limits (limits.py)
+
     ext = input_path.suffix.lower()
     document_format = ext.lstrip(".")
     
@@ -1218,6 +1256,7 @@ def extract_single_file(input_path: Path, extraction_mode: str, install_mode: st
             ext = ".pdf"
             document_format = "pdf"
         elif header[:2] == b"PK":
+            check_zip(input_str)
             try:
                 with zipfile.ZipFile(input_str) as zf:
                     names = set(zf.namelist())
@@ -1240,6 +1279,9 @@ def extract_single_file(input_path: Path, extraction_mode: str, install_mode: st
                 f"Unsupported format '{ext or '<none>'}'. Supported: {supported_formats_message()}"
             )
             
+    if ext in (".docx", ".epub"):
+        check_zip(input_str)       # before python-docx, ebooklib or the stdlib fallbacks unpack it
+
     prepare_dependencies(ext, extraction_mode, install_mode)
     
     if ext in CALIBRE_EBOOK_EXTENSIONS and not shutil.which("ebook-convert"):
