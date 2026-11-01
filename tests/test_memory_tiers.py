@@ -285,3 +285,19 @@ def test_machine_is_bundled_with_its_credits(config):
         assert (sk.path / f).exists(), f
     assert "Copyright (c) 2026 Air Supply Technologies Inc." in (sk.path / "LICENSE").read_text()
     assert "Source and credits" in (sk.path / "SKILL.md").read_text(encoding="utf-8")
+
+
+def test_book_to_skill_is_bundled_with_its_credits(config):
+    """book-to-skill (MIT, by virgiliojr94) ships built in, spec-valid, and keeps its source and author."""
+    from sinobee.skills import spec
+    rt = Runtime(config, provider=Aux([]))
+    sk = rt.skills.skills["book-to-skill"]
+    assert sk.trust == "builtin" and not [d for d in sk.diagnostics if "error" in str(d).lower()]
+    p = spec.parse((sk.path / "SKILL.md").read_text(encoding="utf-8"))
+    assert not p.diagnostics and not spec.validate(p.frontmatter, "book-to-skill")
+    assert sk.metadata["author"] == "virgiliojr94"
+    assert sk.metadata["sinobee-source"] == "https://github.com/virgiliojr94/book-to-skill"
+    for f in ("LICENSE.md", "NOTICE.md", "scripts/extract.py", "book_to_skill/cli.py", "tools/scan_generated_skill.py"):
+        assert (sk.path / f).exists(), f
+    assert "Copyright (c) 2025 virgiliojr94" in (sk.path / "LICENSE.md").read_text()
+    assert "Source and credits" in (sk.path / "SKILL.md").read_text(encoding="utf-8")

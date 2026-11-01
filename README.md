@@ -377,7 +377,7 @@ docker compose up -d --build
 | 程式 | `code-review`（找真正的缺陷與資安問題）、`code-repo-explainer` |
 | 操作 | `browser-form-filling`、`desktop-automation` |
 | 製作 | `ai-video-production` |
-| 自身 | `skill-authoring`、`memory-management` |
+| 自身 | `skill-authoring`、`memory-management`、`book-to-skill`（把書籍與文件轉成技能，出自 [virgiliojr94/book-to-skill](https://github.com/virgiliojr94/book-to-skill)，MIT） |
 
 辦公文件技能需要 `pip install "sinobee[office]"`；畫面截圖與頁面檢查需要 LibreOffice 與 Playwright 的 Chromium（沒有時會說明未檢查）。SinoBee 也會在完成任務後自己生成新技能。每個技能都標示信任級別（內建、官方驗證、本機、專案、自動生成、社群、未信任、已封鎖），來路不明的技能要執行腳本前會先問你。
 
