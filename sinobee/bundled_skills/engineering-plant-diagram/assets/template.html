@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__</title>
+<style>
+  body{margin:0;background:#E6EBF1;font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif}
+  .bar{position:sticky;top:0;z-index:2;display:flex;gap:8px;align-items:center;padding:10px 16px;background:#FFFFFFE6;border-bottom:1px solid #C9D1DB;flex-wrap:wrap}
+  .bar button{border:1px solid #9AA6B6;background:#fff;border-radius:6px;padding:6px 14px;font-size:14px;cursor:pointer;color:#1B2631}
+  .bar button[aria-pressed=true]{background:#1B2631;color:#fff;border-color:#1B2631}
+  .bar span{font-size:12px;color:#566573;margin-left:auto}
+  #plant{display:block;width:100%;height:auto;max-height:calc(100vh - 56px);cursor:grab;touch-action:none}
+</style></head><body>
+<div class="bar">
+  <button id="b-iso" aria-pressed="true">立體圖</button><button id="b-plan" aria-pressed="false">俯視圖</button>
+  <button id="b-svg">下載目前視角 SVG</button><span>滾輪縮放｜拖曳平移｜雙擊復原｜鍵盤 V 切換</span>
+</div>
+<svg id="plant" xmlns="http://www.w3.org/2000/svg"></svg>
+<script>/*__KIT__*/</script>
+<script>/*__MODEL__*/</script>
+<script>
+  const svg = document.getElementById('plant');
+  PlantKit.render(MODEL, svg); PlantKit.enableZoom(svg);
+  const show = v => { PlantKit.setView(svg, v); document.getElementById('b-iso').setAttribute('aria-pressed', v === 'iso'); document.getElementById('b-plan').setAttribute('aria-pressed', v === 'plan'); };
+  document.getElementById('b-iso').onclick = () => show('iso'); document.getElementById('b-plan').onclick = () => show('plan');
+  document.getElementById('b-svg').onclick = () => PlantKit.exportSVG(svg, 'plant');
+  addEventListener('keydown', e => { if (e.key.toLowerCase() === 'v') show(svg.dataset.view === 'iso' ? 'plan' : 'iso'); });
+  show(MODEL.view || 'iso');
+</script></body></html>
