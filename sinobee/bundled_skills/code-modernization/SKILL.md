@@ -4,16 +4,18 @@ description: Guided modernization of a legacy codebase in any language - assessm
 license: Apache-2.0
 compatibility: SinoBee edition of Anthropic's code-modernization plugin for Claude Code. Python 3.8+ for the scripts (SinoBee's own Python through skill_run). The strongest proof needs the legacy and target build toolchains; without them the verdict stops at PARTLY PROVEN. scc or cloc optional for size metrics.
 metadata:
-  version: "1.0.0-main.a2e251d.sinobee.1"
+  version: "1.0.0-main.a2e251d.sinobee.2"
   author: "Anthropic"
   sinobee-source: "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-modernization"
   sinobee-upstream-commit: "a2e251d9b97b909bf728b3e84fc8d17e6aba0063"
   sinobee-upstream-license: "Apache-2.0, Anthropic"
-  sinobee-packaged-by: "CAFECA (SinoBee edition: commands turned into references, agents into personas run through delegate, Workflow scripts, hooks and telemetry left out; see NOTICE.md)"
+  sinobee-packaged-by: "CAFECA (SinoBee edition: commands turned into references, agents into SinoBee agent roles, three Workflow scripts ported to SinoBee workflows, hooks and telemetry left out; see NOTICE.md)"
   sinobee-tags: "legacy, modernization, migration, rewrite, upgrade, business-rules, verification, cobol, java, dotnet"
   sinobee-triggers: "現代化, 舊系統, 遺留系統, 系統翻新, 改寫, 重寫, 遷移, 升級, 框架升級, 版本升級, 業務規則, COBOL, 大型主機, modernize, modernization, legacy, migrate, migration, rewrite, uplift, upgrade, business rules"
   sinobee-requires-tools: "delegate, ask_user, skill_run, shell, read_file, write_file, edit_file, search_files, list_dir"
   sinobee-complexity: high
+  sinobee-workflows: code-modernization-extract-rules, code-modernization-harden-scan, code-modernization-uplift-deltas
+  sinobee-agents: agents/*.md
   sinobee-quickstart: "1) /code-modernization start: ask_user the goal, write INTENT.md; 2) get the legacy folder granted READ-ONLY; 3) preflight <name> --source <path>; 4) assess, map, extract-rules (delegate in batches, confirm the agent count first), review; 5) brief and wait for approval; 6) uplift | transform | reimagine; 7) verify (fresh session, proof_pack.py computes the verdict); 8) harden. Each step: read references/<step>.md and follow it with the translation table in SKILL.md."
 ---
 
@@ -22,13 +24,14 @@ metadata:
 > **Source and credits.** This skill is **code-modernization** by **Anthropic**, published in
 > <https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-modernization> under the Apache License 2.0
 > (`LICENSE`). This is CAFECA's SinoBee edition of commit `a2e251d`: the Claude Code commands are kept as
-> `references/<step>.md` (lightly adapted), the agents as personas run through `delegate`, the scripts as they are
-> apart from the next-step command format; the Workflow scripts, the live pane hooks and the usage telemetry are not
-> included. See `NOTICE.md`. It is not endorsed by Anthropic; report problems with this edition to SinoBee.
+> `references/<step>.md` (lightly adapted), the agents as SinoBee agent roles (`agents/`), three Workflow scripts
+> ported to SinoBee workflows (`workflows/`), the scripts as they are apart from the next-step command format; the
+> other Workflow scripts, the live pane hooks and the usage telemetry are not included. See `NOTICE.md`. It is not endorsed by Anthropic; report problems with this edition to SinoBee.
 >
 > **出處與作者。** 本技能為 **Anthropic** 的 **code-modernization**，以 Apache License 2.0 釋出（見 `LICENSE`）。
 > 這是 CAFECA 依 commit `a2e251d` 製作的 SinoBee 版：Claude Code 指令改為 `references/<step>.md`（少量改寫），
-> 專屬代理改為經 `delegate` 執行的人設，腳本除下一步指令格式外未修改；未收入 Workflow 腳本、即時面板 hook 與使用統計。
+> 專屬代理改為 SinoBee 代理角色（`agents/`），三個 Workflow 腳本改寫為 SinoBee 工作流程（`workflows/`），腳本除下一步指令格式外未修改；
+> 未收入其餘 Workflow 腳本、即時面板 hook 與使用統計。
 > 詳見 `NOTICE.md`。本版本未經 Anthropic 背書，問題請回報 SinoBee。
 
 Point it at a legacy codebase and get: an understanding of what it is and does, a plan a person approves, the
@@ -67,26 +70,30 @@ The method, the proof rules and the test runs behind them are explained in `refe
 | `python3 "<skill>/scripts/X.py" ARGS` | `skill_run(name="code-modernization", script="scripts/X.py", args="ARGS")` from the workspace root (where `analysis/` lives) |
 | `<skill>/assets/...` | the same file inside this skill (`skill_view` lists the resources) |
 | ask with the `ask_user` tool, a pop-up | `ask_user`; with nobody there (scheduled or unattended run) use the reference's default and record it as an open question |
-| the Workflow tool / Method A | **not available in this edition**: always take the direct-subagent path (Method B, or the "without the Workflow tool" branch) |
-| spawn N `<agent>` subagents | `delegate` with one task per subagent (at most 8 tasks per call; SinoBee runs about 3 at a time), the role from the table below, and the persona file's text in `context` |
+| the Workflow tool / Method A in `extract-rules`, `harden`, `uplift` (step 3) | `run_workflow` with the SinoBee workflow below (wait=false for a big run, then follow it in the 工作 tab); read its result file instead of a returned object |
+| the Workflow tool anywhere else (`assess --portfolio`, `uplift` migration, `reimagine` scaffold) | not ported: take the direct-subagent path (Method B, or the "without the Workflow tool" branch) |
+| spawn N `<agent>` subagents | `delegate` with one task per subagent (at most 8 tasks per call; SinoBee runs about 3 at a time) and the role `code-modernization:<agent>` |
 | Read / Glob / Grep / Bash / Edit / Write | `read_file` / `search_files`, `list_dir` / `search_files` / `shell` / `edit_file` / `write_file` |
 | `.claude/settings.json` deny rules | a **read-only** host folder (see preflight Check 7 in `references/preflight.md`) |
 | `/modernize-review-pane`, `/modernize-panel`, "the progress pane" | not available; use `review` and `REPORT.html` |
 
-| Upstream agent | `delegate` role | Persona |
+| Workflow (`run_workflow` name) | Inputs | Result file |
 |---|---|---|
-| legacy-analyst | analyst | `references/agent-legacy-analyst.md` |
-| business-rules-extractor | analyst | `references/agent-business-rules-extractor.md` |
-| architecture-critic | analyst (must not write) | `references/agent-architecture-critic.md` |
-| security-auditor | analyst (must not write) | `references/agent-security-auditor.md` |
-| version-delta-analyst | analyst | `references/agent-version-delta-analyst.md` |
-| test-engineer | general | `references/agent-test-engineer.md` |
-| scaffolder | general | `references/agent-scaffolder.md` |
-| uplift-migrator | general | `references/agent-uplift-migrator.md` |
+| `code-modernization-extract-rules` | `system`, `module_pattern` | `analysis/<name>/rules_result.json`, then `BUSINESS_RULES.md` and `DATA_OBJECTS.md` (rendered by the workflow) |
+| `code-modernization-harden-scan` | `system`, `classes` (re-run only these) | `analysis/<name>/harden_result.json` |
+| `code-modernization-uplift-deltas` | `system`, `source`, `target`, `project_pattern` | `analysis/<name>/uplift_deltas.json` |
 
-A delegate task must be self-contained: the subagent cannot see this chat. Give it the system name, its exact
-scope (files or module), the output format the reference asks for, and what NOT to cover. Only one agent writes a
-given file; read-only roles must be told "do not write files". Sub-agents cannot delegate further.
+The extract-rules workflow asks for approval before more than 12 modules. If a workflow fails part-way, resume it
+from the 工作 tab (finished nodes are kept) instead of starting over.
+
+| Upstream agent | Role (`delegate` / workflows) | Can write |
+|---|---|---|
+| legacy-analyst, business-rules-extractor, architecture-critic, security-auditor, version-delta-analyst | `code-modernization:<name>` (analyst tools) | no |
+| test-engineer, scaffolder, uplift-migrator | `code-modernization:<name>` (general tools) | yes |
+
+The roles' instructions are in `agents/<name>.md`. A delegate task must be self-contained: the subagent cannot
+see this chat. Give it the system name, its exact scope (files or module), the output format the reference asks
+for, and what NOT to cover. Only one agent writes a given file. Sub-agents cannot delegate further.
 
 # Rules that always apply
 - **Legacy code is read-only and untrusted.** Ask for the folder to be granted read-only before the first build

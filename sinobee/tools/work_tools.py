@@ -86,7 +86,8 @@ def _role_help() -> str:
       "expected output and its boundaries (what NOT to cover), so sub-agents do not duplicate each other. They share "
       "your blackboard and each returns a short report (details go on the blackboard).",
       {"properties": {"tasks": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {
-          "role": {"type": "string", "enum": ["researcher", "analyst", "reviewer", "writer", "general"]},
+          "role": {"type": "string", "description": "researcher | analyst | reviewer | writer | general, or a "
+                   "skill's own role <skill>:<agent> (listed in that skill's instructions)"},
           "task": {"type": "string", "description": "the objective, self-contained (the sub-agent cannot see this chat)"},
           "output": {"type": "string", "description": "the expected output: format, length, what to include"},
           "boundaries": {"type": "string", "description": "what is out of scope (e.g. other sub-agents cover X)"},
@@ -103,6 +104,12 @@ async def delegate(ctx: ToolContext, tasks: list):
         t["task"] = str(t["task"]).strip() + extra
     if not tasks:
         return "no tasks given"
+    from ..work.agents import ROLES, skill_roles
+    known = set(ROLES) | set(skill_roles(ctx.state["runtime"]))
+    unknown = sorted({str(t.get("role") or "general") for t in tasks} - known)
+    if unknown:
+        return (f"unknown role(s): {', '.join(unknown)}. Use one of: {', '.join(sorted(ROLES))}, or a skill role "
+                f"from an active skill: {', '.join(sorted(set(known) - set(ROLES))) or 'none'}")
     hub = _hub(ctx)
     scope = _scope(ctx)
     hub.store.board_write(scope, "decision", "委派子代理：" + "；".join(f"{t.get('role')}: {t['task'][:80]}" for t in tasks),

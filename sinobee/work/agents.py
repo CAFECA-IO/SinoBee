@@ -90,16 +90,72 @@ CHILD_RULES = """# Sub-agent rules
   open. Put details, tables and long excerpts on the blackboard instead of in the report."""
 
 
+WRITE_TOOLS = {"write_file", "edit_file"}
+
+
 def role_names() -> list[str]:
     return list(ROLES)
 
 
-def tool_filter_for(role: str):
-    spec = ROLES.get(role) or ROLES["general"]
+def _persona(path) -> tuple[dict, str]:
+    """An agent file: YAML frontmatter (name, description, base, readonly) + the persona text."""
+    import yaml
+    text = path.read_text(encoding="utf-8")
+    meta: dict = {}
+    if text.startswith("---\n") and "\n---\n" in text[4:]:
+        head, text = text[4:].split("\n---\n", 1)
+        try:
+            meta = yaml.safe_load(head) or {}
+        except yaml.YAMLError:
+            meta = {}
+    return (meta if isinstance(meta, dict) else {}), text.strip()
+
+
+def skill_roles(rt) -> dict[str, dict]:
+    """Roles defined by active skills (metadata sinobee-agents), named "<skill>:<agent>". A skill role is a persona on
+    top of a built-in role: it gets that role's tools (minus file writes when readonly) - never more - so a skill
+    cannot widen what a sub-agent may do. Untrusted, blocked and disabled skills define no roles."""
+    out: dict[str, dict] = {}
+    for sk in list(getattr(getattr(rt, "skills", None), "skills", {}).values()):
+        if sk.disabled or sk.trust in ("untrusted", "blocked"):
+            continue
+        for name, path in (getattr(sk, "agents", None) or {}).items():
+            try:
+                meta, body = _persona(path)
+            except OSError:
+                continue
+            base_name = str(meta.get("base") or "general")
+            base = ROLES.get(base_name) if base_name in ROLES else ROLES["general"]
+            readonly = str(meta.get("readonly", "")).lower() in ("true", "yes", "1")
+            out[f"{sk.name}:{name}"] = {
+                "label": f"{meta.get('name') or name}（{sk.name}）",
+                "tools": base["tools"], "deny": WRITE_TOOLS if readonly else set(), "base": base_name,
+                "prompt": body + ("\n\nYou must not write or edit files." if readonly else "")
+                + "\n\nRecord important results on the blackboard with board_write.",
+                "iterations": int(meta.get("iterations") or base["iterations"]),
+                "description": str(meta.get("description") or ""),
+            }
+    return out
+
+
+def resolve_role(rt, role: str) -> tuple[str, dict]:
+    """(name, spec) for a built-in role or a skill role; unknown names fall back to general."""
+    if role in ROLES:
+        return role, ROLES[role]
+    if role and ":" in role:
+        spec = skill_roles(rt).get(role)
+        if spec:
+            return role, spec
+    return "general", ROLES["general"]
+
+
+def tool_filter_for(role):
+    spec = role if isinstance(role, dict) else (ROLES.get(role) or ROLES["general"])
     allowed = spec["tools"]
+    deny = spec.get("deny") or set()
 
     def ok(tool) -> bool:
-        if tool.name in CHILD_DENY:
+        if tool.name in CHILD_DENY or tool.name in deny:
             return False
         return allowed is None or tool.name in allowed
     return ok
@@ -130,7 +186,7 @@ async def run_subagent(rt, *, role: str, task: str, board_scope: str, parent_ses
                        max_iterations: int | None = None, owner: str | None = None, provider=None) -> dict:
     """Runs one child agent to completion; returns {role, task, status, result, session_id, cost_usd}."""
     from ..agent import Agent
-    spec = ROLES.get(role) or ROLES["general"]
+    role, spec = resolve_role(rt, role)
     sid = "sub-" + uuid.uuid4().hex[:10]
     label = spec["label"]
 
@@ -148,7 +204,7 @@ async def run_subagent(rt, *, role: str, task: str, board_scope: str, parent_ses
     root = SANDBOX_ROOT.get(parent_session, parent_session) if parent_session else None
     if root:
         SANDBOX_ROOT[sid] = root
-    agent = Agent(rt, sid, platform="subagent", emit=child_emit, approve=approve, tool_filter=tool_filter_for(role),
+    agent = Agent(rt, sid, platform="subagent", emit=child_emit, approve=approve, tool_filter=tool_filter_for(spec),
                   system_extra=spec["prompt"] + "\n\n" + CHILD_RULES, board_scope=board_scope,
                   max_iterations=max_iterations or spec["iterations"], title=title or f"[{label}] {task[:60]}",
                   learn=False, depth=1, provider=provider, sandbox_conversation=root)
@@ -176,12 +232,15 @@ async def run_subagent(rt, *, role: str, task: str, board_scope: str, parent_ses
 
 
 async def run_many(rt, tasks: list[dict], *, board_scope: str, parent_session: str | None, approve=None, emit=None,
-                   hub=None, limit: int = 3, owner: str | None = None) -> list[dict]:
+                   hub=None, limit: int = 3, owner: str | None = None, on_done=None) -> list[dict]:
     sem = asyncio.Semaphore(max(1, limit))
 
     async def one(t: dict):
         async with sem:
-            return await run_subagent(rt, role=t.get("role") or "general", task=t["task"], board_scope=board_scope,
-                                      parent_session=parent_session, approve=approve, emit=emit,
-                                      context=t.get("context") or "", hub=hub, owner=owner)
+            r = await run_subagent(rt, role=t.get("role") or "general", task=t["task"], board_scope=board_scope,
+                                   parent_session=parent_session, approve=approve, emit=emit,
+                                   context=t.get("context") or "", hub=hub, owner=owner)
+        if on_done:
+            on_done(r)
+        return r
     return await asyncio.gather(*(one(t) for t in tasks))

@@ -147,6 +147,7 @@ DEFAULTS: dict[str, Any] = {
         "scheduler": True,          # run scheduled jobs (server only)
         "max_parallel_runs": 2,     # background runs at the same time
         "max_parallel_subagents": 3,
+        "max_map_items": 256,       # most items one workflow map node may fan out to
         "auto_resume": True,        # every minute: resume tasks interrupted by a restart / crash (work/recovery.py)
         "auto_resume_max": 2,       # automatic resumes per conversation per day
         "auto_resume_model_max": 3,  # resumes after a temporary model error per conversation per day (1/5/15 min)

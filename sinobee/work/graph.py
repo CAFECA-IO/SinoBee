@@ -11,7 +11,7 @@ Workflow file (YAML; bundled ones in sinobee/work/workflows, your own in $SINOBE
       topic: {type: text, label: 主題, required: true}
     nodes:
       - id: plan
-        type: agent              # agent | map | action | approval
+        type: agent              # agent | map | action | approval | script
         role: researcher         # sub-agent role (see work/agents.py)
         prompt: "…{{inputs.topic}}…"
         output: json             # text (default) | json
@@ -27,6 +27,24 @@ Workflow file (YAML; bundled ones in sinobee/work/workflows, your own in $SINOBE
         with: {title: "{{inputs.topic}}", body: "{{nodes.write.output}}"}
         needs: [research]
         when: "nodes.review.output and contains(nodes.review.output, 'pass')"   # optional condition
+
+Structured output: `output: json` plus an optional `schema:` (a JSON Schema subset: type, properties, required,
+items, enum, minItems) on agent and map nodes. An agent reply that does not match is sent back once with the
+problems; a map item that still does not match is kept with status "invalid" and its raw reply.
+
+Script nodes (only in workflows shipped by a skill): run one of the skill's own scripts with the same rules as
+skill_run. `input:` (any value, templated) is written to a JSON file whose path is {{input_file}}; the script may
+write its result to {{output_file}} (read back as JSON when `output: json`), otherwise its stdout is the output.
+
+      - id: shard
+        type: script
+        script: scripts/make_shards.py
+        input: "{{nodes.inventory.output}}"
+        args: "--in {{input_file}} --out {{output_file}}"
+        output: json
+
+Map size: `max_items` (default 8) is capped by work.max_map_items (default 256); sub-agents run
+work.max_parallel_subagents at a time and the node shows its progress.
 
 Templates: {{inputs.x}}, {{nodes.<id>.output[.field]}}, {{item}} inside map, {{job.name}}, {{run.id}}.
 """
@@ -44,7 +62,7 @@ import yaml
 
 log = logging.getLogger("sinobee.work")
 BUNDLED = Path(__file__).resolve().parent / "workflows"
-NODE_TYPES = ("agent", "map", "action", "approval")
+NODE_TYPES = ("agent", "map", "action", "approval", "script")
 
 
 class WorkflowError(Exception):
@@ -71,6 +89,10 @@ def validate(wf: dict, source: str = "") -> dict:
             raise WorkflowError(f"{wf['name']}: 節點 id「{nid}」無效或重複")
         if n.get("type") not in NODE_TYPES:
             raise WorkflowError(f"{wf['name']}.{nid}: type 需為 {', '.join(NODE_TYPES)}")
+        if n["type"] == "script" and not re.fullmatch(r"[\w./-]+", str(n.get("script") or "")):
+            raise WorkflowError(f"{wf['name']}.{nid}: script 節點需要 script（技能內的檔案路徑）")
+        if n.get("schema") is not None and not isinstance(n["schema"], dict):
+            raise WorkflowError(f"{wf['name']}.{nid}: schema 需為物件")
         ids.add(nid)
     for n in nodes:
         for d in n.get("needs") or []:
@@ -224,7 +246,8 @@ def render(value, scope: dict):
     if not isinstance(value, str):
         return value
     m = _TPL.fullmatch(value.strip())
-    if m:                               # "{{ expr }}" alone keeps the value's type (list, dict, number...)
+    if m and "{{" not in m.group(1) and "}}" not in m.group(1):   # one "{{ expr }}" alone keeps its type
+        # (a lazy match can span "{{a}} {{b}}": that is two templates, rendered as text below)
         return evaluate(m.group(1), scope)
 
     def sub(mm):
@@ -233,6 +256,59 @@ def render(value, scope: dict):
             return ""
         return v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, default=str)
     return _TPL.sub(sub, value)
+
+
+def shell_args(template: str, scope: dict) -> str:
+    """A script node's command line: every {{value}} becomes ONE shell-quoted word (an empty value adds nothing), so
+    an input such as "x; rm -rf ~" stays a single argument instead of running."""
+    import shlex
+
+    def sub(mm):
+        v = evaluate(mm.group(1), scope)
+        if v is None or v == "":
+            return ""
+        return shlex.quote(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, default=str))
+    return _TPL.sub(sub, template)
+
+
+# ------------------------------------------------------------------ output schema
+_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "null": type(None)}
+
+
+def check_schema(value, schema: dict, path: str = "$") -> list[str]:
+    """Problems with `value` against a JSON Schema subset (type, properties, required, items, enum, minItems)."""
+    if not isinstance(schema, dict):
+        return []
+    out: list[str] = []
+    want = schema.get("type")
+    if want:
+        kinds = want if isinstance(want, list) else [want]
+
+        def is_a(k):
+            if k == "integer":
+                return isinstance(value, int) and not isinstance(value, bool)
+            if k == "number":
+                return isinstance(value, (int, float)) and not isinstance(value, bool)
+            t = _TYPES.get(k)
+            return t is not None and isinstance(value, t) and not (k != "boolean" and isinstance(value, bool))
+        if not any(is_a(k) for k in kinds):
+            return [f"{path}: expected {'/'.join(kinds)}, got {type(value).__name__}"]
+    if "enum" in schema and value not in schema["enum"]:
+        out.append(f"{path}: {value!r} is not one of {schema['enum']}")
+    if isinstance(value, dict):
+        for k in schema.get("required") or []:
+            if k not in value:
+                out.append(f"{path}: missing required field {k!r}")
+        for k, sub in (schema.get("properties") or {}).items():
+            if k in value:
+                out += check_schema(value[k], sub, f"{path}.{k}")
+    if isinstance(value, list):
+        if len(value) < int(schema.get("minItems") or 0):
+            out.append(f"{path}: needs at least {schema['minItems']} items")
+        if isinstance(schema.get("items"), dict):
+            for i, v in enumerate(value[:500]):
+                out += check_schema(v, schema["items"], f"{path}[{i}]")
+    return out[:20]
 
 
 # ------------------------------------------------------------------ execution
@@ -347,8 +423,21 @@ class WorkflowRun:
             raise WorkflowError(f"子代理沒有完成（{res['status']}）：{res['result'][:200]}")
         if n.get("output") == "json":
             data = extract_json(res["result"])
-            if data is None:
-                raise WorkflowError("子代理沒有回傳 JSON")
+            problems = ["the reply holds no JSON"] if data is None else check_schema(data, n.get("schema") or {})
+            if problems:          # one more try, told exactly what is wrong
+                fix = (self._prompt(n, scope) + "\n\nYour previous reply did not match the required JSON:\n- "
+                       + "\n- ".join(problems) + "\n\nPrevious reply:\n" + str(res["result"])[:4000])
+                res = await run_subagent(self.hub.rt, role=n.get("role") or "general", task=fix,
+                                         board_scope=self.board_scope, parent_session=self.run.get("session_id"),
+                                         approve=self.hub.approver(self.run), emit=self.hub.run_emitter(self.run["id"]),
+                                         hub=self.hub, title=f"[{self.wf['title']}] {n.get('title') or n['id']}（修正）",
+                                         max_iterations=n.get("iterations"), owner=self.run["id"])
+                st["sessions"].append(res["session_id"])
+                st["cost_usd"] = st.get("cost_usd", 0) + res.get("cost_usd", 0)
+                data = extract_json(res["result"])
+                problems = ["the reply holds no JSON"] if data is None else check_schema(data, n.get("schema") or {})
+                if problems:
+                    raise WorkflowError("子代理的 JSON 不符合格式：" + "；".join(problems[:5]))
             return data
         return res["result"]
 
@@ -359,20 +448,43 @@ class WorkflowRun:
             items = next((v for v in items.values() if isinstance(v, list)), [])
         if not isinstance(items, list) or not items:
             raise WorkflowError(f"map 沒有可處理的項目（over = {n.get('over')}）")
-        items = items[: int(n.get("max_items") or 8)]
-        tasks = [{"role": n.get("role") or "general", "task": render(n.get("prompt") or "{{item}}", {**scope, "item": it})}
-                 for it in items]
+        cap = int(self.hub.rt.config.get("work.max_map_items", 256))
+        want = min(int(n.get("max_items") or 8), cap)
+        if len(items) > want:
+            st["truncated"] = {"total": len(items), "kept": want}
+        items = items[:want]
+        suffix = "\n\nReply with ONLY the JSON (no prose before or after)." if n.get("output") == "json" else ""
+        tasks = [{"role": n.get("role") or "general",
+                  "task": render(n.get("prompt") or "{{item}}", {**scope, "item": it}) + suffix} for it in items]
         limit = int(self.hub.rt.config.get("work.max_parallel_subagents", 3))
+        st["progress"] = {"done": 0, "total": len(tasks)}
+
+        def one_done(_r):
+            st["progress"]["done"] += 1
+            self.save(f"{n.get('title') or n['id']} {st['progress']['done']}/{st['progress']['total']}")
         results = await run_many(self.hub.rt, tasks, board_scope=self.board_scope,
                                  parent_session=self.run.get("session_id"), approve=self.hub.approver(self.run),
                                  emit=self.hub.run_emitter(self.run["id"]), hub=self.hub, limit=limit,
-                                 owner=self.run["id"])
+                                 owner=self.run["id"], on_done=one_done)
         st["sessions"] = [r["session_id"] for r in results]
         st["cost_usd"] = sum(r.get("cost_usd") or 0 for r in results)
         ok = [r for r in results if r["status"] == "done"]
         if not ok:
             raise WorkflowError("所有子代理都沒有完成")
-        return [{"item": it, "result": r["result"], "status": r["status"]} for it, r in zip(items, results)]
+        out = []
+        for it, r in zip(items, results):
+            row = {"item": it, "result": r["result"], "status": r["status"]}
+            if n.get("output") == "json" and r["status"] == "done":
+                from .agents import extract_json
+                data = extract_json(r["result"])
+                problems = ["the reply holds no JSON"] if data is None else check_schema(data, n.get("schema") or {})
+                if problems:
+                    row.update(status="invalid", problems=problems)
+                else:
+                    row["data"] = data
+            out.append(row)
+        st["invalid"] = sum(1 for r in out if r["status"] == "invalid")
+        return out
 
     async def _action(self, n: dict, scope: dict, st: dict):
         from .actions import ACTIONS, ActionContext
@@ -382,6 +494,46 @@ class WorkflowRun:
         args = render(n.get("with") or {}, scope)
         ctx = ActionContext(self.hub, self.run, self.job, self.board_scope, st)
         return await fn(ctx, **args)
+
+    async def _script(self, n: dict, scope: dict, st: dict):
+        """One of the workflow's own skill scripts, run exactly like skill_run (same policy and approvals)."""
+        from ..sandbox import executor_of
+        from ..tools import REGISTRY, ToolContext
+        from ..types import ToolCall
+        from .agents import extract_json
+        skill = self.wf.get("skill")
+        if not skill:
+            raise WorkflowError("script 節點只能用在技能附帶的流程")
+        rt = self.hub.rt
+        ctx = ToolContext(config=rt.config, skills=rt.skills, session_id=self.run.get("session_id") or self.run["id"],
+                          approve=self.hub.approver(self.run), state={"runtime": rt})
+        ex = executor_of(ctx)
+        folder = Path(ex.paths.workspace or rt.config.workspace) / ".sinobee-runs" / self.run["id"]
+        folder.mkdir(parents=True, exist_ok=True)
+        inp, outp = folder / f"{n['id']}.in.json", folder / f"{n['id']}.out.json"
+        outp.unlink(missing_ok=True)
+        inp.write_text(json.dumps(render(n.get("input"), scope), ensure_ascii=False, default=str), encoding="utf-8")
+        files = {"input_file": ex.paths.to_exec(inp), "output_file": ex.paths.to_exec(outp)}
+        args = shell_args(str(n.get("args") or ""), {**scope, **files})
+        r = await REGISTRY.dispatch(ToolCall(f"wf-{n['id']}", "skill_run", {
+            "name": skill, "script": n["script"], "args": args, "timeout": int(n.get("timeout") or 600)}), ctx)
+        text = r.content if hasattr(r, "content") else str(r)
+        if getattr(r, "is_error", False):
+            raise WorkflowError(text[:800])
+        if n.get("output") != "json":
+            return text
+        data = None
+        if outp.is_file():
+            try:
+                data = json.loads(outp.read_text(encoding="utf-8"))
+            except ValueError as e:
+                raise WorkflowError(f"{outp.name} 不是 JSON：{e}") from None
+        if data is None:
+            data = extract_json(text)
+        problems = ["no JSON output"] if data is None else check_schema(data, n.get("schema") or {})
+        if problems:
+            raise WorkflowError("腳本輸出不符合格式：" + "；".join(problems[:5]))
+        return data
 
     async def _approval(self, n: dict, scope: dict, st: dict):
         message = render(n.get("message") or "繼續執行下一步？", scope)

@@ -107,15 +107,15 @@ brief may have just built it); regenerate only if missing or stale.
 
 **Preferred, with the Workflow tool** (this invocation authorizes it):
 
-Call it by name (the plugin registers it); if the tool does not know the name, pass `scriptPath: "<skill>/workflows/uplift-deltas.js"` instead:
+**In SinoBee** run the ported workflow:
 
 ```
-Workflow({
-  name: "code-modernization:modernize-uplift-deltas",
-  args: { system: "$system",
-          source: "$source_version", target: "$target_version", projectPattern: "$project_pattern" }
-})
+run_workflow(name="code-modernization-uplift-deltas",
+             inputs={"system": "$system", "source": "$source_version", "target": "$target_version",
+                     "project_pattern": "$project_pattern"}, wait=false)
 ```
+
+The result, the delta cards described below, is saved as `analysis/$system/uplift_deltas.json`: read it there.
 
 It runs one finder per delta category (API removed, behavioral-silent, project system, dependency; the
 finders also probe reflection and encapsulation, globalization and locale, hosting and runtime config,

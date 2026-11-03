@@ -15,12 +15,19 @@ endorsed by Anthropic.
   reworded so SinoBee's Skill Hub scan does not flag the defensive text itself.
 - `references/preflight.md` Check 7 rewritten: SinoBee protects the legacy source with a read-only folder grant
   instead of Claude Code permission rules.
-- `agents/*.md` → `references/agent-<name>.md`: frontmatter replaced by a header; run through SinoBee's `delegate`.
+- `agents/*.md`: frontmatter replaced by SinoBee's agent-role fields (`base`, `readonly`); the body is unchanged.
+  SinoBee runs them as the roles `code-modernization:<name>` (metadata `sinobee-agents`).
+- `workflows/extract-rules.js`, `harden-scan.js`, `uplift-deltas.js` → `workflows/code-modernization-*.yaml`
+  (SinoBee workflow graphs, prompts and schemas condensed from the originals; extract-rules runs module mode only,
+  without lens mode, the consolidation pass and batching), with new glue scripts `scripts/sinobee_rules.py` and
+  `scripts/sinobee_scan.py` (CAFECA) that do the bookkeeping the JavaScript did between agent steps. The Method A
+  sections of `references/extract-rules.md`, `harden.md` and `uplift.md` call these workflows.
 - `scripts/build_report.py`, `scripts/proof_pack.py`: next-step commands use `/code-modernization <step>`;
   `scripts/tests/test_report_next.py` updated to match. All other scripts unchanged.
 - `README.md` kept as `references/upstream-README.md` (same rewording as above).
 - New: `SKILL.md`, this `NOTICE.md`.
-- Not included: `workflows/` (Claude Code Workflow scripts), `hooks/` (Claude Code function hooks: live pane, x-ray,
+- Not included: the other Claude Code Workflow scripts (`portfolio-assess.js`, `uplift-migrate.js`,
+  `reimagine-scaffold.js`: those steps use the direct-subagent path), `hooks/` (Claude Code function hooks: live pane, x-ray,
   review deck, sign dialog, fleet view), `scripts/telemetry.py`, `scripts/telemetry.sh`,
   `scripts/tests/test_telemetry.py`, `tests/` (TypeScript), `.claude-plugin/`, `tsconfig.json`, `CHANGELOG.md`,
   `assets/media/`, `assets/topology-viewer-screenshot.jpg`. No usage data is collected by this edition.

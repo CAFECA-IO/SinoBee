@@ -35,14 +35,13 @@ commentary.
 formula, 5 + N + M**: 5 finders, N refuters (one per distinct finding), M second judges (one per finding
 still Critical or High after refutation); N and M are known only once the finders return.
 
-Call it by name (the plugin registers it). If the tool does not know the name, pass `scriptPath: "<skill>/workflows/harden-scan.js"` instead:
+**In SinoBee** run the ported workflow:
 
 ```
-Workflow({
-  name: "code-modernization:modernize-harden-scan",
-  args: { system: "$system" }
-})
+run_workflow(name="code-modernization-harden-scan", inputs={"system": "$system"}, wait=false)
 ```
+
+The result, the same object described below, is saved as `analysis/$system/harden_result.json`: read it there.
 
 Five class-scoped finders run in parallel (injection, auth and session, secrets, dependency CVEs, input
 validation); findings are de-duplicated, then adversarially refuted, and Critical and High ones
@@ -122,14 +121,13 @@ Refresh the report (`python3 "<skill>/scripts/build_report.py" $system`, a conve
 Only when the user takes the offer. Call the workflow again with just the gaps, exactly as returned:
 
 ```
-Workflow({
-  name: "code-modernization:modernize-harden-scan",
-  args: { system: "$system", classes: <deadFinders>, findings: <unverified> }
-})
+run_workflow(name="code-modernization-harden-scan",
+             inputs={"system": "$system", "classes": "<deadFinders, comma-separated>"}, wait=false)
 ```
 
-Pass an empty list for whichever has no gaps. It scans only those classes and judges only those findings, and
-returns the same shape. Fold it in: add its `findings`, `refuted`, `credentialFindings`, `toolOutputs` and
+In SinoBee the re-run covers dead finder classes only (it overwrites `harden_result.json`, so copy the old file
+first); re-judge `unverified` findings with one **security-auditor** delegate task each. The result has the
+same shape. Fold it in: add its `findings`, `refuted`, `credentialFindings`, `toolOutputs` and
 `injectionFlags`, de-duplicating findings by CWE and `file:line`; its `deadFinders` and `unverified` replace the
 old ones, since they are what is still uncovered. Update `SECURITY_FINDINGS.md` in place (scorecard,
 false-positive rate over everything judged, table, Coverage gaps) and draft and review hunks for any newly

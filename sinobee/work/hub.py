@@ -85,16 +85,16 @@ class WorkHub:
         # fixed workflows shipped inside skills (metadata sinobee-workflow), only from skills allowed to run scripts
         from .graph import WorkflowError, load_file
         for s in list(getattr(self.rt.skills, "skills", {}).values()):
-            wf_decl = getattr(s, "workflow", None)
-            if not wf_decl or s.disabled or s.policy.scripts == "deny":
+            if s.disabled or s.policy.scripts == "deny":
                 continue
-            try:
-                wf = load_file(wf_decl[1])
-            except WorkflowError as e:
-                log.warning("workflow of skill %s skipped: %s", s.name, e)
-                continue
-            wf.update(skill=s.name, bundled=s.trust == "builtin")
-            wfs.setdefault(wf["name"], wf)
+            for _name, path in getattr(s, "workflows", None) or []:
+                try:
+                    wf = load_file(path)
+                except WorkflowError as e:
+                    log.warning("workflow of skill %s skipped: %s", s.name, e)
+                    continue
+                wf.update(skill=s.name, bundled=s.trust == "builtin")
+                wfs.setdefault(wf["name"], wf)
         self._wf_cache = (time.time(), wfs)
         return wfs
 

@@ -50,18 +50,19 @@ A run is capped at 1000 agents: for more than about 70 shards, launch parts of a
 one `Workflow` call after another, and merge the results (concatenate rules, de-duplicate
 by `source` + name) before rendering once.
 
-Call it by name (the plugin registers it). If the tool does not know the name, pass `scriptPath: "<skill>/workflows/extract-rules.js"` instead:
+**In SinoBee** run the ported workflow (it builds the module list itself, asks for approval above 12 modules,
+and renders the rule files at the end):
 
 ```
-Workflow({
-  name: "code-modernization:modernize-extract-rules-mine",
-  args: {
-    system: "$system",
-    modules: <contents of analysis/$system/extract-rules.modules.json>,   // omit in lens mode
-    modulePattern: "$module_pattern"                                     // lens mode only
-  }
-})
+run_workflow(name="code-modernization-extract-rules",
+             inputs={"system": "$system", "module_pattern": "$module_pattern"}, wait=false)
 ```
+
+Tell the user it is running and that progress, the size approval and each node appear in the 工作 tab. When it
+finishes, `analysis/$system/rules_result.json`, `BUSINESS_RULES.md` and `DATA_OBJECTS.md` are already written:
+skip to **Finish** (the render step below is only for the direct-subagent path or a merged follow-up run). Lens
+mode, the consolidation pass and `batchSize` are not part of the SinoBee workflow; a stopped run resumes from its
+last finished node (工作 tab), so never restart it from scratch.
 
 Optional `batchSize` (default 8, max 16): shards extracted, then refereed, per batch.
 **Record the Run ID** (`wf_…`) and transcript directory (one per part): you need them to

@@ -2335,3 +2335,28 @@ Roadster Rocket 任務以 claude-haiku-5-5 執行時，連續 3 步回傳空白�
   未完成的項目由清單本身回報。
 - 沙盒檔案工具需要啟動沙盒時，改在伺服器自己的事件迴圈上啟動（`run_coroutine_threadsafe`），不在工作執行緒另開迴圈。
 - 測試：tests/test_favicon_findings.py。
+
+## 65. 多步驟技能的工作流程：step workflows、技能自帶角色、script 節點、輸出 schema（2026-11-04）
+
+起因：把 Anthropic 的 code-modernization 外掛移植成內建技能（`bundled_skills/code-modernization`）時，原本的
+Claude Code Workflow 腳本（JavaScript）需要 SinoBee 的流程圖引擎補上幾項能力。
+
+- **一個技能多個流程**：`sinobee-workflow` 仍是「整個技能優先用的流程」；新的 `sinobee-workflows: a, b` 登記技能內
+  `workflows/<name>.yaml` 的步驟流程，由技能說明在對應步驟呼叫 `run_workflow`。quickstart 會列出步驟流程。
+- **技能自帶角色**（`work/agents.py` `skill_roles`）：`sinobee-agents: agents/*.md`，每個檔案的 frontmatter 有
+  `name`、`description`、`base`（內建角色）、`readonly`。角色名稱是 `<技能>:<名稱>`，可用在 `delegate` 與流程節點。
+  工具集一律取自 base 角色，`readonly` 再拿掉寫檔工具：技能不能讓子代理拿到比內建角色更多的工具。未信任、封鎖或停用的
+  技能不提供角色。`delegate` 遇到未知角色會回錯並列出可用角色，不再默默變成 general。
+- **script 節點**（`graph.py` `_script`）：只能用在技能附帶的流程，透過 `skill_run` 執行該技能自己的腳本（同樣的
+  政策與核准）。`input:` 寫成 JSON 檔（`{{input_file}}`），腳本把結果寫到 `{{output_file}}`；`args` 裡每個
+  `{{…}}` 都會變成一個 shell 引號包住的參數（`shell_args`），輸入值不能注入指令。
+- **輸出 schema**：agent 與 map 節點的 `output: json` 可加 `schema:`（type、properties、required、items、enum、
+  minItems）。agent 不符時帶著問題重答一次；map 中仍不符的項目標為 `invalid` 並保留原文，`st.invalid` 計數。
+- **map 規模與進度**：`max_items` 上限由 `work.max_map_items`（預設 256）決定，超過時節點記下 `truncated`；
+  每完成一個子代理就更新 `progress`（done／total）。
+- **修正**：樣板字串裡同時有兩個 `{{…}}` 時，`render` 以前會把整段當成一個運算式而失敗。
+- code-modernization 的三個流程：`code-modernization-extract-rules`（切分 → 萃取 → 去重 → 引用審查 → P0 評審＋資料
+  物件 → rules_result.json → BUSINESS_RULES.md；超過 12 個模組先核准）、`code-modernization-harden-scan`、
+  `code-modernization-uplift-deltas`；步驟之間的整理由技能內的 `scripts/sinobee_rules.py`、`sinobee_scan.py` 負責。
+- 測試：tests/test_workflow_skill_steps.py、tests/test_code_modernization_skill.py（含以腳本化模型跑完整的
+  extract-rules 流程）。

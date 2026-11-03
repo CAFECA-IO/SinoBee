@@ -114,6 +114,28 @@ class Skill:
         return e if e and (self.path / e).is_file() else None
 
     @property
+    def workflows(self) -> list[tuple[str, Path]]:
+        """Every workflow the skill ships: the preferred one (sinobee-workflow) and step workflows
+        (sinobee-workflows: a, b - files workflows/<name>.yaml), which other steps of the skill run by name."""
+        names = [str(self.metadata.get("sinobee-workflow") or "").strip()]
+        names += [x.strip() for x in str(self.metadata.get("sinobee-workflows") or "").split(",")]
+        out, seen = [], set()
+        for name in names:
+            f = self.path / "workflows" / f"{name}.yaml"
+            if name and name not in seen and f.is_file():
+                seen.add(name)
+                out.append((name, f))
+        return out
+
+    @property
+    def agents(self) -> dict[str, Path]:
+        """Agent roles the skill defines (sinobee-agents: a glob such as agents/*.md), by name."""
+        pat = str(self.metadata.get("sinobee-agents") or "").strip()
+        if not pat or ".." in pat or pat.startswith("/"):
+            return {}
+        return {p.stem: p for p in sorted(self.path.glob(pat)) if p.is_file() and p.suffix == ".md"}
+
+    @property
     def workflow(self) -> tuple[str, Path] | None:
         """Optional fixed workflow (metadata sinobee-workflow: <name>, file workflows/<name>.yaml in the skill)."""
         name = str(self.metadata.get("sinobee-workflow") or "").strip()
@@ -131,6 +153,11 @@ class Skill:
             q = (f'Preferred: run_workflow(name="{self.workflow[0]}", inputs={{...}}, wait=false) - a fixed workflow '
                  "does every step and asks the user for approval where needed; then tell the user it is running "
                  "(progress, files and approvals appear in the 工作 tab). Otherwise: " + q).strip()
+        steps = [n for n, _ in self.workflows if not self.workflow or n != self.workflow[0]]
+        if steps:
+            q += (" Step workflows (run_workflow, named in the instructions): " + ", ".join(steps) + ".")
+        if self.agents:
+            q += (" Agent roles for delegate / workflows: " + ", ".join(f"{self.name}:{a}" for a in self.agents) + ".")
         return q
 
     @property
