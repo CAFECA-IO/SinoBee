@@ -375,7 +375,7 @@ docker compose up -d --build
 | 呈現 | `data-visualization`（色覺安全配色、中文字型）、`frontend-design`（網頁設計，手機與深色模式檢查）、`anatomy`（3D 機構圖）、`dimensional-drawing` / `dimensional-drawing-motion`（Apple 風格元件尺寸圖與動畫，出自 [enesozturk/dimensional-drawing](https://github.com/enesozturk/dimensional-drawing)，MIT）、`machine`（一句話生成照片級、物理驅動的互動 3D 機器模擬與影片，出自 [AirsupHQ/machine-skill](https://github.com/AirsupHQ/machine-skill)，MIT） |
 | 研究與分析 | `web-research`、`youtube-analysis`、`engineering-feasibility`、`database-analysis` |
 | 程式 | `code-review`（找真正的缺陷與資安問題）、`code-repo-explainer` |
-| 操作 | `browser-form-filling`、`desktop-automation` |
+| 操作 | `browser-form-filling`、`desktop-automation`、`share-to-sinobee`（檢查安全性後把檔案分享到 sinobee.ai，公開的列在 sinobee.ai/shares；上傳前一定會問你） |
 | 製作 | `ai-video-production` |
 | 自身 | `skill-authoring`、`memory-management`、`book-to-skill`（把書籍與文件轉成技能，出自 [virgiliojr94/book-to-skill](https://github.com/virgiliojr94/book-to-skill)，MIT） |
 
