@@ -560,8 +560,9 @@ def next_step(system, done, glance):
     return go("modernize-status", "says whether modules or phases are left")
 
 
-def build(system, workspace, out=None):
-    """-> (html, section count, output path), or None when nothing was found."""
+def build(system, workspace, out=None, want_data=False):
+    """-> (html, section count, output path), or None when nothing was found. SinoBee edition: want_data=True
+    returns the report data instead of the page (the 現代化 panel reads it)."""
     src = Source(workspace, system)
     out = os.path.abspath(out or os.path.join(src.adir, "REPORT.html"))
     a = lambda name: os.path.join(src.adir, name)  # noqa: E731
@@ -646,6 +647,8 @@ def build(system, workspace, out=None):
     if not src.found:
         return None
 
+    if want_data:
+        return {"system": system[:200], "glance": glance, "found": sorted(src.found), "notes": src.notes}
     lib = load_mermaid(src) if figures or any(MERMAID_FENCE.search(x) for x in texts) else ""
     parts["overview"].insert(0, {"t": "table", "head": ["Artifact", "Size", "Modified"], "rows": [[n, "%s KB" % num(s >> 10) if s >= 1024 else "%d B" % s, m] for n, s, m in sorted(src.found)]})
     if src.notes:

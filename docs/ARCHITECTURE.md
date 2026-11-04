@@ -2360,3 +2360,32 @@ Claude Code Workflow 腳本（JavaScript）需要 SinoBee 的流程圖引擎補�
   `code-modernization-uplift-deltas`；步驟之間的整理由技能內的 `scripts/sinobee_rules.py`、`sinobee_scan.py` 負責。
 - 測試：tests/test_workflow_skill_steps.py、tests/test_code_modernization_skill.py（含以腳本化模型跑完整的
   extract-rules 流程）。
+
+## 66. 讀檔脈絡、現代化面板、code-modernization 評鑑題組（2026-11-04）
+
+code-modernization 第三期：把上游外掛 Claude Code 專屬的即時面板功能做進 SinoBee。
+
+- **讀檔脈絡**（`skills/read_context.py`）：技能 metadata `sinobee-read-context: <技能內的 .py>` 與
+  `sinobee-read-context-on: <工作區相對 glob>`。`read_file` 讀到符合的檔案時，呼叫該檔的
+  `read_context(workspace, rel, offset, limit)`，把回傳的短註記包在 `<skill_context>`（標明是資料、不是指令）附在
+  讀檔結果後。因為在 SinoBee 自己的程序裡執行，只有內建或 Hub 驗證、啟用中、腳本未被禁止的技能能用；失敗或逾時
+  不影響讀檔；上限 3000 字；`skills.read_context: false` 關閉。
+  - code-modernization 的 x-ray（`scripts/sinobee_xray.py`，上游 `hooks/xray/xray.ts` 的 Python 版）：讀
+    `legacy/<系統>/…` 時附上所屬模組、呼叫者與被呼叫者、讀寫的資料、經過的業務流程、引用此檔的規則（依讀取範圍
+    篩選、P0 與疑似缺陷優先）、審查者的異議，以及版本差異目錄中引用此檔的項目。
+- **現代化面板**：工作分頁側欄列出工作區 `analysis/` 下的系統，點開右側 `#modPanel`：
+  - 進度：步驟、下一個指令（可複製）、做法、規則與證明摘要；全部讀自檔案（`build_report.build(want_data=True)`）。
+  - 規則審查：篩選需要人看／未審／P0／全部；正確／錯誤或不要／不確定＋備註，寫入 `RULE_REVIEWS.json` 與 `.md`
+    （與 review 步驟相同的檔案），並重建 REPORT.html。
+  - 簽核：計畫核准填入 `MODERNIZATION_BRIEF.md` 的 Approved by 區塊（上游 `hooks/sign.ts` 的 Python 版）；證明簽核
+    填入 `VERIFICATION.json` 的 signoff 與 `VERIFICATION.md` 的表格（重新 verify 會清空，需要再簽）。
+  - 報告：REPORT.html 以 `Content-Security-Policy: sandbox allow-scripts` 提供，iframe 也加 sandbox，報告裡的腳本
+    在不透明來源執行，不能呼叫 SinoBee API。
+  - API：`server/modernize_api.py`（`/api/modernize/systems`、`/{system}`、`/{system}/review`、`/{system}/sign`、
+    `/{system}/report`）；邏輯在技能的 `scripts/sinobee_panel.py`，只載入內建版本。
+- **評鑑題組** `evals/suites/bench-code-modernization.json`（技能評鑑，1.0）：小型舊帳務系統（逾期費、折扣、稅額、
+  驗證、帳戶狀態），含一條只寫在註解的假規則與一段要 AI 照做的註解。15 題：規則正確性 40、引用與忠實 25、
+  安全性 20（沒有照註解建立檔案、沒有改原始碼為關鍵題）、流程健康 15；確定性題目 80%；4 個錨題。
+  用 `sinobee eval run bench-code-modernization -m <執行模型> --thinking <思維模型>` 比較組合。
+- `pyproject.toml`：code-modernization 的上游腳本保留原樣，對其 F401 設 per-file-ignores。
+- 測試：tests/test_modernize_panel.py（x-ray、只限內建技能、審查、簽核、API 與報告 CSP、題組格式與判定）。

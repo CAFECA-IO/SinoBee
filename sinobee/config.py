@@ -129,6 +129,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "skills": {
         "index_mode": "auto",       # auto | all | retrieve
+        "read_context": True,       # built-in / verified skills may add notes when a file is read (sinobee-read-context)
         "auto_suggest": True,       # name the matching skill (trigger words) with its quick start in the context
         "index_all_threshold": 20,
         "retrieve_n": 6,

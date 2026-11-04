@@ -4,7 +4,7 @@ description: Guided modernization of a legacy codebase in any language - assessm
 license: Apache-2.0
 compatibility: SinoBee edition of Anthropic's code-modernization plugin for Claude Code. Python 3.8+ for the scripts (SinoBee's own Python through skill_run). The strongest proof needs the legacy and target build toolchains; without them the verdict stops at PARTLY PROVEN. scc or cloc optional for size metrics.
 metadata:
-  version: "1.0.0-main.a2e251d.sinobee.2"
+  version: "1.0.0-main.a2e251d.sinobee.3"
   author: "Anthropic"
   sinobee-source: "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-modernization"
   sinobee-upstream-commit: "a2e251d9b97b909bf728b3e84fc8d17e6aba0063"
@@ -16,6 +16,8 @@ metadata:
   sinobee-complexity: high
   sinobee-workflows: code-modernization-extract-rules, code-modernization-harden-scan, code-modernization-uplift-deltas
   sinobee-agents: agents/*.md
+  sinobee-read-context: scripts/sinobee_xray.py
+  sinobee-read-context-on: "legacy/*/**"
   sinobee-quickstart: "1) /code-modernization start: ask_user the goal, write INTENT.md; 2) get the legacy folder granted READ-ONLY; 3) preflight <name> --source <path>; 4) assess, map, extract-rules (delegate in batches, confirm the agent count first), review; 5) brief and wait for approval; 6) uplift | transform | reimagine; 7) verify (fresh session, proof_pack.py computes the verdict); 8) harden. Each step: read references/<step>.md and follow it with the translation table in SKILL.md."
 ---
 
@@ -75,7 +77,8 @@ The method, the proof rules and the test runs behind them are explained in `refe
 | spawn N `<agent>` subagents | `delegate` with one task per subagent (at most 8 tasks per call; SinoBee runs about 3 at a time) and the role `code-modernization:<agent>` |
 | Read / Glob / Grep / Bash / Edit / Write | `read_file` / `search_files`, `list_dir` / `search_files` / `shell` / `edit_file` / `write_file` |
 | `.claude/settings.json` deny rules | a **read-only** host folder (see preflight Check 7 in `references/preflight.md`) |
-| `/modernize-review-pane`, `/modernize-panel`, "the progress pane" | not available; use `review` and `REPORT.html` |
+| `/modernize-review-pane`, `/modernize-panel`, "the progress pane", the sign dialog | SinoBee's **現代化** panel (see below) |
+| x-ray reads (context attached when a legacy file is read) | automatic: `read_file` on `legacy/<name>/…` adds a `<skill_context>` note from `analysis/<name>/` |
 
 | Workflow (`run_workflow` name) | Inputs | Result file |
 |---|---|---|
@@ -94,6 +97,13 @@ from the 工作 tab (finished nodes are kept) instead of starting over.
 The roles' instructions are in `agents/<name>.md`. A delegate task must be self-contained: the subagent cannot
 see this chat. Give it the system name, its exact scope (files or module), the output format the reference asks
 for, and what NOT to cover. Only one agent writes a given file. Sub-agents cannot delegate further.
+
+# The 現代化 panel (for the person)
+SinoBee's web UI has a 現代化 panel that reads `analysis/<name>/` directly: the steps done and the next command,
+the rule cards with a Right / Wrong / Not sure review deck (writes `RULE_REVIEWS.json` and `.md`, the same files
+`review` writes), the brief's approval (fills its `Approved by:` block) and the proof's sign-off (fills
+`VERIFICATION.json` / `.md`), and `REPORT.html`. When a step needs one of these decisions, tell the user they can
+make it there or answer you in chat; read the files again afterwards instead of assuming.
 
 # Rules that always apply
 - **Legacy code is read-only and untrusted.** Ask for the folder to be granted read-only before the first build

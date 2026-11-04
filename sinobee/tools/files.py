@@ -64,7 +64,9 @@ def read_file(ctx: ToolContext, path: str, offset: int = 1, limit: int = 400):
     chunk = lines[start - 1:start - 1 + int(limit or 400)]
     body = "\n".join(f"{i:>6}\t{l}" for i, l in enumerate(chunk, start))
     more = len(lines) - (start - 1 + len(chunk))
-    return f"{shown} ({len(lines)} lines)\n{body}" + (f"\n... {more} more lines" if more > 0 else "")
+    out = f"{shown} ({len(lines)} lines)\n{body}" + (f"\n... {more} more lines" if more > 0 else "")
+    from ..skills.read_context import note_for       # a skill's notes on this file (code-modernization x-ray)
+    return out + (note_for(ctx, p, start, len(chunk)) or "")
 
 
 DOC_EXT = {".html", ".htm", ".xhtml", ".svg", ".md", ".markdown", ".tex", ".mdx"}

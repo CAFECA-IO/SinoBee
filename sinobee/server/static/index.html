@@ -191,6 +191,21 @@ details.tool img{max-width:100%;border-radius:6px;margin-top:6px;border:1px soli
 .pkoffer .ico svg{width:18px;height:18px}.pkoffer .t{flex:1;min-width:180px}.pkoffer .t div{color:var(--muted);margin-top:2px}
 .sidep{position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);background:var(--panel);border-left:1px solid var(--line);z-index:60;display:flex;flex-direction:column;transform:translateX(105%);transition:transform .2s ease;box-shadow:-12px 0 30px rgba(0,0,0,.25)}
 .sidep.open{transform:none}
+#modPanel{width:min(640px,100vw)}
+.md-tabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+.md-step{display:flex;gap:8px;align-items:center;padding:3px 0}.md-step .dot{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--muted);flex:none}.md-step.done .dot{background:var(--accent);border-color:var(--accent)}
+.md-next{background:var(--bg2,rgba(127,127,127,.08));border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:10px 0}
+.md-next code{display:block;margin-top:4px;word-break:break-all}
+.md-rule{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0}
+.md-rule .rh{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}.md-rule .rh b{flex:1;min-width:200px}
+.md-rule .pr{font-size:11px;padding:1px 6px;border-radius:9px;border:1px solid var(--line)}.md-rule .pr.P0{border-color:#d9534f;color:#d9534f}
+.md-rule .cites{font-size:11px;color:var(--muted);margin-top:2px}
+.md-rule details{margin-top:4px}.md-rule pre{white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto}
+.md-rule .acts{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center}.md-rule .acts input{flex:1;min-width:160px}
+.md-rule .acts .on{outline:2px solid var(--accent)}
+.md-v{font-size:11px;margin-left:4px}.md-v.confirmed{color:#2e7d32}.md-v.wrong{color:#d9534f}.md-v.discuss{color:#b8860b}
+.md-sign{border:1px solid var(--line);border-radius:8px;padding:10px;margin:10px 0}.md-sign .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+#modPanel iframe{width:100%;height:calc(100vh - 170px);border:1px solid var(--line);border-radius:6px;background:#fff}
 .sidep .ph{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
 .sidep .ph>svg{width:18px;height:18px;color:var(--accent);flex:none}.sidep .ph b{flex:1}
 .sidep .pb{flex:1;overflow:auto;padding:14px;font-size:13px}
@@ -1327,6 +1342,10 @@ button.ev-dot{display:flex;align-items:center;gap:4px;width:fit-content;max-widt
   <div class="pb" id="evBody"></div>
   <div class="pf" id="evFoot"></div>
 </aside>
+<aside id="modPanel" class="sidep" role="dialog" aria-modal="false" aria-labelledby="mdTitle" aria-hidden="true">
+  <div class="ph"><span data-icon="layers"></span><b id="mdTitle">現代化</b><select id="mdSys" aria-label="系統"></select><button class="btn icon sm" type="button" id="mdClose" data-icon="x" aria-label="關閉"></button></div>
+  <div class="pb" id="mdBody"></div>
+</aside>
 <div class="modal" id="skillModal"><div class="card wide"><h3 id="skTitle" style="margin-top:0"></h3><div id="skInfo"></div>
   <pre id="skBody" style="max-height:45vh;margin-top:12px"></pre><div class="row" id="skActs"></div></div></div>
 <div class="modal" id="quotaModal"><div class="card" style="max-width:520px" role="alertdialog" aria-labelledby="qmTitle">
@@ -1413,6 +1432,7 @@ const ICONS = {
   download: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
@@ -6249,12 +6269,94 @@ async function fillWork(side){
   sec('現在', now || '沒有');
   for (const r of d.chat_running) item(`<span class="wkst running">對話</span>${esc(r.activity || '執行中')}<small>第 ${r.step || 1} 步</small>`, () => openSession({id: r.session_id}));
   for (const r of d.running) item(`${wkSt(r.status)}${esc(r.name)}<small>${esc(r.activity || '')}${r.progress ? ` · ${r.progress.done}/${r.progress.total} 步` : ''}</small>`, () => openWork('run', r.id));
+  try {                                                          // code-modernization systems in the workspace
+    const ms = (await api('/api/modernize/systems')).systems || [];
+    if (ms.length) { sec('現代化', ms.length);
+      for (const m of ms) { const done = (m.steps || []).filter(x => x.done).length;
+        item(`<span class="wkst">${done}/${(m.steps || []).length}</span>${esc(m.name)}<small>${esc(m.next?.why || m.next?.command || '')}</small>`, () => mdOpen(m.name)); } }
+  } catch (e) { /* the panel is optional */ }
   sec('接下來', d.upcoming.length || '沒有排程');
   for (const u of d.upcoming.slice(0, 6)) item(`${esc(u.name)}<small>${wkWhen(u.at)} · ${esc(u.schedule_text)}</small>`, () => openWork('job', u.job_id));
   if (d.plans.length) item(`<span class="wkst">計畫</span>${d.plans.length} 項待辦<small>${esc(d.plans[0].content.slice(0, 60))}</small>`, () => openWork('overview'));
   sec('過去', null);
   for (const h of d.history.slice(0, 12)) item(`${wkSt(h.status)}${esc(h.name)}<small>${wkWhen(h.finished_at || h.created_at)}${h.type === 'chat' ? ' · 對話' : ' · ' + (WK_TRIGGER[h.trigger] || '')}</small>`,
     () => h.type === 'chat' ? openSession({id: h.session_id, title: h.name}) : openWork('run', h.id));
+}
+// 現代化 panel (code-modernization): everything shown is read from analysis/<system>/, every change is written there
+const MD = {sys: '', tab: 'progress', data: null, filter: 'flagged'};
+const MD_V = {confirmed: '正確', wrong: '錯誤或不要', discuss: '不確定'};
+function mdPanel(on){ const p = $('#modPanel'); p.classList.toggle('open', on); p.setAttribute('aria-hidden', on ? 'false' : 'true'); }
+$('#mdClose').onclick = () => mdPanel(false);
+$('#mdSys').onchange = e => mdOpen(e.target.value);
+async function mdOpen(sys){
+  const list = (await api('/api/modernize/systems')).systems || [];
+  $('#mdSys').innerHTML = list.map(m => `<option ${m.name === sys ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
+  MD.sys = sys || list[0]?.name || ''; paintIcons($('#modPanel')); mdPanel(true); await mdLoad();
+}
+async function mdLoad(){
+  if (!MD.sys) { $('#mdBody').innerHTML = '<p>工作區的 analysis/ 下還沒有系統。用 /code-modernization start 開始。</p>'; return; }
+  MD.data = await api('/api/modernize/' + encodeURIComponent(MD.sys)); mdRender();
+}
+function mdRender(){
+  const d = MD.data, b = $('#mdBody');
+  if (d.detail) { b.innerHTML = `<p>${esc(d.detail)}</p>`; return; }
+  const unrev = d.rules.filter(r => !r.review).length;
+  const tabs = [['progress', '進度'], ['rules', `規則審查${d.rules.length ? ` · ${unrev} 待審` : ''}`], ['sign', '簽核'], ['report', '報告']];
+  let h = `<div class="md-tabs seg">${tabs.map(([k, t]) => `<button data-mt="${k}" class="${MD.tab === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+  if (MD.tab === 'progress') {
+    h += (d.steps || []).map(s => `<div class="md-step ${s.done ? 'done' : ''}"><span class="dot"></span>${esc(s.label)}</div>`).join('');
+    if (d.next) h += `<div class="md-next">下一步：${esc(d.next.why || '')}<code>${esc(d.next.command || '')}</code><button class="btn sm" id="mdCopy" type="button">複製指令</button></div>`;
+    if (d.track) h += `<p>做法：${esc(d.track.label)}<small>（${esc(d.track.why)}）</small></p>`;
+    if (d.rules.length) { const g = d.rules.reduce((a, r) => (a[r.priority || '?'] = (a[r.priority || '?'] || 0) + 1, a), {});
+      h += `<p>業務規則 ${d.rules.length} 條（${Object.entries(g).map(([k, v]) => `${esc(k)} ${v}`).join('、')}），已審 ${d.rules.length - unrev} 條，需要人看的 P0 ${d.flagged.length} 條。</p>`; }
+    if (d.proof?.exists) h += `<p>證明：${d.proof.modules.map(m => `${esc(m.name)} <b>${esc(m.verdict)}</b>`).join('、') || '沒有模組'}${d.proof.signed ? '（已簽核）' : '（未簽核）'}</p>`;
+    h += '<p><small>這裡的內容都直接讀自 analysis/ 下的檔案，不由模型推測。</small></p>';
+  } else if (MD.tab === 'rules') {
+    if (!d.rules.length) h += '<p>還沒有 BUSINESS_RULES.md：先執行 extract-rules。</p>';
+    else {
+      h += `<div class="seg" style="margin-bottom:6px">${[['flagged', '需要人看'], ['unreviewed', '未審'], ['P0', 'P0'], ['all', '全部']].map(([k, t]) => `<button data-mf="${k}" class="${MD.filter === k ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+      const shown = d.rules.filter(r => MD.filter === 'all' || (MD.filter === 'P0' && r.priority === 'P0') || (MD.filter === 'unreviewed' && !r.review) || (MD.filter === 'flagged' && d.flagged.includes(r.id)));
+      h += shown.length ? '' : '<p>沒有符合的規則。</p>';
+      for (const r of shown) { const v = r.review?.verdict || '';
+        h += `<div class="md-rule" data-rule="${esc(r.id)}"><div class="rh"><span class="pr ${esc(r.priority)}">${esc(r.priority || '?')}</span><b>${esc(r.id)} ${esc(r.title)}</b>
+          ${r.confidence && r.confidence !== 'High' ? `<small>信心 ${esc(r.confidence)}</small>` : ''}${r.defect ? '<small>疑似缺陷</small>' : ''}${v ? `<span class="md-v ${esc(v)}">${MD_V[v] || esc(v)}</span>` : ''}</div>
+          <div class="cites">${(r.cites || []).map(esc).join('，')}</div>
+          <details><summary>規格與說明</summary><pre>${esc(r.body)}</pre></details>
+          <div class="acts">${Object.entries(MD_V).map(([k, t]) => `<button class="btn sm ${v === k ? 'on' : ''}" data-v="${k}" type="button">${t}</button>`).join('')}
+            <input class="inp" placeholder="備註（選填）：哪裡不對，或要問誰" value="${esc(r.review?.note || '')}">${v ? '<button class="btn sm" data-v="" type="button">取消</button>' : ''}</div></div>`; }
+    }
+  } else if (MD.tab === 'sign') {
+    const br = d.brief || {}, pf = d.proof || {};
+    h += `<div class="md-sign"><b>計畫核准（MODERNIZATION_BRIEF.md）</b>`;
+    if (!br.exists) h += '<p>還沒有計畫：先執行 brief。</p>';
+    else if (br.signed) h += `<p>已由 ${esc(br.approvedBy)} 核准（範圍：${esc(br.covers)}）。</p>`;
+    else if (!br.hasBlock) h += '<p>計畫裡沒有「Approved by:」欄位，請重新產生計畫。</p>';
+    else h += `<p>核准後才會開始建置。請先讀過計畫與 P0 規則。</p><div class="row"><input class="inp" id="mdBName" placeholder="核准人姓名"><select id="mdBCov"><option value="phase-1">只核准第一階段</option><option value="full">核准完整計畫</option></select><button class="btn primary sm" id="mdBSign" type="button">核准</button></div>`;
+    h += `</div><div class="md-sign"><b>證明簽核（VERIFICATION.md）</b>`;
+    if (!pf.exists) h += '<p>還沒有證明：先執行 verify。</p>';
+    else {
+      h += `<p>${pf.modules.map(m => `${esc(m.name)}：<b>${esc(m.verdict)}</b>`).join('<br>') || '沒有模組'}</p>`;
+      if (pf.signed) h += `<p>已由 ${esc(pf.signoff.name)}${pf.signoff.role ? '（' + esc(pf.signoff.role) + '）' : ''} 於 ${esc(pf.signoff.date)} 簽核：${esc(pf.signoff.decision)}。重新執行 verify 會產生新的證明，需要再簽一次。</p>`;
+      else h += `<p>簽核不會改變判定，只記錄負責人的決定。</p><div class="row"><input class="inp" id="mdPName" placeholder="姓名"><input class="inp" id="mdPRole" placeholder="職稱（選填）"><select id="mdPDec"><option value="accept">接受</option><option value="accept with conditions">有條件接受</option><option value="reject">不接受</option></select><button class="btn primary sm" id="mdPSign" type="button">簽核</button></div>`;
+    }
+    h += '</div>';
+  } else {
+    h += d.report ? `<iframe sandbox="allow-scripts allow-popups" src="/api/modernize/${encodeURIComponent(MD.sys)}/report?token=${encodeURIComponent(token)}" title="REPORT.html"></iframe>` : '<p>還沒有 REPORT.html。</p>';
+  }
+  b.innerHTML = h;
+  b.querySelectorAll('[data-mt]').forEach(e => e.onclick = () => { MD.tab = e.dataset.mt; mdRender(); });
+  b.querySelectorAll('[data-mf]').forEach(e => e.onclick = () => { MD.filter = e.dataset.mf; mdRender(); });
+  $('#mdCopy')?.addEventListener('click', () => navigator.clipboard?.writeText(d.next.command));
+  b.querySelectorAll('.md-rule [data-v]').forEach(e => e.onclick = async () => {
+    const card = e.closest('.md-rule');
+    await post('/api/modernize/' + encodeURIComponent(MD.sys) + '/review', {rule: card.dataset.rule, verdict: e.dataset.v, note: card.querySelector('input').value});
+    await mdLoad(); });
+  $('#mdBSign')?.addEventListener('click', async () => { const name = $('#mdBName').value.trim(); if (!name) return uiAlert('請填核准人姓名');
+    if (!await uiConfirm(`以「${name}」核准計畫（${$('#mdBCov').selectedOptions[0].text}）？核准後即可開始建置。`)) return;
+    await post('/api/modernize/' + encodeURIComponent(MD.sys) + '/sign', {what: 'brief', name, covers: $('#mdBCov').value}); await mdLoad(); });
+  $('#mdPSign')?.addEventListener('click', async () => { const name = $('#mdPName').value.trim(); if (!name) return uiAlert('請填姓名');
+    if (!await uiConfirm(`以「${name}」簽核這份證明：${$('#mdPDec').selectedOptions[0].text}？`)) return;
+    await post('/api/modernize/' + encodeURIComponent(MD.sys) + '/sign', {what: 'proof', name, role: $('#mdPRole').value.trim(), decision: $('#mdPDec').value}); await mdLoad(); });
 }
 function runName(rid){ const r = (WK.data?.running || []).find(x => x.id === rid); return r ? r.name : rid || ''; }
 

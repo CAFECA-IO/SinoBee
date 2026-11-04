@@ -56,3 +56,8 @@ include = ["sinobee*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = ["docker: needs a running Docker and the sinobee-sandbox image (skipped otherwise)"]
+
+[tool.ruff.lint.per-file-ignores]
+# third-party skill code kept as published upstream (Anthropic code-modernization): unused imports left as they are
+"sinobee/bundled_skills/code-modernization/scripts/*.py" = ["F401"]
+"sinobee/bundled_skills/code-modernization/scripts/tests/*.py" = ["F401"]

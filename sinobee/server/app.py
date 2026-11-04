@@ -16,8 +16,8 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from ..agent import Agent, Runtime
 from ..config import Config
 from ..tools import desktop as desktop_tools
-from . import (account_api, db_api, evals_api, share_api, files_api, local_api, quality_api, sandbox_api, settings_api,
-               security, security_api, skills_api, work_api)
+from . import (account_api, db_api, evals_api, share_api, files_api, local_api, modernize_api, quality_api, sandbox_api,
+               settings_api, security, security_api, skills_api, work_api)
 
 log = logging.getLogger("sinobee.server")
 STATIC = Path(__file__).resolve().parent / "static"
@@ -106,6 +106,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     account_api.register(app, rt, busy=lambda: bool(state.get("running")))
     share_api.register(app, rt)
     security_api.register(app, rt)
+    modernize_api.register(app, rt)
 
     @app.get("/")
     async def index(request: Request):

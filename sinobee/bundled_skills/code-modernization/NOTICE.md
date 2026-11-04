@@ -25,7 +25,10 @@ endorsed by Anthropic.
 - `scripts/build_report.py`, `scripts/proof_pack.py`: next-step commands use `/code-modernization <step>`;
   `scripts/tests/test_report_next.py` updated to match. All other scripts unchanged.
 - `README.md` kept as `references/upstream-README.md` (same rewording as above).
-- New: `SKILL.md`, this `NOTICE.md`.
+- `scripts/build_report.py`: `build(..., want_data=True)` returns the report data (for SinoBee's panel).
+- New (CAFECA): `SKILL.md`, this `NOTICE.md`, `scripts/sinobee_xray.py` (a Python port of the upstream
+  `hooks/xray/xray.ts`, used by SinoBee's read-context hook), `scripts/sinobee_panel.py` (the review ledger, the brief
+  approval, a Python port of `hooks/sign.ts`, and the proof sign-off for SinoBee's 現代化 panel).
 - Not included: the other Claude Code Workflow scripts (`portfolio-assess.js`, `uplift-migrate.js`,
   `reimagine-scaffold.js`: those steps use the direct-subagent path), `hooks/` (Claude Code function hooks: live pane, x-ray,
   review deck, sign dialog, fleet view), `scripts/telemetry.py`, `scripts/telemetry.sh`,
