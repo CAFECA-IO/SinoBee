@@ -126,9 +126,13 @@ def context_budget(config, max_output: int, model_spec: str | None = None) -> in
 
 
 # ------------------------------------------------------------------ pruning
-def prune_images(messages: list[Message], keep_last: int = 2) -> None:
+NO_PICTURE = "[picture not sent: this model cannot see images - check it from the tool's text or with code]"
+
+
+def prune_images(messages: list[Message], keep_last: int = 2, note: str = "[older screenshot removed]") -> None:
     """Old screenshots are the biggest token cost in computer use; keep only the most recent ones. Counted per
-    message, so the strips one tall picture was cut into (images.py) stay together."""
+    message, so the strips one tall picture was cut into (images.py) stay together. keep_last=0 with NO_PICTURE:
+    a model that cannot see images gets none."""
     seen = 0
     for m in reversed(messages):
         if not isinstance(m.content, list) or not any(isinstance(p, ImagePart) for p in m.content):
@@ -136,7 +140,90 @@ def prune_images(messages: list[Message], keep_last: int = 2) -> None:
         seen += 1
         if seen <= keep_last:
             continue
-        m.content = [TextPart("[older screenshot removed]") if isinstance(p, ImagePart) else p for p in m.content]
+        m.content = [TextPart(note) if isinstance(p, ImagePart) else p for p in m.content]
+
+
+# ------------------------------------------------------------------ stale tool output
+# Every step re-sends the whole history, so a long tool output or a big write_file is paid for again on every later
+# step. Once a few steps have passed, the model has used it: keep its start and end, drop the middle. Done in batches
+# (only when enough would be saved) so the provider's prompt cache is broken rarely, not every step.
+SLIM_KEEP_RESULTS = {"skill_view", "working_memory", "milestone", "ask_user", "memory_search"}
+SLIM_RESULT_CHARS = 1500
+SLIM_ARG_CHARS = 1500
+SLIM_CHECKLIST = "[checklist updated - the current list is shown at the end of every step]"
+
+
+def _slim_text(text: str, head: int = 900, tail: int = 400) -> str:
+    cut = len(text) - head - tail
+    return (f"{text[:head]}\n...[{cut} characters of this older output removed - re-run the command or read the "
+            f"file if you need them again]...\n{text[-tail:]}")
+
+
+def _slim_args(c) -> tuple[dict | None, list[str]]:
+    a = c.arguments if isinstance(c.arguments, dict) else None
+    if not a:
+        return None, []
+    new, gone = dict(a), []
+    path = str(a.get("path") or a.get("file") or "the file")
+    for key in ("content", "new_string", "old_string"):
+        v = a.get(key)
+        if isinstance(v, str) and len(v) > SLIM_ARG_CHARS:
+            new[key] = f"[{len(v):,} characters ({key}) for {path} - already applied; read the file for its current content]"
+            gone.append(v)
+    for key in ("command", "code", "script"):
+        v = a.get(key)
+        if isinstance(v, str) and len(v) > 2 * SLIM_ARG_CHARS:
+            new[key] = _slim_text(v, 700, 300)
+            gone.append(v)
+    return (new if gone else None), gone
+
+
+def slim_stale(messages: list[Message], keep_steps: int = 4, min_gain: int = 6000) -> tuple[int, list[str]]:
+    """Trim tool outputs and large tool-call arguments older than the last `keep_steps` model steps, in place.
+    Applies only when it saves at least `min_gain` tokens. Returns (tokens saved, removed texts) - the removed text
+    is kept by the caller so evidence copied from it still verifies."""
+    steps, cutoff = 0, 0
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == "assistant" and messages[i].tool_calls:
+            steps += 1
+            if steps >= keep_steps:
+                cutoff = i
+                break
+    if not cutoff:
+        return 0, []
+    plan: list[tuple[str, int, object]] = []
+    gain = 0.0
+    for i in range(cutoff):
+        m = messages[i]
+        if m.role == "tool" and isinstance(m.content, str) and m.name not in SLIM_KEEP_RESULTS:
+            t = m.content
+            if m.name == "task_checklist" and t.startswith("<task_checklist>"):
+                new = SLIM_CHECKLIST
+            elif len(t) > SLIM_RESULT_CHARS:
+                new = _slim_text(t)
+            else:
+                continue
+            gain += text_tokens(t) - text_tokens(new)
+            plan.append(("tool", i, new))
+        elif m.role == "assistant" and m.tool_calls:
+            for j, c in enumerate(m.tool_calls):
+                new_args, gone = _slim_args(c)
+                if new_args is not None:
+                    gain += sum(text_tokens(g) for g in gone) - 40 * len(gone)
+                    plan.append(("call", i, (j, new_args, gone)))
+    if gain < min_gain:
+        return 0, []
+    removed: list[str] = []
+    for kind, i, val in plan:
+        m = messages[i]
+        if kind == "tool":
+            removed.append(m.content)
+            m.content = val
+        else:
+            j, new_args, gone = val
+            m.tool_calls[j].arguments = new_args
+            removed.extend(gone)
+    return int(gain), removed
 
 
 def _cut_text(text: str, max_tokens: int) -> str:

@@ -30,12 +30,14 @@ from .timeline import Timeline
 from . import budget as budget_mod
 from . import progress as progress_mod
 from ..types import ImagePart, Message, TextPart, ToolCall, ToolResult, Usage
-from .context import OVERFLOW_RE, compact, context_budget, context_window, estimate_tokens, prune_images, with_summary
+from .context import (NO_PICTURE, OVERFLOW_RE, compact, context_budget, context_window, estimate_tokens, prune_images,
+                      slim_stale, with_summary)
 from .prompt import build_context_block, build_system_prompt
 
-from ..images import IMAGE_ERROR
+from ..images import IMAGE_ERROR, NO_VISION, NO_VISION_MODELS
 
 # a provider refused the request because of its pictures (images.IMAGE_ERROR after a 4xx)
+NO_VISION_REJECTED = re.compile(r"(?:HTTP 4\d\d|INVALID_ARGUMENT|invalid_request)[\s\S]{0,300}?(?:" + NO_VISION + ")", re.I)
 IMAGE_REJECTED = re.compile(r"(?:HTTP 4\d\d|INVALID_ARGUMENT|invalid_request)[\s\S]{0,300}?(?:" + IMAGE_ERROR + ")", re.I)
 log = logging.getLogger("sinobee.agent")
 
@@ -912,6 +914,7 @@ class Agent:
                 # long tasks drift when many things are half done: one item at a time, verified, then the next
                 out += ("\n<focus>This is a long task. Work on ONE item at a time: mark it doing, finish and verify "
                         "it, mark it done with evidence, then start the next. Do not start several at once.</focus>")
+            out += self._stall_note(items, steps)
             return out
         many = stats.get("tool_calls", 0) >= int(self.config.get("agent.checklist_after_tool_calls", 4))
         if "task_checklist" in self.tool_names and (many or self._complex_task(stats.get("explicit_skills"))) \
@@ -921,6 +924,21 @@ class Agent:
                     "checklist with task_checklist(action='set') - the outcomes that must be true for the result "
                     "to be right and how each is checked.</task_checklist>")
         return ""
+
+    def _stall_note(self, items: list, steps: int) -> str:
+        """Steps since an item was last closed. Task 354fec5ba9b1 spent ~15 steps (each ~8 % of a 6-hour quota) on one
+        item, re-running checks that had already passed. After agent.item_step_limit steps, ask for one decisive
+        check and a decision instead."""
+        closed = sum(1 for i in items if i.get("status") in ("done", "dropped"))
+        if closed != getattr(self, "_closed_seen", None) or steps < getattr(self, "_closed_step", 0):   # new turn
+            self._closed_seen, self._closed_step = closed, steps
+        limit = int(self.config.get("agent.item_step_limit", 8))
+        spent = steps - getattr(self, "_closed_step", steps)
+        if spent < limit or not checklist_tools.open_items(items):
+            return ""
+        return (f"\n<focus>{spent} steps without closing a checklist item. Do not re-run checks that already passed. "
+                "Run ONE decisive check for the current item; if it passes, mark it done with that output as evidence "
+                "now; if it fails, make the single fix it shows, or drop the item with the reason.</focus>")
 
     async def _step_chat(self, request, tool_specs, max_tokens: int, stats: dict):
         """One step of the task, always on the execution model (the provider's own retries and the configured
@@ -1520,7 +1538,17 @@ class Agent:
                                                  "detail": final_text}
                 break
             self._drain_inbox()
-            prune_images(self.history, keep_last=2)
+            if self.config.get("agent.slim_stale", True):
+                saved, gone = slim_stale(self.history, int(self.config.get("agent.slim_keep_steps", 4)),
+                                         int(self.config.get("agent.slim_min_gain", 6000)))
+                if saved:
+                    self.slimmed = (getattr(self, "slimmed", []) + gone)[-200:]
+                    stats["slimmed_tokens"] = stats.get("slimmed_tokens", 0) + saved
+                    self._emit("context_slimmed", {"tokens": saved, "items": len(gone)})
+            if self._model_label() in NO_VISION_MODELS:
+                prune_images(self.history, keep_last=0, note=NO_PICTURE)
+            else:
+                prune_images(self.history, keep_last=2)
             if self._slim_tools() is not None:
                 tool_specs = self._tool_specs()        # more_tools may have added some since the last step
             budget = self._context_budget(base_out)
@@ -1641,6 +1669,14 @@ class Agent:
                     stats["compactions"] = stats.get("compactions", 0) + 1
                     if dieted or self._last_compaction_changed or len(self.history) != before:
                         continue
+                if NO_VISION_REJECTED.search(str(e)) and self._model_label() not in NO_VISION_MODELS:
+                    # the model cannot see images at all (a Locutus node without its vision encoder): a screenshot from
+                    # playtest failed the whole task. Send no pictures to it from now on - the tools' text stays
+                    NO_VISION_MODELS.add(self._model_label())
+                    prune_images(self.history, keep_last=0, note=NO_PICTURE)
+                    stats.setdefault("no_vision", []).append({"step": steps, "error": str(e)[:300]})
+                    self._event(f"{self._model_label()} 看不到圖片：之後不再送圖片給它，改用工具的文字結果")
+                    continue
                 if image_retries > 0 and IMAGE_REJECTED.search(str(e)):
                     # the provider refused the pictures (too large, too many): make every picture in the history
                     # smaller - fewer of them on the second try - and send again instead of stopping the task
@@ -2187,8 +2223,14 @@ class Agent:
         # the instructions of skills loaded earlier may have been summarised away: skill_view loads them again
         self.ctx.state.pop("skills_in_view", None)
         in_turn = len(self.history) - turn_start
+        msr = getattr(self, "_msr", None)
+        in_ms = len(self.history) - msr.ms_start if msr is not None else None
         self.history = res.messages[1:]
         self._persisted = len(self.history)
+        if msr is not None:
+            # the milestone's first message moved (or was summarised): sealing it with the old index cut the history
+            # between a tool call and its result - Anthropic refused every later request (HTTP 400)
+            msr.ms_start = max(len(self.history) - res.tail_len, len(self.history) - in_ms)
         if res.summary and self.depth == 0 and self.config.get("memory.flush_on_compact", True) \
                 and "memory_save" in self.tool_names:
             # what is summarised away stays recallable: its key facts become short-term memories

@@ -345,6 +345,7 @@ class MilestoneRunner:
         """Close a milestone and clear its messages from the model context (fresh context for the next one)."""
         a = self.agent
         a._persist()                                          # the transcript keeps every message
+        self.ms_start = safe_cut(a.history, self.ms_start)
         moved = a.history[self.ms_start:]
         self.archive.extend(moved)
         a.history = a.history[:self.ms_start]
@@ -514,3 +515,14 @@ def _open_items_error(left: list[dict], m: dict, outputs) -> str:
             + "; ".join(f"#{i['id']} {i['text']}" for i in left)
             + f". Mark EACH of them done with its evidence (a file that exists, a URL or tool output) - call:\n{calls}\n"
             "then call milestone(action=\"done\") again. If an item is not true yet, do that work first.")
+
+
+def safe_cut(history: list, cut: int) -> int:
+    """A place to cut the history that keeps tool calls with their results: moved back before an assistant message
+    whose calls would be answered after the cut, and never left on a tool result."""
+    cut = max(0, min(cut, len(history)))
+    while 0 < cut < len(history) and history[cut].role == "tool":
+        cut -= 1
+    if 0 < cut and history[cut - 1].role == "assistant" and getattr(history[cut - 1], "tool_calls", None):
+        cut -= 1                                           # its results are after the cut: move the call with them
+    return cut

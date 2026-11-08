@@ -43,6 +43,16 @@ def save(ctx: ToolContext) -> None:
         pass
 
 
+def updated_note(items: list[dict], item: dict) -> str:
+    """The reply to an update: one line, not the whole list - the full list is already at the end of every request,
+    and 19 copies of it in the history were re-sent on every step (task 354fec5ba9b1)."""
+    left = open_items(items)
+    nxt = next((i for i in left if i["status"] == "doing"), left[0] if left else None)
+    return (f"OK: item {item['id']} is now {item['status']}. "
+            + (f"{len(left)} open; next: {nxt['id']}. {nxt['text'][:120]}" if nxt else "All items are done.")
+            + " (The full checklist is shown at the end of every step.)")
+
+
 def render(items: list[dict]) -> str:
     if not items:
         return ""
@@ -68,7 +78,8 @@ URL = re.compile(r"https?://\S+")
 def _tool_outputs(ctx: ToolContext) -> str:
     agent = ctx.state.get("agent")
     hist = getattr(agent, "history", None) or []
-    return "\n".join(m.text() for m in hist[-400:] if getattr(m, "role", "") == "tool")
+    out = [m.text() for m in hist[-400:] if getattr(m, "role", "") == "tool"]
+    return "\n".join(out + list(getattr(agent, "slimmed", None) or []))   # old outputs trimmed from the context
 
 
 def verifiable(ctx: ToolContext, evidence: str) -> bool:
@@ -210,5 +221,5 @@ def task_checklist(ctx: ToolContext, action: str, items: list | None = None, id:
             return "ERROR: say why the item is dropped (note)."
         item.update(status=status, evidence=(evidence or note).strip()[:300], updated=time.time())
         save(ctx)
-        return render(cur)
+        return updated_note(cur, item)
     return render(cur) or "No checklist yet: write one with action=set."

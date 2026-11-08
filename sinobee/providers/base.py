@@ -19,6 +19,42 @@ log = logging.getLogger("sinobee.providers")
 RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504, 529}
 
 
+def paired_tools(messages: list) -> list:
+    """Every tool call answered right after it, and no answer without its call - what every vendor requires (Anthropic:
+    "tool_use ids were found without tool_result blocks immediately after"). A context cut in the wrong place (a
+    milestone sealed with a stale start after compaction) left a call without its result and failed the whole task.
+    A missing result becomes a short note; a result whose call is gone is dropped. Unchanged when already paired."""
+    from ..types import Message
+    out: list = []
+    i, n, changed = 0, len(messages), False
+    while i < n:
+        m = messages[i]
+        if m.role == "tool":                       # not right after its call: the call is gone
+            changed = True
+            i += 1
+            continue
+        out.append(m)
+        i += 1
+        calls = list(getattr(m, "tool_calls", None) or []) if m.role == "assistant" else []
+        if not calls:
+            continue
+        got: dict = {}
+        while i < n and messages[i].role == "tool":
+            t = messages[i]
+            if t.tool_call_id in {c.id for c in calls} and t.tool_call_id not in got:
+                got[t.tool_call_id] = t
+            else:
+                changed = True
+            i += 1
+        for c in calls:
+            if c.id in got:
+                out.append(got[c.id])
+            else:
+                changed = True
+                out.append(Message("tool", "(no result: this step was removed from the context)", tool_call_id=c.id))
+    return out if changed else messages
+
+
 class ProviderError(Exception):
     def __init__(self, message: str, status: int | None = None, retryable: bool = False):
         super().__init__(message)
@@ -243,6 +279,7 @@ class Provider(ABC):
                    temperature: float | None = 0.3, max_tokens: int = 4096, retries: int = 4) -> ChatResponse:
         from . import compat
         tools = tools or []
+        messages = paired_tools(messages)
         delay = 1.5
         timeouts = 0
         if temperature is not None and "temperature" in compat.dropped(self.label):

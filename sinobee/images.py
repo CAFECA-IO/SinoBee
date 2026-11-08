@@ -31,6 +31,13 @@ MAX_BYTES = 3_500_000  # raw bytes per strip (base64 grows it by a third; provid
 HARD_SIDE = 8000       # what the strictest provider accepts at all
 
 # what a provider says when the pictures were the problem (agent/errors.py explains it, agent/loop.py retries)
+# models found unable to read images in this process (a Locutus node "started without the vision encoder"): their
+# requests carry no pictures from then on (agent/loop.py)
+NO_VISION_MODELS: set[str] = set()
+NO_VISION = (r"without the vision encoder|cannot (?:read|see|process|accept|handle) images?|"
+             r"does not support (?:images?|vision|image input)|image input (?:is )?not supported|"
+             r"vision (?:is )?not (?:supported|enabled)|not a (?:vision|multimodal) model")
+
 IMAGE_ERROR = (r"image[^\n]{0,80}?(?:dimensions?|size|pixels|too (?:large|big)|exceeds?)|"
                r"(?:dimensions?|size)[^\n]{0,40}?image|image\.source|image_url[^\n]{0,60}?(?:large|size|invalid)|"
                r"Could not process image|invalid image|image data")
